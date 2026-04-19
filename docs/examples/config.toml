@@ -1,0 +1,11 @@
+[core]
+strict = false
+auto_fix = false
+
+[watch]
+debounce_ms = 1000
+ignore_patterns = ["dist/**", "coverage/**"]
+
+[gemini]
+model = "gemini-2.5-pro"
+timeout_secs = 120

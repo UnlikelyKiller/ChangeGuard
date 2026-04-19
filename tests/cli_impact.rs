@@ -1,60 +1,8 @@
 use changeguard::commands::impact::execute_impact;
 use changeguard::state::layout::Layout;
 use std::fs;
-use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
-
-fn cwd_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
-}
-
-struct DirGuard {
-    original: PathBuf,
-}
-
-impl DirGuard {
-    fn new(dir: &std::path::Path) -> Self {
-        let original = std::env::current_dir().unwrap();
-        std::env::set_current_dir(dir).unwrap();
-        Self { original }
-    }
-}
-
-impl Drop for DirGuard {
-    fn drop(&mut self) {
-        let _ = std::env::set_current_dir(&self.original);
-    }
-}
-
-fn setup_git_repo(dir: &std::path::Path) {
-    let _ = std::process::Command::new("git")
-        .args(["init"])
-        .current_dir(dir)
-        .output();
-
-    let _ = std::process::Command::new("git")
-        .args(["config", "user.email", "test@test.com"])
-        .current_dir(dir)
-        .output();
-
-    let _ = std::process::Command::new("git")
-        .args(["config", "user.name", "Test User"])
-        .current_dir(dir)
-        .output();
-}
-
-fn git_add_and_commit(dir: &std::path::Path, msg: &str) {
-    let _ = std::process::Command::new("git")
-        .args(["add", "-A"])
-        .current_dir(dir)
-        .output();
-
-    let _ = std::process::Command::new("git")
-        .args(["commit", "-m", msg])
-        .current_dir(dir)
-        .output();
-}
+mod common;
+use common::{DirGuard, cwd_lock, git_add_and_commit, setup_git_repo};
 
 #[test]
 fn test_impact_warns_on_rules_failure() {

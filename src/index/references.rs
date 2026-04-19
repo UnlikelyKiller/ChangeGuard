@@ -5,6 +5,9 @@ use std::path::Path;
 use std::sync::LazyLock;
 use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator};
 
+static TS_EXPORT_SPECIFIERS: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"export\s*\{([^}]*)\}"#).expect("valid regex"));
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportExport {
@@ -13,7 +16,10 @@ pub struct ImportExport {
 }
 
 pub fn extract_import_export(path: &Path, content: &str) -> Result<Option<ImportExport>> {
-    let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or_default();
+    let extension = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or_default();
 
     let mut result = match extension {
         "rs" => extract_rust_import_export(content)?,
@@ -191,7 +197,11 @@ struct Private;
         let result = extract_import_export(Path::new("src/main.rs"), content)
             .unwrap()
             .unwrap();
-        assert!(result.imported_from.contains(&"std::collections::HashMap".to_string()));
+        assert!(
+            result
+                .imported_from
+                .contains(&"std::collections::HashMap".to_string())
+        );
         assert!(result.exported_symbols.contains(&"run".to_string()));
     }
 
@@ -231,5 +241,3 @@ def _private_fn():
         assert!(!result.exported_symbols.contains(&"_private_fn".to_string()));
     }
 }
-static TS_EXPORT_SPECIFIERS: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"export\s*\{([^}]*)\}"#).expect("valid regex"));

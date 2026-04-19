@@ -126,7 +126,7 @@ mod tests {
 
     #[test]
     fn test_basic_execution() {
-        let mut cmd = if cfg!(target_os = "windows") {
+        let cmd = if cfg!(target_os = "windows") {
             let mut c = Command::new("cmd");
             c.args(["/C", "echo hello"]);
             c
@@ -143,7 +143,7 @@ mod tests {
 
     #[test]
     fn test_timeout() {
-        let mut cmd = if cfg!(target_os = "windows") {
+        let cmd = if cfg!(target_os = "windows") {
             let mut c = Command::new("cmd");
             c.args(["/C", "ping -n 5 127.0.0.1 >nul"]);
             c
@@ -176,7 +176,7 @@ mod tests {
 
     #[test]
     fn test_truncation() {
-        let mut cmd = if cfg!(target_os = "windows") {
+        let cmd = if cfg!(target_os = "windows") {
             let mut c = Command::new("cmd");
             c.args(["/C", "python -c \"print('A' * 2000)\""]);
             c
@@ -190,10 +190,10 @@ mod tests {
             ..Default::default()
         };
         // Truncation test may not find python/printf, so just verify no panic
-        if let Ok(result) = ExecutionBoundary::execute(cmd, &options) {
-            if result.truncated {
-                assert!(result.stdout.len() <= 1010);
-            }
+        if let Ok(result) = ExecutionBoundary::execute(cmd, &options)
+            && result.truncated
+        {
+            assert!(result.stdout.len() <= 1010);
         }
     }
 }

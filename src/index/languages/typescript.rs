@@ -50,10 +50,10 @@ pub fn extract_symbols(content: &str) -> Result<Option<Vec<Symbol>>> {
                 }
 
                 // Check if exported
-                if let Some(parent) = node.parent() {
-                    if parent.kind() == "export_statement" {
-                        is_public = true;
-                    }
+                if let Some(parent) = node.parent()
+                    && parent.kind() == "export_statement"
+                {
+                    is_public = true;
                 }
             }
         }

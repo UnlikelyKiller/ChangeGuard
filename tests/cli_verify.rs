@@ -9,7 +9,7 @@ fn test_verify_command_pass() {
 
 #[test]
 fn test_verify_command_fail() {
-    let cmd = if cfg!(target_os = "windows") { "exit 1" } else { "exit 1" };
+    let cmd = "exit 1";
     let result = execute_verify(Some(cmd.into()), 5);
     assert!(result.is_err());
 }

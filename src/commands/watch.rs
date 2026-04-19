@@ -1,9 +1,9 @@
 use camino::Utf8PathBuf;
 use miette::Result;
 use owo_colors::OwoColorize;
+use std::env;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::env;
 use std::time::Duration;
 
 use crate::config::load::load_config;

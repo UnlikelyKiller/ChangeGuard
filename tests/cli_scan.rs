@@ -2,48 +2,13 @@ use changeguard::commands::scan::execute_scan;
 use changeguard::git::repo::open_repo;
 use changeguard::git::status::get_repo_status;
 use changeguard::git::{ChangeType, FileChange};
-use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Mutex, OnceLock};
 use tempfile::tempdir;
 
-fn cwd_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
-}
-
-struct DirGuard(PathBuf);
-
-impl DirGuard {
-    fn new<P: AsRef<Path>>(new_dir: P) -> Self {
-        let old_dir = env::current_dir().unwrap();
-        env::set_current_dir(new_dir.as_ref()).expect("Failed to set current dir");
-        Self(old_dir)
-    }
-}
-
-impl Drop for DirGuard {
-    fn drop(&mut self) {
-        let _ = env::set_current_dir(&self.0);
-    }
-}
-
-fn git_cmd(dir: &Path, args: &[&str]) {
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(dir)
-        .output()
-        .expect("Failed to execute git command");
-    if !output.status.success() {
-        panic!(
-            "git command failed: {:?}\nstderr: {}",
-            args,
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-}
+mod common;
+use common::{DirGuard, cwd_lock, git_cmd, setup_git_repo};
 
 #[test]
 fn test_scan_integration_clean() {
@@ -51,9 +16,7 @@ fn test_scan_integration_clean() {
     let tmp = tempdir().unwrap();
     let root = tmp.path();
 
-    git_cmd(root, &["init"]);
-    git_cmd(root, &["config", "user.email", "test@example.com"]);
-    git_cmd(root, &["config", "user.name", "Test User"]);
+    setup_git_repo(root);
 
     fs::write(root.join("initial.txt"), "hello").unwrap();
     git_cmd(root, &["add", "initial.txt"]);
@@ -71,9 +34,7 @@ fn test_scan_integration_dirty() {
     let tmp = tempdir().unwrap();
     let root = tmp.path();
 
-    git_cmd(root, &["init"]);
-    git_cmd(root, &["config", "user.email", "test@example.com"]);
-    git_cmd(root, &["config", "user.name", "Test User"]);
+    setup_git_repo(root);
 
     fs::write(root.join("initial.txt"), "hello").unwrap();
     git_cmd(root, &["add", "initial.txt"]);
@@ -101,9 +62,7 @@ fn test_scan_integration_detached() {
     let tmp = tempdir().unwrap();
     let root = tmp.path();
 
-    git_cmd(root, &["init"]);
-    git_cmd(root, &["config", "user.email", "test@example.com"]);
-    git_cmd(root, &["config", "user.name", "Test User"]);
+    setup_git_repo(root);
 
     fs::write(root.join("initial.txt"), "hello").unwrap();
     git_cmd(root, &["add", "initial.txt"]);
@@ -135,9 +94,7 @@ fn test_scan_status_classifies_staged_add_delete_rename() {
     let tmp = tempdir().unwrap();
     let root = tmp.path();
 
-    git_cmd(root, &["init"]);
-    git_cmd(root, &["config", "user.email", "test@example.com"]);
-    git_cmd(root, &["config", "user.name", "Test User"]);
+    setup_git_repo(root);
 
     fs::write(root.join("old_name.txt"), "tracked").unwrap();
     fs::write(root.join("delete_me.txt"), "remove").unwrap();
@@ -179,9 +136,7 @@ fn test_scan_status_keeps_staged_and_unstaged_entries_for_same_file() {
     let tmp = tempdir().unwrap();
     let root = tmp.path();
 
-    git_cmd(root, &["init"]);
-    git_cmd(root, &["config", "user.email", "test@example.com"]);
-    git_cmd(root, &["config", "user.name", "Test User"]);
+    setup_git_repo(root);
 
     fs::write(root.join("dual_state.txt"), "line one\n").unwrap();
     git_cmd(root, &["add", "dual_state.txt"]);

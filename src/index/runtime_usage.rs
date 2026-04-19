@@ -14,18 +14,15 @@ static RUST_ENV_VAR: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"std::env::var\("([^"]+)"\)"#).expect("valid regex"));
 static RUST_ENV_MACRO: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"env!\("([^"]+)"\)"#).expect("valid regex"));
-static TS_ENV_DOT: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"process\.env\.([A-Z_][A-Z0-9_]*)"#).expect("valid regex")
-});
-static TS_ENV_INDEXED: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"process\.env\[['"]([^'"]+)['"]\]"#).expect("valid regex")
-});
+static TS_ENV_DOT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"process\.env\.([A-Z_][A-Z0-9_]*)"#).expect("valid regex"));
+static TS_ENV_INDEXED: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"process\.env\[['"]([^'"]+)['"]\]"#).expect("valid regex"));
 static PY_ENV_GET: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"os\.(?:environ\.get|getenv)\(['"]([^'"]+)['"]\)"#).expect("valid regex")
 });
-static PY_ENV_INDEXED: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"os\.environ\[['"]([^'"]+)['"]\]"#).expect("valid regex")
-});
+static PY_ENV_INDEXED: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"os\.environ\[['"]([^'"]+)['"]\]"#).expect("valid regex"));
 static CONFIG_HINTS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
     vec![
         Regex::new(r"\bdotenv\b").expect("valid regex"),
@@ -35,7 +32,10 @@ static CONFIG_HINTS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
 });
 
 pub fn extract_runtime_usage(path: &Path, content: &str) -> Option<RuntimeUsage> {
-    let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or_default();
+    let extension = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or_default();
     let mut env_vars = Vec::new();
 
     match extension {

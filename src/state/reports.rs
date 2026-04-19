@@ -13,10 +13,7 @@ pub fn write_impact_report(layout: &Layout, packet: &ImpactPacket) -> Result<()>
 
     let report_path = layout.reports_dir().join(LATEST_IMPACT_REPORT);
     let json = serde_json::to_string_pretty(packet)
-        .map_err(|e| {
-            // This shouldn't normally fail if the struct is well-formed
-            std::io::Error::new(std::io::ErrorKind::Other, e)
-        })
+        .map_err(std::io::Error::other)
         .map_err(|e| StateError::WriteReportFailed {
             path: report_path.to_string(),
             source: e,

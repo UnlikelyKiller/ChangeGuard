@@ -6,12 +6,12 @@ use std::path::Path;
 pub fn open_repo(path: &Path) -> Result<Repository, GitError> {
     let discovered = discover(path).map_err(|e| GitError::RepoDiscoveryFailed {
         path: path.to_string_lossy().into_owned(),
-        source: e,
+        source: Box::new(e),
     })?;
 
     let repo = gix::open(discovered.path()).map_err(|e| GitError::RepoOpenFailed {
         path: path.to_string_lossy().into_owned(),
-        source: e,
+        source: Box::new(e),
     })?;
 
     Ok(repo)

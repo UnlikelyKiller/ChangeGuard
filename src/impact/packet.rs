@@ -1,6 +1,7 @@
-use crate::index::symbols::Symbol;
 use crate::index::references::ImportExport;
 use crate::index::runtime_usage::RuntimeUsage;
+use crate::index::symbols::Symbol;
+use crate::util::clock::Clock;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -65,6 +66,13 @@ impl Default for ImpactPacket {
 }
 
 impl ImpactPacket {
+    pub fn with_clock(clock: &dyn Clock) -> Self {
+        Self {
+            timestamp_utc: clock.now().to_rfc3339(),
+            ..Self::default()
+        }
+    }
+
     /// Finalizes the packet by sorting all internal collections deterministically.
     pub fn finalize(&mut self) {
         self.risk_reasons.sort_unstable();

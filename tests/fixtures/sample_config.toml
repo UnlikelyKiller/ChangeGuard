@@ -1,0 +1,9 @@
+[core]
+strict = false
+
+[watch]
+debounce_ms = 500
+ignore_patterns = ["dist/**"]
+
+[gemini]
+timeout_secs = 120

@@ -29,14 +29,14 @@ pub enum GitError {
     RepoDiscoveryFailed {
         path: String,
         #[source]
-        source: gix::discover::Error,
+        source: Box<gix::discover::Error>,
     },
 
     #[error("Failed to open git repository at {path}")]
     RepoOpenFailed {
         path: String,
         #[source]
-        source: gix::open::Error,
+        source: Box<gix::open::Error>,
     },
 
     #[error("Failed to get repository metadata")]

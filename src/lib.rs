@@ -10,5 +10,6 @@ pub mod output;
 pub mod platform;
 pub mod policy;
 pub mod state;
+pub mod util;
 pub mod verify;
 pub mod watch;

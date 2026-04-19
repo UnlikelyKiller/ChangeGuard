@@ -52,7 +52,9 @@ impl Watcher {
                                 .find_map(|root| normalize_event_path(path, root))
                                 .or_else(|| Utf8PathBuf::from_path_buf(path.clone()).ok());
 
-                            if let Some(utf8_path) = normalized && filter.is_allowed(&utf8_path) {
+                            if let Some(utf8_path) = normalized
+                                && filter.is_allowed(&utf8_path)
+                            {
                                 debug!("Watch event: {:?} on {}", kind, utf8_path);
                                 watch_events.push(WatchEvent {
                                     path: utf8_path,
@@ -128,6 +130,11 @@ mod tests {
             .expect("Did not receive batch");
 
         assert!(!batch.events.is_empty());
-        assert!(batch.events.iter().any(|e| e.path.as_str().ends_with("test.txt")));
+        assert!(
+            batch
+                .events
+                .iter()
+                .any(|e| e.path.as_str().ends_with("test.txt"))
+        );
     }
 }

@@ -5,9 +5,7 @@ use crate::policy::load::load_rules;
 use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
 use crate::verify::plan::{VerificationPlan, VerificationStep, build_plan};
-use crate::verify::results::{
-    VerificationReport, VerificationResult, write_verify_report,
-};
+use crate::verify::results::{VerificationReport, VerificationResult, write_verify_report};
 use chrono::Utc;
 use miette::Result;
 use std::env;
@@ -57,7 +55,8 @@ pub fn execute_verify(command_str: Option<String>, timeout_secs: u64) -> Result<
 
         if result.exit_code != 0 && final_error.is_none() {
             final_error = Some(
-                CommandError::Verify(format!("Process exited with code {}", result.exit_code)).into(),
+                CommandError::Verify(format!("Process exited with code {}", result.exit_code))
+                    .into(),
             );
         }
     }
@@ -112,9 +111,11 @@ fn run_shell_command(command_str: &str, timeout_secs: u64) -> Result<ExecutionRe
         Err(ProcessError::NotFound { cmd }) => {
             Err(CommandError::Verify(format!("Command not found: {}", cmd)).into())
         }
-        Err(ProcessError::Failed { status, stderr }) => Err(
-            CommandError::Verify(format!("Process exited with status {}: {}", status, stderr)).into(),
-        ),
+        Err(ProcessError::Failed { status, stderr }) => Err(CommandError::Verify(format!(
+            "Process exited with status {}: {}",
+            status, stderr
+        ))
+        .into()),
         Err(e) => Err(e.into()),
     }
 }
@@ -157,11 +158,9 @@ fn persist_verify_report(layout: &Layout, report: &VerificationReport) {
         .as_ref()
         .and_then(|plan| serde_json::to_string(plan).ok());
 
-    let Ok(run_id) = storage.save_verification_run(
-        &report.timestamp,
-        plan_json.as_deref(),
-        report.overall_pass,
-    ) else {
+    let Ok(run_id) =
+        storage.save_verification_run(&report.timestamp, plan_json.as_deref(), report.overall_pass)
+    else {
         warn!("Failed to persist verification run metadata");
         return;
     };

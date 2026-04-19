@@ -2,13 +2,14 @@ use crate::git::repo::{get_head_info, open_repo};
 use crate::git::status::get_repo_status;
 use crate::git::{ChangeType, RepoSnapshot};
 use crate::impact::packet::{ChangedFile, ImpactPacket};
+use crate::index::languages::parse_symbols;
 use crate::index::references::extract_import_export;
 use crate::index::runtime_usage::extract_runtime_usage;
-use crate::index::languages::parse_symbols;
 use crate::output::diagnostics::{success_marker, warning_marker};
 use crate::output::human::print_impact_summary;
 use crate::state::layout::Layout;
 use crate::state::reports::write_impact_report;
+use crate::util::clock::SystemClock;
 use indicatif::{ProgressBar, ProgressStyle};
 use miette::Result;
 use owo_colors::OwoColorize;
@@ -102,7 +103,7 @@ fn map_snapshot_to_packet(snapshot: RepoSnapshot, base_dir: &Path) -> Result<Imp
     let mut packet = ImpactPacket {
         head_hash: snapshot.head_hash,
         branch_name: snapshot.branch_name,
-        ..ImpactPacket::default()
+        ..ImpactPacket::with_clock(&SystemClock)
     };
 
     let pb = ProgressBar::new(snapshot.changes.len() as u64);
@@ -143,15 +144,15 @@ fn map_snapshot_to_packet(snapshot: RepoSnapshot, base_dir: &Path) -> Result<Imp
             } else {
                 None
             };
-            let runtime_usage =
-                if matches!(c.change_type, ChangeType::Added | ChangeType::Modified) {
-                    let full_path = base_dir.join(&c.path);
-                    fs::read_to_string(&full_path)
-                        .ok()
-                        .and_then(|content| extract_runtime_usage(&c.path, &content))
-                } else {
-                    None
-                };
+            let runtime_usage = if matches!(c.change_type, ChangeType::Added | ChangeType::Modified)
+            {
+                let full_path = base_dir.join(&c.path);
+                fs::read_to_string(&full_path)
+                    .ok()
+                    .and_then(|content| extract_runtime_usage(&c.path, &content))
+            } else {
+                None
+            };
 
             pb.inc(1);
             ChangedFile {

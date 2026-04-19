@@ -186,8 +186,7 @@ pub fn sanitize_prompt(prompt: &str, max_bytes: usize) -> SanitizeResult {
     redactions.dedup();
 
     // Truncate at paragraph boundary if needed
-    let truncated;
-    if sanitized.len() > max_bytes {
+    let truncated = if sanitized.len() > max_bytes {
         // Try paragraph boundary (double newline) within the last 10% of allowed size
         let search_start = (max_bytes as f64 * 0.9) as usize;
         let search_end = max_bytes;
@@ -208,10 +207,10 @@ pub fn sanitize_prompt(prompt: &str, max_bytes: usize) -> SanitizeResult {
             original_bytes,
             sanitized.len()
         ));
-        truncated = true;
+        true
     } else {
-        truncated = false;
-    }
+        false
+    };
 
     SanitizeResult {
         sanitized,

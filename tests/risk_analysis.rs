@@ -96,8 +96,10 @@ fn test_risk_analysis_protected_and_public() {
         runtime_usage: None,
     });
 
-    let mut rules = Rules::default();
-    rules.protected_paths = vec!["Cargo.toml".to_string()];
+    let rules = Rules {
+        protected_paths: vec!["Cargo.toml".to_string()],
+        ..Rules::default()
+    };
 
     analyze_risk(&mut packet, &rules).unwrap();
 
