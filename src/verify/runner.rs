@@ -63,14 +63,13 @@ pub fn execute_step(step: &PreparedStep, policy: &ProcessPolicy) -> Result<Execu
 
     match ExecutionBoundary::execute(command, &options) {
         Ok(result) => {
-            if step.execution_mode == ExecutionMode::Shell && looks_like_command_not_found(&result) {
-                return Err(
-                    CommandError::Verify(format!(
-                        "Command not found via shell fallback: {}",
-                        step.display_command
-                    ))
-                    .into(),
-                );
+            if step.execution_mode == ExecutionMode::Shell && looks_like_command_not_found(&result)
+            {
+                return Err(CommandError::Verify(format!(
+                    "Command not found via shell fallback: {}",
+                    step.display_command
+                ))
+                .into());
             }
             Ok(result)
         }
@@ -147,7 +146,11 @@ fn split_command_string(command: &str) -> Option<Vec<String>> {
         tokens.push(current);
     }
 
-    if tokens.is_empty() { None } else { Some(tokens) }
+    if tokens.is_empty() {
+        None
+    } else {
+        Some(tokens)
+    }
 }
 
 fn looks_like_command_not_found(result: &ExecutionResult) -> bool {
@@ -179,7 +182,10 @@ mod tests {
 
         assert_eq!(prepared.execution_mode, ExecutionMode::Direct);
         assert_eq!(prepared.executable, "cargo");
-        assert_eq!(prepared.args, vec!["test", "-j", "1", "--", "--test-threads=1"]);
+        assert_eq!(
+            prepared.args,
+            vec!["test", "-j", "1", "--", "--test-threads=1"]
+        );
     }
 
     #[test]

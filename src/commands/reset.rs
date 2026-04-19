@@ -30,8 +30,8 @@ pub fn execute_reset(
         ));
     }
 
-    let current_dir = env::current_dir()
-        .map_err(|e| miette!("Failed to get current directory: {e}"))?;
+    let current_dir =
+        env::current_dir().map_err(|e| miette!("Failed to get current directory: {e}"))?;
     let root = Utf8PathBuf::from_path_buf(current_dir)
         .map_err(|path| miette!("Current directory is not valid UTF-8: {:?}", path))?;
     let layout = Layout::new(root.as_str());
@@ -63,11 +63,7 @@ pub fn execute_reset(
     }
 }
 
-fn default_reset_items(
-    layout: &Layout,
-    remove_config: bool,
-    remove_rules: bool,
-) -> Vec<ResetItem> {
+fn default_reset_items(layout: &Layout, remove_config: bool, remove_rules: bool) -> Vec<ResetItem> {
     let mut items = vec![
         remove_path(layout.logs_dir(), &layout.state_dir),
         remove_path(layout.tmp_dir(), &layout.state_dir),
@@ -89,7 +85,11 @@ fn default_reset_items(
     items
 }
 
-fn maybe_preserve_or_remove(path: Utf8PathBuf, state_root: &Utf8Path, should_remove: bool) -> ResetItem {
+fn maybe_preserve_or_remove(
+    path: Utf8PathBuf,
+    state_root: &Utf8Path,
+    should_remove: bool,
+) -> ResetItem {
     if should_remove {
         remove_path(path, state_root)
     } else {

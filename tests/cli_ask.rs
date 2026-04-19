@@ -34,7 +34,8 @@ fn test_ask_invalid_config_fails_before_query_execution() {
     layout.ensure_state_dir().unwrap();
     fs::write(layout.config_file(), "[watch]\ndebounce_ms = 0\n").unwrap();
 
-    let storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path()).unwrap();
+    let storage =
+        StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path()).unwrap();
     storage.save_packet(&ImpactPacket::default()).unwrap();
 
     let err = execute_ask("What's up?".into(), GeminiMode::Analyze).unwrap_err();
