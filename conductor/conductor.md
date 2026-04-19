@@ -2,10 +2,10 @@
 
 ## Active Tracks
 
-*   **Track 8: Determinism Contract and Subprocess Control** (Active)
+*   **Track 9: Change Risk Analysis Engine** (Active)
     *   Status: Planning
-    *   Plan: `conductor/track8/plan.md`
-    *   Implementation Branch: `feat/determinism`
+    *   Plan: `conductor/track9/plan.md`
+    *   Implementation Branch: `feat/risk-analysis`
 
 ## Completed Tracks
 
