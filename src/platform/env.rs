@@ -14,15 +14,15 @@ pub fn find_executable<P: AsRef<Path>>(name: P) -> ExecutableStatus {
     let name = name.as_ref();
     
     // Extensions to check on Windows
-    let extensions = if cfg!(target_os = "windows") {
-        vec!["exe", "cmd", "bat", "ps1"]
+    let extensions: &[&str] = if cfg!(target_os = "windows") {
+        &["exe", "cmd", "bat", "ps1"]
     } else {
-        vec![""]
+        &[""]
     };
 
     if let Ok(path_var) = env::var("PATH") {
         for path in env::split_paths(&path_var) {
-            for ext in &extensions {
+            for ext in extensions {
                 let mut exec_path = path.join(name);
                 if !ext.is_empty() {
                     exec_path.set_extension(ext);

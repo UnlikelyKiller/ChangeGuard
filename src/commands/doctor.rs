@@ -1,4 +1,4 @@
-use miette::Result;
+use miette::{IntoDiagnostic, Result};
 use crate::platform::{current_platform, detect_shell, check_tools, classify_path, ExecutableStatus};
 use std::env;
 use owo_colors::OwoColorize;
@@ -43,20 +43,19 @@ pub fn execute_doctor() -> Result<()> {
     }
 
     // 4. Path classification of the current repository
-    if let Ok(current_dir) = env::current_dir() {
-        let path_kind = classify_path(&current_dir);
-        let kind_str = match path_kind {
-            crate::platform::PathKind::Native => "Native".green().to_string(),
-            crate::platform::PathKind::WslMounted => "WSL Mounted (Cross-FS)".yellow().to_string(),
-            crate::platform::PathKind::Network => "Network Drive".yellow().to_string(),
-            crate::platform::PathKind::Unknown => "Unknown".red().to_string(),
-        };
-        println!("\n{:<20} {}", "Current Path:".bold(), current_dir.display());
-        println!("{:<20} {}", "Path Type:".bold(), kind_str);
-        
-        if path_kind == crate::platform::PathKind::WslMounted {
-            println!("\n{}", "Warning: Running on a WSL mounted drive may be slower due to cross-filesystem overhead.".yellow().italic());
-        }
+    let current_dir = env::current_dir().into_diagnostic()?;
+    let path_kind = classify_path(&current_dir);
+    let kind_str = match path_kind {
+        crate::platform::PathKind::Native => "Native".green().to_string(),
+        crate::platform::PathKind::WslMounted => "WSL Mounted (Cross-FS)".yellow().to_string(),
+        crate::platform::PathKind::Network => "Network Drive".yellow().to_string(),
+        crate::platform::PathKind::Unknown => "Unknown".red().to_string(),
+    };
+    println!("\n{:<20} {}", "Current Path:".bold(), current_dir.display());
+    println!("{:<20} {}", "Path Type:".bold(), kind_str);
+    
+    if path_kind == crate::platform::PathKind::WslMounted {
+        println!("\n{}", "Warning: Running on a WSL mounted drive may be slower due to cross-filesystem overhead.".yellow().italic());
     }
 
     println!("\n{}", "Doctor check complete.".bright_cyan());

@@ -1,4 +1,5 @@
 use serde::Serialize;
+#[cfg(target_os = "linux")]
 use std::fs;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -25,11 +26,10 @@ pub fn current_platform() -> PlatformType {
 }
 
 pub fn is_wsl() -> bool {
-    if cfg!(target_os = "linux") {
-        if let Ok(osrelease) = fs::read_to_string("/proc/sys/kernel/osrelease") {
-            let osrelease = osrelease.to_lowercase();
-            return osrelease.contains("microsoft") || osrelease.contains("wsl");
-        }
+    #[cfg(target_os = "linux")]
+    if let Ok(osrelease) = fs::read_to_string("/proc/sys/kernel/osrelease") {
+        let osrelease = osrelease.to_lowercase();
+        return osrelease.contains("microsoft") || osrelease.contains("wsl");
     }
     false
 }

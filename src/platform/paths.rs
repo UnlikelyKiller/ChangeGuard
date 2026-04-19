@@ -20,8 +20,8 @@ pub fn classify_path<P: AsRef<Path>>(path: P) -> PathKind {
             if path_str.starts_with("\\\\") {
                 return PathKind::Network;
             }
-            return PathKind::Native;
         }
+        return PathKind::Native;
     }
 
     #[cfg(target_os = "linux")]
@@ -42,10 +42,8 @@ pub fn classify_path<P: AsRef<Path>>(path: P) -> PathKind {
 
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
-         return PathKind::Native;
+         PathKind::Native
     }
-    
-    PathKind::Unknown
 }
 
 #[cfg(test)]
