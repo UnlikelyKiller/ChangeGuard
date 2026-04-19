@@ -2,12 +2,16 @@
 
 ## Active Tracks
 
-*   **Track 12: UI/UX Refinement** (Active)
+*   **Track 13: Final Integration and Reset Command** (Active)
     *   Status: Planning
-    *   Plan: `conductor/track12/plan.md`
-    *   Implementation Branch: `feat/ui-refinement`
+    *   Plan: `conductor/track13/plan.md`
+    *   Implementation Branch: `feat/final-integration`
 
 ## Completed Tracks
+
+*   **Track 12: UI/UX Refinement**
+    *   Status: Completed
+    *   PR: Merged into `main`
 
 *   **Track 11: Ask Gemini Baseline**
     *   Status: Completed
