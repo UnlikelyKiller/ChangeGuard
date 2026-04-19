@@ -1,0 +1,24 @@
+# ChangeGuard Conductor
+
+## Active Tracks
+
+*   **Track 1: Repo-Local State Layout and Init** (Active)
+    *   Status: Planning
+    *   Plan: `conductor/track1/plan.md`
+    *   Implementation Branch: `feat/init-command`
+
+## Completed Tracks
+
+*   **Track 0: Bootstrap CLI Skeleton**
+    *   Status: Completed
+    *   PR: N/A (Pushed directly to main)
+
+## Workflow
+
+1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.
+2.  **Push Plan**: Commit and push plan to `main`.
+3.  **Implement**: `@generalist` (Implementer) creates a new branch and works on the task.
+4.  **Review**: `@rust-triage-specialist` or `@frontend-reviewer` (Reviewer) audits the branch.
+5.  **Iteration**: If review fails, Implementer fixes.
+6.  **Merge**: If review passes, create PR or merge into `main`.
+7.  **Next**: Start next track.
