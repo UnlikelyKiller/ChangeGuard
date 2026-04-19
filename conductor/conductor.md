@@ -2,12 +2,16 @@
 
 ## Active Tracks
 
-*   **Track 2: Doctor and Platform Detection** (Active)
+*   **Track 3: Config and Rule Loading** (Active)
     *   Status: Planning
-    *   Plan: `conductor/track2/plan.md`
-    *   Implementation Branch: `feat/doctor-command`
+    *   Plan: `conductor/track3/plan.md`
+    *   Implementation Branch: `feat/config-loading`
 
 ## Completed Tracks
+
+*   **Track 2: Doctor and Platform Detection**
+    *   Status: Completed
+    *   PR: Merged into `main`
 
 *   **Track 1: Repo-Local State Layout and Init**
     *   Status: Completed
