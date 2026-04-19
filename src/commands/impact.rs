@@ -27,9 +27,16 @@ pub fn execute_impact() -> Result<()> {
         changes,
     };
 
-    let packet = map_snapshot_to_packet(snapshot, &current_dir);
-
     let layout = Layout::new(current_dir.to_string_lossy().as_ref());
+    let mut packet = map_snapshot_to_packet(snapshot, &current_dir);
+
+    // Load rules and perform risk analysis
+    if let Ok(rules) = crate::policy::load::load_rules(&layout) {
+        let _ = crate::impact::analysis::analyze_risk(&mut packet, &rules);
+    }
+    
+    packet.finalize();
+
     write_impact_report(&layout, &packet)?;
 
     println!("{} Wrote impact report to {}", "SUCCESS".green().bold(), ".changeguard/reports/latest-impact.json".cyan());
