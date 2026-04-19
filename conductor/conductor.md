@@ -2,12 +2,16 @@
 
 ## Active Tracks
 
-*   **Track 6: Watch Mode and Batch Debouncing** (Active)
+*   **Track 7: Language-Aware Symbol Extraction** (Active)
     *   Status: Planning
-    *   Plan: `conductor/track6/plan.md`
-    *   Implementation Branch: `feat/watch-mode`
+    *   Plan: `conductor/track7/plan.md`
+    *   Implementation Branch: `feat/symbol-extraction`
 
 ## Completed Tracks
+
+*   **Track 6: Watch Mode and Batch Debouncing**
+    *   Status: Completed
+    *   PR: Merged into `main`
 
 *   **Track 5: Basic Impact Packet Shell**
     *   Status: Completed
