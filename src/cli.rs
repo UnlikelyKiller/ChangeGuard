@@ -1,6 +1,7 @@
 use clap::{Args, Parser, Subcommand};
 use miette::Result;
 use crate::commands::init::execute_init;
+use crate::commands::doctor::execute_doctor;
 
 #[derive(Parser)]
 #[command(name = "changeguard")]
@@ -42,7 +43,7 @@ pub fn run() -> Result<()> {
 
     match cli.command {
         Commands::Init(args) => execute_init(args.no_gitignore)?,
-        Commands::Doctor => println!("Running doctor..."),
+        Commands::Doctor => execute_doctor()?,
         Commands::Scan => println!("Scanning repository..."),
         Commands::Watch => println!("Watching for changes..."),
         Commands::Impact => println!("Analyzing impact..."),

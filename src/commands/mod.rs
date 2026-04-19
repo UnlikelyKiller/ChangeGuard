@@ -1,4 +1,5 @@
 pub mod init;
+pub mod doctor;
 
 use miette::Diagnostic;
 use thiserror::Error;
