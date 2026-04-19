@@ -2,12 +2,16 @@
 
 ## Active Tracks
 
-*   **Track 9: Change Risk Analysis Engine** (Active)
+*   **Track 10: State SQLite Persistence** (Active)
     *   Status: Planning
-    *   Plan: `conductor/track9/plan.md`
-    *   Implementation Branch: `feat/risk-analysis`
+    *   Plan: `conductor/track10/plan.md`
+    *   Implementation Branch: `feat/sqlite-persistence`
 
 ## Completed Tracks
+
+*   **Track 9: Change Risk Analysis Engine**
+    *   Status: Completed
+    *   PR: Merged into `main`
 
 *   **Track 7: Language-Aware Symbol Extraction**
     *   Status: Completed
