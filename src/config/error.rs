@@ -24,7 +24,5 @@ pub enum ConfigError {
     },
 
     #[error("Invalid configuration: {reason}")]
-    ValidationFailed {
-        reason: String,
-    },
+    ValidationFailed { reason: String },
 }

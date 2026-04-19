@@ -5,13 +5,11 @@ use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator};
 pub fn extract_symbols(content: &str) -> Result<Option<Vec<Symbol>>> {
     let mut parser = Parser::new();
     let language = tree_sitter_python::LANGUAGE;
-    parser
-        .set_language(&language.into())
-        .into_diagnostic()?;
+    parser.set_language(&language.into()).into_diagnostic()?;
 
-    let tree = parser.parse(content, None).ok_or_else(|| {
-        miette::miette!("Failed to parse Python content")
-    })?;
+    let tree = parser
+        .parse(content, None)
+        .ok_or_else(|| miette::miette!("Failed to parse Python content"))?;
 
     let query_str = r#"
         (function_definition name: (identifier) @name)
@@ -31,13 +29,18 @@ pub fn extract_symbols(content: &str) -> Result<Option<Vec<Symbol>>> {
         for capture in m.captures {
             let capture_name = query.capture_names()[capture.index as usize];
             if capture_name == "name" {
-                name = capture.node.utf8_text(content.as_bytes()).into_diagnostic()?.to_string();
-                
-                let parent = capture.node.parent().unwrap();
-                match parent.kind() {
-                    "function_definition" => kind = SymbolKind::Function,
-                    "class_definition" => kind = SymbolKind::Class,
-                    _ => {}
+                name = capture
+                    .node
+                    .utf8_text(content.as_bytes())
+                    .into_diagnostic()?
+                    .to_string();
+
+                if let Some(parent) = capture.node.parent() {
+                    match parent.kind() {
+                        "function_definition" => kind = SymbolKind::Function,
+                        "class_definition" => kind = SymbolKind::Class,
+                        _ => {}
+                    }
                 }
             }
         }
@@ -45,7 +48,7 @@ pub fn extract_symbols(content: &str) -> Result<Option<Vec<Symbol>>> {
         if !name.is_empty() {
             // In Python, leading underscore usually means private
             let is_public = !name.starts_with('_');
-            
+
             symbols.push(Symbol {
                 name,
                 kind,
@@ -78,10 +81,26 @@ class _PrivateClass:
 "#;
 
         let symbols = extract_symbols(content).unwrap().unwrap();
-        
-        assert!(symbols.iter().any(|s| s.name == "public_fn" && s.kind == SymbolKind::Function && s.is_public));
-        assert!(symbols.iter().any(|s| s.name == "_private_fn" && s.kind == SymbolKind::Function && !s.is_public));
-        assert!(symbols.iter().any(|s| s.name == "PublicClass" && s.kind == SymbolKind::Class && s.is_public));
-        assert!(symbols.iter().any(|s| s.name == "_PrivateClass" && s.kind == SymbolKind::Class && !s.is_public));
+
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "public_fn" && s.kind == SymbolKind::Function && s.is_public)
+        );
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "_private_fn" && s.kind == SymbolKind::Function && !s.is_public)
+        );
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "PublicClass" && s.kind == SymbolKind::Class && s.is_public)
+        );
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "_PrivateClass" && s.kind == SymbolKind::Class && !s.is_public)
+        );
     }
 }

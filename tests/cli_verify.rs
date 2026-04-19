@@ -14,7 +14,10 @@ fn test_verify_command_fail() {
 
 #[test]
 fn test_verify_command_timeout() {
-    let result = execute_verify(Some("powershell -Command Start-Sleep -Seconds 10".into()), 1);
+    let result = execute_verify(
+        Some("powershell -Command Start-Sleep -Seconds 10".into()),
+        1,
+    );
     assert!(result.is_err());
     let err_msg = format!("{:?}", result.err().unwrap());
     assert!(err_msg.contains("Timed out"));

@@ -1,10 +1,17 @@
+use crate::platform::{
+    ExecutableStatus, check_tools, classify_path, current_platform, detect_shell,
+};
 use miette::{IntoDiagnostic, Result};
-use crate::platform::{current_platform, detect_shell, check_tools, classify_path, ExecutableStatus};
-use std::env;
 use owo_colors::OwoColorize;
+use std::env;
 
 pub fn execute_doctor() -> Result<()> {
-    println!("\n{}", "ChangeGuard Doctor - Environment Health Check".bold().bright_cyan());
+    println!(
+        "\n{}",
+        "ChangeGuard Doctor - Environment Health Check"
+            .bold()
+            .bright_cyan()
+    );
     println!("{}", "=".repeat(50).cyan());
 
     // 1. Environment (OS + WSL status)
@@ -12,7 +19,9 @@ pub fn execute_doctor() -> Result<()> {
     let platform_str = match platform {
         crate::platform::PlatformType::Windows => "Windows".green().to_string(),
         crate::platform::PlatformType::Linux => "Linux".green().to_string(),
-        crate::platform::PlatformType::Wsl => "Windows Subsystem for Linux (WSL)".green().to_string(),
+        crate::platform::PlatformType::Wsl => {
+            "Windows Subsystem for Linux (WSL)".green().to_string()
+        }
         crate::platform::PlatformType::Unknown => "Unknown".yellow().to_string(),
     };
     println!("{:<20} {}", "Environment:".bold(), platform_str);
@@ -34,7 +43,12 @@ pub fn execute_doctor() -> Result<()> {
     for (name, status) in tools {
         match status {
             ExecutableStatus::Found(path) => {
-                println!("  {:<18} {} ({})", name.bold(), "Found".green(), path.display().to_string().dimmed());
+                println!(
+                    "  {:<18} {} ({})",
+                    name.bold(),
+                    "Found".green(),
+                    path.display().to_string().dimmed()
+                );
             }
             ExecutableStatus::NotFound => {
                 println!("  {:<18} {}", name.bold(), "Not Found".red());
@@ -53,7 +67,7 @@ pub fn execute_doctor() -> Result<()> {
     };
     println!("\n{:<20} {}", "Current Path:".bold(), current_dir.display());
     println!("{:<20} {}", "Path Type:".bold(), kind_str);
-    
+
     if path_kind == crate::platform::PathKind::WslMounted {
         println!("\n{}", "Warning: Running on a WSL mounted drive may be slower due to cross-filesystem overhead.".yellow().italic());
     }

@@ -1,8 +1,8 @@
+use crate::watch::WatchError;
 use camino::Utf8PathBuf;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use crate::watch::WatchError;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -40,12 +40,12 @@ impl WatchBatch {
         }
         let content = serde_json::to_string_pretty(self)
             .map_err(|e| WatchError::NotifyError(format!("Failed to serialize batch: {}", e)))?;
-        
+
         // Use a temporary file for atomic write if possible
         let tmp_path = path.with_extension("tmp");
         fs::write(&tmp_path, content)?;
         fs::rename(&tmp_path, path)?;
-        
+
         Ok(())
     }
 }
@@ -53,8 +53,8 @@ impl WatchBatch {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
     use camino::Utf8Path;
+    use tempfile::tempdir;
 
     #[test]
     fn test_batch_serialization() {
@@ -69,18 +69,18 @@ mod tests {
             },
         ];
         let batch = WatchBatch::new(events);
-        
+
         let tmp = tempdir().unwrap();
         let root = Utf8Path::from_path(tmp.path()).unwrap();
         let batch_path = root.join("current-batch.json");
-        
+
         batch.save(&batch_path).unwrap();
-        
+
         assert!(batch_path.exists());
-        
+
         let content = fs::read_to_string(&batch_path).unwrap();
         let deserialized: WatchBatch = serde_json::from_str(&content).unwrap();
-        
+
         assert_eq!(batch.events, deserialized.events);
     }
 }

@@ -1,10 +1,10 @@
+pub mod python;
 pub mod rust;
 pub mod typescript;
-pub mod python;
 
-use std::path::Path;
-use miette::Result;
 use crate::index::symbols::Symbol;
+use miette::Result;
+use std::path::Path;
 
 pub fn parse_symbols(path: &Path, content: &str) -> Result<Option<Vec<Symbol>>> {
     let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");

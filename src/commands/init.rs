@@ -1,7 +1,7 @@
-use crate::config::defaults::DEFAULT_CONFIG;
-use crate::policy::defaults::DEFAULT_RULES;
 use crate::config::ConfigError;
+use crate::config::defaults::DEFAULT_CONFIG;
 use crate::git::ignore::add_to_gitignore;
+use crate::policy::defaults::DEFAULT_RULES;
 use crate::state::layout::Layout;
 use camino::Utf8PathBuf;
 use miette::{IntoDiagnostic, Result};
@@ -12,15 +12,19 @@ pub fn execute_init(no_gitignore: bool) -> Result<()> {
     // 1. Discover repository root
     let root = match gix::discover(".") {
         Ok(repo) => {
-            let path = repo.workdir()
+            let path = repo
+                .workdir()
                 .ok_or(crate::commands::CommandError::RepoDiscoveryFailed)?
                 .to_path_buf();
             info!("Discovered git repository root at: {:?}", path);
             Utf8PathBuf::from_path_buf(path)
                 .map_err(|_| crate::commands::CommandError::RepoDiscoveryFailed)?
-        },
+        }
         Err(e) => {
-            info!("gix::discover failed: {:?}. Using current directory as root", e);
+            info!(
+                "gix::discover failed: {:?}. Using current directory as root",
+                e
+            );
             Utf8PathBuf::from_path_buf(std::env::current_dir().into_diagnostic()?)
                 .map_err(|_| crate::commands::CommandError::RepoDiscoveryFailed)?
         }

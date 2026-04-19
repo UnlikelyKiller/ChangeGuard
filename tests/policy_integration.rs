@@ -1,9 +1,9 @@
-use changeguard::config::{load_config, validate_config};
-use changeguard::policy::{load_rules, validate_rules, RuleMatcher, ProtectedPathChecker, Mode};
-use changeguard::state::layout::Layout;
 use camino::Utf8Path;
-use tempfile::tempdir;
+use changeguard::config::{load_config, validate_config};
+use changeguard::policy::{Mode, ProtectedPathChecker, RuleMatcher, load_rules, validate_rules};
+use changeguard::state::layout::Layout;
 use std::fs;
+use tempfile::tempdir;
 
 #[test]
 fn test_full_config_workflow() {
@@ -45,7 +45,7 @@ fn test_full_config_workflow() {
 
     // 5. Test RuleMatcher
     let matcher = RuleMatcher::new(rules.clone()).unwrap();
-    
+
     // Test global fallback
     let (mode, verifications) = matcher.match_path("README.md");
     assert_eq!(mode, Mode::Review);

@@ -1,11 +1,11 @@
+pub mod classify;
+pub mod diff;
 pub mod ignore;
 pub mod repo;
 pub mod status;
-pub mod diff;
-pub mod classify;
 
-use std::path::PathBuf;
 use miette::Diagnostic;
+use std::path::PathBuf;
 use thiserror::Error;
 
 #[derive(Debug, Error, Diagnostic)]

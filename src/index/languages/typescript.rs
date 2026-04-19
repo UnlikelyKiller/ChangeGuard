@@ -5,13 +5,11 @@ use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator};
 pub fn extract_symbols(content: &str) -> Result<Option<Vec<Symbol>>> {
     let mut parser = Parser::new();
     let language = tree_sitter_typescript::LANGUAGE_TYPESCRIPT;
-    parser
-        .set_language(&language.into())
-        .into_diagnostic()?;
+    parser.set_language(&language.into()).into_diagnostic()?;
 
-    let tree = parser.parse(content, None).ok_or_else(|| {
-        miette::miette!("Failed to parse TypeScript content")
-    })?;
+    let tree = parser
+        .parse(content, None)
+        .ok_or_else(|| miette::miette!("Failed to parse TypeScript content"))?;
 
     let query_str = r#"
         (function_declaration name: (identifier) @name) @symbol
@@ -35,7 +33,11 @@ pub fn extract_symbols(content: &str) -> Result<Option<Vec<Symbol>>> {
         for capture in m.captures {
             let capture_name = query.capture_names()[capture.index as usize];
             if capture_name == "name" {
-                name = capture.node.utf8_text(content.as_bytes()).into_diagnostic()?.to_string();
+                name = capture
+                    .node
+                    .utf8_text(content.as_bytes())
+                    .into_diagnostic()?
+                    .to_string();
             } else if capture_name == "symbol" {
                 let node = capture.node;
                 match node.kind() {
@@ -46,7 +48,7 @@ pub fn extract_symbols(content: &str) -> Result<Option<Vec<Symbol>>> {
                     "enum_declaration" => kind = SymbolKind::Enum,
                     _ => {}
                 }
-                
+
                 // Check if exported
                 if let Some(parent) = node.parent() {
                     if parent.kind() == "export_statement" {
@@ -85,13 +87,39 @@ mod tests {
         "#;
 
         let symbols = extract_symbols(content).unwrap().unwrap();
-        
-        assert!(symbols.iter().any(|s| s.name == "publicFn" && s.kind == SymbolKind::Function && s.is_public));
-        assert!(symbols.iter().any(|s| s.name == "privateFn" && s.kind == SymbolKind::Function && !s.is_public));
-        assert!(symbols.iter().any(|s| s.name == "PublicClass" && s.kind == SymbolKind::Class && s.is_public));
-        assert!(symbols.iter().any(|s| s.name == "PrivateClass" && s.kind == SymbolKind::Class && !s.is_public));
-        assert!(symbols.iter().any(|s| s.name == "PublicInterface" && s.kind == SymbolKind::Interface && s.is_public));
-        assert!(symbols.iter().any(|s| s.name == "PublicType" && s.kind == SymbolKind::Type && s.is_public));
-        assert!(symbols.iter().any(|s| s.name == "PublicEnum" && s.kind == SymbolKind::Enum && s.is_public));
+
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "publicFn" && s.kind == SymbolKind::Function && s.is_public)
+        );
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "privateFn" && s.kind == SymbolKind::Function && !s.is_public)
+        );
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "PublicClass" && s.kind == SymbolKind::Class && s.is_public)
+        );
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "PrivateClass" && s.kind == SymbolKind::Class && !s.is_public)
+        );
+        assert!(symbols.iter().any(|s| s.name == "PublicInterface"
+            && s.kind == SymbolKind::Interface
+            && s.is_public));
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "PublicType" && s.kind == SymbolKind::Type && s.is_public)
+        );
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "PublicEnum" && s.kind == SymbolKind::Enum && s.is_public)
+        );
     }
 }

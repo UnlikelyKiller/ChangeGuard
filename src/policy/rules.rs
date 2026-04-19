@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use crate::policy::mode::Mode;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Rules {

@@ -56,7 +56,9 @@ pub fn run() -> Result<()> {
         Commands::Scan => crate::commands::scan::execute_scan(),
         Commands::Watch { interval } => crate::commands::watch::execute_watch(interval),
         Commands::Impact => crate::commands::impact::execute_impact(),
-        Commands::Verify { command, timeout } => crate::commands::verify::execute_verify(command, timeout),
+        Commands::Verify { command, timeout } => {
+            crate::commands::verify::execute_verify(command, timeout)
+        }
         Commands::Ask { query } => crate::commands::ask::execute_ask(query),
         Commands::Reset => {
             println!("Resetting local state...");

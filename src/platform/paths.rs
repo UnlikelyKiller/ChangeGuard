@@ -12,7 +12,7 @@ pub enum PathKind {
 
 pub fn classify_path<P: AsRef<Path>>(path: P) -> PathKind {
     let path = path.as_ref();
-    
+
     #[cfg(target_os = "windows")]
     {
         if path.is_absolute() {
@@ -33,7 +33,7 @@ pub fn classify_path<P: AsRef<Path>>(path: P) -> PathKind {
                 // Check if it's followed by a single letter (drive letter)
                 let components: Vec<&str> = path_str.split('/').filter(|s| !s.is_empty()).collect();
                 if components.len() >= 2 && components[0] == "mnt" && components[1].len() == 1 {
-                     return PathKind::WslMounted;
+                    return PathKind::WslMounted;
                 }
             }
         }
@@ -42,7 +42,7 @@ pub fn classify_path<P: AsRef<Path>>(path: P) -> PathKind {
 
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
-         PathKind::Native
+        PathKind::Native
     }
 }
 

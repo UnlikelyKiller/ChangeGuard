@@ -1,9 +1,9 @@
 use miette::Diagnostic;
 use thiserror::Error;
 
-pub mod filters;
-pub mod debounce;
 pub mod batch;
+pub mod debounce;
+pub mod filters;
 
 #[derive(Error, Debug, Diagnostic)]
 pub enum WatchError {
