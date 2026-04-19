@@ -1,1 +1,0 @@
-{"rustc":3674164131150989441,"features":"","declared_features":"","target":0,"profile":0,"path":0,"deps":[[12347024475581975995,"build_script_build",false,6262483103296660734]],"local":[{"RerunIfChanged":{"output":"debug\\build\\zmij-3e0be77b66f204f9\\output","paths":["build.rs"]}}],"rustflags":["-C","link-arg=/STACK:8000000"],"config":0,"compile_kind":0}

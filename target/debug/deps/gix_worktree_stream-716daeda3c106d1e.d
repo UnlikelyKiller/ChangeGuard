@@ -1,9 +1,0 @@
-C:\dev\ChangeGuard\target\debug\deps\gix_worktree_stream-716daeda3c106d1e.d: C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-worktree-stream-0.30.0\src\lib.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-worktree-stream-0.30.0\src\entry.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-worktree-stream-0.30.0\src\protocol.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-worktree-stream-0.30.0\src\from_tree\mod.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-worktree-stream-0.30.0\src\from_tree\traverse.rs
-
-C:\dev\ChangeGuard\target\debug\deps\libgix_worktree_stream-716daeda3c106d1e.rmeta: C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-worktree-stream-0.30.0\src\lib.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-worktree-stream-0.30.0\src\entry.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-worktree-stream-0.30.0\src\protocol.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-worktree-stream-0.30.0\src\from_tree\mod.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-worktree-stream-0.30.0\src\from_tree\traverse.rs
-
-C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-worktree-stream-0.30.0\src\lib.rs:
-C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-worktree-stream-0.30.0\src\entry.rs:
-C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-worktree-stream-0.30.0\src\protocol.rs:
-C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-worktree-stream-0.30.0\src\from_tree\mod.rs:
-C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-worktree-stream-0.30.0\src\from_tree\traverse.rs:
