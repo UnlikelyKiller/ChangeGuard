@@ -1,5 +1,6 @@
 use crate::impact::packet::ImpactPacket;
 use crate::policy::rules::Rules;
+use crate::verify::timeouts::DEFAULT_AUTO_TIMEOUT_SECS;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -17,7 +18,6 @@ pub struct VerificationPlan {
 }
 
 const DEFAULT_COMMAND: &str = "cargo test -j 1 -- --test-threads=1";
-const DEFAULT_TIMEOUT_SECS: u64 = 300;
 
 pub fn build_plan(packet: &ImpactPacket, rules: &Rules) -> VerificationPlan {
     let mut commands: Vec<String> = Vec::new();
@@ -54,7 +54,7 @@ pub fn build_plan(packet: &ImpactPacket, rules: &Rules) -> VerificationPlan {
     let steps: Vec<VerificationStep> = if commands.is_empty() {
         vec![VerificationStep {
             command: DEFAULT_COMMAND.to_string(),
-            timeout_secs: DEFAULT_TIMEOUT_SECS,
+            timeout_secs: DEFAULT_AUTO_TIMEOUT_SECS,
             description: "Default: run project tests".to_string(),
         }]
     } else {
@@ -62,7 +62,7 @@ pub fn build_plan(packet: &ImpactPacket, rules: &Rules) -> VerificationPlan {
             .into_iter()
             .map(|cmd| VerificationStep {
                 command: cmd.clone(),
-                timeout_secs: DEFAULT_TIMEOUT_SECS,
+                timeout_secs: DEFAULT_AUTO_TIMEOUT_SECS,
                 description: format!("From rules: {}", cmd),
             })
             .collect()
@@ -74,7 +74,7 @@ pub fn build_plan(packet: &ImpactPacket, rules: &Rules) -> VerificationPlan {
 #[cfg(test)]
 mod tests {
     use super::*;
-use crate::impact::packet::{ChangedFile, FileAnalysisStatus, ImpactPacket};
+    use crate::impact::packet::{ChangedFile, FileAnalysisStatus, ImpactPacket};
     use crate::policy::mode::Mode;
     use crate::policy::rules::{GlobalRules, PathRule, Rules};
     use std::path::PathBuf;

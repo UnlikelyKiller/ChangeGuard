@@ -1,25 +1,27 @@
 use crate::commands::CommandError;
-use crate::exec::{CommandOptions, ExecutionBoundary, ExecutionResult, ProcessError};
+use crate::exec::ExecutionResult;
 use crate::output::human::{print_verify_plan, print_verify_result};
+use crate::platform::process_policy::ProcessPolicy;
 use crate::policy::load::load_rules;
 use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
 use crate::verify::plan::{VerificationPlan, VerificationStep, build_plan};
+use crate::verify::runner::{execute_step, prepare_manual_step, prepare_rule_step};
 use crate::verify::results::{VerificationReport, VerificationResult, write_verify_report};
+use crate::verify::timeouts::{DEFAULT_AUTO_TIMEOUT_SECS, manual_timeout};
 use chrono::Utc;
 use miette::Result;
 use std::env;
-use std::process::Command;
-use std::time::Duration;
 use tracing::{info, warn};
 
 pub fn execute_verify(command_str: Option<String>, timeout_secs: u64) -> Result<()> {
     let current_dir = env::current_dir()
         .map_err(|e| miette::miette!("Failed to get current directory: {}", e))?;
     let layout = Layout::new(current_dir.to_string_lossy().as_ref());
+    let manual_requested = command_str.is_some();
 
     let (plan, steps) = match command_str {
-        Some(cmd) => (None, vec![manual_step(cmd, timeout_secs)]),
+        Some(cmd) => (None, vec![manual_step(cmd, manual_timeout(timeout_secs))]),
         None => {
             let db_path = layout.state_subdir().join("ledger.db");
             let packet = match StorageManager::init(db_path.as_std_path()) {
@@ -33,7 +35,7 @@ pub fn execute_verify(command_str: Option<String>, timeout_secs: u64) -> Result<
                 None => VerificationPlan {
                     steps: vec![manual_step(
                         "cargo test -j 1 -- --test-threads=1".to_string(),
-                        300,
+                        DEFAULT_AUTO_TIMEOUT_SECS,
                     )],
                 },
             };
@@ -45,13 +47,22 @@ pub fn execute_verify(command_str: Option<String>, timeout_secs: u64) -> Result<
 
     let mut persisted_results = Vec::new();
     let mut final_error: Option<miette::Report> = None;
+    let policy = ProcessPolicy::default();
 
     for step in &steps {
-        info!("Running verification command: {}", step.command);
-        let result = run_shell_command(&step.command, step.timeout_secs)?;
-        print_verify_result(&step.command, step.timeout_secs, &result);
+        let prepared = if manual_requested {
+            prepare_manual_step(step)
+        } else {
+            prepare_rule_step(step)
+        };
+        info!(
+            "Running verification command via {:?}: {}",
+            prepared.execution_mode, prepared.display_command
+        );
+        let result = execute_step(&prepared, &policy)?;
+        print_verify_result(&prepared.display_command, step.timeout_secs, &result);
 
-        persisted_results.push(to_report_result(&step.command, &result));
+        persisted_results.push(to_report_result(&prepared.display_command, &result));
 
         if result.exit_code != 0 && final_error.is_none() {
             final_error = Some(
@@ -80,46 +91,6 @@ fn manual_step(command: String, timeout_secs: u64) -> VerificationStep {
     }
 }
 
-fn run_shell_command(command_str: &str, timeout_secs: u64) -> Result<ExecutionResult> {
-    let cmd = if cfg!(target_os = "windows") {
-        let mut cmd = Command::new("cmd");
-        cmd.args(["/C", command_str]);
-        cmd
-    } else {
-        let mut cmd = Command::new("sh");
-        cmd.args(["-c", command_str]);
-        cmd
-    };
-
-    let options = CommandOptions {
-        timeout: Duration::from_secs(timeout_secs),
-        ..Default::default()
-    };
-
-    match ExecutionBoundary::execute(cmd, &options) {
-        Ok(result) => {
-            if looks_like_command_not_found(&result) {
-                return Err(
-                    CommandError::Verify(format!("Command not found: {}", command_str)).into(),
-                );
-            }
-            Ok(result)
-        }
-        Err(ProcessError::Timeout { timeout }) => {
-            Err(CommandError::Verify(format!("Timed out after {:?}", timeout)).into())
-        }
-        Err(ProcessError::NotFound { cmd }) => {
-            Err(CommandError::Verify(format!("Command not found: {}", cmd)).into())
-        }
-        Err(ProcessError::Failed { status, stderr }) => Err(CommandError::Verify(format!(
-            "Process exited with status {}: {}",
-            status, stderr
-        ))
-        .into()),
-        Err(e) => Err(e.into()),
-    }
-}
-
 fn to_report_result(command: &str, result: &ExecutionResult) -> VerificationResult {
     VerificationResult {
         command: command.to_string(),
@@ -134,16 +105,6 @@ fn to_report_result(command: &str, result: &ExecutionResult) -> VerificationResu
 
 fn truncate_summary(output: &str) -> String {
     output.chars().take(500).collect()
-}
-
-fn looks_like_command_not_found(result: &ExecutionResult) -> bool {
-    let stderr = result.stderr.to_ascii_lowercase();
-    let stdout = result.stdout.to_ascii_lowercase();
-    result.exit_code != 0
-        && (stderr.contains("not recognized as an internal or external command")
-            || stderr.contains("command not found")
-            || stdout.contains("not recognized as an internal or external command")
-            || stdout.contains("command not found"))
 }
 
 fn persist_verify_report(layout: &Layout, report: &VerificationReport) {

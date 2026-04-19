@@ -62,8 +62,9 @@ impl ExecutionBoundary {
         let mut child = match command.spawn() {
             Ok(child) => child,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                let cmd_str = format!("{:?}", command);
-                return Err(ProcessError::NotFound { cmd: cmd_str });
+                return Err(ProcessError::NotFound {
+                    cmd: command.get_program().to_string_lossy().to_string(),
+                });
             }
             Err(e) => return Err(ProcessError::IoError(e)),
         };
