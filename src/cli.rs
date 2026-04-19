@@ -22,7 +22,11 @@ pub enum Commands {
     /// Scan the repository for changes
     Scan,
     /// Watch the repository for changes and batch them
-    Watch,
+    Watch {
+        /// The interval in milliseconds to batch events
+        #[arg(long, short, default_value_t = 1000)]
+        interval: u64,
+    },
     /// Analyze the impact of changes and generate a report
     Impact,
     /// Plan and run targeted verification
@@ -40,10 +44,7 @@ pub fn run() -> Result<()> {
         Commands::Init { no_gitignore } => crate::commands::init::execute_init(no_gitignore),
         Commands::Doctor => crate::commands::doctor::execute_doctor(),
         Commands::Scan => crate::commands::scan::execute_scan(),
-        Commands::Watch => {
-            println!("Watching for changes...");
-            Ok(())
-        }
+        Commands::Watch { interval } => crate::commands::watch::execute_watch(interval),
         Commands::Impact => crate::commands::impact::execute_impact(),
         Commands::Verify => {
             println!("Running verification...");

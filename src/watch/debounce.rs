@@ -1,0 +1,121 @@
+use std::sync::Arc;
+use std::time::Duration;
+use camino::Utf8PathBuf;
+use notify_debouncer_full::{notify::*, new_debouncer, Debouncer, FileIdMap};
+use parking_lot::Mutex;
+use tracing::{debug, error, info};
+
+use crate::watch::batch::{WatchBatch, WatchEvent, WatchEventKind};
+use crate::watch::filters::EventFilter;
+use crate::watch::WatchError;
+
+pub type WatchCallback = Box<dyn Fn(WatchBatch) + Send + Sync>;
+
+pub struct Watcher {
+    #[allow(dead_code)]
+    debouncer: Debouncer<RecommendedWatcher, FileIdMap>,
+}
+
+impl Watcher {
+    pub fn new(
+        paths: Vec<Utf8PathBuf>,
+        interval: Duration,
+        callback: WatchCallback,
+    ) -> std::result::Result<Self, WatchError> {
+        let filter = EventFilter::new()?;
+        let callback = Arc::new(Mutex::new(callback));
+
+        let mut debouncer = new_debouncer(
+            interval,
+            None,
+            move |res: notify_debouncer_full::DebounceEventResult| {
+                match res {
+                    Ok(events) => {
+                        let mut watch_events = Vec::new();
+                        for event in events {
+                            let kind = match event.kind {
+                                EventKind::Create(_) => WatchEventKind::Create,
+                                EventKind::Modify(_) => WatchEventKind::Modify,
+                                EventKind::Remove(_) => WatchEventKind::Delete,
+                                EventKind::Any => WatchEventKind::Unknown,
+                                _ => WatchEventKind::Unknown,
+                            };
+
+                            for path in &event.paths {
+                                if let Ok(utf8_path) = Utf8PathBuf::from_path_buf(path.clone()) {
+                                    if filter.is_allowed(&utf8_path) {
+                                        debug!("Watch event: {:?} on {}", kind, utf8_path);
+                                        watch_events.push(WatchEvent {
+                                            path: utf8_path,
+                                            kind: kind.clone(),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+
+                        if !watch_events.is_empty() {
+                            let batch = WatchBatch::new(watch_events);
+                            (callback.lock())(batch);
+                        }
+                    }
+                    Err(errors) => {
+                        for err in errors {
+                            error!("Watcher error: {}", err);
+                        }
+                    }
+                }
+            },
+        ).map_err(|e| WatchError::NotifyError(e.to_string()))?;
+
+        for path in paths {
+            info!("Watching {}", path);
+            debouncer
+                .watch(path.as_std_path(), RecursiveMode::Recursive)
+                .map_err(|e| WatchError::NotifyError(e.to_string()))?;
+        }
+
+        Ok(Self { debouncer })
+    }
+
+    pub fn stop(self) {
+        // Debouncer stops on drop
+        debug!("Stopping watcher");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::sync::mpsc::channel;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_watcher_batching() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(tmp.path().to_path_buf()).unwrap();
+        
+        let (tx, rx) = channel();
+        let callback = Box::new(move |batch: WatchBatch| {
+            tx.send(batch).unwrap();
+        });
+
+        let _watcher = Watcher::new(
+            vec![root.clone()],
+            Duration::from_millis(100),
+            callback,
+        ).unwrap();
+
+        // Trigger some events
+        let file_path = root.join("test.txt");
+        fs::write(&file_path, "hello").unwrap();
+        fs::write(&file_path, "world").unwrap();
+
+        // Wait for batch
+        let batch = rx.recv_timeout(Duration::from_secs(5)).expect("Did not receive batch");
+        
+        assert!(!batch.events.is_empty());
+        assert!(batch.events.iter().any(|e| e.path == file_path));
+    }
+}
