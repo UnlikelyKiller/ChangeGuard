@@ -24,7 +24,5 @@ pub enum PolicyError {
     },
 
     #[error("Invalid policy: {reason}")]
-    ValidationFailed {
-        reason: String,
-    },
+    ValidationFailed { reason: String },
 }

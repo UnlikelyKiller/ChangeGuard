@@ -1,7 +1,7 @@
-use miette::Result;
-use crate::policy::rules::Rules;
 use crate::policy::error::PolicyError;
+use crate::policy::rules::Rules;
 use globset::{Glob, GlobSet, GlobSetBuilder};
+use miette::Result;
 
 pub struct ProtectedPathChecker {
     protected_set: GlobSet,
@@ -40,9 +40,9 @@ mod tests {
             protected_paths: vec!["Cargo.lock".to_string(), ".github/workflows/**".to_string()],
             ..Default::default()
         };
-        
+
         let checker = ProtectedPathChecker::new(&rules).unwrap();
-        
+
         assert!(checker.is_protected("Cargo.lock"));
         assert!(checker.is_protected(".github/workflows/ci.yml"));
         assert!(!checker.is_protected("src/main.rs"));

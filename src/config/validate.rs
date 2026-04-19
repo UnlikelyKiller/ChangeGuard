@@ -1,5 +1,5 @@
-use miette::Result;
 use crate::config::model::Config;
+use miette::Result;
 
 /// Validates the configuration.
 pub fn validate_config(_config: &Config) -> Result<()> {

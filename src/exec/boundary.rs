@@ -1,7 +1,7 @@
+use miette::Diagnostic;
 use std::io::Read;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
-use miette::Diagnostic;
 use thiserror::Error;
 use wait_timeout::ChildExt;
 
@@ -18,7 +18,7 @@ pub enum ProcessError {
     #[error("Process exited with status {status}")]
     #[diagnostic(help("Check the captured stderr for more details."))]
     Failed { status: i32, stderr: String },
-    
+
     #[error("I/O error during subprocess execution: {0}")]
     IoError(#[from] std::io::Error),
 }
@@ -55,7 +55,7 @@ impl ExecutionBoundary {
         options: &CommandOptions,
     ) -> Result<ExecutionResult, ProcessError> {
         let start = Instant::now();
-        
+
         command.stdout(Stdio::piped());
         command.stderr(Stdio::piped());
 
@@ -87,7 +87,9 @@ impl ExecutionBoundary {
         if let Some(stdout) = child.stdout.take() {
             let mut buffer = Vec::new();
             // Read with limit
-            let n = stdout.take(options.max_output_bytes as u64).read_to_end(&mut buffer)?;
+            let n = stdout
+                .take(options.max_output_bytes as u64)
+                .read_to_end(&mut buffer)?;
             if n >= options.max_output_bytes {
                 truncated = true;
             }
@@ -96,7 +98,9 @@ impl ExecutionBoundary {
 
         if let Some(stderr) = child.stderr.take() {
             let mut buffer = Vec::new();
-            let n = stderr.take(options.max_output_bytes as u64).read_to_end(&mut buffer)?;
+            let n = stderr
+                .take(options.max_output_bytes as u64)
+                .read_to_end(&mut buffer)?;
             if n >= options.max_output_bytes {
                 truncated = true;
             }

@@ -1,10 +1,10 @@
-pub mod init;
-pub mod doctor;
-pub mod scan;
-pub mod impact;
-pub mod watch;
-pub mod verify;
 pub mod ask;
+pub mod doctor;
+pub mod impact;
+pub mod init;
+pub mod scan;
+pub mod verify;
+pub mod watch;
 
 use miette::Diagnostic;
 use thiserror::Error;
@@ -13,7 +13,7 @@ use thiserror::Error;
 pub enum CommandError {
     #[error("Failed to discover repository root")]
     RepoDiscoveryFailed,
-    
+
     #[error("I/O error during command execution")]
     IoError(#[from] std::io::Error),
 

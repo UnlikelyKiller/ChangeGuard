@@ -1,6 +1,6 @@
 use changeguard::cli;
 use miette::Result;
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 fn main() -> Result<()> {
     tracing_subscriber::registry()

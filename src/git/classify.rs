@@ -1,5 +1,5 @@
+use crate::git::{ChangeType, FileChange};
 use gix::Repository;
-use crate::git::{FileChange, ChangeType};
 
 pub fn classify_status(_repo: &Repository, item: &gix::status::Item) -> Option<Vec<FileChange>> {
     let mut results = Vec::new();

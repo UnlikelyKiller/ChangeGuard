@@ -1,5 +1,5 @@
+use changeguard::impact::packet::{ChangedFile, ImpactPacket};
 use changeguard::state::storage::StorageManager;
-use changeguard::impact::packet::{ImpactPacket, ChangedFile};
 use std::path::PathBuf;
 use tempfile::tempdir;
 
@@ -7,7 +7,7 @@ use tempfile::tempdir;
 fn test_persistence_integration() {
     let tmp = tempdir().unwrap();
     let db_path = tmp.path().join("test_ledger.db");
-    
+
     // 1. Initialize and save
     {
         let storage = StorageManager::init(&db_path).unwrap();
@@ -19,10 +19,10 @@ fn test_persistence_integration() {
             is_staged: true,
             symbols: None,
         });
-        
+
         storage.save_packet(&packet).unwrap();
     }
-    
+
     // 2. Re-open and verify
     {
         let storage = StorageManager::init(&db_path).unwrap();

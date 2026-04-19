@@ -1,7 +1,7 @@
-use miette::Result;
 use crate::impact::packet::{ImpactPacket, RiskLevel};
-use crate::policy::rules::Rules;
 use crate::policy::protected_paths::ProtectedPathChecker;
+use crate::policy::rules::Rules;
+use miette::Result;
 use tracing::debug;
 
 pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules) -> Result<()> {
@@ -24,14 +24,19 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules) -> Result<()> {
     if packet.changes.len() > 5 {
         let weight = 20;
         total_weight += weight;
-        reasons.push(format!("High volume of changed files: {}", packet.changes.len()));
+        reasons.push(format!(
+            "High volume of changed files: {}",
+            packet.changes.len()
+        ));
         debug!("Risk Factor: High file volume +{}", weight);
     }
 
-    let total_symbols: usize = packet.changes.iter()
+    let total_symbols: usize = packet
+        .changes
+        .iter()
         .map(|f| f.symbols.as_ref().map(|s| s.len()).unwrap_or(0))
         .sum();
-    
+
     if total_symbols > 20 {
         let weight = 20;
         total_weight += weight;
@@ -46,8 +51,15 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules) -> Result<()> {
                 if symbol.is_public {
                     let weight = 30;
                     total_weight += weight;
-                    reasons.push(format!("Public symbol modified: {} ({})", symbol.name, file.path.display()));
-                    debug!("Risk Factor: Public symbol modified ({}) +{}", symbol.name, weight);
+                    reasons.push(format!(
+                        "Public symbol modified: {} ({})",
+                        symbol.name,
+                        file.path.display()
+                    ));
+                    debug!(
+                        "Risk Factor: Public symbol modified ({}) +{}",
+                        symbol.name, weight
+                    );
                 }
             }
         }
@@ -65,9 +77,9 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules) -> Result<()> {
     if reasons.is_empty() {
         reasons.push("Minimal changes detected".to_string());
     }
-    
+
     packet.risk_reasons = reasons;
-    
+
     Ok(())
 }
 
@@ -86,12 +98,16 @@ mod tests {
             is_staged: true,
             symbols: None,
         });
-        
+
         let rules = Rules::default();
         analyze_risk(&mut packet, &rules).unwrap();
-        
+
         assert_eq!(packet.risk_level, RiskLevel::Low);
-        assert!(packet.risk_reasons.contains(&"Minimal changes detected".to_string()));
+        assert!(
+            packet
+                .risk_reasons
+                .contains(&"Minimal changes detected".to_string())
+        );
     }
 
     #[test]
@@ -103,13 +119,18 @@ mod tests {
             is_staged: true,
             symbols: None,
         });
-        
+
         let mut rules = Rules::default();
         rules.protected_paths = vec!["Cargo.toml".to_string()];
-        
+
         analyze_risk(&mut packet, &rules).unwrap();
-        
+
         assert_eq!(packet.risk_level, RiskLevel::High);
-        assert!(packet.risk_reasons.iter().any(|r| r.contains("Protected path hit")));
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Protected path hit"))
+        );
     }
 }

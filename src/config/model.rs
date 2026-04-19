@@ -29,8 +29,12 @@ impl Default for CoreConfig {
     }
 }
 
-fn default_strict() -> bool { false }
-fn default_auto_fix() -> bool { false }
+fn default_strict() -> bool {
+    false
+}
+fn default_auto_fix() -> bool {
+    false
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct WatchConfig {
@@ -49,7 +53,9 @@ impl Default for WatchConfig {
     }
 }
 
-fn default_debounce_ms() -> u64 { 1000 }
+fn default_debounce_ms() -> u64 {
+    1000
+}
 fn default_ignore_patterns() -> Vec<String> {
     vec![
         "target/**".to_string(),
@@ -62,6 +68,7 @@ fn default_ignore_patterns() -> Vec<String> {
 pub struct GeminiConfig {
     pub api_key: Option<String>,
     pub model: Option<String>,
+    pub timeout_secs: Option<u64>,
 }
 
 #[cfg(test)]
@@ -73,7 +80,12 @@ mod tests {
         let config = Config::default();
         assert!(!config.core.strict);
         assert_eq!(config.watch.debounce_ms, 1000);
-        assert!(config.watch.ignore_patterns.contains(&"target/**".to_string()));
+        assert!(
+            config
+                .watch
+                .ignore_patterns
+                .contains(&"target/**".to_string())
+        );
     }
 
     #[test]

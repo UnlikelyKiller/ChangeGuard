@@ -1,7 +1,7 @@
-use miette::Result;
-use crate::policy::rules::Rules;
 use crate::policy::error::PolicyError;
+use crate::policy::rules::Rules;
 use globset::Glob;
+use miette::Result;
 
 /// Validates the rules.
 pub fn validate_rules(rules: &Rules) -> Result<()> {

@@ -5,13 +5,11 @@ use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator};
 pub fn extract_symbols(content: &str) -> Result<Option<Vec<Symbol>>> {
     let mut parser = Parser::new();
     let language = tree_sitter_rust::LANGUAGE;
-    parser
-        .set_language(&language.into())
-        .into_diagnostic()?;
+    parser.set_language(&language.into()).into_diagnostic()?;
 
-    let tree = parser.parse(content, None).ok_or_else(|| {
-        miette::miette!("Failed to parse Rust content")
-    })?;
+    let tree = parser
+        .parse(content, None)
+        .ok_or_else(|| miette::miette!("Failed to parse Rust content"))?;
 
     let query_str = r#"
         (function_item name: (identifier) @name) @symbol
@@ -37,7 +35,11 @@ pub fn extract_symbols(content: &str) -> Result<Option<Vec<Symbol>>> {
             let capture_name = query.capture_names()[capture.index as usize];
             match capture_name {
                 "name" => {
-                    name = capture.node.utf8_text(content.as_bytes()).into_diagnostic()?.to_string();
+                    name = capture
+                        .node
+                        .utf8_text(content.as_bytes())
+                        .into_diagnostic()?
+                        .to_string();
                 }
                 "symbol" => {
                     let node = capture.node;
@@ -50,7 +52,7 @@ pub fn extract_symbols(content: &str) -> Result<Option<Vec<Symbol>>> {
                         "type_item" => kind = SymbolKind::Type,
                         _ => {}
                     }
-                    
+
                     // Check for visibility by looking at children
                     let mut cursor = node.walk();
                     for child in node.children(&mut cursor) {
@@ -96,14 +98,46 @@ mod tests {
         "#;
 
         let symbols = extract_symbols(content).unwrap().unwrap();
-        
-        assert!(symbols.iter().any(|s| s.name == "public_fn" && s.kind == SymbolKind::Function && s.is_public));
-        assert!(symbols.iter().any(|s| s.name == "private_fn" && s.kind == SymbolKind::Function && !s.is_public));
-        assert!(symbols.iter().any(|s| s.name == "PublicStruct" && s.kind == SymbolKind::Struct && s.is_public));
-        assert!(symbols.iter().any(|s| s.name == "PrivateStruct" && s.kind == SymbolKind::Struct && !s.is_public));
-        assert!(symbols.iter().any(|s| s.name == "PublicEnum" && s.kind == SymbolKind::Enum && s.is_public));
-        assert!(symbols.iter().any(|s| s.name == "PublicTrait" && s.kind == SymbolKind::Trait && s.is_public));
-        assert!(symbols.iter().any(|s| s.name == "public_mod" && s.kind == SymbolKind::Module && s.is_public));
-        assert!(symbols.iter().any(|s| s.name == "PublicType" && s.kind == SymbolKind::Type && s.is_public));
+
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "public_fn" && s.kind == SymbolKind::Function && s.is_public)
+        );
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "private_fn" && s.kind == SymbolKind::Function && !s.is_public)
+        );
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "PublicStruct" && s.kind == SymbolKind::Struct && s.is_public)
+        );
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "PrivateStruct" && s.kind == SymbolKind::Struct && !s.is_public)
+        );
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "PublicEnum" && s.kind == SymbolKind::Enum && s.is_public)
+        );
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "PublicTrait" && s.kind == SymbolKind::Trait && s.is_public)
+        );
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "public_mod" && s.kind == SymbolKind::Module && s.is_public)
+        );
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "PublicType" && s.kind == SymbolKind::Type && s.is_public)
+        );
     }
 }

@@ -43,7 +43,7 @@ mod tests {
         let platform = current_platform();
         #[cfg(target_os = "windows")]
         assert_eq!(platform, PlatformType::Windows);
-        
+
         #[cfg(target_os = "linux")]
         {
             if is_wsl() {

@@ -1,7 +1,7 @@
+use crate::index::symbols::Symbol;
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use chrono::Utc;
-use crate::index::symbols::Symbol;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -64,7 +64,7 @@ impl ImpactPacket {
     /// Finalizes the packet by sorting all internal collections deterministically.
     pub fn finalize(&mut self) {
         self.risk_reasons.sort_unstable();
-        
+
         for file in &mut self.changes {
             if let Some(ref mut symbols) = file.symbols {
                 symbols.sort_unstable();
@@ -93,7 +93,7 @@ mod tests {
         });
 
         let json = serde_json::to_string_pretty(&packet).unwrap();
-        
+
         // Assert schema version and camelCase
         assert!(json.contains(r#""schemaVersion": "v1""#));
         assert!(json.contains(r#""timestampUtc": "2023-10-27T10:00:00Z""#));
@@ -105,14 +105,22 @@ mod tests {
     fn test_deterministic_sorting() {
         let mut packet = ImpactPacket::default();
         packet.risk_reasons = vec!["C".to_string(), "A".to_string(), "B".to_string()];
-        
+
         packet.changes.push(ChangedFile {
             path: PathBuf::from("z.rs"),
             status: "Added".to_string(),
             is_staged: true,
             symbols: Some(vec![
-                Symbol { name: "foo".into(), kind: crate::index::symbols::SymbolKind::Function, is_public: true },
-                Symbol { name: "bar".into(), kind: crate::index::symbols::SymbolKind::Function, is_public: true },
+                Symbol {
+                    name: "foo".into(),
+                    kind: crate::index::symbols::SymbolKind::Function,
+                    is_public: true,
+                },
+                Symbol {
+                    name: "bar".into(),
+                    kind: crate::index::symbols::SymbolKind::Function,
+                    is_public: true,
+                },
             ]),
         });
         packet.changes.push(ChangedFile {
@@ -127,7 +135,7 @@ mod tests {
         assert_eq!(packet.risk_reasons, vec!["A", "B", "C"]);
         assert_eq!(packet.changes[0].path, PathBuf::from("a.rs"));
         assert_eq!(packet.changes[1].path, PathBuf::from("z.rs"));
-        
+
         let z_symbols = packet.changes[1].symbols.as_ref().unwrap();
         assert_eq!(z_symbols[0].name, "bar");
         assert_eq!(z_symbols[1].name, "foo");

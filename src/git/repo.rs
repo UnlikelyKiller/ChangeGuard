@@ -1,7 +1,7 @@
-use std::path::Path;
-use gix::{Repository, discover};
 use crate::git::GitError;
 use anyhow::Result;
+use gix::{Repository, discover};
+use std::path::Path;
 
 pub fn open_repo(path: &Path) -> Result<Repository, GitError> {
     let discovered = discover(path).map_err(|e| GitError::RepoDiscoveryFailed {
@@ -18,10 +18,12 @@ pub fn open_repo(path: &Path) -> Result<Repository, GitError> {
 }
 
 pub fn get_head_info(repo: &Repository) -> Result<(Option<String>, Option<String>), GitError> {
-    let head = repo.head().map_err(|e| GitError::MetadataError { source: e.into() })?;
-    
+    let head = repo
+        .head()
+        .map_err(|e| GitError::MetadataError { source: e.into() })?;
+
     let hash = head.clone().id().map(|id| id.to_string());
-    
+
     let branch = head.referent_name().map(|name| name.shorten().to_string());
 
     Ok((hash, branch))
@@ -44,10 +46,10 @@ mod tests {
         let dir = tempdir().unwrap();
         let repo = gix::init(dir.path()).unwrap();
         let (hash, branch) = get_head_info(&repo)?;
-        
+
         assert_eq!(hash, None);
         // On new repo, it's usually 'main' or 'master' even if unborn
-        assert!(branch.is_some()); 
+        assert!(branch.is_some());
         Ok(())
     }
 }

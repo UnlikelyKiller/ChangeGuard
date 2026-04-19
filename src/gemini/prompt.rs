@@ -9,8 +9,11 @@ Provide concise, technical, and actionable insights. Focus on potential regressi
 }
 
 pub fn build_user_prompt(packet: &ImpactPacket, query: &str) -> String {
-    let packet_json = serde_json::to_string_pretty(packet).unwrap_or_else(|_| "{}".to_string());
-    
+    let packet_json = serde_json::to_string_pretty(packet).unwrap_or_else(|e| {
+        tracing::warn!("Packet serialization failed: {e}");
+        format!("{{\"error\": \"serialization failed: {e}\"}}")
+    });
+
     format!(
         r#"Context:
 ---
@@ -36,7 +39,7 @@ mod tests {
         let packet = ImpactPacket::default();
         let query = "What is the risk?";
         let prompt = build_user_prompt(&packet, query);
-        
+
         assert!(prompt.contains("Impact Packet:"));
         assert!(prompt.contains(query));
         assert!(prompt.contains("v1")); // schema version
