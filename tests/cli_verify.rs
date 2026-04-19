@@ -2,22 +2,35 @@ use changeguard::commands::verify::execute_verify;
 
 #[test]
 fn test_verify_command_pass() {
-    let result = execute_verify(Some("powershell -Command echo 'pass'".into()), 5);
+    // "echo hello" works cross-platform (cmd.exe on Windows, sh on Unix)
+    let cmd = if cfg!(target_os = "windows") {
+        "cmd /C echo hello"
+    } else {
+        "echo hello"
+    };
+    let result = execute_verify(Some(cmd.into()), 5);
     assert!(result.is_ok());
 }
 
 #[test]
 fn test_verify_command_fail() {
-    let result = execute_verify(Some("powershell -Command exit 1".into()), 5);
+    let cmd = if cfg!(target_os = "windows") {
+        "cmd /C exit 1"
+    } else {
+        "sh -c 'exit 1'"
+    };
+    let result = execute_verify(Some(cmd.into()), 5);
     assert!(result.is_err());
 }
 
 #[test]
 fn test_verify_command_timeout() {
-    let result = execute_verify(
-        Some("powershell -Command Start-Sleep -Seconds 10".into()),
-        1,
-    );
+    let cmd = if cfg!(target_os = "windows") {
+        "cmd /C ping -n 10 127.0.0.1 >nul"
+    } else {
+        "sleep 10"
+    };
+    let result = execute_verify(Some(cmd.into()), 1);
     assert!(result.is_err());
     let err_msg = format!("{:?}", result.err().unwrap());
     assert!(err_msg.contains("Timed out"));
