@@ -2,12 +2,16 @@
 
 ## Active Tracks
 
-*   **Track 11: Ask Gemini Baseline** (Active)
+*   **Track 12: UI/UX Refinement** (Active)
     *   Status: Planning
-    *   Plan: `conductor/track11/plan.md`
-    *   Implementation Branch: `feat/ask-gemini`
+    *   Plan: `conductor/track12/plan.md`
+    *   Implementation Branch: `feat/ui-refinement`
 
 ## Completed Tracks
+
+*   **Track 11: Ask Gemini Baseline**
+    *   Status: Completed
+    *   PR: Merged into `main`
 
 *   **Track 10: State SQLite Persistence**
     *   Status: Completed
