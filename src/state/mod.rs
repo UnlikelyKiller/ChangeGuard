@@ -1,5 +1,7 @@
 pub mod layout;
 pub mod reports;
+pub mod storage;
+pub mod migrations;
 
 use miette::Diagnostic;
 use thiserror::Error;
@@ -18,11 +20,14 @@ pub enum StateError {
     #[diagnostic(code(state::resolve_base_failed))]
     ResolveBaseFailed,
 
-    #[error("Failed to write impact report to {path}")]
-    #[diagnostic(code(state::write_report_failed), help("Check file permissions at {path}"))]
+    #[error("Failed to write report: {path}")]
+    #[diagnostic(code(state::write_report_failed), help("Check directory permissions at {path}"))]
     WriteReportFailed {
         path: String,
         #[source]
         source: std::io::Error,
     },
+
+    #[error("Storage error: {0}")]
+    Storage(String),
 }

@@ -38,6 +38,12 @@ pub fn execute_impact() -> Result<()> {
     packet.finalize();
 
     write_impact_report(&layout, &packet)?;
+    
+    // Persist to SQLite
+    let db_path = layout.state_subdir().join("ledger.db");
+    if let Ok(storage) = crate::state::storage::StorageManager::init(db_path.as_std_path()) {
+        let _ = storage.save_packet(&packet);
+    }
 
     println!("{} Wrote impact report to {}", "SUCCESS".green().bold(), ".changeguard/reports/latest-impact.json".cyan());
 
