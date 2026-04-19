@@ -1,4 +1,5 @@
 use crate::impact::packet::{ChangedFile, ImpactPacket};
+use crate::index::storage::persist_symbols;
 use crate::state::migrations::get_migrations;
 use miette::{IntoDiagnostic, Result};
 use rusqlite::Connection;
@@ -37,6 +38,10 @@ impl StorageManager {
                 ),
             )
             .into_diagnostic()?;
+
+        let snapshot_id = self.conn.last_insert_rowid();
+        self.save_changed_files(snapshot_id, &packet.changes)?;
+        persist_symbols(&self.conn, snapshot_id, &packet.changes)?;
 
         Ok(())
     }

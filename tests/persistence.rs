@@ -1,5 +1,7 @@
 use changeguard::impact::packet::{ChangedFile, FileAnalysisStatus, ImpactPacket};
+use changeguard::index::symbols::{Symbol, SymbolKind};
 use changeguard::state::storage::StorageManager;
+use rusqlite::Connection;
 use std::path::PathBuf;
 use tempfile::tempdir;
 
@@ -19,7 +21,11 @@ fn test_persistence_integration() {
             path: PathBuf::from("src/main.rs"),
             status: "Modified".to_string(),
             is_staged: true,
-            symbols: None,
+            symbols: Some(vec![Symbol {
+                name: "run".to_string(),
+                kind: SymbolKind::Function,
+                is_public: true,
+            }]),
             imports: None,
             runtime_usage: None,
             analysis_status: FileAnalysisStatus::default(),
@@ -37,4 +43,10 @@ fn test_persistence_integration() {
         assert_eq!(latest.changes.len(), 1);
         assert_eq!(latest.changes[0].path, PathBuf::from("src/main.rs"));
     }
+
+    let conn = Connection::open(&db_path).unwrap();
+    let symbol_count: i64 = conn
+        .query_row("SELECT count(*) FROM symbols", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(symbol_count, 1);
 }

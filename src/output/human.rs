@@ -2,8 +2,8 @@ use crate::exec::boundary::ExecutionResult;
 use crate::git::{ChangeType, RepoSnapshot};
 use crate::impact::packet::{ImpactPacket, RiskLevel};
 use crate::output::diagnostics::print_header;
+use crate::output::table::build_table;
 use crate::verify::plan::VerificationPlan;
-use comfy_table::Table;
 use owo_colors::OwoColorize;
 
 pub fn print_scan_summary(snapshot: &RepoSnapshot) {
@@ -27,8 +27,7 @@ pub fn print_scan_summary(snapshot: &RepoSnapshot) {
     if !snapshot.is_clean {
         println!("\n{}", "Changes:".bold());
 
-        let mut table = Table::new();
-        table.set_header(vec!["State", "Action", "File Path"]);
+        let mut table = build_table(["State", "Action", "File Path"]);
 
         for change in &snapshot.changes {
             let status_indicator = if change.is_staged {
@@ -77,8 +76,7 @@ pub fn print_impact_summary(packet: &ImpactPacket) {
 
     if !packet.risk_reasons.is_empty() {
         println!("\n{}", "Risk Reasons:".bold());
-        let mut table = Table::new();
-        table.set_header(vec!["#", "Reason"]);
+        let mut table = build_table(["#", "Reason"]);
         for (i, reason) in packet.risk_reasons.iter().enumerate() {
             table.add_row(vec![(i + 1).to_string(), reason.to_string()]);
         }

@@ -1,4 +1,5 @@
 pub mod layout;
+pub mod locks;
 pub mod migrations;
 pub mod reports;
 pub mod storage;

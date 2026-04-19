@@ -47,6 +47,16 @@ pub fn get_migrations() -> Migrations<'static> {
                 truncated INTEGER NOT NULL
             );",
         ),
+        M::up(
+            "CREATE TABLE symbols (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                snapshot_id INTEGER REFERENCES snapshots(id),
+                file_path TEXT NOT NULL,
+                symbol_name TEXT NOT NULL,
+                symbol_kind TEXT NOT NULL,
+                is_public INTEGER NOT NULL
+            );",
+        ),
     ])
 }
 
@@ -74,6 +84,7 @@ mod tests {
             "changed_files",
             "verification_runs",
             "verification_results",
+            "symbols",
         ];
 
         for table in &expected_tables {

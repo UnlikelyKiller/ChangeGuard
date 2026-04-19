@@ -17,6 +17,14 @@ use std::env;
 use std::fs;
 use std::path::Path;
 
+struct AnalysisOutcome {
+    symbols: Option<Vec<crate::index::symbols::Symbol>>,
+    imports: Option<crate::index::references::ImportExport>,
+    runtime_usage: Option<crate::index::runtime_usage::RuntimeUsage>,
+    analysis_status: FileAnalysisStatus,
+    analysis_warnings: Vec<String>,
+}
+
 pub fn execute_impact() -> Result<()> {
     let current_dir = env::current_dir()
         .map_err(|e| miette::miette!("Failed to get current directory: {}", e))?;
@@ -126,29 +134,28 @@ fn map_snapshot_to_packet(snapshot: RepoSnapshot, base_dir: &Path) -> Result<Imp
                 ChangeType::Renamed { .. } => "Renamed".to_string(),
             };
 
-            let (symbols, imports, runtime_usage, analysis_status, analysis_warnings) =
-                if matches!(c.change_type, ChangeType::Added | ChangeType::Modified) {
-                    analyze_changed_file(&c.path, base_dir)
-                } else {
-                    (
-                        None,
-                        None,
-                        None,
-                        FileAnalysisStatus::default(),
-                        Vec::new(),
-                    )
-                };
+            let outcome = if matches!(c.change_type, ChangeType::Added | ChangeType::Modified) {
+                analyze_changed_file(&c.path, base_dir)
+            } else {
+                AnalysisOutcome {
+                    symbols: None,
+                    imports: None,
+                    runtime_usage: None,
+                    analysis_status: FileAnalysisStatus::default(),
+                    analysis_warnings: Vec::new(),
+                }
+            };
 
             pb.inc(1);
             ChangedFile {
                 path: c.path,
                 status,
                 is_staged: c.is_staged,
-                symbols,
-                imports,
-                runtime_usage,
-                analysis_status,
-                analysis_warnings,
+                symbols: outcome.symbols,
+                imports: outcome.imports,
+                runtime_usage: outcome.runtime_usage,
+                analysis_status: outcome.analysis_status,
+                analysis_warnings: outcome.analysis_warnings,
             }
         })
         .collect();
@@ -157,16 +164,7 @@ fn map_snapshot_to_packet(snapshot: RepoSnapshot, base_dir: &Path) -> Result<Imp
     Ok(packet)
 }
 
-fn analyze_changed_file(
-    relative_path: &Path,
-    base_dir: &Path,
-) -> (
-    Option<Vec<crate::index::symbols::Symbol>>,
-    Option<crate::index::references::ImportExport>,
-    Option<crate::index::runtime_usage::RuntimeUsage>,
-    FileAnalysisStatus,
-    Vec<String>,
-) {
+fn analyze_changed_file(relative_path: &Path, base_dir: &Path) -> AnalysisOutcome {
     let full_path = base_dir.join(relative_path);
     let mut warnings = Vec::new();
     let mut status = FileAnalysisStatus::default();
@@ -175,8 +173,16 @@ fn analyze_changed_file(
         status.symbols = AnalysisStatus::Unsupported;
         status.imports = AnalysisStatus::Unsupported;
         status.runtime_usage = AnalysisStatus::Unsupported;
-        warnings.push(format!("{relative_path:?}: analysis unsupported for files without an extension"));
-        return (None, None, None, status, warnings);
+        warnings.push(format!(
+            "{relative_path:?}: analysis unsupported for files without an extension"
+        ));
+        return AnalysisOutcome {
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: status,
+            analysis_warnings: warnings,
+        };
     };
 
     let supported = matches!(extension, "rs" | "ts" | "tsx" | "js" | "jsx" | "py");
@@ -189,7 +195,13 @@ fn analyze_changed_file(
             relative_path.display(),
             extension
         ));
-        return (None, None, None, status, warnings);
+        return AnalysisOutcome {
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: status,
+            analysis_warnings: warnings,
+        };
     }
 
     let content = match fs::read_to_string(&full_path) {
@@ -198,8 +210,18 @@ fn analyze_changed_file(
             status.symbols = AnalysisStatus::ReadFailed;
             status.imports = AnalysisStatus::ReadFailed;
             status.runtime_usage = AnalysisStatus::ReadFailed;
-            warnings.push(format!("{}: failed to read file: {}", relative_path.display(), err));
-            return (None, None, None, status, warnings);
+            warnings.push(format!(
+                "{}: failed to read file: {}",
+                relative_path.display(),
+                err
+            ));
+            return AnalysisOutcome {
+                symbols: None,
+                imports: None,
+                runtime_usage: None,
+                analysis_status: status,
+                analysis_warnings: warnings,
+            };
         }
     };
 
@@ -238,7 +260,13 @@ fn analyze_changed_file(
     status.runtime_usage = AnalysisStatus::Ok;
     let runtime_usage = extract_runtime_usage(relative_path, &content);
 
-    (symbols, imports, runtime_usage, status, warnings)
+    AnalysisOutcome {
+        symbols,
+        imports,
+        runtime_usage,
+        analysis_status: status,
+        analysis_warnings: warnings,
+    }
 }
 
 #[cfg(test)]
@@ -251,14 +279,16 @@ mod tests {
         let tmp = tempdir().unwrap();
         let path = Path::new("notes.txt");
 
-        let (_symbols, _imports, _runtime, status, warnings) =
-            analyze_changed_file(path, tmp.path());
+        let outcome = analyze_changed_file(path, tmp.path());
 
-        assert_eq!(status.symbols, AnalysisStatus::Unsupported);
-        assert_eq!(status.imports, AnalysisStatus::Unsupported);
-        assert_eq!(status.runtime_usage, AnalysisStatus::Unsupported);
-        assert_eq!(warnings.len(), 1);
-        assert!(warnings[0].contains("unsupported"));
+        assert_eq!(outcome.analysis_status.symbols, AnalysisStatus::Unsupported);
+        assert_eq!(outcome.analysis_status.imports, AnalysisStatus::Unsupported);
+        assert_eq!(
+            outcome.analysis_status.runtime_usage,
+            AnalysisStatus::Unsupported
+        );
+        assert_eq!(outcome.analysis_warnings.len(), 1);
+        assert!(outcome.analysis_warnings[0].contains("unsupported"));
     }
 
     #[test]
@@ -266,13 +296,15 @@ mod tests {
         let tmp = tempdir().unwrap();
         let path = Path::new("missing.rs");
 
-        let (_symbols, _imports, _runtime, status, warnings) =
-            analyze_changed_file(path, tmp.path());
+        let outcome = analyze_changed_file(path, tmp.path());
 
-        assert_eq!(status.symbols, AnalysisStatus::ReadFailed);
-        assert_eq!(status.imports, AnalysisStatus::ReadFailed);
-        assert_eq!(status.runtime_usage, AnalysisStatus::ReadFailed);
-        assert_eq!(warnings.len(), 1);
-        assert!(warnings[0].contains("failed to read file"));
+        assert_eq!(outcome.analysis_status.symbols, AnalysisStatus::ReadFailed);
+        assert_eq!(outcome.analysis_status.imports, AnalysisStatus::ReadFailed);
+        assert_eq!(
+            outcome.analysis_status.runtime_usage,
+            AnalysisStatus::ReadFailed
+        );
+        assert_eq!(outcome.analysis_warnings.len(), 1);
+        assert!(outcome.analysis_warnings[0].contains("failed to read file"));
     }
 }

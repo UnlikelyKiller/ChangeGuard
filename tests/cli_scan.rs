@@ -2,6 +2,7 @@ use changeguard::commands::scan::execute_scan;
 use changeguard::git::repo::open_repo;
 use changeguard::git::status::get_repo_status;
 use changeguard::git::{ChangeType, FileChange};
+use changeguard::state::layout::Layout;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -26,6 +27,10 @@ fn test_scan_integration_clean() {
 
     let result = execute_scan();
     assert!(result.is_ok());
+
+    let layout = Layout::new(root.to_string_lossy().as_ref());
+    let report = fs::read_to_string(layout.reports_dir().join("latest-scan.json")).unwrap();
+    assert!(report.contains("\"isClean\": true"));
 }
 
 #[test]
@@ -54,6 +59,11 @@ fn test_scan_integration_dirty() {
 
     let result = execute_scan();
     assert!(result.is_ok());
+
+    let layout = Layout::new(root.to_string_lossy().as_ref());
+    let report = fs::read_to_string(layout.reports_dir().join("latest-scan.json")).unwrap();
+    assert!(report.contains("initial.txt"));
+    assert!(report.contains("untracked.txt"));
 }
 
 #[test]
