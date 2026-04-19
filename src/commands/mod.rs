@@ -1,6 +1,7 @@
 pub mod init;
 pub mod doctor;
 pub mod scan;
+pub mod impact;
 
 use miette::Diagnostic;
 use thiserror::Error;

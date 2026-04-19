@@ -44,10 +44,7 @@ pub fn run() -> Result<()> {
             println!("Watching for changes...");
             Ok(())
         }
-        Commands::Impact => {
-            println!("Analyzing impact...");
-            Ok(())
-        }
+        Commands::Impact => crate::commands::impact::execute_impact(),
         Commands::Verify => {
             println!("Running verification...");
             Ok(())
