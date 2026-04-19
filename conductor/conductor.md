@@ -7,30 +7,45 @@
     *   Spec: `conductor/track14/spec.md`
     *   Plan: `conductor/track14/plan.md`
     *   Audit items: 1, 2, 3, 11 (CRITICAL + HIGH)
+    *   Key additions: secret redaction with entropy check, verification planning, Gemini subprocess timeout, fix ALL production unwrap/expect
 
-*   **Track 15: Gemini Modes, Output Module, Git Classification** (Queued)
-    *   Status: Planning
-    *   Spec: `conductor/track15/spec.md`
-    *   Plan: `conductor/track15/plan.md`
-    *   Audit items: 4, 5, 7, 8 (HIGH)
-
-*   **Track 16: Relationship Extraction, Watch Hardening, Verify Results** (Queued)
-    *   Status: Planning
-    *   Spec: `conductor/track16/spec.md`
-    *   Plan: `conductor/track16/plan.md`
-    *   Audit items: 6, 12, 13, 14 (HIGH + MEDIUM)
-
-*   **Track 17: Engineering Quality** (Queued)
+*   **Track 17: Engineering Quality** (After Track 14)
     *   Status: Planning
     *   Spec: `conductor/track17/spec.md`
     *   Plan: `conductor/track17/plan.md`
     *   Audit items: 15, 17, 18, 19, 20 (MEDIUM)
+    *   Key additions: remove unused deps, cross-platform tests, docs casing fix, DB schema expansion, config validation
+    *   **Must run before Track 16** (DB schema needed by verify results and batch persistence)
 
-*   **Track 18: Documentation, CI, and Polish** (Queued)
+*   **Track 15: Gemini Modes, Output Module, Git Classification** (After Track 17)
+    *   Status: Planning
+    *   Spec: `conductor/track15/spec.md`
+    *   Plan: `conductor/track15/plan.md`
+    *   Audit items: 4, 5, 7, 8 (HIGH)
+    *   Key additions: Gemini modes (analyze/suggest/review-patch), output module refactor (human+diagnostics, YAGNI on table), git classify fix (added/deleted/renamed)
+
+*   **Track 16: Relationship Extraction, Watch Hardening, Verify Results** (After Track 15)
+    *   Status: Planning
+    *   Spec: `conductor/track16/spec.md`
+    *   Plan: `conductor/track16/plan.md`
+    *   Audit items: 6, 12, 13, 14 (HIGH + MEDIUM)
+    *   Key additions: import/export extraction, runtime usage detection, watch ctrl+c + config integration, verify results persistence
+    *   **Depends on Track 17** (DB schema for persistence)
+
+*   **Track 18: Documentation, CI, and Polish** (Last)
     *   Status: Planning
     *   Spec: `conductor/track18/spec.md`
     *   Plan: `conductor/track18/plan.md`
     *   Audit items: 9, 10, 16, 21–25 (HIGH + LOW)
+    *   Key additions: README, CI with caching, test dedup, Clock trait (not normalize fn), process policy, docs, fixtures
+
+## Execution Order
+
+1. Track 14 (Critical Safety Fixes)
+2. Track 17 (Engineering Quality — DB schema needed by Track 16)
+3. Track 15 (Output Module — structural refactor before feature additions)
+4. Track 16 (Features that depend on new schema and output module)
+5. Track 18 (Documentation and Polish — always last)
 
 ## Completed Tracks
 
