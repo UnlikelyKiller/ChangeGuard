@@ -2,12 +2,16 @@
 
 ## Active Tracks
 
-*   **Track 3: Config and Rule Loading** (Active)
+*   **Track 4: Git Scan Foundation** (Active)
     *   Status: Planning
-    *   Plan: `conductor/track3/plan.md`
-    *   Implementation Branch: `feat/config-loading`
+    *   Plan: `conductor/track4/plan.md`
+    *   Implementation Branch: `feat/git-scan`
 
 ## Completed Tracks
+
+*   **Track 3: Config and Rule Loading**
+    *   Status: Completed
+    *   PR: Merged into `main`
 
 *   **Track 2: Doctor and Platform Detection**
     *   Status: Completed
