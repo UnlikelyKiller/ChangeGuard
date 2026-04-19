@@ -2,8 +2,10 @@ use miette::Result;
 use crate::git::repo::{open_repo, get_head_info};
 use crate::git::status::get_repo_status;
 use crate::git::{RepoSnapshot, ChangeType};
+use crate::ui::print_header;
 use std::env;
 use owo_colors::OwoColorize;
+use comfy_table::Table;
 
 pub fn execute_scan() -> Result<()> {
     let current_dir = env::current_dir().map_err(|e| miette::miette!("Failed to get current directory: {}", e))?;
@@ -27,27 +29,37 @@ pub fn execute_scan() -> Result<()> {
 }
 
 fn print_summary(snapshot: &RepoSnapshot) {
-    println!("{}", "ChangeGuard Git Scan Summary".bold().underline());
+    print_header("ChangeGuard Git Scan Summary");
     
     let branch = snapshot.branch_name.as_deref().unwrap_or("DETACHED");
     let head = snapshot.head_hash.as_deref().unwrap_or("None");
     
-    println!("{}: {}", "Branch".cyan(), branch);
-    println!("{}: {}", "HEAD".cyan(), head);
-    println!("{}: {}", "State".cyan(), if snapshot.is_clean { "CLEAN".green().to_string() } else { "DIRTY".yellow().to_string() });
+    println!("{:<15} {}", "Branch:".bold().cyan(), branch);
+    println!("{:<15} {}", "HEAD:".bold().cyan(), head);
+    println!("{:<15} {}", "State:".bold().cyan(), if snapshot.is_clean { "CLEAN".green().bold().to_string() } else { "DIRTY".yellow().bold().to_string() });
     
     if !snapshot.is_clean {
         println!("\n{}", "Changes:".bold());
+        
+        let mut table = Table::new();
+        table.set_header(vec!["State", "Action", "File Path"]);
+        
         for change in &snapshot.changes {
-            let status_indicator = if change.is_staged { "S" } else { "U" };
-            let change_label = match &change.change_type {
-                ChangeType::Added => "A".green().to_string(),
-                ChangeType::Modified => "M".yellow().to_string(),
-                ChangeType::Deleted => "D".red().to_string(),
-                ChangeType::Renamed { old_path } => format!("R ({})", old_path.display()).blue().to_string(),
+            let status_indicator = if change.is_staged { "Staged".green().to_string() } else { "Unstaged".dimmed().to_string() };
+            let (change_label, color_path) = match &change.change_type {
+                ChangeType::Added => ("Added".green().to_string(), change.path.display().to_string().green().to_string()),
+                ChangeType::Modified => ("Modified".yellow().to_string(), change.path.display().to_string().yellow().to_string()),
+                ChangeType::Deleted => ("Deleted".red().to_string(), change.path.display().to_string().red().to_string()),
+                ChangeType::Renamed { old_path } => ("Renamed".blue().to_string(), format!("{} -> {}", old_path.display(), change.path.display()).blue().to_string()),
             };
             
-            println!("[{}] {} {}", status_indicator, change_label, change.path.display());
+            table.add_row(vec![
+                status_indicator,
+                change_label,
+                color_path,
+            ]);
         }
+        
+        println!("{table}");
     }
 }

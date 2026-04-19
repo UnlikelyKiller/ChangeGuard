@@ -4,9 +4,15 @@ use miette::{IntoDiagnostic, Result};
 use std::process::{Command, Stdio};
 use std::io::Write;
 use owo_colors::OwoColorize;
+use indicatif::{ProgressBar, ProgressStyle};
 
 pub fn run_query(system_prompt: &str, user_prompt: &str) -> Result<()> {
-    println!("\n{}", "Consulting Gemini...".bold().bright_cyan());
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(ProgressStyle::default_spinner()
+        .template("{spinner:.green} {msg}")
+        .expect("Failed to set spinner style"));
+    pb.set_message("Consulting Gemini...");
+    pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
     // In a real environment, we'd use gemini-cli directly.
     // For this implementation, we'll try to find 'gemini' in PATH.
@@ -27,9 +33,6 @@ pub fn run_query(system_prompt: &str, user_prompt: &str) -> Result<()> {
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
 
-    // We can't use ExecutionBoundary::execute directly because it doesn't handle stdin yet.
-    // I'll implement a simplified version here that handles stdin.
-    
     let mut child = cmd.spawn().map_err(|e| miette::miette!("Failed to spawn gemini: {}", e))?;
     
     if let Some(mut stdin) = child.stdin.take() {
@@ -38,6 +41,8 @@ pub fn run_query(system_prompt: &str, user_prompt: &str) -> Result<()> {
 
     // Wait for result
     let output = child.wait_with_output().into_diagnostic()?;
+
+    pb.finish_and_clear();
 
     if output.status.success() {
         println!("\n{}", "Gemini Response:".bold().green());

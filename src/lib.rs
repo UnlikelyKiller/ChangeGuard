@@ -10,3 +10,4 @@ pub mod index;
 pub mod watch;
 pub mod exec;
 pub mod gemini;
+pub mod ui;

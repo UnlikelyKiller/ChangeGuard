@@ -6,10 +6,13 @@ use crate::impact::packet::{ImpactPacket, ChangedFile, RiskLevel};
 use crate::state::layout::Layout;
 use crate::index::languages::parse_symbols;
 use crate::state::reports::write_impact_report;
+use crate::ui::{print_header, success_marker};
 use std::env;
 use std::fs;
 use std::path::Path;
 use owo_colors::OwoColorize;
+use comfy_table::Table;
+use indicatif::{ProgressBar, ProgressStyle};
 
 pub fn execute_impact() -> Result<()> {
     let current_dir = env::current_dir().map_err(|e| miette::miette!("Failed to get current directory: {}", e))?;
@@ -28,7 +31,7 @@ pub fn execute_impact() -> Result<()> {
     };
 
     let layout = Layout::new(current_dir.to_string_lossy().as_ref());
-    let mut packet = map_snapshot_to_packet(snapshot, &current_dir);
+    let mut packet = map_snapshot_to_packet(snapshot, &current_dir)?;
 
     // Load rules and perform risk analysis
     if let Ok(rules) = crate::policy::load::load_rules(&layout) {
@@ -38,32 +41,55 @@ pub fn execute_impact() -> Result<()> {
     packet.finalize();
 
     write_impact_report(&layout, &packet)?;
-    
+
+    print_impact_summary(&packet);
+
+    println!("\n{} Wrote impact report to {}", success_marker(), ".changeguard/reports/latest-impact.json".cyan());
+
     // Persist to SQLite
     let db_path = layout.state_subdir().join("ledger.db");
     if let Ok(storage) = crate::state::storage::StorageManager::init(db_path.as_std_path()) {
         let _ = storage.save_packet(&packet);
     }
 
-    println!("{} Wrote impact report to {}", "SUCCESS".green().bold(), ".changeguard/reports/latest-impact.json".cyan());
-
     Ok(())
 }
 
-fn map_snapshot_to_packet(snapshot: RepoSnapshot, base_dir: &Path) -> ImpactPacket {
+fn print_impact_summary(packet: &ImpactPacket) {
+    print_header("ChangeGuard Impact Analysis");
+    
+    let risk_color = match packet.risk_level {
+        RiskLevel::Low => "LOW".green().bold().to_string(),
+        RiskLevel::Medium => "MEDIUM".yellow().bold().to_string(),
+        RiskLevel::High => "HIGH".red().bold().to_string(),
+    };
+    
+    println!("{:<15} {}", "Risk Level:".bold().cyan(), risk_color);
+    
+    if !packet.risk_reasons.is_empty() {
+        println!("\n{}", "Risk Reasons:".bold());
+        let mut table = Table::new();
+        table.set_header(vec!["#", "Reason"]);
+        for (i, reason) in packet.risk_reasons.iter().enumerate() {
+            table.add_row(vec![(i + 1).to_string(), reason.to_string()]);
+        }
+        println!("{table}");
+    }
+}
+
+fn map_snapshot_to_packet(snapshot: RepoSnapshot, base_dir: &Path) -> Result<ImpactPacket> {
     let mut packet = ImpactPacket::default();
     packet.head_hash = snapshot.head_hash;
     packet.branch_name = snapshot.branch_name;
     
-    if snapshot.is_clean {
-        packet.risk_level = RiskLevel::Low;
-        packet.risk_reasons = vec!["No changes detected".to_string()];
-    } else {
-        packet.risk_level = RiskLevel::Medium;
-        packet.risk_reasons = vec!["Provisional baseline risk".to_string()];
-    }
+    let pb = ProgressBar::new(snapshot.changes.len() as u64);
+    pb.set_style(ProgressStyle::default_bar()
+        .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta}) {msg}")
+        .expect("Failed to set progress bar style"));
+    pb.set_message("Extracting symbols...");
 
     packet.changes = snapshot.changes.into_iter().map(|c| {
+        pb.set_message(format!("Extracting symbols from {}", c.path.display()));
         let status = match c.change_type {
             ChangeType::Added => "Added".to_string(),
             ChangeType::Modified => "Modified".to_string(),
@@ -82,6 +108,7 @@ fn map_snapshot_to_packet(snapshot: RepoSnapshot, base_dir: &Path) -> ImpactPack
             None
         };
 
+        pb.inc(1);
         ChangedFile {
             path: c.path,
             status,
@@ -90,5 +117,6 @@ fn map_snapshot_to_packet(snapshot: RepoSnapshot, base_dir: &Path) -> ImpactPack
         }
     }).collect();
 
-    packet
+    pb.finish_with_message("Symbol extraction complete.");
+    Ok(packet)
 }
