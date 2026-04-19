@@ -3,21 +3,21 @@
 ## Active Tracks
 
 *   **Track 14: Critical Safety Fixes** (Next)
-    *   Status: Planning
+    *   Status: Completed (feat/critical-safety-fixes)
     *   Spec: `conductor/track14/spec.md`
     *   Plan: `conductor/track14/plan.md`
     *   Audit items: 1, 2, 3, 11 (CRITICAL + HIGH)
     *   Key additions: secret redaction with entropy check, verification planning, Gemini subprocess timeout, fix ALL production unwrap/expect
 
-*   **Track 17: Engineering Quality** (After Track 14)
-    *   Status: Planning
+*   **Track 17: Engineering Quality** (Completed)
+    *   Status: Completed (feat/engineering-quality)
     *   Spec: `conductor/track17/spec.md`
     *   Plan: `conductor/track17/plan.md`
     *   Audit items: 15, 17, 18, 19, 20 (MEDIUM)
     *   Key additions: remove unused deps, cross-platform tests, docs casing fix, DB schema expansion, config validation
     *   **Must run before Track 16** (DB schema needed by verify results and batch persistence)
 
-*   **Track 15: Gemini Modes, Output Module, Git Classification** (After Track 17)
+*   **Track 15: Gemini Modes, Output Module, Git Classification** (Next)
     *   Status: Planning
     *   Spec: `conductor/track15/spec.md`
     *   Plan: `conductor/track15/plan.md`
