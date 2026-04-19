@@ -3,6 +3,7 @@ pub mod commands;
 pub mod config;
 pub mod git;
 pub mod impact;
+pub mod index;
 pub mod platform;
 pub mod state;
 pub mod policy;

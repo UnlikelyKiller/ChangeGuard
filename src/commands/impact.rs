@@ -4,8 +4,11 @@ use crate::git::status::get_repo_status;
 use crate::git::{RepoSnapshot, ChangeType};
 use crate::impact::packet::{ImpactPacket, ChangedFile, RiskLevel};
 use crate::state::layout::Layout;
+use crate::index::languages::parse_symbols;
 use crate::state::reports::write_impact_report;
 use std::env;
+use std::fs;
+use std::path::Path;
 use owo_colors::OwoColorize;
 
 pub fn execute_impact() -> Result<()> {
@@ -24,7 +27,7 @@ pub fn execute_impact() -> Result<()> {
         changes,
     };
 
-    let packet = map_snapshot_to_packet(snapshot);
+    let packet = map_snapshot_to_packet(snapshot, &current_dir);
 
     let layout = Layout::new(current_dir.to_string_lossy().as_ref());
     write_impact_report(&layout, &packet)?;
@@ -34,7 +37,7 @@ pub fn execute_impact() -> Result<()> {
     Ok(())
 }
 
-fn map_snapshot_to_packet(snapshot: RepoSnapshot) -> ImpactPacket {
+fn map_snapshot_to_packet(snapshot: RepoSnapshot, base_dir: &Path) -> ImpactPacket {
     let mut packet = ImpactPacket::default();
     packet.head_hash = snapshot.head_hash;
     packet.branch_name = snapshot.branch_name;
@@ -54,10 +57,23 @@ fn map_snapshot_to_packet(snapshot: RepoSnapshot) -> ImpactPacket {
             ChangeType::Deleted => "Deleted".to_string(),
             ChangeType::Renamed { .. } => "Renamed".to_string(),
         };
+
+        let symbols = if matches!(c.change_type, ChangeType::Added | ChangeType::Modified) {
+            let full_path = base_dir.join(&c.path);
+            if let Ok(content) = fs::read_to_string(&full_path) {
+                parse_symbols(&c.path, &content).ok().flatten()
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         ChangedFile {
             path: c.path,
             status,
             is_staged: c.is_staged,
+            symbols,
         }
     }).collect();
 

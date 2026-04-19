@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use chrono::Utc;
+use crate::index::symbols::Symbol;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -16,6 +17,7 @@ pub struct ChangedFile {
     pub path: PathBuf,
     pub status: String, // e.g., "Added", "Modified", "Deleted", "Renamed"
     pub is_staged: bool,
+    pub symbols: Option<Vec<Symbol>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,6 +60,7 @@ mod tests {
             path: PathBuf::from("src/main.rs"),
             status: "Modified".to_string(),
             is_staged: true,
+            symbols: None,
         });
 
         let json = serde_json::to_string_pretty(&packet).unwrap();
