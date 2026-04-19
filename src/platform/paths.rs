@@ -21,7 +21,7 @@ pub fn classify_path<P: AsRef<Path>>(path: P) -> PathKind {
                 return PathKind::Network;
             }
         }
-        return PathKind::Native;
+        PathKind::Native
     }
 
     #[cfg(target_os = "linux")]
@@ -37,7 +37,7 @@ pub fn classify_path<P: AsRef<Path>>(path: P) -> PathKind {
                 }
             }
         }
-        return PathKind::Native;
+        PathKind::Native
     }
 
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
