@@ -2,12 +2,16 @@
 
 ## Active Tracks
 
-*   **Track 4: Git Scan Foundation** (Active)
+*   **Track 5: Basic Impact Packet Shell** (Active)
     *   Status: Planning
-    *   Plan: `conductor/track4/plan.md`
-    *   Implementation Branch: `feat/git-scan`
+    *   Plan: `conductor/track5/plan.md`
+    *   Implementation Branch: `feat/impact-packet`
 
 ## Completed Tracks
+
+*   **Track 4: Git Scan Foundation**
+    *   Status: Completed
+    *   PR: Merged into `main`
 
 *   **Track 3: Config and Rule Loading**
     *   Status: Completed
