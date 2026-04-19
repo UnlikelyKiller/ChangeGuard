@@ -1,5 +1,6 @@
 use crate::policy::error::PolicyError;
 use crate::policy::rules::Rules;
+use crate::policy::validate::validate_rules;
 use crate::state::layout::Layout;
 use miette::Result;
 use std::fs;
@@ -20,6 +21,8 @@ pub fn load_rules(layout: &Layout) -> Result<Rules> {
 
     let rules: Rules =
         toml::from_str(&content).map_err(|e| PolicyError::ParseFailed { source: e })?;
+
+    validate_rules(&rules)?;
 
     Ok(rules)
 }
@@ -53,5 +56,27 @@ mod tests {
 
         let rules = load_rules(&layout).unwrap();
         assert_eq!(rules.global.mode, Mode::Enforce);
+    }
+
+    #[test]
+    fn test_load_rules_rejects_invalid_pattern() {
+        let tmp = tempdir().unwrap();
+        let root = Utf8Path::from_path(tmp.path()).unwrap();
+        let layout = Layout::new(root);
+        layout.ensure_state_dir().unwrap();
+
+        fs::write(
+            layout.rules_file(),
+            r#"
+[global]
+mode = "analyze"
+
+[[overrides]]
+pattern = "["
+"#,
+        )
+        .unwrap();
+
+        assert!(load_rules(&layout).is_err());
     }
 }

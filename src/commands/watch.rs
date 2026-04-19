@@ -18,7 +18,7 @@ pub fn execute_watch(interval_ms: u64) -> Result<()> {
     let path = Utf8PathBuf::from_path_buf(current_dir)
         .map_err(|e| miette::miette!("Invalid UTF-8 path: {:?}", e))?;
     let layout = Layout::new(path.as_str());
-    let config = load_config(&layout).unwrap_or_default();
+    let config = load_config(&layout)?;
     let running = Arc::new(AtomicBool::new(true));
     let signal = running.clone();
 

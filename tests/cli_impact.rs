@@ -99,3 +99,27 @@ fn test_impact_creates_report_file() {
     let report_path = layout.reports_dir().join("latest-impact.json");
     assert!(report_path.exists(), "Impact report should be written");
 }
+
+#[test]
+fn test_impact_records_unsupported_analysis_in_report() {
+    let _lock = cwd_lock().lock().unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+
+    setup_git_repo(dir);
+
+    fs::write(dir.join("notes.txt"), "hello").unwrap();
+    git_add_and_commit(dir, "initial");
+    fs::write(dir.join("notes.txt"), "updated").unwrap();
+
+    let _guard = DirGuard::new(dir);
+    let layout = Layout::new(dir.to_string_lossy().as_ref());
+    layout.ensure_state_dir().unwrap();
+
+    execute_impact().unwrap();
+
+    let report = fs::read_to_string(layout.reports_dir().join("latest-impact.json")).unwrap();
+    assert!(report.contains("\"analysisStatus\""));
+    assert!(report.contains("\"unsupported\""));
+    assert!(report.contains("\"analysisWarnings\""));
+}

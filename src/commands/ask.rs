@@ -56,7 +56,7 @@ pub fn execute_ask(query: String, mode: GeminiMode) -> Result<()> {
     }
 
     // Read timeout from config
-    let config = load_config(&layout).unwrap_or_default();
+    let config = load_config(&layout)?;
     let timeout_secs = config.gemini.timeout_secs;
 
     run_query(&system_prompt, &sanitize_result.sanitized, timeout_secs)?;

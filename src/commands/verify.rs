@@ -27,7 +27,7 @@ pub fn execute_verify(command_str: Option<String>, timeout_secs: u64) -> Result<
                 Err(_) => None,
             };
 
-            let rules = load_rules(&layout).unwrap_or_default();
+            let rules = load_rules(&layout)?;
             let plan = match &packet {
                 Some(packet) => build_plan(packet, &rules),
                 None => VerificationPlan {

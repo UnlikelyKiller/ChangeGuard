@@ -130,7 +130,7 @@ impl StorageManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::impact::packet::ImpactPacket;
+    use crate::impact::packet::{FileAnalysisStatus, ImpactPacket};
     use std::path::PathBuf;
 
     fn in_memory_storage() -> StorageManager {
@@ -200,6 +200,8 @@ mod tests {
                 symbols: None,
                 imports: None,
                 runtime_usage: None,
+                analysis_status: FileAnalysisStatus::default(),
+                analysis_warnings: Vec::new(),
             }],
             ..Default::default()
         };

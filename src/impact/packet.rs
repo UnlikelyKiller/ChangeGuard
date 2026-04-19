@@ -14,6 +14,25 @@ pub enum RiskLevel {
     High,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum AnalysisStatus {
+    #[default]
+    NotRun,
+    Ok,
+    Unsupported,
+    ReadFailed,
+    ExtractionFailed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct FileAnalysisStatus {
+    pub symbols: AnalysisStatus,
+    pub imports: AnalysisStatus,
+    pub runtime_usage: AnalysisStatus,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "camelCase")]
 pub struct ChangedFile {
@@ -23,6 +42,10 @@ pub struct ChangedFile {
     pub symbols: Option<Vec<Symbol>>,
     pub imports: Option<ImportExport>,
     pub runtime_usage: Option<RuntimeUsage>,
+    #[serde(default)]
+    pub analysis_status: FileAnalysisStatus,
+    #[serde(default)]
+    pub analysis_warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -89,6 +112,8 @@ impl ImpactPacket {
                 runtime_usage.env_vars.sort_unstable();
                 runtime_usage.config_keys.sort_unstable();
             }
+            file.analysis_warnings.sort_unstable();
+            file.analysis_warnings.dedup();
         }
         self.changes.sort_unstable();
         self.verification_results.sort_unstable();
@@ -114,6 +139,8 @@ mod tests {
             symbols: None,
             imports: None,
             runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
         });
 
         let json = serde_json::to_string_pretty(&packet).unwrap();
@@ -150,6 +177,8 @@ mod tests {
             ]),
             imports: None,
             runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
         });
         packet.changes.push(ChangedFile {
             path: PathBuf::from("a.rs"),
@@ -158,6 +187,8 @@ mod tests {
             symbols: None,
             imports: None,
             runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
         });
 
         packet.finalize();

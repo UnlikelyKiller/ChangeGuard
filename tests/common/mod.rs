@@ -31,6 +31,7 @@ impl Drop for DirGuard {
     }
 }
 
+#[allow(dead_code)]
 pub fn setup_git_repo(dir: &Path) {
     git_cmd(dir, &["init"]);
     git_cmd(dir, &["config", "user.email", "test@test.com"]);

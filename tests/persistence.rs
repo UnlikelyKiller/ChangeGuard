@@ -1,4 +1,4 @@
-use changeguard::impact::packet::{ChangedFile, ImpactPacket};
+use changeguard::impact::packet::{ChangedFile, FileAnalysisStatus, ImpactPacket};
 use changeguard::state::storage::StorageManager;
 use std::path::PathBuf;
 use tempfile::tempdir;
@@ -22,6 +22,8 @@ fn test_persistence_integration() {
             symbols: None,
             imports: None,
             runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
         });
 
         storage.save_packet(&packet).unwrap();

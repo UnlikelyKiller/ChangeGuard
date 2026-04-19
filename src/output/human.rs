@@ -84,6 +84,19 @@ pub fn print_impact_summary(packet: &ImpactPacket) {
         }
         println!("{table}");
     }
+
+    let partial_analysis_count = packet
+        .changes
+        .iter()
+        .filter(|file| !file.analysis_warnings.is_empty())
+        .count();
+    if partial_analysis_count > 0 {
+        println!(
+            "\n{} {} file(s) had partial or unsupported analysis. Inspect latest-impact.json for details.",
+            "Warning:".yellow().bold(),
+            partial_analysis_count
+        );
+    }
 }
 
 pub fn print_doctor_report(

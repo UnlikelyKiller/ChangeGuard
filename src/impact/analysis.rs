@@ -86,7 +86,7 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::impact::packet::ChangedFile;
+    use crate::impact::packet::{ChangedFile, FileAnalysisStatus};
     use std::path::PathBuf;
 
     #[test]
@@ -99,6 +99,8 @@ mod tests {
             symbols: None,
             imports: None,
             runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
         });
 
         let rules = Rules::default();
@@ -122,6 +124,8 @@ mod tests {
             symbols: None,
             imports: None,
             runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
         });
 
         let rules = Rules {

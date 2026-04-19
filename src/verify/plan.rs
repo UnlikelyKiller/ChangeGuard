@@ -74,7 +74,7 @@ pub fn build_plan(packet: &ImpactPacket, rules: &Rules) -> VerificationPlan {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::impact::packet::{ChangedFile, ImpactPacket};
+use crate::impact::packet::{ChangedFile, FileAnalysisStatus, ImpactPacket};
     use crate::policy::mode::Mode;
     use crate::policy::rules::{GlobalRules, PathRule, Rules};
     use std::path::PathBuf;
@@ -88,6 +88,8 @@ mod tests {
                 symbols: None,
                 imports: None,
                 runtime_usage: None,
+                analysis_status: FileAnalysisStatus::default(),
+                analysis_warnings: Vec::new(),
             }],
             ..ImpactPacket::default()
         }

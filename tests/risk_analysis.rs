@@ -1,5 +1,5 @@
 use changeguard::impact::analysis::analyze_risk;
-use changeguard::impact::packet::{ChangedFile, ImpactPacket, RiskLevel};
+use changeguard::impact::packet::{ChangedFile, FileAnalysisStatus, ImpactPacket, RiskLevel};
 use changeguard::index::symbols::{Symbol, SymbolKind};
 use changeguard::policy::rules::Rules;
 use std::path::PathBuf;
@@ -20,6 +20,8 @@ fn test_risk_analysis_integration() {
         }]),
         imports: None,
         runtime_usage: None,
+        analysis_status: FileAnalysisStatus::default(),
+        analysis_warnings: Vec::new(),
     });
 
     let rules = Rules::default();
@@ -48,6 +50,8 @@ fn test_risk_analysis_high_volume() {
             symbols: None,
             imports: None,
             runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
         });
     }
 
@@ -81,6 +85,8 @@ fn test_risk_analysis_protected_and_public() {
         symbols: None,
         imports: None,
         runtime_usage: None,
+        analysis_status: FileAnalysisStatus::default(),
+        analysis_warnings: Vec::new(),
     });
 
     packet.changes.push(ChangedFile {
@@ -94,6 +100,8 @@ fn test_risk_analysis_protected_and_public() {
         }]),
         imports: None,
         runtime_usage: None,
+        analysis_status: FileAnalysisStatus::default(),
+        analysis_warnings: Vec::new(),
     });
 
     let rules = Rules {
