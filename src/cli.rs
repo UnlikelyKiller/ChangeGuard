@@ -47,7 +47,20 @@ pub enum Commands {
         mode: crate::gemini::modes::GeminiMode,
     },
     /// Reset the local state
-    Reset,
+    Reset {
+        /// Also remove .changeguard/config.toml
+        #[arg(long)]
+        remove_config: bool,
+        /// Also remove .changeguard/rules.toml
+        #[arg(long)]
+        remove_rules: bool,
+        /// Remove the entire .changeguard/ tree
+        #[arg(long)]
+        all: bool,
+        /// Confirm destructive reset actions
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 pub fn run() -> Result<()> {
@@ -63,9 +76,11 @@ pub fn run() -> Result<()> {
             crate::commands::verify::execute_verify(command, timeout)
         }
         Commands::Ask { query, mode } => crate::commands::ask::execute_ask(query, mode),
-        Commands::Reset => {
-            println!("Resetting local state...");
-            Ok(())
-        }
+        Commands::Reset {
+            remove_config,
+            remove_rules,
+            all,
+            yes,
+        } => crate::commands::reset::execute_reset(remove_config, remove_rules, all, yes),
     }
 }

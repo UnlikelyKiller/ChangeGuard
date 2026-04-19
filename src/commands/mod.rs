@@ -2,6 +2,7 @@ pub mod ask;
 pub mod doctor;
 pub mod impact;
 pub mod init;
+pub mod reset;
 pub mod scan;
 pub mod verify;
 pub mod watch;
