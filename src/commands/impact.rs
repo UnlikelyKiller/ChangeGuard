@@ -1,12 +1,12 @@
 use crate::git::repo::{get_head_info, open_repo};
 use crate::git::status::get_repo_status;
 use crate::git::{ChangeType, RepoSnapshot};
-use crate::impact::packet::{ChangedFile, ImpactPacket, RiskLevel};
+use crate::impact::packet::{ChangedFile, ImpactPacket};
 use crate::index::languages::parse_symbols;
+use crate::output::diagnostics::{success_marker, warning_marker};
+use crate::output::human::print_impact_summary;
 use crate::state::layout::Layout;
 use crate::state::reports::write_impact_report;
-use crate::ui::{print_header, success_marker, warning_marker};
-use comfy_table::Table;
 use indicatif::{ProgressBar, ProgressStyle};
 use miette::Result;
 use owo_colors::OwoColorize;
@@ -96,37 +96,19 @@ pub fn execute_impact() -> Result<()> {
     Ok(())
 }
 
-fn print_impact_summary(packet: &ImpactPacket) {
-    print_header("ChangeGuard Impact Analysis");
-
-    let risk_color = match packet.risk_level {
-        RiskLevel::Low => "LOW".green().bold().to_string(),
-        RiskLevel::Medium => "MEDIUM".yellow().bold().to_string(),
-        RiskLevel::High => "HIGH".red().bold().to_string(),
+fn map_snapshot_to_packet(snapshot: RepoSnapshot, base_dir: &Path) -> Result<ImpactPacket> {
+    let mut packet = ImpactPacket {
+        head_hash: snapshot.head_hash,
+        branch_name: snapshot.branch_name,
+        ..ImpactPacket::default()
     };
 
-    println!("{:<15} {}", "Risk Level:".bold().cyan(), risk_color);
-
-    if !packet.risk_reasons.is_empty() {
-        println!("\n{}", "Risk Reasons:".bold());
-        let mut table = Table::new();
-        table.set_header(vec!["#", "Reason"]);
-        for (i, reason) in packet.risk_reasons.iter().enumerate() {
-            table.add_row(vec![(i + 1).to_string(), reason.to_string()]);
-        }
-        println!("{table}");
-    }
-}
-
-fn map_snapshot_to_packet(snapshot: RepoSnapshot, base_dir: &Path) -> Result<ImpactPacket> {
-    let mut packet = ImpactPacket::default();
-    packet.head_hash = snapshot.head_hash;
-    packet.branch_name = snapshot.branch_name;
-
     let pb = ProgressBar::new(snapshot.changes.len() as u64);
-    pb.set_style(ProgressStyle::default_bar()
-        .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta}) {msg}")
-        .unwrap_or_else(|_| ProgressStyle::default_bar()));
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta}) {msg}")
+            .unwrap_or_else(|_| ProgressStyle::default_bar()),
+    );
     pb.set_message("Extracting symbols...");
 
     packet.changes = snapshot

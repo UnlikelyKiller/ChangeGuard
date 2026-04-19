@@ -2,7 +2,13 @@ use camino::{Utf8Path, Utf8PathBuf};
 use changeguard::commands::init::execute_init;
 use std::fs;
 use std::process::Command;
+use std::sync::{Mutex, OnceLock};
 use tempfile::tempdir;
+
+fn cwd_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
 
 struct DirGuard(Utf8PathBuf);
 
@@ -22,6 +28,7 @@ impl Drop for DirGuard {
 
 #[test]
 fn test_init_command_integration() {
+    let _lock = cwd_lock().lock().unwrap();
     let tmp = tempdir().unwrap();
     let root = Utf8Path::from_path(tmp.path()).unwrap();
 
@@ -52,6 +59,7 @@ fn test_init_command_integration() {
 
 #[test]
 fn test_init_no_gitignore() {
+    let _lock = cwd_lock().lock().unwrap();
     let tmp = tempdir().unwrap();
     let root = Utf8Path::from_path(tmp.path()).unwrap();
 

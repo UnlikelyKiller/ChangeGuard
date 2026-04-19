@@ -1,3 +1,4 @@
+pub mod modes;
 pub mod prompt;
 pub mod sanitize;
 

@@ -42,6 +42,9 @@ pub enum Commands {
     Ask {
         /// The query to ask Gemini
         query: String,
+        /// Gemini interaction mode
+        #[arg(long, short, default_value = "analyze")]
+        mode: crate::gemini::modes::GeminiMode,
     },
     /// Reset the local state
     Reset,
@@ -59,7 +62,7 @@ pub fn run() -> Result<()> {
         Commands::Verify { command, timeout } => {
             crate::commands::verify::execute_verify(command, timeout)
         }
-        Commands::Ask { query } => crate::commands::ask::execute_ask(query),
+        Commands::Ask { query, mode } => crate::commands::ask::execute_ask(query, mode),
         Commands::Reset => {
             println!("Resetting local state...");
             Ok(())

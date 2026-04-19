@@ -7,12 +7,10 @@ use gix::bstr::BString;
 pub fn get_repo_status(repo: &Repository) -> Result<Vec<FileChange>, GitError> {
     let mut file_changes = Vec::new();
 
-    // Configure status to include untracked files and handle renames if possible
-    // In gix 0.81.0, repo.status() requires progress.
     let status = repo
         .status(gix::progress::Discard)
         .map_err(|e| GitError::MetadataError { source: e.into() })?
-        .index_worktree_rewrites(None);
+        .index_worktree_rewrites(Some(gix::diff::Rewrites::default()));
 
     let items = status
         .into_iter(Vec::<BString>::new())

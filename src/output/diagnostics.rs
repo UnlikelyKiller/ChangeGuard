@@ -22,3 +22,15 @@ pub fn warning_marker() -> String {
 pub fn info_marker() -> String {
     "INFO".blue().bold().to_string()
 }
+
+pub fn error_banner(message: &str) {
+    println!("\n{}", "ERROR".red().bold());
+    println!("{}", "=".repeat(40).red());
+    println!("{}", message.red());
+}
+
+pub fn warning_banner(message: &str) {
+    println!("\n{}", "WARNING".yellow().bold());
+    println!("{}", "=".repeat(40).yellow());
+    println!("{}", message.yellow());
+}

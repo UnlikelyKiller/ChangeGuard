@@ -1,32 +1,12 @@
+use crate::gemini::modes::{GeminiMode, build_system_prompt, build_user_prompt};
 use crate::impact::packet::ImpactPacket;
 
-pub fn build_system_prompt() -> String {
-    r#"You are ChangeGuard, an expert software engineering assistant.
-Your goal is to help developers understand the impact and risk of their changes.
-You have access to "Impact Packets" which describe repository state, changed files, and extracted symbols.
-Provide concise, technical, and actionable insights. Focus on potential regressions, architectural shifts, and verification needs."#
-        .to_string()
+pub fn build_system_prompt_legacy() -> String {
+    build_system_prompt(GeminiMode::Analyze)
 }
 
-pub fn build_user_prompt(packet: &ImpactPacket, query: &str) -> String {
-    let packet_json = serde_json::to_string_pretty(packet).unwrap_or_else(|e| {
-        tracing::warn!("Packet serialization failed: {e}");
-        format!("{{\"error\": \"serialization failed: {e}\"}}")
-    });
-
-    format!(
-        r#"Context:
----
-Impact Packet:
-{}
----
-
-Question:
-{}
-
-Please analyze the provided context and answer the question above."#,
-        packet_json, query
-    )
+pub fn build_user_prompt_legacy(packet: &ImpactPacket, query: &str) -> String {
+    build_user_prompt(GeminiMode::Analyze, packet, query, None)
 }
 
 #[cfg(test)]
@@ -38,7 +18,7 @@ mod tests {
     fn test_prompt_construction() {
         let packet = ImpactPacket::default();
         let query = "What is the risk?";
-        let prompt = build_user_prompt(&packet, query);
+        let prompt = build_user_prompt_legacy(&packet, query);
 
         assert!(prompt.contains("Impact Packet:"));
         assert!(prompt.contains(query));
