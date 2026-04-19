@@ -2,12 +2,16 @@
 
 ## Active Tracks
 
-*   **Track 5: Basic Impact Packet Shell** (Active)
+*   **Track 6: Watch Mode and Batch Debouncing** (Active)
     *   Status: Planning
-    *   Plan: `conductor/track5/plan.md`
-    *   Implementation Branch: `feat/impact-packet`
+    *   Plan: `conductor/track6/plan.md`
+    *   Implementation Branch: `feat/watch-mode`
 
 ## Completed Tracks
+
+*   **Track 5: Basic Impact Packet Shell**
+    *   Status: Completed
+    *   PR: Merged into `main`
 
 *   **Track 4: Git Scan Foundation**
     *   Status: Completed
