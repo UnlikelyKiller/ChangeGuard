@@ -1,7 +1,5 @@
-use clap::{Args, Parser, Subcommand};
+use clap::{Parser, Subcommand};
 use miette::Result;
-use crate::commands::init::execute_init;
-use crate::commands::doctor::execute_doctor;
 
 #[derive(Parser)]
 #[command(name = "changeguard")]
@@ -14,7 +12,11 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     /// Initialize Changeguard in the current repository
-    Init(InitArgs),
+    Init {
+        /// Do not update .gitignore
+        #[arg(long)]
+        no_gitignore: bool,
+    },
     /// Check the health of the environment and tools
     Doctor,
     /// Scan the repository for changes
@@ -31,26 +33,32 @@ pub enum Commands {
     Reset,
 }
 
-#[derive(Args)]
-pub struct InitArgs {
-    /// Do not add .changeguard/ to .gitignore
-    #[arg(long)]
-    pub no_gitignore: bool,
-}
-
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Init(args) => execute_init(args.no_gitignore)?,
-        Commands::Doctor => execute_doctor()?,
-        Commands::Scan => println!("Scanning repository..."),
-        Commands::Watch => println!("Watching for changes..."),
-        Commands::Impact => println!("Analyzing impact..."),
-        Commands::Verify => println!("Running verification..."),
-        Commands::Ask => println!("Asking Gemini..."),
-        Commands::Reset => println!("Resetting local state..."),
+        Commands::Init { no_gitignore } => crate::commands::init::execute_init(no_gitignore),
+        Commands::Doctor => crate::commands::doctor::execute_doctor(),
+        Commands::Scan => crate::commands::scan::execute_scan(),
+        Commands::Watch => {
+            println!("Watching for changes...");
+            Ok(())
+        }
+        Commands::Impact => {
+            println!("Analyzing impact...");
+            Ok(())
+        }
+        Commands::Verify => {
+            println!("Running verification...");
+            Ok(())
+        }
+        Commands::Ask => {
+            println!("Asking Gemini...");
+            Ok(())
+        }
+        Commands::Reset => {
+            println!("Resetting local state...");
+            Ok(())
+        }
     }
-
-    Ok(())
 }
