@@ -18,6 +18,8 @@ fn test_risk_analysis_integration() {
             kind: SymbolKind::Function,
             is_public: true,
         }]),
+        imports: None,
+        runtime_usage: None,
     });
 
     let rules = Rules::default();
@@ -44,6 +46,8 @@ fn test_risk_analysis_high_volume() {
             status: "Added".to_string(),
             is_staged: true,
             symbols: None,
+            imports: None,
+            runtime_usage: None,
         });
     }
 
@@ -75,6 +79,8 @@ fn test_risk_analysis_protected_and_public() {
         status: "Modified".to_string(),
         is_staged: true,
         symbols: None,
+        imports: None,
+        runtime_usage: None,
     });
 
     packet.changes.push(ChangedFile {
@@ -86,6 +92,8 @@ fn test_risk_analysis_protected_and_public() {
             kind: SymbolKind::Function,
             is_public: true,
         }]),
+        imports: None,
+        runtime_usage: None,
     });
 
     let mut rules = Rules::default();

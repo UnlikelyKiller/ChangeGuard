@@ -97,6 +97,8 @@ mod tests {
             status: "Modified".to_string(),
             is_staged: true,
             symbols: None,
+            imports: None,
+            runtime_usage: None,
         });
 
         let rules = Rules::default();
@@ -118,6 +120,8 @@ mod tests {
             status: "Modified".to_string(),
             is_staged: true,
             symbols: None,
+            imports: None,
+            runtime_usage: None,
         });
 
         let mut rules = Rules::default();

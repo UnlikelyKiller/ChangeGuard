@@ -4,6 +4,7 @@ use thiserror::Error;
 pub mod batch;
 pub mod debounce;
 pub mod filters;
+pub mod normalize;
 
 #[derive(Error, Debug, Diagnostic)]
 pub enum WatchError {

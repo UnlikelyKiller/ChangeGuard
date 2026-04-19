@@ -2,6 +2,12 @@ use changeguard::commands::impact::execute_impact;
 use changeguard::state::layout::Layout;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
+
+fn cwd_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
 
 struct DirGuard {
     original: PathBuf,
@@ -52,6 +58,7 @@ fn git_add_and_commit(dir: &std::path::Path, msg: &str) {
 
 #[test]
 fn test_impact_warns_on_rules_failure() {
+    let _lock = cwd_lock().lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path();
 
@@ -91,6 +98,7 @@ fn test_impact_warns_on_rules_failure() {
 
 #[test]
 fn test_impact_succeeds_without_rules_file() {
+    let _lock = cwd_lock().lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path();
 
@@ -117,6 +125,7 @@ fn test_impact_succeeds_without_rules_file() {
 
 #[test]
 fn test_impact_creates_report_file() {
+    let _lock = cwd_lock().lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path();
 

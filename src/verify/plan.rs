@@ -80,14 +80,17 @@ mod tests {
     use std::path::PathBuf;
 
     fn empty_packet() -> ImpactPacket {
-        let mut p = ImpactPacket::default();
-        p.changes = vec![ChangedFile {
-            path: PathBuf::from("src/main.rs"),
-            status: "Modified".to_string(),
-            is_staged: false,
-            symbols: None,
-        }];
-        p
+        ImpactPacket {
+            changes: vec![ChangedFile {
+                path: PathBuf::from("src/main.rs"),
+                status: "Modified".to_string(),
+                is_staged: false,
+                symbols: None,
+                imports: None,
+                runtime_usage: None,
+            }],
+            ..ImpactPacket::default()
+        }
     }
 
     #[test]
@@ -210,8 +213,10 @@ mod tests {
 
     #[test]
     fn test_build_plan_empty_changes_no_path_match() {
-        let mut packet = ImpactPacket::default();
-        packet.changes = vec![]; // no changes
+        let packet = ImpactPacket {
+            changes: vec![],
+            ..ImpactPacket::default()
+        };
 
         let rules = Rules {
             global: GlobalRules {

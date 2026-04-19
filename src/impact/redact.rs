@@ -242,6 +242,8 @@ mod tests {
                 kind: SymbolKind::Variable,
                 is_public: false,
             }]),
+            imports: None,
+            runtime_usage: None,
         });
 
         let redactions = redact_secrets(&mut packet);
@@ -266,6 +268,8 @@ mod tests {
                 kind: SymbolKind::Variable,
                 is_public: false,
             }]),
+            imports: None,
+            runtime_usage: None,
         });
 
         let redactions = redact_secrets(&mut packet);
@@ -288,6 +292,8 @@ mod tests {
                 kind: SymbolKind::Constant,
                 is_public: false,
             }]),
+            imports: None,
+            runtime_usage: None,
         });
 
         // First verify the regex itself matches
@@ -313,6 +319,8 @@ mod tests {
                 kind: SymbolKind::Constant,
                 is_public: false,
             }]),
+            imports: None,
+            runtime_usage: None,
         });
 
         let redactions = redact_secrets(&mut packet);
@@ -369,6 +377,8 @@ mod tests {
                     is_public: true,
                 },
             ]),
+            imports: None,
+            runtime_usage: None,
         });
 
         let redactions = redact_secrets(&mut packet);

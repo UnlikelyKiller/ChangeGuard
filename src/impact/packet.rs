@@ -1,4 +1,6 @@
 use crate::index::symbols::Symbol;
+use crate::index::references::ImportExport;
+use crate::index::runtime_usage::RuntimeUsage;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -18,6 +20,8 @@ pub struct ChangedFile {
     pub status: String, // e.g., "Added", "Modified", "Deleted", "Renamed"
     pub is_staged: bool,
     pub symbols: Option<Vec<Symbol>>,
+    pub imports: Option<ImportExport>,
+    pub runtime_usage: Option<RuntimeUsage>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -69,6 +73,14 @@ impl ImpactPacket {
             if let Some(ref mut symbols) = file.symbols {
                 symbols.sort_unstable();
             }
+            if let Some(ref mut imports) = file.imports {
+                imports.imported_from.sort_unstable();
+                imports.exported_symbols.sort_unstable();
+            }
+            if let Some(ref mut runtime_usage) = file.runtime_usage {
+                runtime_usage.env_vars.sort_unstable();
+                runtime_usage.config_keys.sort_unstable();
+            }
         }
         self.changes.sort_unstable();
         self.verification_results.sort_unstable();
@@ -81,15 +93,19 @@ mod tests {
 
     #[test]
     fn test_packet_serialization() {
-        let mut packet = ImpactPacket::default();
-        packet.timestamp_utc = "2023-10-27T10:00:00Z".to_string();
-        packet.head_hash = Some("abcdef123456".to_string());
-        packet.branch_name = Some("main".to_string());
+        let mut packet = ImpactPacket {
+            timestamp_utc: "2023-10-27T10:00:00Z".to_string(),
+            head_hash: Some("abcdef123456".to_string()),
+            branch_name: Some("main".to_string()),
+            ..ImpactPacket::default()
+        };
         packet.changes.push(ChangedFile {
             path: PathBuf::from("src/main.rs"),
             status: "Modified".to_string(),
             is_staged: true,
             symbols: None,
+            imports: None,
+            runtime_usage: None,
         });
 
         let json = serde_json::to_string_pretty(&packet).unwrap();
@@ -103,8 +119,10 @@ mod tests {
 
     #[test]
     fn test_deterministic_sorting() {
-        let mut packet = ImpactPacket::default();
-        packet.risk_reasons = vec!["C".to_string(), "A".to_string(), "B".to_string()];
+        let mut packet = ImpactPacket {
+            risk_reasons: vec!["C".to_string(), "A".to_string(), "B".to_string()],
+            ..ImpactPacket::default()
+        };
 
         packet.changes.push(ChangedFile {
             path: PathBuf::from("z.rs"),
@@ -122,12 +140,16 @@ mod tests {
                     is_public: true,
                 },
             ]),
+            imports: None,
+            runtime_usage: None,
         });
         packet.changes.push(ChangedFile {
             path: PathBuf::from("a.rs"),
             status: "Added".to_string(),
             is_staged: true,
             symbols: None,
+            imports: None,
+            runtime_usage: None,
         });
 
         packet.finalize();

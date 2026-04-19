@@ -2,6 +2,8 @@ use crate::git::repo::{get_head_info, open_repo};
 use crate::git::status::get_repo_status;
 use crate::git::{ChangeType, RepoSnapshot};
 use crate::impact::packet::{ChangedFile, ImpactPacket};
+use crate::index::references::extract_import_export;
+use crate::index::runtime_usage::extract_runtime_usage;
 use crate::index::languages::parse_symbols;
 use crate::output::diagnostics::{success_marker, warning_marker};
 use crate::output::human::print_impact_summary;
@@ -133,6 +135,23 @@ fn map_snapshot_to_packet(snapshot: RepoSnapshot, base_dir: &Path) -> Result<Imp
             } else {
                 None
             };
+            let imports = if matches!(c.change_type, ChangeType::Added | ChangeType::Modified) {
+                let full_path = base_dir.join(&c.path);
+                fs::read_to_string(&full_path)
+                    .ok()
+                    .and_then(|content| extract_import_export(&c.path, &content).ok().flatten())
+            } else {
+                None
+            };
+            let runtime_usage =
+                if matches!(c.change_type, ChangeType::Added | ChangeType::Modified) {
+                    let full_path = base_dir.join(&c.path);
+                    fs::read_to_string(&full_path)
+                        .ok()
+                        .and_then(|content| extract_runtime_usage(&c.path, &content))
+                } else {
+                    None
+                };
 
             pb.inc(1);
             ChangedFile {
@@ -140,6 +159,8 @@ fn map_snapshot_to_packet(snapshot: RepoSnapshot, base_dir: &Path) -> Result<Imp
                 status,
                 is_staged: c.is_staged,
                 symbols,
+                imports,
+                runtime_usage,
             }
         })
         .collect();

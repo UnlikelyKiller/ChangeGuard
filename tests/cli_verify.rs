@@ -2,23 +2,14 @@ use changeguard::commands::verify::execute_verify;
 
 #[test]
 fn test_verify_command_pass() {
-    // "echo hello" works cross-platform (cmd.exe on Windows, sh on Unix)
-    let cmd = if cfg!(target_os = "windows") {
-        "cmd /C echo hello"
-    } else {
-        "echo hello"
-    };
+    let cmd = "echo hello";
     let result = execute_verify(Some(cmd.into()), 5);
     assert!(result.is_ok());
 }
 
 #[test]
 fn test_verify_command_fail() {
-    let cmd = if cfg!(target_os = "windows") {
-        "cmd /C exit 1"
-    } else {
-        "sh -c 'exit 1'"
-    };
+    let cmd = if cfg!(target_os = "windows") { "exit 1" } else { "exit 1" };
     let result = execute_verify(Some(cmd.into()), 5);
     assert!(result.is_err());
 }
@@ -26,7 +17,7 @@ fn test_verify_command_fail() {
 #[test]
 fn test_verify_command_timeout() {
     let cmd = if cfg!(target_os = "windows") {
-        "cmd /C ping -n 10 127.0.0.1 >nul"
+        "ping -n 10 127.0.0.1 >nul"
     } else {
         "sleep 10"
     };

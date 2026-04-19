@@ -198,6 +198,8 @@ mod tests {
                 status: "Modified".to_string(),
                 is_staged: true,
                 symbols: None,
+                imports: None,
+                runtime_usage: None,
             }],
             ..Default::default()
         };

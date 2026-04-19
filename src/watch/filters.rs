@@ -8,7 +8,7 @@ pub struct EventFilter {
 }
 
 impl EventFilter {
-    pub fn new() -> Result<Self, WatchError> {
+    pub fn new(extra_patterns: &[String]) -> Result<Self, WatchError> {
         let mut builder = GlobSetBuilder::new();
 
         // Default ignores
@@ -22,6 +22,9 @@ impl EventFilter {
         builder.add(Glob::new("**/.*.swp")?);
         builder.add(Glob::new("**/.*.swx")?);
         builder.add(Glob::new("**/~*")?);
+        for pattern in extra_patterns {
+            builder.add(Glob::new(pattern)?);
+        }
 
         Ok(Self {
             ignore_set: builder.build()?,
@@ -40,7 +43,7 @@ mod tests {
 
     #[test]
     fn test_filter_ignores() {
-        let filter = EventFilter::new().unwrap();
+        let filter = EventFilter::new(&[]).unwrap();
 
         // Should be ignored
         assert!(!filter.is_allowed("target/debug/changeguard"));
@@ -53,5 +56,12 @@ mod tests {
         assert!(filter.is_allowed("src/main.rs"));
         assert!(filter.is_allowed("Cargo.toml"));
         assert!(filter.is_allowed("tests/common/mod.rs"));
+    }
+
+    #[test]
+    fn test_filter_uses_extra_patterns() {
+        let filter = EventFilter::new(&["dist/**".to_string()]).unwrap();
+        assert!(!filter.is_allowed("dist/app.js"));
+        assert!(filter.is_allowed("src/app.js"));
     }
 }
