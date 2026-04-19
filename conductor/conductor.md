@@ -2,12 +2,16 @@
 
 ## Active Tracks
 
-*   **Track 1: Repo-Local State Layout and Init** (Active)
+*   **Track 2: Doctor and Platform Detection** (Active)
     *   Status: Planning
-    *   Plan: `conductor/track1/plan.md`
-    *   Implementation Branch: `feat/init-command`
+    *   Plan: `conductor/track2/plan.md`
+    *   Implementation Branch: `feat/doctor-command`
 
 ## Completed Tracks
+
+*   **Track 1: Repo-Local State Layout and Init**
+    *   Status: Completed
+    *   PR: Merged into `main`
 
 *   **Track 0: Bootstrap CLI Skeleton**
     *   Status: Completed
