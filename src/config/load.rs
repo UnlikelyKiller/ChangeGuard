@@ -1,5 +1,6 @@
 use crate::config::error::ConfigError;
 use crate::config::model::Config;
+use crate::config::validate::validate_config;
 use crate::state::layout::Layout;
 use miette::Result;
 use std::fs;
@@ -20,6 +21,8 @@ pub fn load_config(layout: &Layout) -> Result<Config> {
 
     let config: Config =
         toml::from_str(&content).map_err(|e| ConfigError::ParseFailed { source: e })?;
+
+    validate_config(&config)?;
 
     Ok(config)
 }

@@ -1,4 +1,4 @@
-use crate::impact::packet::ImpactPacket;
+use crate::impact::packet::{ChangedFile, ImpactPacket};
 use crate::state::migrations::get_migrations;
 use miette::{IntoDiagnostic, Result};
 use rusqlite::Connection;
@@ -57,26 +57,162 @@ impl StorageManager {
             Ok(None)
         }
     }
+
+    pub fn save_batch(&self, timestamp: &str, event_count: u32, batch_json: &str) -> Result<i64> {
+        self.conn
+            .execute(
+                "INSERT INTO batches (timestamp, event_count, batch_json) VALUES (?1, ?2, ?3)",
+                (timestamp, event_count, batch_json),
+            )
+            .into_diagnostic()?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn save_verification_run(
+        &self,
+        timestamp: &str,
+        plan_json: Option<&str>,
+        overall_pass: bool,
+    ) -> Result<i64> {
+        self.conn
+            .execute(
+                "INSERT INTO verification_runs (timestamp, plan_json, overall_pass) VALUES (?1, ?2, ?3)",
+                (timestamp, plan_json, overall_pass as i32),
+            )
+            .into_diagnostic()?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn save_verification_result(
+        &self,
+        run_id: i64,
+        command: &str,
+        exit_code: i32,
+        duration_ms: u64,
+        truncated: bool,
+    ) -> Result<()> {
+        self.conn
+            .execute(
+                "INSERT INTO verification_results (run_id, command, exit_code, duration_ms, truncated) VALUES (?1, ?2, ?3, ?4, ?5)",
+                (run_id, command, exit_code, duration_ms as i64, truncated as i32),
+            )
+            .into_diagnostic()?;
+        Ok(())
+    }
+
+    pub fn save_changed_files(&self, snapshot_id: i64, files: &[ChangedFile]) -> Result<()> {
+        for file in files {
+            self.conn
+                .execute(
+                    "INSERT INTO changed_files (snapshot_id, path, status, is_staged) VALUES (?1, ?2, ?3, ?4)",
+                    (snapshot_id, file.path.to_string_lossy().as_ref(), &file.status, file.is_staged as i32),
+                )
+                .into_diagnostic()?;
+        }
+        Ok(())
+    }
+
+    pub fn get_latest_verification_run(&self) -> Result<Option<(i64, String, bool)>> {
+        let result = self.conn.query_row(
+            "SELECT id, timestamp, overall_pass FROM verification_runs ORDER BY id DESC LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, i64>(2)? != 0)),
+        );
+
+        match result {
+            Ok(row) => Ok(Some(row)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e).into_diagnostic(),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::impact::packet::ImpactPacket;
+    use std::path::PathBuf;
 
-    #[test]
-    fn test_storage_basic_ops() {
+    fn in_memory_storage() -> StorageManager {
         let conn = Connection::open_in_memory().unwrap();
         let mut conn = conn;
         get_migrations().to_latest(&mut conn).unwrap();
-        let storage = StorageManager { conn };
+        StorageManager { conn }
+    }
 
-        let mut packet = ImpactPacket::default();
-        packet.head_hash = Some("test_hash".to_string());
+    #[test]
+    fn test_storage_basic_ops() {
+        let storage = in_memory_storage();
+
+        let packet = ImpactPacket {
+            head_hash: Some("test_hash".to_string()),
+            ..Default::default()
+        };
 
         storage.save_packet(&packet).unwrap();
 
         let latest = storage.get_latest_packet().unwrap().unwrap();
         assert_eq!(latest.head_hash, Some("test_hash".to_string()));
+    }
+
+    #[test]
+    fn test_save_batch() {
+        let storage = in_memory_storage();
+        let id = storage
+            .save_batch("2026-01-01T00:00:00Z", 3, r#"{"events":[]}"#)
+            .unwrap();
+        assert!(id > 0);
+    }
+
+    #[test]
+    fn test_save_verification_run() {
+        let storage = in_memory_storage();
+        let id = storage
+            .save_verification_run("2026-01-01T00:00:00Z", Some(r#"{"steps":[]}"#), true)
+            .unwrap();
+        assert!(id > 0);
+
+        let latest = storage.get_latest_verification_run().unwrap().unwrap();
+        assert_eq!(latest.0, id);
+        assert!(latest.2);
+    }
+
+    #[test]
+    fn test_save_verification_result() {
+        let storage = in_memory_storage();
+        let run_id = storage
+            .save_verification_run("2026-01-01T00:00:00Z", None, false)
+            .unwrap();
+        storage
+            .save_verification_result(run_id, "cargo test", 1, 3000, false)
+            .unwrap();
+    }
+
+    #[test]
+    fn test_save_changed_files() {
+        let storage = in_memory_storage();
+        let packet = ImpactPacket {
+            head_hash: Some("abc".to_string()),
+            changes: vec![ChangedFile {
+                path: PathBuf::from("src/main.rs"),
+                status: "Modified".to_string(),
+                is_staged: true,
+                symbols: None,
+            }],
+            ..Default::default()
+        };
+        storage.save_packet(&packet).unwrap();
+
+        let snapshot_id = storage.conn.last_insert_rowid();
+        storage
+            .save_changed_files(snapshot_id, &packet.changes)
+            .unwrap();
+    }
+
+    #[test]
+    fn test_get_latest_verification_run_empty() {
+        let storage = in_memory_storage();
+        let result = storage.get_latest_verification_run().unwrap();
+        assert!(result.is_none());
     }
 }
