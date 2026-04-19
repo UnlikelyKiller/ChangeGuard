@@ -1,4 +1,5 @@
-use crate::config::defaults::{DEFAULT_CONFIG, DEFAULT_RULES};
+use crate::config::defaults::DEFAULT_CONFIG;
+use crate::policy::defaults::DEFAULT_RULES;
 use crate::config::ConfigError;
 use crate::git::ignore::add_to_gitignore;
 use crate::state::layout::Layout;

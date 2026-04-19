@@ -1,0 +1,11 @@
+C:\dev\ChangeGuard\target\debug\deps\gix_blame-8f2a27273ff5f5aa.d: C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-blame-0.11.0\src\lib.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-blame-0.11.0\src\error.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-blame-0.11.0\src\types.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-blame-0.11.0\src\file\mod.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-blame-0.11.0\src\file\function.rs
+
+C:\dev\ChangeGuard\target\debug\deps\libgix_blame-8f2a27273ff5f5aa.rlib: C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-blame-0.11.0\src\lib.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-blame-0.11.0\src\error.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-blame-0.11.0\src\types.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-blame-0.11.0\src\file\mod.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-blame-0.11.0\src\file\function.rs
+
+C:\dev\ChangeGuard\target\debug\deps\libgix_blame-8f2a27273ff5f5aa.rmeta: C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-blame-0.11.0\src\lib.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-blame-0.11.0\src\error.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-blame-0.11.0\src\types.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-blame-0.11.0\src\file\mod.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-blame-0.11.0\src\file\function.rs
+
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-blame-0.11.0\src\lib.rs:
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-blame-0.11.0\src\error.rs:
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-blame-0.11.0\src\types.rs:
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-blame-0.11.0\src\file\mod.rs:
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-blame-0.11.0\src\file\function.rs:

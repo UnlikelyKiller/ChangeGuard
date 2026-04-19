@@ -1,0 +1,12 @@
+C:\dev\ChangeGuard\target\debug\deps\gix_path-23c713ef53fb0233.d: C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-path-0.11.2\src\lib.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-path-0.11.2\src\convert.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-path-0.11.2\src\util.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-path-0.11.2\src\realpath.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-path-0.11.2\src\env\mod.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-path-0.11.2\src\env\auxiliary.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-path-0.11.2\src\env\git\mod.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-path-0.11.2\src\relative_path.rs
+
+C:\dev\ChangeGuard\target\debug\deps\libgix_path-23c713ef53fb0233.rmeta: C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-path-0.11.2\src\lib.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-path-0.11.2\src\convert.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-path-0.11.2\src\util.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-path-0.11.2\src\realpath.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-path-0.11.2\src\env\mod.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-path-0.11.2\src\env\auxiliary.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-path-0.11.2\src\env\git\mod.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-path-0.11.2\src\relative_path.rs
+
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-path-0.11.2\src\lib.rs:
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-path-0.11.2\src\convert.rs:
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-path-0.11.2\src\util.rs:
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-path-0.11.2\src\realpath.rs:
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-path-0.11.2\src\env\mod.rs:
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-path-0.11.2\src\env\auxiliary.rs:
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-path-0.11.2\src\env\git\mod.rs:
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-path-0.11.2\src\relative_path.rs:

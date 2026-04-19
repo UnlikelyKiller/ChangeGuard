@@ -1,22 +1,12 @@
-pub const DEFAULT_CONFIG: &str = r#"# ChangeGuard Configuration
+pub const DEFAULT_CONFIG: &str = r#"[core]
+strict = false
+auto_fix = false
 
-[project]
-name = "my-project"
-
-[analysis]
-# Languages to scan
-languages = ["rust", "typescript", "python"]
+[watch]
+debounce_ms = 1000
+ignore_patterns = ["target/**", ".git/**", "node_modules/**"]
 
 [gemini]
-# Gemini model configuration
-model = "gemini-2.0-flash-exp"
-"#;
-
-pub const DEFAULT_RULES: &str = r#"# ChangeGuard Rules
-
-[[rules]]
-id = "no-hardcoded-secrets"
-description = "Do not allow hardcoded secrets in the codebase"
-severity = "error"
-pattern = "(?i)password|api_key|secret|token"
+# api_key = "..."
+# model = "gemini-2.0-flash-exp"
 "#;

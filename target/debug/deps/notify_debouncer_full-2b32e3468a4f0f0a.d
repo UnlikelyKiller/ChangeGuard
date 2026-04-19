@@ -1,0 +1,10 @@
+C:\dev\ChangeGuard\target\debug\deps\notify_debouncer_full-2b32e3468a4f0f0a.d: C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\notify-debouncer-full-0.7.0\src\lib.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\notify-debouncer-full-0.7.0\src\cache.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\notify-debouncer-full-0.7.0\src\time.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\notify-debouncer-full-0.7.0\src\file_id_map.rs
+
+C:\dev\ChangeGuard\target\debug\deps\libnotify_debouncer_full-2b32e3468a4f0f0a.rlib: C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\notify-debouncer-full-0.7.0\src\lib.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\notify-debouncer-full-0.7.0\src\cache.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\notify-debouncer-full-0.7.0\src\time.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\notify-debouncer-full-0.7.0\src\file_id_map.rs
+
+C:\dev\ChangeGuard\target\debug\deps\libnotify_debouncer_full-2b32e3468a4f0f0a.rmeta: C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\notify-debouncer-full-0.7.0\src\lib.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\notify-debouncer-full-0.7.0\src\cache.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\notify-debouncer-full-0.7.0\src\time.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\notify-debouncer-full-0.7.0\src\file_id_map.rs
+
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\notify-debouncer-full-0.7.0\src\lib.rs:
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\notify-debouncer-full-0.7.0\src\cache.rs:
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\notify-debouncer-full-0.7.0\src\time.rs:
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\notify-debouncer-full-0.7.0\src\file_id_map.rs:

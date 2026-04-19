@@ -1,0 +1,9 @@
+C:\dev\ChangeGuard\target\debug\deps\gix_chunk-d3125170c09fac0d.d: C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-chunk-0.7.0\src\lib.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-chunk-0.7.0\src\file\mod.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-chunk-0.7.0\src\file\decode.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-chunk-0.7.0\src\file\index.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-chunk-0.7.0\src\file\write.rs
+
+C:\dev\ChangeGuard\target\debug\deps\libgix_chunk-d3125170c09fac0d.rmeta: C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-chunk-0.7.0\src\lib.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-chunk-0.7.0\src\file\mod.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-chunk-0.7.0\src\file\decode.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-chunk-0.7.0\src\file\index.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-chunk-0.7.0\src\file\write.rs
+
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-chunk-0.7.0\src\lib.rs:
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-chunk-0.7.0\src\file\mod.rs:
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-chunk-0.7.0\src\file\decode.rs:
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-chunk-0.7.0\src\file\index.rs:
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-chunk-0.7.0\src\file\write.rs:

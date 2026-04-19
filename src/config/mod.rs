@@ -1,14 +1,8 @@
 pub mod defaults;
+pub mod model;
+pub mod error;
+pub mod load;
+pub mod validate;
 
-use miette::Diagnostic;
-use thiserror::Error;
-
-#[derive(Debug, Error, Diagnostic)]
-pub enum ConfigError {
-    #[error("Failed to write config file at {path}")]
-    WriteFailed {
-        path: String,
-        #[source]
-        source: std::io::Error,
-    },
-}
+pub use error::ConfigError;
+pub use model::Config;

@@ -1,0 +1,9 @@
+C:\dev\ChangeGuard\target\debug\deps\gix_worktree_state-7658c6da62b8a394.d: C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-worktree-state-0.28.0\src\lib.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-worktree-state-0.28.0\src\checkout\mod.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-worktree-state-0.28.0\src\checkout\chunk.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-worktree-state-0.28.0\src\checkout\entry.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-worktree-state-0.28.0\src\checkout\function.rs
+
+C:\dev\ChangeGuard\target\debug\deps\libgix_worktree_state-7658c6da62b8a394.rmeta: C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-worktree-state-0.28.0\src\lib.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-worktree-state-0.28.0\src\checkout\mod.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-worktree-state-0.28.0\src\checkout\chunk.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-worktree-state-0.28.0\src\checkout\entry.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-worktree-state-0.28.0\src\checkout\function.rs
+
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-worktree-state-0.28.0\src\lib.rs:
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-worktree-state-0.28.0\src\checkout\mod.rs:
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-worktree-state-0.28.0\src\checkout\chunk.rs:
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-worktree-state-0.28.0\src\checkout\entry.rs:
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-worktree-state-0.28.0\src\checkout\function.rs:

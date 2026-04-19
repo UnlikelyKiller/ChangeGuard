@@ -1,0 +1,11 @@
+C:\dev\ChangeGuard\target\debug\deps\gix_mailmap-e8c3362bb8e9cff9.d: C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-mailmap-0.32.0\src\lib.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-mailmap-0.32.0\src\parse.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-mailmap-0.32.0\src\entry.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-mailmap-0.32.0\src\snapshot\mod.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-mailmap-0.32.0\src\snapshot\signature.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-mailmap-0.32.0\src\snapshot\util.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-mailmap-0.32.0\src\snapshot\entry.rs
+
+C:\dev\ChangeGuard\target\debug\deps\libgix_mailmap-e8c3362bb8e9cff9.rmeta: C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-mailmap-0.32.0\src\lib.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-mailmap-0.32.0\src\parse.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-mailmap-0.32.0\src\entry.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-mailmap-0.32.0\src\snapshot\mod.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-mailmap-0.32.0\src\snapshot\signature.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-mailmap-0.32.0\src\snapshot\util.rs C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-mailmap-0.32.0\src\snapshot\entry.rs
+
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-mailmap-0.32.0\src\lib.rs:
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-mailmap-0.32.0\src\parse.rs:
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-mailmap-0.32.0\src\entry.rs:
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-mailmap-0.32.0\src\snapshot\mod.rs:
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-mailmap-0.32.0\src\snapshot\signature.rs:
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-mailmap-0.32.0\src\snapshot\util.rs:
+C:\Users\Admin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gix-mailmap-0.32.0\src\snapshot\entry.rs:
