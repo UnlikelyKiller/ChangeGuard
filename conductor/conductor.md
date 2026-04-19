@@ -2,16 +2,18 @@
 
 ## Active Tracks
 
-*   **Track 10: State SQLite Persistence** (Active)
+*   **Track 11: Ask Gemini Baseline** (Active)
     *   Status: Planning
-    *   Plan: `conductor/track10/plan.md`
-    *   Implementation Branch: `feat/sqlite-persistence`
+    *   Plan: `conductor/track11/plan.md`
+    *   Implementation Branch: `feat/ask-gemini`
 
 ## Completed Tracks
 
-*   **Track 9: Change Risk Analysis Engine**
+*   **Track 10: State SQLite Persistence**
     *   Status: Completed
     *   PR: Merged into `main`
+
+*   **Track 9: Change Risk Analysis Engine**
 
 *   **Track 7: Language-Aware Symbol Extraction**
     *   Status: Completed
