@@ -2,12 +2,16 @@
 
 ## Active Tracks
 
-*   **Track 7: Language-Aware Symbol Extraction** (Active)
+*   **Track 8: Determinism Contract and Subprocess Control** (Active)
     *   Status: Planning
-    *   Plan: `conductor/track7/plan.md`
-    *   Implementation Branch: `feat/symbol-extraction`
+    *   Plan: `conductor/track8/plan.md`
+    *   Implementation Branch: `feat/determinism`
 
 ## Completed Tracks
+
+*   **Track 7: Language-Aware Symbol Extraction**
+    *   Status: Completed
+    *   PR: Merged into `main`
 
 *   **Track 6: Watch Mode and Batch Debouncing**
     *   Status: Completed
