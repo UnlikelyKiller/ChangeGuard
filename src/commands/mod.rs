@@ -4,6 +4,7 @@ pub mod scan;
 pub mod impact;
 pub mod watch;
 pub mod verify;
+pub mod ask;
 
 use miette::Diagnostic;
 use thiserror::Error;

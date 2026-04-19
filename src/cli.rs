@@ -39,7 +39,10 @@ pub enum Commands {
         timeout: u64,
     },
     /// Ask Gemini for assistance based on the current context
-    Ask,
+    Ask {
+        /// The query to ask Gemini
+        query: String,
+    },
     /// Reset the local state
     Reset,
 }
@@ -54,10 +57,7 @@ pub fn run() -> Result<()> {
         Commands::Watch { interval } => crate::commands::watch::execute_watch(interval),
         Commands::Impact => crate::commands::impact::execute_impact(),
         Commands::Verify { command, timeout } => crate::commands::verify::execute_verify(command, timeout),
-        Commands::Ask => {
-            println!("Asking Gemini...");
-            Ok(())
-        }
+        Commands::Ask { query } => crate::commands::ask::execute_ask(query),
         Commands::Reset => {
             println!("Resetting local state...");
             Ok(())

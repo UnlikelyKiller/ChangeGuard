@@ -1,11 +1,12 @@
 pub mod cli;
 pub mod commands;
+pub mod state;
 pub mod config;
-pub mod exec;
+pub mod policy;
 pub mod git;
+pub mod platform;
 pub mod impact;
 pub mod index;
-pub mod platform;
-pub mod state;
-pub mod policy;
 pub mod watch;
+pub mod exec;
+pub mod gemini;
