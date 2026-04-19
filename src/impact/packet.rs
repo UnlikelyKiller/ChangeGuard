@@ -11,13 +11,25 @@ pub enum RiskLevel {
     High,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "camelCase")]
 pub struct ChangedFile {
     pub path: PathBuf,
     pub status: String, // e.g., "Added", "Modified", "Deleted", "Renamed"
     pub is_staged: bool,
     pub symbols: Option<Vec<Symbol>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "camelCase")]
+pub struct VerificationResult {
+    pub name: String,
+    pub command: String,
+    pub exit_code: i32,
+    pub stdout: String,
+    pub stderr: String,
+    pub duration_ms: u64,
+    pub truncated: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,6 +42,7 @@ pub struct ImpactPacket {
     pub risk_level: RiskLevel,
     pub risk_reasons: Vec<String>,
     pub changes: Vec<ChangedFile>,
+    pub verification_results: Vec<VerificationResult>,
 }
 
 impl Default for ImpactPacket {
@@ -42,7 +55,23 @@ impl Default for ImpactPacket {
             risk_level: RiskLevel::Medium,
             risk_reasons: vec!["Provisional baseline risk".to_string()],
             changes: Vec::new(),
+            verification_results: Vec::new(),
         }
+    }
+}
+
+impl ImpactPacket {
+    /// Finalizes the packet by sorting all internal collections deterministically.
+    pub fn finalize(&mut self) {
+        self.risk_reasons.sort_unstable();
+        
+        for file in &mut self.changes {
+            if let Some(ref mut symbols) = file.symbols {
+                symbols.sort_unstable();
+            }
+        }
+        self.changes.sort_unstable();
+        self.verification_results.sort_unstable();
     }
 }
 
@@ -70,5 +99,37 @@ mod tests {
         assert!(json.contains(r#""timestampUtc": "2023-10-27T10:00:00Z""#));
         assert!(json.contains(r#""headHash": "abcdef123456""#));
         assert!(json.contains(r#""isStaged": true"#));
+    }
+
+    #[test]
+    fn test_deterministic_sorting() {
+        let mut packet = ImpactPacket::default();
+        packet.risk_reasons = vec!["C".to_string(), "A".to_string(), "B".to_string()];
+        
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("z.rs"),
+            status: "Added".to_string(),
+            is_staged: true,
+            symbols: Some(vec![
+                Symbol { name: "foo".into(), kind: crate::index::symbols::SymbolKind::Function, is_public: true },
+                Symbol { name: "bar".into(), kind: crate::index::symbols::SymbolKind::Function, is_public: true },
+            ]),
+        });
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("a.rs"),
+            status: "Added".to_string(),
+            is_staged: true,
+            symbols: None,
+        });
+
+        packet.finalize();
+
+        assert_eq!(packet.risk_reasons, vec!["A", "B", "C"]);
+        assert_eq!(packet.changes[0].path, PathBuf::from("a.rs"));
+        assert_eq!(packet.changes[1].path, PathBuf::from("z.rs"));
+        
+        let z_symbols = packet.changes[1].symbols.as_ref().unwrap();
+        assert_eq!(z_symbols[0].name, "bar");
+        assert_eq!(z_symbols[1].name, "foo");
     }
 }

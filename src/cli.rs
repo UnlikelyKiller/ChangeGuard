@@ -30,7 +30,14 @@ pub enum Commands {
     /// Analyze the impact of changes and generate a report
     Impact,
     /// Plan and run targeted verification
-    Verify,
+    Verify {
+        /// The command to run for verification
+        #[arg(long, short)]
+        command: Option<String>,
+        /// Timeout in seconds
+        #[arg(long, short, default_value_t = 60)]
+        timeout: u64,
+    },
     /// Ask Gemini for assistance based on the current context
     Ask,
     /// Reset the local state
@@ -46,10 +53,7 @@ pub fn run() -> Result<()> {
         Commands::Scan => crate::commands::scan::execute_scan(),
         Commands::Watch { interval } => crate::commands::watch::execute_watch(interval),
         Commands::Impact => crate::commands::impact::execute_impact(),
-        Commands::Verify => {
-            println!("Running verification...");
-            Ok(())
-        }
+        Commands::Verify { command, timeout } => crate::commands::verify::execute_verify(command, timeout),
         Commands::Ask => {
             println!("Asking Gemini...");
             Ok(())

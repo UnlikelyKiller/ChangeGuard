@@ -3,6 +3,7 @@ pub mod doctor;
 pub mod scan;
 pub mod impact;
 pub mod watch;
+pub mod verify;
 
 use miette::Diagnostic;
 use thiserror::Error;
@@ -14,4 +15,7 @@ pub enum CommandError {
     
     #[error("I/O error during command execution")]
     IoError(#[from] std::io::Error),
+
+    #[error("Verification failed: {0}")]
+    Verify(String),
 }

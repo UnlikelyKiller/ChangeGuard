@@ -1,6 +1,7 @@
 pub mod cli;
 pub mod commands;
 pub mod config;
+pub mod exec;
 pub mod git;
 pub mod impact;
 pub mod index;
