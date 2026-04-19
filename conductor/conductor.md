@@ -2,55 +2,46 @@
 
 ## Active Tracks
 
-*   **Track 14: Critical Safety Fixes** (Next)
-    *   Status: Completed (feat/critical-safety-fixes)
-    *   Spec: `conductor/track14/spec.md`
-    *   Plan: `conductor/track14/plan.md`
-    *   Audit items: 1, 2, 3, 11 (CRITICAL + HIGH)
-    *   Key additions: secret redaction with entropy check, verification planning, Gemini subprocess timeout, fix ALL production unwrap/expect
-
-*   **Track 17: Engineering Quality** (Completed)
-    *   Status: Completed (feat/engineering-quality)
-    *   Spec: `conductor/track17/spec.md`
-    *   Plan: `conductor/track17/plan.md`
-    *   Audit items: 15, 17, 18, 19, 20 (MEDIUM)
-    *   Key additions: remove unused deps, cross-platform tests, docs casing fix, DB schema expansion, config validation
-    *   **Must run before Track 16** (DB schema needed by verify results and batch persistence)
-
-*   **Track 15: Gemini Modes, Output Module, Git Classification** (Next)
+*   **Track 19: Reset and Recovery Completion** (Next)
     *   Status: Planning
-    *   Spec: `conductor/track15/spec.md`
-    *   Plan: `conductor/track15/plan.md`
-    *   Audit items: 4, 5, 7, 8 (HIGH)
-    *   Key additions: Gemini modes (analyze/suggest/review-patch), output module refactor (human+diagnostics, YAGNI on table), git classify fix (added/deleted/renamed)
+    *   Spec: `conductor/track19/spec.md`
+    *   Plan: `conductor/track19/plan.md`
+    *   Audit2 findings: Functional finding 1, Phase 14 gap, Source-tree `reset` deficiency
+    *   Key additions: real `reset` command, `src/commands/reset.rs`, derived-state cleanup, optional config/rules removal, recovery path for broken local state
 
-*   **Track 16: Relationship Extraction, Watch Hardening, Verify Results** (After Track 15)
+*   **Track 20: Determinism and Error Visibility Hardening** (After Track 19)
     *   Status: Planning
-    *   Spec: `conductor/track16/spec.md`
-    *   Plan: `conductor/track16/plan.md`
-    *   Audit items: 6, 12, 13, 14 (HIGH + MEDIUM)
-    *   Key additions: import/export extraction, runtime usage detection, watch ctrl+c + config integration, verify results persistence
-    *   **Depends on Track 17** (DB schema for persistence)
+    *   Spec: `conductor/track20/spec.md`
+    *   Plan: `conductor/track20/plan.md`
+    *   Audit2 findings: Functional findings 3 and 4, Determinism gaps, Error Visibility gaps
+    *   Key additions: validated rule loading, no silent config/rules fallback, explicit partial-analysis warnings in impact packets, deterministic warning ordering
 
-*   **Track 18: Documentation, CI, and Polish** (Last)
+*   **Track 21: Verification Process Hardening** (After Track 20)
     *   Status: Planning
-    *   Spec: `conductor/track18/spec.md`
-    *   Plan: `conductor/track18/plan.md`
-    *   Audit items: 9, 10, 16, 21–25 (HIGH + LOW)
-    *   Key additions: README, CI with caching, test dedup, Clock trait (not normalize fn), process policy, docs, fixtures
+    *   Spec: `conductor/track21/spec.md`
+    *   Plan: `conductor/track21/plan.md`
+    *   Audit2 findings: Functional finding 2, Phase 12 and Phase 15 gaps
+    *   Key additions: `verify/runner.rs`, `verify/timeouts.rs`, process-policy enforcement, reduced shell dependence, dedicated platform verification tests
+
+*   **Track 22: Structural Completion and Plan Reconciliation** (Last)
+    *   Status: Planning
+    *   Spec: `conductor/track22/spec.md`
+    *   Plan: `conductor/track22/plan.md`
+    *   Audit2 findings: Functional findings 5, 6, 7, remaining source/doc/test layout gaps
+    *   Key additions: scan diff-summary integration, symbol persistence/storage seams, remaining planned modules or documented shims, missing docs artifacts, black-box CLI coverage, `cargo deny`
 
 ## Execution Order
 
-1. Track 14 (Critical Safety Fixes)
-2. Track 17 (Engineering Quality — DB schema needed by Track 16)
-3. Track 15 (Output Module — structural refactor before feature additions)
-4. Track 16 (Features that depend on new schema and output module)
-5. Track 18 (Documentation and Polish — always last)
+1. Track 19 (Reset and Recovery Completion)
+2. Track 20 (Determinism and Error Visibility Hardening)
+3. Track 21 (Verification Process Hardening)
+4. Track 22 (Structural Completion and Plan Reconciliation)
 
 ## Completed Tracks
 
-*   **Track 13: Final Integration and Reset Command**
-    *   Status: Completed
+*   **Track 13: Final Integration**
+    *   Status: Completed with follow-up required
+    *   Note: reset was treated as complete in the original track sequence, but the current repo still lacks a real `src/commands/reset.rs` implementation. This is now addressed by active **Track 19: Reset and Recovery Completion**.
 
 *   **Track 12: UI/UX Refinement**
     *   Status: Completed
