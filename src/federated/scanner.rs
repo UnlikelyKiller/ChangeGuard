@@ -27,6 +27,7 @@ impl FederatedScanner {
 
     /// Discovers sibling repositories and their schemas.
     /// Returns discovered schemas and a list of deterministic warnings.
+    #[allow(clippy::type_complexity)]
     pub fn scan_siblings(&self) -> Result<(Vec<(Utf8PathBuf, FederatedSchema)>, Vec<String>)> {
         let parent = match self.root.parent() {
             Some(p) => p,

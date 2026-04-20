@@ -85,7 +85,7 @@ impl<'repo> HistoryProvider for GixHistoryProvider<'repo> {
 
                 let parent_id = commit.parent_ids().next();
                 let parent_tree = if let Some(p_id) = parent_id {
-                    match p_id.object().and_then(|obj| Ok(obj.into_commit().tree())) {
+                    match p_id.object().map(|obj| obj.into_commit().tree()) {
                         Ok(Ok(tree)) => tree,
                         _ => {
                             tracing::warn!("Failed to retrieve parent tree for commit {}: parent {}", info.id(), p_id);

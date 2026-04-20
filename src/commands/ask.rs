@@ -7,7 +7,7 @@ use miette::Result;
 use owo_colors::OwoColorize;
 use std::env;
 
-pub fn execute_ask(query: String, mode: GeminiMode) -> Result<()> {
+pub fn execute_ask(query: String, mut mode: GeminiMode, narrative: bool) -> Result<()> {
     let current_dir = env::current_dir()
         .map_err(|e| miette::miette!("Failed to get current directory: {}", e))?;
     let layout = Layout::new(current_dir.to_string_lossy().as_ref());
@@ -15,9 +15,13 @@ pub fn execute_ask(query: String, mode: GeminiMode) -> Result<()> {
     let db_path = layout.state_subdir().join("ledger.db");
     let storage = StorageManager::init(db_path.as_std_path())?;
 
-    let latest_packet = storage.get_latest_packet()?.ok_or_else(|| {
+    let mut latest_packet = storage.get_latest_packet()?.ok_or_else(|| {
         miette::miette!("No impact report found. Run 'changeguard impact' first.")
     })?;
+
+    if narrative {
+        mode = GeminiMode::Narrative;
+    }
 
     // For ReviewPatch, try to get the diff
     let diff = if mode == GeminiMode::ReviewPatch {
@@ -37,16 +41,29 @@ pub fn execute_ask(query: String, mode: GeminiMode) -> Result<()> {
         );
     }
 
+    // Read config for token budgeting
+    let config = load_config(&layout)?;
+
+    // Token budgeting (4 chars ~ 1 token). Budget is 80% of context window.
+    let token_limit = (config.gemini.context_window as f64 * 0.8) as usize;
+    let char_limit = token_limit * 4;
+
+    let truncated = latest_packet.truncate_for_context(char_limit);
+
     let system_prompt = build_system_prompt(mode);
 
-    // For Narrative mode, we might want to augment the query with our structured summary
-    let effective_query = if mode == GeminiMode::Narrative && query.to_lowercase() == "summary" {
+    // For Narrative mode, use the structured summary as the query
+    let effective_query = if mode == GeminiMode::Narrative {
         crate::gemini::narrative::NarrativeEngine::generate_risk_prompt(&latest_packet)
     } else {
         query
     };
 
-    let user_prompt = build_user_prompt(mode, &latest_packet, &effective_query, diff.as_deref());
+    let mut user_prompt = build_user_prompt(mode, &latest_packet, &effective_query, diff.as_deref());
+
+    if truncated {
+        user_prompt.push_str("\n\n[Packet truncated for Gemini submission]");
+    }
 
     // The system prompt is static application text. Sanitize only user-supplied/context payload.
     let sanitize_result = crate::gemini::sanitize::sanitize_for_gemini(&user_prompt);
@@ -63,11 +80,28 @@ pub fn execute_ask(query: String, mode: GeminiMode) -> Result<()> {
         );
     }
 
-    // Read timeout from config
-    let config = load_config(&layout)?;
     let timeout_secs = config.gemini.timeout_secs;
 
-    run_query(&system_prompt, &sanitize_result.sanitized, timeout_secs)?;
+    if let Err(e) = run_query(&system_prompt, &sanitize_result.sanitized, timeout_secs) {
+        // Fallback: save the impact packet as an artifact
+        let reports_dir = layout.reports_dir();
+        std::fs::create_dir_all(&reports_dir).ok();
+        let fallback_path = reports_dir.join("fallback-impact.json");
+        
+        if let Ok(json) = serde_json::to_string_pretty(&latest_packet) {
+            if std::fs::write(&fallback_path, json).is_ok() {
+                eprintln!(
+                    "{}",
+                    format!(
+                        "Gemini execution failed. Fallback impact packet saved to {}",
+                        fallback_path
+                    )
+                    .yellow()
+                );
+            }
+        }
+        return Err(e);
+    }
 
     Ok(())
 }

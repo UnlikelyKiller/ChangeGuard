@@ -21,15 +21,26 @@ pub fn run_query(system_prompt: &str, user_prompt: &str, timeout_secs: Option<u6
     pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
     let mut cmd = Command::new("gemini");
+    cmd.arg("analyze");
     let full_input = format!("{}\n\n{}", system_prompt, user_prompt);
 
     cmd.stdin(Stdio::piped());
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
 
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| miette::miette!("Failed to spawn gemini: {}", e))?;
+    let mut child = match cmd.spawn() {
+        Ok(child) => child,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            pb.finish_and_clear();
+            return Err(miette::miette!(
+                "Gemini CLI not found. Install Gemini CLI to enable narrative summaries."
+            ));
+        }
+        Err(e) => {
+            pb.finish_and_clear();
+            return Err(miette::miette!("Failed to spawn gemini: {}", e));
+        }
+    };
 
     if let Some(mut stdin) = child.stdin.take() {
         stdin.write_all(full_input.as_bytes()).into_diagnostic()?;

@@ -52,7 +52,7 @@ pub fn check_cross_repo_impact(packet: &mut ImpactPacket, storage: &StorageManag
             }
         };
 
-        if let Err(_) = schema.validate() {
+        if schema.validate().is_err() {
             impact_reasons.push(format!(
                 "Cross-repo impact: Sibling '{}' schema is unavailable or invalid.",
                 name

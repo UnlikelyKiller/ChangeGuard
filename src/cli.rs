@@ -55,6 +55,9 @@ pub enum Commands {
         /// Gemini interaction mode
         #[arg(long, short, default_value = "analyze")]
         mode: crate::gemini::modes::GeminiMode,
+        /// Enable narrative mode (Senior Architect summary)
+        #[arg(long)]
+        narrative: bool,
     },
     /// Reset the local state
     Reset {
@@ -130,7 +133,11 @@ pub fn run() -> Result<()> {
             timeout,
             no_predict,
         } => crate::commands::verify::execute_verify(command, timeout, no_predict),
-        Commands::Ask { query, mode } => crate::commands::ask::execute_ask(query, mode),
+        Commands::Ask {
+            query,
+            mode,
+            narrative,
+        } => crate::commands::ask::execute_ask(query, mode, narrative),
         Commands::Reset {
             remove_config,
             remove_rules,

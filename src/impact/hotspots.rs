@@ -36,10 +36,8 @@ pub fn calculate_hotspots(
                 }
             }
             
-            if let Some(lang) = lang_filter {
-                if !path_str.ends_with(&format!(".{lang}")) {
-                    continue;
-                }
+            if lang_filter.is_some_and(|lang| !path_str.ends_with(&format!(".{lang}"))) {
+                continue;
             }
 
             *frequency_map.entry(file.clone()).or_default() += 1;
