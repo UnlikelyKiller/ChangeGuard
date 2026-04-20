@@ -51,7 +51,7 @@ pub enum Commands {
     /// Ask Gemini for assistance based on the current context
     Ask {
         /// The query to ask Gemini
-        query: String,
+        query: Option<String>,
         /// Gemini interaction mode
         #[arg(long, short, default_value = "analyze")]
         mode: crate::gemini::modes::GeminiMode,

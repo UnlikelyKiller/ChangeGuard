@@ -17,7 +17,7 @@ fn test_ask_command_no_packet() {
     env::set_current_dir(tmp.path()).unwrap();
 
     // Should fail because no .changeguard/state/ledger.db exists
-    let result = execute_ask("What's up?".into(), GeminiMode::Analyze, false);
+    let result = execute_ask(Some("What's up?".into()), GeminiMode::Analyze, false);
     assert!(result.is_err());
 
     env::set_current_dir(old_dir).unwrap();
@@ -38,6 +38,6 @@ fn test_ask_invalid_config_fails_before_query_execution() {
         StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path()).unwrap();
     storage.save_packet(&ImpactPacket::default()).unwrap();
 
-    let err = execute_ask("What's up?".into(), GeminiMode::Analyze, false).unwrap_err();
+    let err = execute_ask(Some("What's up?".into()), GeminiMode::Analyze, false).unwrap_err();
     assert!(format!("{err:?}").contains("debounce_ms"));
 }

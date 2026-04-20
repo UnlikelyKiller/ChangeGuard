@@ -30,12 +30,12 @@
     *   Goal: Implement real cross-repo impact resolution with dependency edges, schema validation, and path confinement.
     *   Key additions: Path confinement security, schema validation, dependency insertion, cross-repo impact resolution tests.
 
-*   **Track 34: Narrative Reporting Completion** (High) (Next)
-    *   Status: Planning
+*   **Track 34: Narrative Reporting Completion**
+    *   Status: Completed
     *   Spec: `conductor/track34/spec.md`
     *   Plan: `conductor/track34/plan.md`
     *   Goal: Wire token budgeting and truncation annotations into Gemini execution, and add golden prompt tests.
-    *   Audit3 findings: Token budget unused, truncation annotation absent, Gemini fallback incomplete.
+    *   Key additions: Strict token budgeting (409,600 chars), truncation annotations, robust Gemini execution with fallback artifacts, byte-for-byte deterministic prompt tests.
 
 *   **Track 35: LSP Daemon Resolution**
     *   Status: Completed

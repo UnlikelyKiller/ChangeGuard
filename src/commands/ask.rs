@@ -7,7 +7,7 @@ use miette::Result;
 use owo_colors::OwoColorize;
 use std::env;
 
-pub fn execute_ask(query: String, mut mode: GeminiMode, narrative: bool) -> Result<()> {
+pub fn execute_ask(query: Option<String>, mut mode: GeminiMode, narrative: bool) -> Result<()> {
     let current_dir = env::current_dir()
         .map_err(|e| miette::miette!("Failed to get current directory: {}", e))?;
     let layout = Layout::new(current_dir.to_string_lossy().as_ref());
@@ -41,12 +41,12 @@ pub fn execute_ask(query: String, mut mode: GeminiMode, narrative: bool) -> Resu
         );
     }
 
-    // Read config for token budgeting
+    // Read config for settings like timeout
     let config = load_config(&layout)?;
 
-    // Token budgeting (4 chars ~ 1 token). Budget is 80% of context window.
-    let token_limit = (config.gemini.context_window as f64 * 0.8) as usize;
-    let char_limit = token_limit * 4;
+    // Token budgeting (4 chars ~ 1 token).
+    // Track 34 requirement: hard limit of 409,600 characters (~102,400 tokens).
+    let char_limit = 409_600;
 
     let truncated = latest_packet.truncate_for_context(char_limit);
 
@@ -56,7 +56,7 @@ pub fn execute_ask(query: String, mut mode: GeminiMode, narrative: bool) -> Resu
     let effective_query = if mode == GeminiMode::Narrative {
         crate::gemini::narrative::NarrativeEngine::generate_risk_prompt(&latest_packet)
     } else {
-        query
+        query.unwrap_or_default()
     };
 
     let mut user_prompt = build_user_prompt(mode, &latest_packet, &effective_query, diff.as_deref());
