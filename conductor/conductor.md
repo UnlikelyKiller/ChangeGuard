@@ -30,14 +30,33 @@
     *   Audit2 findings: Functional findings 5, 6, 7, remaining source/doc/test layout gaps
     *   Key additions: scan diff-summary integration, symbol persistence/storage seams, remaining planned modules or documented shims, missing docs artifacts, black-box CLI coverage, `cargo deny`
 
-## Milestone E: Historical Intelligence Tracks
+## Milestone E: Historical Intelligence Tracks (Completed)
 
-*   **Track 23: Temporal Intelligence (History Extraction)**
+## Milestone F: Predictive Verification Tracks
+
+*   **Track 26: Predictive Verification (Dependency-Aware)** (Next)
+    *   Status: Planning
+    *   Spec: `conductor/track26/spec.md`
+    *   Plan: `conductor/track26/plan.md`
+    *   Goal: Use temporal coupling and structural imports to predict which files *should* be verified even if they haven't changed.
+    *   Key additions: `src/verify/predict.rs`, Graph-based impact propagation, verification plan expansion logic.
+
+## Execution Order
+
+1. Track 19 (Reset and Recovery Completion)
+2. Track 20 (Determinism and Error Visibility Hardening)
+3. Track 21 (Verification Process Hardening)
+4. Track 22 (Structural Completion and Plan Reconciliation)
+5. Track 26 (Predictive Verification)
+
+## Completed Tracks
+
+*   **Track 25: Hotspot Identification (Risk Density)**
     *   Status: Completed
-    *   Spec: `conductor/track23/spec.md`
-    *   Plan: `conductor/track23/plan.md`
-    *   Goal: Identify "Logical Coupling" between files that frequently change together in git history.
-    *   Key additions: `src/impact/temporal.rs`, `gix` 0.81.0 integration, deterministic affinity mapping, configurable commit depth.
+    *   Spec: `conductor/track25/spec.md`
+    *   Plan: `conductor/track25/plan.md`
+    *   Goal: Combine change frequency (Track 23) with structural complexity (Track 24) to output Risk Maps.
+    *   Key additions: `src/commands/hotspots.rs`, `changeguard hotspots` CLI command, Risk Density scoring engine, human-readable hotspot tables.
 
 *   **Track 24: Complexity Indexing (Spike & Implementation)**
     *   Status: Completed
@@ -46,24 +65,12 @@
     *   Goal: Measure cognitive and cyclomatic complexity for functions and structs to weight impact risks.
     *   Key additions: `src/index/metrics.rs`, `NativeComplexityScorer` using tree-sitter, SQLite persistence for symbol complexity.
 
-*   **Track 25: Hotspot Identification (Risk Density)**
-    *   Status: Planned
-    *   Spec: `conductor/track25/spec.md`
-    *   Plan: `conductor/track25/plan.md`
-    *   Goal: Combine change frequency (Track 23) with structural complexity (Track 24) to output Risk Maps.
-    *   Key additions: `src/commands/hotspots.rs`, `changeguard hotspots` CLI command, JSON output format, deterministic file ranking.
-
-## Execution Order
-
-1. Track 19 (Reset and Recovery Completion)
-2. Track 20 (Determinism and Error Visibility Hardening)
-3. Track 21 (Verification Process Hardening)
-4. Track 22 (Structural Completion and Plan Reconciliation)
-5. Track 23 (Temporal Intelligence)
-6. Track 24 (Complexity Indexing)
-7. Track 25 (Hotspot Identification)
-
-## Completed Tracks
+*   **Track 23: Temporal Intelligence (History Extraction)**
+    *   Status: Completed
+    *   Spec: `conductor/track23/spec.md`
+    *   Plan: `conductor/track23/plan.md`
+    *   Goal: Identify "Logical Coupling" between files by crawling git history.
+    *   Key additions: `src/impact/temporal.rs`, `gix` 0.81.0 integration, deterministic affinity mapping, configurable commit depth.
 
 *   **Track 13: Final Integration**
     *   Status: Completed with follow-up required
