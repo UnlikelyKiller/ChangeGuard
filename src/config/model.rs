@@ -10,6 +10,38 @@ pub struct Config {
     pub watch: WatchConfig,
     #[serde(default)]
     pub gemini: GeminiConfig,
+    #[serde(default)]
+    pub temporal: TemporalConfig,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TemporalConfig {
+    #[serde(default = "default_max_commits")]
+    pub max_commits: usize,
+    #[serde(default = "default_max_files_per_commit")]
+    pub max_files_per_commit: usize,
+    #[serde(default = "default_coupling_threshold")]
+    pub coupling_threshold: f32,
+}
+
+impl Default for TemporalConfig {
+    fn default() -> Self {
+        Self {
+            max_commits: default_max_commits(),
+            max_files_per_commit: default_max_files_per_commit(),
+            coupling_threshold: default_coupling_threshold(),
+        }
+    }
+}
+
+fn default_max_commits() -> usize {
+    1000
+}
+fn default_max_files_per_commit() -> usize {
+    50
+}
+fn default_coupling_threshold() -> f32 {
+    0.75
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

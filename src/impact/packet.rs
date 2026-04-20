@@ -60,6 +60,35 @@ pub struct VerificationResult {
     pub truncated: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TemporalCoupling {
+    pub file_a: PathBuf,
+    pub file_b: PathBuf,
+    pub score: f32,
+}
+
+impl Eq for TemporalCoupling {}
+
+impl PartialOrd for TemporalCoupling {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for TemporalCoupling {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.file_a
+            .cmp(&other.file_a)
+            .then_with(|| self.file_b.cmp(&other.file_b))
+            .then_with(|| {
+                self.score
+                    .partial_cmp(&other.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImpactPacket {
@@ -70,6 +99,7 @@ pub struct ImpactPacket {
     pub risk_level: RiskLevel,
     pub risk_reasons: Vec<String>,
     pub changes: Vec<ChangedFile>,
+    pub temporal_couplings: Vec<TemporalCoupling>,
     pub verification_results: Vec<VerificationResult>,
 }
 
@@ -83,6 +113,7 @@ impl Default for ImpactPacket {
             risk_level: RiskLevel::Medium,
             risk_reasons: vec!["Provisional baseline risk".to_string()],
             changes: Vec::new(),
+            temporal_couplings: Vec::new(),
             verification_results: Vec::new(),
         }
     }
@@ -116,6 +147,7 @@ impl ImpactPacket {
             file.analysis_warnings.dedup();
         }
         self.changes.sort_unstable();
+        self.temporal_couplings.sort_unstable();
         self.verification_results.sort_unstable();
     }
 }

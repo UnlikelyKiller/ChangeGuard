@@ -45,6 +45,32 @@ pub fn execute_impact() -> Result<()> {
     let layout = Layout::new(current_dir.to_string_lossy().as_ref());
     let mut packet = map_snapshot_to_packet(snapshot, &current_dir)?;
 
+    // Load main config for temporal analysis
+    let config = crate::config::load::load_config(&layout).unwrap_or_else(|e| {
+        tracing::warn!("Failed to load config: {e}. Using defaults.");
+        println!(
+            "{} Could not load config. Using default temporal analysis settings.",
+            warning_marker()
+        );
+        crate::config::model::Config::default()
+    });
+
+    // Run temporal coupling analysis
+    let history_provider = crate::impact::temporal::GixHistoryProvider::new(&repo);
+    let temporal_engine = crate::impact::temporal::TemporalEngine::new(history_provider, config.temporal.clone());
+    match temporal_engine.calculate_couplings() {
+        Ok(couplings) => {
+            packet.temporal_couplings = couplings;
+        }
+        Err(e) => {
+            tracing::warn!("Temporal analysis failed: {e}");
+            println!(
+                "{} Temporal analysis skipped: {e}",
+                warning_marker()
+            );
+        }
+    }
+
     // Load rules and perform risk analysis
     match crate::policy::load::load_rules(&layout) {
         Ok(rules) => {

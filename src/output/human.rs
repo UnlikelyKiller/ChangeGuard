@@ -83,6 +83,19 @@ pub fn print_impact_summary(packet: &ImpactPacket) {
         println!("{table}");
     }
 
+    if !packet.temporal_couplings.is_empty() {
+        println!("\n{}", "Temporal Couplings (Historical Co-changes):".bold());
+        let mut table = build_table(["File A", "File B", "Affinity"]);
+        for coupling in &packet.temporal_couplings {
+            table.add_row(vec![
+                coupling.file_a.display().to_string(),
+                coupling.file_b.display().to_string(),
+                format!("{:.0}%", coupling.score * 100.0),
+            ]);
+        }
+        println!("{table}");
+    }
+
     let partial_analysis_count = packet
         .changes
         .iter()
