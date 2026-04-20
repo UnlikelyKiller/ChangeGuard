@@ -1,7 +1,9 @@
+pub mod types;
 pub mod python;
 pub mod rust;
 pub mod typescript;
 
+pub use self::types::Language;
 use crate::index::symbols::Symbol;
 use miette::Result;
 use std::path::Path;

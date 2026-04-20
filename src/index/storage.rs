@@ -12,14 +12,16 @@ pub fn persist_symbols(conn: &Connection, snapshot_id: i64, files: &[ChangedFile
         let file_path = normalize_repo_path(&file.path);
         for symbol in symbols {
             conn.execute(
-                "INSERT INTO symbols (snapshot_id, file_path, symbol_name, symbol_kind, is_public)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                "INSERT INTO symbols (snapshot_id, file_path, symbol_name, symbol_kind, is_public, cognitive_complexity, cyclomatic_complexity)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 (
                     snapshot_id,
                     &file_path,
                     &symbol.name,
                     format!("{:?}", symbol.kind),
                     symbol.is_public as i32,
+                    symbol.cognitive_complexity,
+                    symbol.cyclomatic_complexity,
                 ),
             )
             .into_diagnostic()?;

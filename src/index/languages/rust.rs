@@ -71,6 +71,8 @@ pub fn extract_symbols(content: &str) -> Result<Option<Vec<Symbol>>> {
                 name,
                 kind,
                 is_public,
+                cognitive_complexity: None,
+                cyclomatic_complexity: None,
             });
         }
     }

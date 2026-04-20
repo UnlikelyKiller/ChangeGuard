@@ -22,4 +22,6 @@ pub struct Symbol {
     pub name: String,
     pub kind: SymbolKind,
     pub is_public: bool,
+    pub cognitive_complexity: Option<i32>,
+    pub cyclomatic_complexity: Option<i32>,
 }

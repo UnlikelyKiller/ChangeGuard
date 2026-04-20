@@ -57,6 +57,12 @@ pub fn get_migrations() -> Migrations<'static> {
                 is_public INTEGER NOT NULL
             );",
         ),
+        M::up(
+            "ALTER TABLE symbols ADD COLUMN cognitive_complexity INTEGER;",
+        ),
+        M::up(
+            "ALTER TABLE symbols ADD COLUMN cyclomatic_complexity INTEGER;",
+        ),
     ])
 }
 

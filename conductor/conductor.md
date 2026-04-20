@@ -40,11 +40,11 @@
     *   Key additions: `src/impact/temporal.rs`, `gix` 0.81.0 integration, deterministic affinity mapping, configurable commit depth.
 
 *   **Track 24: Complexity Indexing (Spike & Implementation)**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/track24/spec.md`
     *   Plan: `conductor/track24/plan.md`
     *   Goal: Measure cognitive and cyclomatic complexity for functions and structs to weight impact risks.
-    *   Key additions: `src/index/metrics.rs`, `ComplexityScorer` trait, `arborist-metrics` 0.1.2 spike evaluation vs native tree-sitter fallback.
+    *   Key additions: `src/index/metrics.rs`, `NativeComplexityScorer` using tree-sitter, SQLite persistence for symbol complexity.
 
 *   **Track 25: Hotspot Identification (Risk Density)**
     *   Status: Planned

@@ -2,7 +2,8 @@ use crate::git::repo::{get_head_info, open_repo};
 use crate::git::status::get_repo_status;
 use crate::git::{ChangeType, RepoSnapshot};
 use crate::impact::packet::{AnalysisStatus, ChangedFile, FileAnalysisStatus, ImpactPacket};
-use crate::index::languages::parse_symbols;
+use crate::index::languages::{parse_symbols, Language};
+use crate::index::metrics::ComplexityScorer;
 use crate::index::references::extract_import_export;
 use crate::index::runtime_usage::extract_runtime_usage;
 use crate::output::diagnostics::{success_marker, warning_marker};
@@ -251,7 +252,7 @@ fn analyze_changed_file(relative_path: &Path, base_dir: &Path) -> AnalysisOutcom
         }
     };
 
-    let symbols = match parse_symbols(relative_path, &content) {
+    let mut symbols = match parse_symbols(relative_path, &content) {
         Ok(symbols) => {
             status.symbols = AnalysisStatus::Ok;
             symbols
@@ -266,6 +267,24 @@ fn analyze_changed_file(relative_path: &Path, base_dir: &Path) -> AnalysisOutcom
             None
         }
     };
+
+    // Integrate Complexity Scoring
+    if let (Some(syms), Some(lang)) = (&mut symbols, Language::from_extension(extension)) {
+        let scorer = crate::index::metrics::NativeComplexityScorer::new();
+        match scorer.score_file(camino::Utf8Path::from_path(relative_path).unwrap(), &content, lang) {
+            Ok(file_complexity) => {
+                for sym in syms {
+                    if let Some(symbol_complexity) = file_complexity.functions.iter().find(|f| f.name == sym.name) {
+                        sym.cognitive_complexity = Some(symbol_complexity.cognitive as i32);
+                        sym.cyclomatic_complexity = Some(symbol_complexity.cyclomatic as i32);
+                    }
+                }
+            }
+            Err(e) => {
+                warnings.push(format!("{}: complexity scoring failed: {e}", relative_path.display()));
+            }
+        }
+    }
 
     let imports = match extract_import_export(relative_path, &content) {
         Ok(imports) => {
