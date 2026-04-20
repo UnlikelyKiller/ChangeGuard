@@ -25,6 +25,8 @@ fn test_persistence_integration() {
                 name: "run".to_string(),
                 kind: SymbolKind::Function,
                 is_public: true,
+                cognitive_complexity: None,
+                cyclomatic_complexity: None,
             }]),
             imports: None,
             runtime_usage: None,

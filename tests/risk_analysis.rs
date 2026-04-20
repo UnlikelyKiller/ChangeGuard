@@ -14,10 +14,13 @@ fn test_risk_analysis_integration() {
         status: "Modified".to_string(),
         is_staged: true,
         symbols: Some(vec![Symbol {
-            name: "public_api".into(),
+            name: "highly_risky".into(),
             kind: SymbolKind::Function,
             is_public: true,
+            cognitive_complexity: None,
+            cyclomatic_complexity: None,
         }]),
+
         imports: None,
         runtime_usage: None,
         analysis_status: FileAnalysisStatus::default(),
@@ -66,6 +69,8 @@ fn test_risk_analysis_high_volume() {
         name: "api".into(),
         kind: SymbolKind::Function,
         is_public: true,
+        cognitive_complexity: None,
+        cyclomatic_complexity: None,
     }]);
 
     analyze_risk(&mut packet, &rules).unwrap();
@@ -94,10 +99,13 @@ fn test_risk_analysis_protected_and_public() {
         status: "Modified".to_string(),
         is_staged: true,
         symbols: Some(vec![Symbol {
-            name: "breaking_change".into(),
+            name: "highly_risky".into(),
             kind: SymbolKind::Function,
             is_public: true,
+            cognitive_complexity: None,
+            cyclomatic_complexity: None,
         }]),
+
         imports: None,
         runtime_usage: None,
         analysis_status: FileAnalysisStatus::default(),
