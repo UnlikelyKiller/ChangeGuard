@@ -1,6 +1,43 @@
 # ChangeGuard Conductor
 
-## Milestone I: Phase 2 Remediation (Active)
+## Milestone J: Phase 2 Final Remediation (Active)
+
+*   **Track 36: Critical Remediation & Green CI**
+    *   Status: Planning
+    *   Spec: `conductor/track36/spec.md`
+    *   Plan: `conductor/track36/plan.md`
+    *   Goal: Restore `cargo fmt` and `cargo clippy`, fix silent hotspot row error dropping, and surface prediction degradation in `verify`.
+    *   Key additions: Green CI pipeline, visible SQLite hotspot errors, user-visible verification prediction warnings.
+
+*   **Track 37: LSP Daemon Functional Completion**
+    *   Status: Planning
+    *   Spec: `conductor/track37/spec.md`
+    *   Plan: `conductor/track37/plan.md`
+    *   Goal: Implement real Hover, CodeLens, real-time diagnostics, broken-stdin self-termination, and lifecycle tests, removing all placeholders.
+    *   Key additions: Fully functional LSP handlers, `data_stale` surface handling, stdin auto-termination, robust daemon lifecycle tests.
+
+*   **Track 38: Complexity & Temporal Hardening**
+    *   Status: Planning
+    *   Spec: `conductor/track38/spec.md`
+    *   Plan: `conductor/track38/plan.md`
+    *   Goal: Complete missing edge tests for complexity, add real temporal git fixtures, add dedicated hotspot tests, and document the arborist spike.
+    *   Key additions: Arborist ADR, TS/syntax/unsupported-language complexity tests, temporal git-fixture testing, hotspot scoring tests.
+
+*   **Track 39: Dependency & Federation Deepening**
+    *   Status: Planning
+    *   Spec: `conductor/track39/spec.md`
+    *   Plan: `conductor/track39/plan.md`
+    *   Goal: Upgrade structural prediction and dependency discovery to use current repo data, automate federation discovery, and use shared redaction.
+    *   Key additions: Current-repo structural analysis, automated federation discovery in `scan`/`impact`, shared redaction model usage, path confinement edge tests.
+
+*   **Track 40: Narrative Refinement**
+    *   Status: Planning
+    *   Spec: `conductor/track40/spec.md`
+    *   Plan: `conductor/track40/plan.md`
+    *   Goal: Rework narrative prompt construction to avoid nesting and ensure fallback write failures are visible.
+    *   Key additions: Flat, structured narrative prompts, robust error handling for fallback report persistence.
+
+## Milestone I: Phase 2 Remediation (Completed)
 
 *   **Track 30: Foundation & Safety Remediation**
     *   Status: Completed
