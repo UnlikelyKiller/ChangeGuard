@@ -58,7 +58,7 @@ pub fn execute_impact() -> Result<()> {
 
     // Run temporal coupling analysis
     let history_provider = crate::impact::temporal::GixHistoryProvider::new(&repo);
-    let temporal_engine = crate::impact::temporal::TemporalEngine::new(history_provider, config.temporal.clone());
+    let temporal_engine = crate::impact::temporal::TemporalEngine::new(history_provider.clone(), config.temporal.clone());
     match temporal_engine.calculate_couplings() {
         Ok(couplings) => {
             packet.temporal_couplings = couplings;

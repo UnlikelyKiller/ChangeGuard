@@ -1,5 +1,4 @@
 use crate::impact::packet::ImpactPacket;
-use miette::Result;
 
 pub struct NarrativeEngine;
 

@@ -17,6 +17,7 @@ pub trait HistoryProvider {
     fn get_history(&self, max_commits: usize) -> Result<Vec<CommitFileSet>, GitError>;
 }
 
+#[derive(Clone)]
 pub struct GixHistoryProvider<'repo> {
     repo: &'repo Repository,
 }

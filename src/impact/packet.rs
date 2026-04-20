@@ -68,6 +68,27 @@ pub struct TemporalCoupling {
     pub score: f32,
 }
 
+impl Eq for TemporalCoupling {}
+
+impl PartialOrd for TemporalCoupling {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for TemporalCoupling {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.file_a
+            .cmp(&other.file_a)
+            .then_with(|| self.file_b.cmp(&other.file_b))
+            .then_with(|| {
+                self.score
+                    .partial_cmp(&other.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Hotspot {
@@ -75,6 +96,24 @@ pub struct Hotspot {
     pub score: f32,
     pub complexity: i32,
     pub frequency: usize,
+}
+
+impl Eq for Hotspot {}
+
+impl PartialOrd for Hotspot {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Hotspot {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.path.cmp(&other.path).then_with(|| {
+            self.score
+                .partial_cmp(&other.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

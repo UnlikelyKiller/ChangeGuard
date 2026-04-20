@@ -3,7 +3,7 @@ use crate::index::normalize::normalize_repo_path;
 use miette::{IntoDiagnostic, Result};
 use rusqlite::Connection;
 
-use crate::index::symbols::{Symbol, SymbolKind};
+use crate::index::symbols::SymbolKind;
 
 pub fn get_public_symbols(conn: &Connection) -> Result<Vec<crate::state::storage::StoredSymbol>> {
     let mut stmt = conn
