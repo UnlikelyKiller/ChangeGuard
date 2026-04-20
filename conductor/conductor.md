@@ -36,31 +36,16 @@
 
 ## Milestone G: IDE Integration Tracks (Completed)
 
-## Milestone H: Cross-Repo and Narrative Reporting
+## Milestone H: Cross-Repo and Narrative Reporting (Completed)
 
-*   **Track 28: Federated Intelligence (Cross-Repo)**
+## Completed Tracks
+
+*   **Track 29: Advanced Narrative Reporting (Gemini)**
     *   Status: Completed
-    *   Spec: `conductor/track28/spec.md`
-    *   Plan: `conductor/track28/plan.md`
-    *   Goal: Support analysis across multiple repositories using a shared intelligence via `.changeguard/schema.json` and federated SQLite ledgers.
-    *   Key additions: `src/federated/`, `changeguard federate` command (export, scan, status), safe sibling discovery, cross-repo impact warnings.
-
-*   **Track 29: Advanced Narrative Reporting (Gemini)** (Final) (Next)
-    *   Status: Planning
     *   Spec: `conductor/track29/spec.md`
     *   Plan: `conductor/track29/plan.md`
     *   Goal: Enhance the `Ask` command to provide high-level, human-readable narrative summaries of risks and changes.
-    *   Key additions: `src/gemini/narrative.rs`, Structured prompt engineering for risk summaries.
-
-## Execution Order
-
-1. Track 19 (Reset and Recovery Completion)
-2. Track 20 (Determinism and Error Visibility Hardening)
-3. Track 21 (Verification Process Hardening)
-4. Track 22 (Structural Completion and Plan Reconciliation)
-5. Track 29 (Advanced Narrative Reporting)
-
-## Completed Tracks
+    *   Key additions: `src/gemini/narrative.rs`, Structured Senior Architect prompt templates, `Narrative` mode integration in `Ask` command.
 
 *   **Track 28: Federated Intelligence (Cross-Repo)**
     *   Status: Completed

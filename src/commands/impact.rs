@@ -101,6 +101,25 @@ pub fn execute_impact() -> Result<()> {
                 tracing::warn!("Federated impact analysis failed: {e}");
             }
 
+            // Hotspot Analysis
+            match crate::impact::hotspots::calculate_hotspots(
+                &storage,
+                &history_provider,
+                config.hotspots.max_commits,
+                config.hotspots.limit,
+            ) {
+                Ok(hotspots) => {
+                    packet.hotspots = hotspots;
+                }
+                Err(e) => {
+                    tracing::warn!("Hotspot analysis failed: {e}");
+                    println!(
+                        "{} Hotspot analysis skipped: {e}",
+                        warning_marker()
+                    );
+                }
+            }
+
             if let Err(e) = storage.save_packet(&packet) {
                 tracing::warn!("SQLite save failed: {e}");
                 println!(

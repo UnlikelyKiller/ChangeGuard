@@ -38,7 +38,15 @@ pub fn execute_ask(query: String, mode: GeminiMode) -> Result<()> {
     }
 
     let system_prompt = build_system_prompt(mode);
-    let user_prompt = build_user_prompt(mode, &latest_packet, &query, diff.as_deref());
+    
+    // For Narrative mode, we might want to augment the query with our structured summary
+    let effective_query = if mode == GeminiMode::Narrative && query.to_lowercase() == "summary" {
+        crate::gemini::narrative::NarrativeEngine::generate_risk_prompt(&latest_packet)
+    } else {
+        query
+    };
+
+    let user_prompt = build_user_prompt(mode, &latest_packet, &effective_query, diff.as_deref());
 
     // The system prompt is static application text. Sanitize only user-supplied/context payload.
     let sanitize_result = crate::gemini::sanitize::sanitize_for_gemini(&user_prompt);

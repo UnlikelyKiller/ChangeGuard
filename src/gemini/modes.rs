@@ -7,6 +7,7 @@ pub enum GeminiMode {
     Analyze,
     Suggest,
     ReviewPatch,
+    Narrative,
 }
 
 impl fmt::Display for GeminiMode {
@@ -15,6 +16,7 @@ impl fmt::Display for GeminiMode {
             GeminiMode::Analyze => write!(f, "analyze"),
             GeminiMode::Suggest => write!(f, "suggest"),
             GeminiMode::ReviewPatch => write!(f, "review-patch"),
+            GeminiMode::Narrative => write!(f, "narrative"),
         }
     }
 }
@@ -35,6 +37,12 @@ Prioritize actionable steps over general advice. Be specific about commands, tes
 Given a diff/patch and the Impact Packet context, perform a focused code review.
 Identify: potential bugs, style issues, missing error handling, security concerns, and test coverage gaps.
 Be specific — reference line ranges and code patterns. Prioritize real issues over style nits."#
+            .to_string(),
+        GeminiMode::Narrative => r#"You are ChangeGuard, a Senior Software Architect providing a narrative risk assessment.
+Analyze the multi-dimensional data (Structural, Temporal, Complexity) provided.
+Explain the "Butterfly Effect" — what is likely to break far away from the changes?
+Speak to the architectural health and stability of the project.
+Provide a high-level executive summary followed by deep technical dives into the riskiest areas."#
             .to_string(),
     }
 }
@@ -65,6 +73,7 @@ pub fn build_user_prompt(
             "Please suggest specific verification steps for the changes described above."
         }
         GeminiMode::ReviewPatch => "Please review the diff above and provide focused feedback.",
+        GeminiMode::Narrative => "Please provide a high-level narrative risk assessment based on the multi-dimensional intelligence provided above. Focus on architectural health and potential side effects.",
     };
 
     format!(

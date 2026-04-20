@@ -1,4 +1,5 @@
 pub mod modes;
+pub mod narrative;
 pub mod prompt;
 pub mod sanitize;
 pub mod wrapper;

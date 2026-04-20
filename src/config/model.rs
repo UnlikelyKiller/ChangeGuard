@@ -12,6 +12,32 @@ pub struct Config {
     pub gemini: GeminiConfig,
     #[serde(default)]
     pub temporal: TemporalConfig,
+    #[serde(default)]
+    pub hotspots: HotspotsConfig,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct HotspotsConfig {
+    #[serde(default = "default_hotspots_max_commits")]
+    pub max_commits: usize,
+    #[serde(default = "default_hotspots_limit")]
+    pub limit: usize,
+}
+
+impl Default for HotspotsConfig {
+    fn default() -> Self {
+        Self {
+            max_commits: default_hotspots_max_commits(),
+            limit: default_hotspots_limit(),
+        }
+    }
+}
+
+fn default_hotspots_max_commits() -> usize {
+    500
+}
+fn default_hotspots_limit() -> usize {
+    10
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -101,6 +127,12 @@ pub struct GeminiConfig {
     pub api_key: Option<String>,
     pub model: Option<String>,
     pub timeout_secs: Option<u64>,
+    #[serde(default = "default_context_window")]
+    pub context_window: usize,
+}
+
+fn default_context_window() -> usize {
+    128_000
 }
 
 #[cfg(test)]

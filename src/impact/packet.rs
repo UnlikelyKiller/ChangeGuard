@@ -68,28 +68,16 @@ pub struct TemporalCoupling {
     pub score: f32,
 }
 
-impl Eq for TemporalCoupling {}
-
-impl PartialOrd for TemporalCoupling {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Hotspot {
+    pub path: PathBuf,
+    pub score: f32,
+    pub complexity: i32,
+    pub frequency: usize,
 }
 
-impl Ord for TemporalCoupling {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.file_a
-            .cmp(&other.file_a)
-            .then_with(|| self.file_b.cmp(&other.file_b))
-            .then_with(|| {
-                self.score
-                    .partial_cmp(&other.score)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ImpactPacket {
     pub schema_version: String,
@@ -100,6 +88,7 @@ pub struct ImpactPacket {
     pub risk_reasons: Vec<String>,
     pub changes: Vec<ChangedFile>,
     pub temporal_couplings: Vec<TemporalCoupling>,
+    pub hotspots: Vec<Hotspot>,
     pub verification_results: Vec<VerificationResult>,
 }
 
@@ -114,6 +103,7 @@ impl Default for ImpactPacket {
             risk_reasons: vec!["Provisional baseline risk".to_string()],
             changes: Vec::new(),
             temporal_couplings: Vec::new(),
+            hotspots: Vec::new(),
             verification_results: Vec::new(),
         }
     }
@@ -148,7 +138,78 @@ impl ImpactPacket {
         }
         self.changes.sort_unstable();
         self.temporal_couplings.sort_unstable();
+        self.hotspots.sort_unstable_by(|a, b| {
+            b.score.partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.path.cmp(&b.path))
+        });
         self.verification_results.sort_unstable();
+    }
+
+    /// Truncates the packet to fit within a target character limit.
+    /// Priority: 
+    /// 1. Strip verification stdout/stderr
+    /// 2. Strip symbol/import/runtime data for unchanged files (if any were included)
+    /// 3. Strip temporal couplings
+    /// 4. Strip hotspots
+    pub fn truncate_for_context(&mut self, target_chars: usize) -> bool {
+        let current_json = serde_json::to_string(self).unwrap_or_default();
+        if current_json.len() <= target_chars {
+            return false;
+        }
+
+        // Phase 1: Clear verification output
+        for res in &mut self.verification_results {
+            if !res.stdout.is_empty() || !res.stderr.is_empty() {
+                res.stdout = "[TRUNCATED]".to_string();
+                res.stderr = "[TRUNCATED]".to_string();
+                res.truncated = true;
+            }
+        }
+
+        let current_json = serde_json::to_string(self).unwrap_or_default();
+        if current_json.len() <= target_chars {
+            return true;
+        }
+
+        // Phase 2: Strip detailed analysis for non-staged files
+        for change in &mut self.changes {
+            if !change.is_staged {
+                change.symbols = None;
+                change.imports = None;
+                change.runtime_usage = None;
+            }
+        }
+
+        let current_json = serde_json::to_string(self).unwrap_or_default();
+        if current_json.len() <= target_chars {
+            return true;
+        }
+
+        // Phase 3: Strip temporal couplings
+        self.temporal_couplings.clear();
+
+        let current_json = serde_json::to_string(self).unwrap_or_default();
+        if current_json.len() <= target_chars {
+            return true;
+        }
+
+        // Phase 4: Strip hotspots
+        self.hotspots.clear();
+
+        let current_json = serde_json::to_string(self).unwrap_or_default();
+        if current_json.len() <= target_chars {
+            return true;
+        }
+
+        // Phase 5: Last resort - keep only file paths in changes
+        for change in &mut self.changes {
+            change.symbols = None;
+            change.imports = None;
+            change.runtime_usage = None;
+        }
+
+        true
     }
 }
 
