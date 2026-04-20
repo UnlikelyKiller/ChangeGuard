@@ -120,6 +120,9 @@ pub fn execute_impact(all_parents: bool) -> Result<()> {
                 &history_provider,
                 config.hotspots.max_commits,
                 config.hotspots.limit,
+                config.temporal.all_parents,
+                None, // No directory filter in impact command
+                None, // No language filter in impact command
             ) {
                 Ok(hotspots) => {
                     packet.hotspots = hotspots;

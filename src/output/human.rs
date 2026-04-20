@@ -218,7 +218,7 @@ pub fn print_verify_plan(plan: &VerificationPlan) {
     println!("{}", "=".repeat(50).cyan());
 }
 
-pub fn print_hotspots_table(hotspots: &[crate::commands::hotspots::Hotspot]) {
+pub fn print_hotspots_table(hotspots: &[crate::impact::packet::Hotspot]) {
     print_header("Codebase Hotspots (Risk Density)");
 
     if hotspots.is_empty() {
@@ -242,7 +242,7 @@ pub fn print_hotspots_table(hotspots: &[crate::commands::hotspots::Hotspot]) {
             score_color,
             hotspot.frequency.to_string(),
             hotspot.complexity.to_string(),
-            hotspot.path.to_string().cyan().to_string(),
+            hotspot.path.display().to_string().cyan().to_string(),
         ]);
     }
 

@@ -41,7 +41,7 @@ impl NativeComplexityScorer {
         Self
     }
 
-    fn calculate_cyclomatic(&self, node: Node) -> usize {
+    fn calculate_cyclomatic(&self, node: Node, language: Language) -> usize {
         let mut complexity = 1; // Base complexity
         let mut cursor = node.walk();
         let mut stack = vec![node];
@@ -49,26 +49,48 @@ impl NativeComplexityScorer {
         while let Some(current) = stack.pop() {
             let kind = current.kind();
 
-            // Branching points that increase cyclomatic complexity
-            if matches!(
-                kind,
-                "if_statement"
-                    | "if_expression"
-                    | "for_statement"
-                    | "for_expression"
-                    | "while_statement"
-                    | "while_expression"
-                    | "loop_expression"
-                    | "match_arm"
-                    | "case_item"
-                    | "&&"
-                    | "||"
-                    | "and"
-                    | "or"
-                    | "ternary_expression"
-                    | "conditional_expression"
-                    | "binary_expression" if matches!(current.child_by_field_name("operator").map(|n| n.kind()), Some("&&" | "||"))
-            ) {
+            let is_branch = match language {
+                Language::Rust => matches!(
+                    kind,
+                    "if_expression"
+                        | "for_expression"
+                        | "while_expression"
+                        | "loop_expression"
+                        | "match_arm"
+                        | "&&"
+                        | "||"
+                ),
+                Language::TypeScript => matches!(
+                    kind,
+                    "if_statement"
+                        | "for_statement"
+                        | "for_in_statement"
+                        | "for_of_statement"
+                        | "while_statement"
+                        | "do_statement"
+                        | "switch_case"
+                        | "switch_default"
+                        | "&&"
+                        | "||"
+                        | "??"
+                        | "ternary_expression"
+                ),
+                Language::Python => matches!(
+                    kind,
+                    "if_statement"
+                        | "elif_clause"
+                        | "for_statement"
+                        | "while_statement"
+                        | "case_clause"
+                        | "except_clause"
+                        | "except_group_clause"
+                        | "conditional_expression"
+                        | "and"
+                        | "or"
+                ),
+            };
+
+            if is_branch {
                 complexity += 1;
             }
 
@@ -80,48 +102,75 @@ impl NativeComplexityScorer {
         complexity
     }
 
-    fn calculate_cognitive(&self, node: Node) -> usize {
-        self.calculate_cognitive_recursive(node, 0).0
+    fn calculate_cognitive(&self, node: Node, language: Language) -> usize {
+        self.calculate_cognitive_recursive(node, 0, language).0
     }
 
-    fn calculate_cognitive_recursive(&self, node: Node, nesting: usize) -> (usize, usize) {
+    fn calculate_cognitive_recursive(
+        &self,
+        node: Node,
+        nesting: usize,
+        language: Language,
+    ) -> (usize, usize) {
         let mut score = 0;
         let kind = node.kind();
         let mut current_nesting = nesting;
 
-        let is_nesting_increment = matches!(
-            kind,
-            "if_statement"
-                | "if_expression"
-                | "for_statement"
-                | "for_expression"
-                | "while_statement"
-                | "while_expression"
-                | "loop_expression"
-                | "match_expression"
-                | "switch_statement"
-                | "catch_clause"
-        );
+        let is_nesting_increment = match language {
+            Language::Rust => matches!(
+                kind,
+                "if_expression"
+                    | "for_expression"
+                    | "while_expression"
+                    | "loop_expression"
+                    | "match_expression"
+            ),
+            Language::TypeScript => matches!(
+                kind,
+                "if_statement"
+                    | "for_statement"
+                    | "for_in_statement"
+                    | "for_of_statement"
+                    | "while_statement"
+                    | "do_statement"
+                    | "switch_statement"
+                    | "catch_clause"
+            ),
+            Language::Python => matches!(
+                kind,
+                "if_statement" | "for_statement" | "while_statement" | "try_statement"
+            ),
+        };
 
         if is_nesting_increment {
             score += 1 + nesting;
             current_nesting += 1;
-        } else if matches!(kind, "match_arm" | "case_item") {
-            // Incremented by nesting but doesn't increment nesting itself usually
-            score += nesting;
-        } else if matches!(kind, "&&" | "||" | "and" | "or") {
-            score += 1;
-        } else if kind == "binary_expression" {
-             if let Some(op) = node.child_by_field_name("operator") {
-                 if matches!(op.kind(), "&&" | "||") {
-                     score += 1;
-                 }
-             }
+        } else {
+            let is_other_increment = match language {
+                Language::Rust => matches!(kind, "match_arm" | "&&" | "||"),
+                Language::TypeScript => matches!(
+                    kind,
+                    "switch_case" | "&&" | "||" | "??" | "ternary_expression"
+                ),
+                Language::Python => matches!(
+                    kind,
+                    "elif_clause"
+                        | "except_clause"
+                        | "except_group_clause"
+                        | "and"
+                        | "or"
+                        | "conditional_expression"
+                ),
+            };
+            if is_other_increment {
+                score += 1;
+            }
         }
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            let (child_score, _) = self.calculate_cognitive_recursive(child, current_nesting);
+            let (child_score, _) =
+                self.calculate_cognitive_recursive(child, current_nesting, language);
             score += child_score;
         }
 
@@ -138,7 +187,7 @@ impl ComplexityScorer for NativeComplexityScorer {
     ) -> Result<FileComplexity> {
         let total_sloc = source.lines().count();
         let complexity_capped = total_sloc > 10_000;
-        
+
         if complexity_capped {
             return Ok(FileComplexity {
                 total_sloc,
@@ -172,13 +221,13 @@ impl ComplexityScorer for NativeComplexityScorer {
             let kind = node.kind();
             if matches!(
                 kind,
-                "function_item" 
-                | "function_definition" 
-                | "method_declaration" 
-                | "method_definition"
-                | "arrow_function"
-                | "function_declaration"
-                | "generator_function_declaration"
+                "function_item"
+                    | "function_definition"
+                    | "method_declaration"
+                    | "method_definition"
+                    | "arrow_function"
+                    | "function_declaration"
+                    | "generator_function_declaration"
             ) {
                 let name = node
                     .child_by_field_name("name")
@@ -191,8 +240,8 @@ impl ComplexityScorer for NativeComplexityScorer {
 
                 functions.push(SymbolComplexity {
                     name,
-                    cognitive: self.calculate_cognitive(node),
-                    cyclomatic: self.calculate_cyclomatic(node),
+                    cognitive: self.calculate_cognitive(node, language),
+                    cyclomatic: self.calculate_cyclomatic(node, language),
                 });
             }
 

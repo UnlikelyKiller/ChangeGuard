@@ -35,7 +35,7 @@ fn test_impact_warns_on_rules_failure() {
     fs::write(rules_std, "this is not valid toml [[[[").unwrap();
 
     // Impact should still succeed but warn about rules
-    let result = execute_impact();
+    let result = execute_impact(false);
     // The impact command should succeed even with bad rules
     // (it warns but doesn't fail)
     assert!(
@@ -67,7 +67,7 @@ fn test_impact_succeeds_without_rules_file() {
     layout.ensure_state_dir().unwrap();
 
     // No rules file at all — should use defaults
-    let result = execute_impact();
+    let result = execute_impact(false);
     assert!(result.is_ok(), "Impact should succeed with no rules file");
 }
 
@@ -93,7 +93,7 @@ fn test_impact_creates_report_file() {
     let layout = Layout::new(dir.to_string_lossy().as_ref());
     layout.ensure_state_dir().unwrap();
 
-    let result = execute_impact();
+    let result = execute_impact(false);
     assert!(result.is_ok());
 
     let report_path = layout.reports_dir().join("latest-impact.json");
@@ -116,7 +116,7 @@ fn test_impact_records_unsupported_analysis_in_report() {
     let layout = Layout::new(dir.to_string_lossy().as_ref());
     layout.ensure_state_dir().unwrap();
 
-    execute_impact().unwrap();
+    execute_impact(false).unwrap();
 
     let report = fs::read_to_string(layout.reports_dir().join("latest-impact.json")).unwrap();
     assert!(report.contains("\"analysisStatus\""));

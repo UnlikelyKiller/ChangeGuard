@@ -76,6 +76,26 @@ impl StorageManager {
         }
     }
 
+    pub fn get_all_packets(&self) -> Result<Vec<ImpactPacket>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT packet_json FROM snapshots ORDER BY id ASC")
+            .into_diagnostic()?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                let json: String = row.get(0)?;
+                serde_json::from_str(&json).map_err(|_e| rusqlite::Error::InvalidQuery)
+            })
+            .into_diagnostic()?;
+
+        let mut packets = Vec::new();
+        for packet in rows {
+            packets.push(packet.into_diagnostic()?);
+        }
+        Ok(packets)
+    }
+
     pub fn save_batch(&self, timestamp: &str, event_count: u32, batch_json: &str) -> Result<i64> {
         self.conn
             .execute(

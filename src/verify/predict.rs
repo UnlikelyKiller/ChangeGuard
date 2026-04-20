@@ -24,59 +24,92 @@ pub struct PredictedFile {
     pub reason: PredictionReason,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PredictionResult {
+    pub files: Vec<PredictedFile>,
+    pub warnings: Vec<String>,
+}
+
 pub struct Predictor;
 
 impl Predictor {
-    pub fn predict(packet: &ImpactPacket) -> Vec<PredictedFile> {
+    pub fn predict(packet: &ImpactPacket, history: &[ImpactPacket]) -> PredictionResult {
         let mut predicted = BTreeSet::new();
-        let changed_paths: BTreeSet<&Path> =
-            packet.changes.iter().map(|f| f.path.as_path()).collect();
+        let mut warnings = Vec::new();
 
-        // 1. Structural Impact
-        // For each changed file, find files that import it.
-        // Since we only have analysis for files in 'changes' (or previous packets, but we are KISS for now),
-        // we check if any changed file imports another changed file.
-        // Wait, the spec says "predict which files SHOULD be verified even if they haven't changed".
-        // This means we need to look at files NOT in 'changes'.
-        // But we don't have analysis for them in the current packet.
+        let changed_paths: BTreeSet<PathBuf> =
+            packet.changes.iter().map(|f| f.path.clone()).collect();
 
-        // Let's re-read the spec carefully.
-        // "Implement structural predictions by parsing the ImpactPacket imports to identify files dependent on the changed paths."
-        // If ImpactPacket ONLY has changed files, then we can only find dependencies BETWEEN changed files.
-        // But those are already being verified.
+        // 1. Structural Prediction (Depth 1)
+        // Identify files in history (all known files) that import any of the changed files.
+        for hist_packet in history {
+            for hist_file in &hist_packet.changes {
+                // If this file is already in the 'changes' of the current packet, it's not a "prediction"
+                // (it's already being verified).
+                if changed_paths.contains(&hist_file.path) {
+                    continue;
+                }
 
-        // UNLESS... ImpactPacket imports are actually used in reverse?
-        // No, if B imports A, and A changed, B is impacted.
+                if let Some(imports) = &hist_file.imports {
+                    for imp in &imports.imported_from {
+                        let imp_norm = imp.replace("::", "/");
+                        let imp_path = Path::new(&imp_norm);
+                        
+                        for changed in &changed_paths {
+                            // Match if the import string matches the changed file's path (heuristically)
+                            // 1. Exact match (after normalization)
+                            // 2. Import is a suffix of the changed path (e.g. "models/user" matches "src/models/user.rs")
+                            // 3. Changed path is a suffix of the import (less likely but possible with relative paths)
+                            
+                            let changed_str = changed.to_string_lossy();
+                            let changed_no_ext = changed.with_extension("");
+                            let changed_no_ext_str = changed_no_ext.to_string_lossy();
 
-        // Let's look at how temporal coupling is used.
+                            if changed == imp_path || 
+                               changed_no_ext == imp_path ||
+                               changed_str.ends_with(&imp_norm) ||
+                               changed_no_ext_str.ends_with(&imp_norm)
+                            {
+                                predicted.insert(PredictedFile {
+                                    path: hist_file.path.clone(),
+                                    reason: PredictionReason::Structural,
+                                });
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Temporal Prediction
+        if packet.temporal_couplings.is_empty() && !packet.changes.is_empty() {
+            warnings.push("Temporal coupling data is missing or unavailable; falling back to structural-only prediction.".to_string());
+        }
+
         for coupling in &packet.temporal_couplings {
-            if changed_paths.contains(coupling.file_a.as_path())
-                && !changed_paths.contains(coupling.file_b.as_path())
-            {
+            let a_changed = changed_paths.contains(&coupling.file_a);
+            let b_changed = changed_paths.contains(&coupling.file_b);
+
+            if a_changed && !b_changed {
                 predicted.insert(PredictedFile {
                     path: coupling.file_b.clone(),
+                    reason: PredictionReason::Temporal,
+                });
+            } else if b_changed && !a_changed {
+                predicted.insert(PredictedFile {
+                    path: coupling.file_a.clone(),
                     reason: PredictionReason::Temporal,
                 });
             }
         }
 
-        // Structural Impact (Depth 1)
-        // If we want to find files NOT in 'changes' that import something in 'changes',
-        // we would need their analysis.
-        // For now, let's implement what we CAN with the packet data.
-        // If the packet HAD more files, we would use them.
-
-        // Wait, if a ChangedFile B imports A, and A is in changes, then B is structurally impacted.
-        // But B is already in changes.
-
-        // Maybe the intent is that we should also consider the 'imported_from' strings
-        // as a way to find dependencies if they were file paths?
-
-        // Actually, if I look at the tests in Track 26, maybe I can see what's expected.
-        // I'll check if there are any existing tests for this.
-
-        let mut results: Vec<_> = predicted.into_iter().collect();
-        results.sort();
-        results
+        let mut files: Vec<_> = predicted.into_iter().collect();
+        files.sort();
+        
+        PredictionResult {
+            files,
+            warnings,
+        }
     }
 }

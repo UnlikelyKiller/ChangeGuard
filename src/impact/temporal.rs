@@ -43,7 +43,7 @@ impl<'repo> HistoryProvider for GixHistoryProvider<'repo> {
         let mut walk = head.id().ancestors();
         
         if !all_parents {
-            walk = walk.first_parent();
+            walk = walk.first_parent_only();
         } else {
             walk = walk.sorting(gix::revision::walk::Sorting::BreadthFirst);
         }

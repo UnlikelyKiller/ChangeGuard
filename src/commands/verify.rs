@@ -28,23 +28,30 @@ pub fn execute_verify(
         Some(cmd) => (None, vec![manual_step(cmd, manual_timeout(timeout_secs))]),
         None => {
             let db_path = layout.state_subdir().join("ledger.db");
-            let packet = match StorageManager::init(db_path.as_std_path()) {
-                Ok(storage) => storage.get_latest_packet()?,
-                Err(_) => None,
-            };
+            let storage = StorageManager::init(db_path.as_std_path()).ok();
+            let packet = storage.as_ref().and_then(|s| s.get_latest_packet().ok()).flatten();
 
             let rules = load_rules(&layout)?;
-            let predicted = if no_predict {
-                Vec::new()
+            let prediction = if no_predict {
+                crate::verify::predict::PredictionResult::default()
             } else {
                 match &packet {
-                    Some(p) => crate::verify::predict::Predictor::predict(p),
-                    None => Vec::new(),
+                    Some(p) => {
+                        let history = storage.as_ref()
+                            .and_then(|s| s.get_all_packets().ok())
+                            .unwrap_or_default();
+                        crate::verify::predict::Predictor::predict(p, &history)
+                    }
+                    None => crate::verify::predict::PredictionResult::default(),
                 }
             };
 
+            for warning in &prediction.warnings {
+                warn!("{}", warning);
+            }
+
             let plan = match &packet {
-                Some(packet) => build_plan(packet, &rules, &predicted),
+                Some(packet) => build_plan(packet, &rules, &prediction.files),
                 None => VerificationPlan {
                     steps: vec![manual_step(
                         "cargo test -j 1 -- --test-threads=1".to_string(),

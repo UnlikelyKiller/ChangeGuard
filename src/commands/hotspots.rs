@@ -1,18 +1,9 @@
 use crate::git::repo::open_repo;
-use crate::impact::temporal::{GixHistoryProvider, HistoryProvider};
+use crate::impact::temporal::GixHistoryProvider;
 use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
-use camino::Utf8PathBuf;
 use miette::{IntoDiagnostic, Result};
-use std::collections::HashMap;
 use std::env;
-
-pub struct Hotspot {
-    pub path: Utf8PathBuf,
-    pub score: f32,
-    pub complexity: i32,
-    pub frequency: usize,
-}
 
 pub fn execute_hotspots(
     limit: usize,

@@ -73,7 +73,7 @@ pub fn build_plan(
     commands.sort_unstable();
     commands.dedup();
 
-    // Build initial steps from changes
+    // Build initial steps
     let mut steps: Vec<VerificationStep> = if commands.is_empty() && predicted_steps.is_empty() {
         vec![VerificationStep {
             command: DEFAULT_COMMAND.to_string(),
@@ -94,19 +94,21 @@ pub fn build_plan(
     // Add predicted steps
     steps.extend(predicted_steps);
 
-    // Deduplicate all steps by command
-    // Note: If multiple files predict the same command, we keep the first one
-    // But we should sort first for determinism
+    // Deduplicate all steps by command, merging descriptions for traceability
     steps.sort_unstable_by(|a, b| {
         a.command
             .cmp(&b.command)
             .then(a.description.cmp(&b.description))
     });
 
-    let mut unique_steps = Vec::new();
-    let mut seen_commands = std::collections::HashSet::new();
+    let mut unique_steps: Vec<VerificationStep> = Vec::new();
     for step in steps {
-        if seen_commands.insert(step.command.clone()) {
+        if let Some(existing) = unique_steps.iter_mut().find(|s| s.command == step.command) {
+            if !existing.description.contains(&step.description) {
+                existing.description.push_str(" | ");
+                existing.description.push_str(&step.description);
+            }
+        } else {
             unique_steps.push(step);
         }
     }
@@ -320,5 +322,48 @@ mod tests {
             .find(|s| s.command == "cargo test --test '*'")
             .unwrap();
         assert!(predicted_step.description.contains("Predicted impact"));
+    }
+
+    #[test]
+    fn test_build_plan_merges_descriptions() {
+        let packet = ImpactPacket {
+            changes: vec![ChangedFile {
+                path: PathBuf::from("src/lib.rs"),
+                status: "Modified".to_string(),
+                is_staged: true,
+                symbols: None,
+                imports: None,
+                runtime_usage: None,
+                analysis_status: FileAnalysisStatus::default(),
+                analysis_warnings: Vec::new(),
+            }],
+            ..ImpactPacket::default()
+        };
+        
+        let rules = Rules {
+            global: GlobalRules::default(),
+            overrides: vec![PathRule {
+                pattern: "src/*.rs".to_string(),
+                mode: None,
+                required_verifications: vec!["cargo check".to_string()],
+            }],
+            protected_paths: Vec::new(),
+        };
+
+        use crate::verify::predict::{PredictedFile, PredictionReason};
+        let predicted = vec![PredictedFile {
+            path: PathBuf::from("src/other.rs"),
+            reason: PredictionReason::Structural,
+        }];
+
+        let plan = build_plan(&packet, &rules, &predicted);
+
+        // 'cargo check' is triggered by BOTH the direct change in src/lib.rs
+        // AND the predicted impact on src/other.rs.
+        assert_eq!(plan.steps.len(), 1);
+        assert_eq!(plan.steps[0].command, "cargo check");
+        assert!(plan.steps[0].description.contains("From rules"));
+        assert!(plan.steps[0].description.contains("Predicted impact"));
+        assert!(plan.steps[0].description.contains(" | "));
     }
 }
