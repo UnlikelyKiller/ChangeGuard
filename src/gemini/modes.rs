@@ -73,7 +73,9 @@ pub fn build_user_prompt(
             "Please suggest specific verification steps for the changes described above."
         }
         GeminiMode::ReviewPatch => "Please review the diff above and provide focused feedback.",
-        GeminiMode::Narrative => "Please provide a high-level narrative risk assessment based on the multi-dimensional intelligence provided above. Focus on architectural health and potential side effects.",
+        GeminiMode::Narrative => {
+            "Please provide a high-level narrative risk assessment based on the multi-dimensional intelligence provided above. Focus on architectural health and potential side effects."
+        }
     };
 
     format!(

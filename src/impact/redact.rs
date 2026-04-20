@@ -388,7 +388,6 @@ mod tests {
                     cognitive_complexity: None,
                     cyclomatic_complexity: None,
                 },
-
                 Symbol {
                     name: "Config".to_string(),
                     kind: SymbolKind::Struct,

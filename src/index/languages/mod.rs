@@ -1,6 +1,6 @@
-pub mod types;
 pub mod python;
 pub mod rust;
+pub mod types;
 pub mod typescript;
 
 pub use self::types::Language;

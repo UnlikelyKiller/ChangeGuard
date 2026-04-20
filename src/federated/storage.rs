@@ -48,9 +48,7 @@ pub fn get_federated_links(conn: &Connection) -> Result<Vec<(String, String, Str
         .prepare("SELECT sibling_name, sibling_path, last_scanned_at FROM federated_links ORDER BY sibling_name")
         .into_diagnostic()?;
     let rows = stmt
-        .query_map([], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-        })
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
         .into_diagnostic()?;
 
     let mut links = Vec::new();
@@ -60,14 +58,15 @@ pub fn get_federated_links(conn: &Connection) -> Result<Vec<(String, String, Str
     Ok(links)
 }
 
-pub fn get_dependencies_for_sibling(conn: &Connection, sibling_name: &str) -> Result<Vec<(String, String)>> {
+pub fn get_dependencies_for_sibling(
+    conn: &Connection,
+    sibling_name: &str,
+) -> Result<Vec<(String, String)>> {
     let mut stmt = conn
         .prepare("SELECT local_symbol, sibling_symbol FROM federated_dependencies WHERE sibling_name = ?1 ORDER BY local_symbol, sibling_symbol")
         .into_diagnostic()?;
     let rows = stmt
-        .query_map([sibling_name], |row| {
-            Ok((row.get(0)?, row.get(1)?))
-        })
+        .query_map([sibling_name], |row| Ok((row.get(0)?, row.get(1)?)))
         .into_diagnostic()?;
 
     let mut deps = Vec::new();

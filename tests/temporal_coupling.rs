@@ -17,13 +17,16 @@ impl HistoryProvider for MockHistoryProvider {
 #[test]
 fn test_temporal_coupling_logic() {
     let mut history = Vec::new();
-    
+
     // File A and B changed together in 10 commits
     for _ in 0..10 {
         let mut files = HashSet::new();
         files.insert(Utf8PathBuf::from("src/a.rs"));
         files.insert(Utf8PathBuf::from("src/b.rs"));
-        history.push(CommitFileSet { files, is_merge: false });
+        history.push(CommitFileSet {
+            files,
+            is_merge: false,
+        });
     }
 
     let config = TemporalConfig {
@@ -37,7 +40,7 @@ fn test_temporal_coupling_logic() {
     let couplings = engine.calculate_couplings().unwrap();
 
     assert_eq!(couplings.len(), 2);
-    
+
     // A -> B coupling
     assert_eq!(couplings[0].file_a.to_str().unwrap(), "src/a.rs");
     assert_eq!(couplings[0].file_b.to_str().unwrap(), "src/b.rs");
@@ -52,7 +55,7 @@ fn test_temporal_coupling_logic() {
 #[test]
 fn test_temporal_coupling_threshold() {
     let mut history = Vec::new();
-    
+
     // File A changes in 10 commits
     // File B changes in 5 of those commits
     for i in 0..10 {
@@ -61,7 +64,10 @@ fn test_temporal_coupling_threshold() {
         if i < 5 {
             files.insert(Utf8PathBuf::from("src/b.rs"));
         }
-        history.push(CommitFileSet { files, is_merge: false });
+        history.push(CommitFileSet {
+            files,
+            is_merge: false,
+        });
     }
 
     let config = TemporalConfig {
@@ -86,7 +92,10 @@ fn test_temporal_coupling_threshold() {
 fn test_insufficient_history_error() {
     let mut history = Vec::new();
     for _ in 0..5 {
-        history.push(CommitFileSet { files: HashSet::new(), is_merge: false });
+        history.push(CommitFileSet {
+            files: HashSet::new(),
+            is_merge: false,
+        });
     }
 
     let config = TemporalConfig::default();

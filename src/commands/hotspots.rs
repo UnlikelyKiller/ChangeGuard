@@ -18,14 +18,16 @@ pub fn execute_hotspots(limit: usize, commits: usize) -> Result<()> {
     let current_dir = env::current_dir().into_diagnostic()?;
     let repo = open_repo(&current_dir)?;
     let layout = Layout::new(current_dir.to_string_lossy().as_ref());
-    
+
     let db_path = layout.state_subdir().join("ledger.db");
     let storage = StorageManager::init(db_path.as_std_path())?;
 
     println!("Analyzing {} commits for temporal hotspots...", commits);
-    
+
     let provider = GixHistoryProvider::new(&repo);
-    let history = provider.get_history(commits).map_err(|e| miette::miette!("Git history error: {e}"))?;
+    let history = provider
+        .get_history(commits)
+        .map_err(|e| miette::miette!("Git history error: {e}"))?;
 
     let mut frequency_map: HashMap<Utf8PathBuf, usize> = HashMap::new();
     let mut total_eligible_commits = 0;
@@ -41,7 +43,9 @@ pub fn execute_hotspots(limit: usize, commits: usize) -> Result<()> {
     }
 
     if total_eligible_commits == 0 {
-        return Err(miette::miette!("No eligible commits found in history window."));
+        return Err(miette::miette!(
+            "No eligible commits found in history window."
+        ));
     }
 
     // Fetch max complexity for each file from SQLite
@@ -52,24 +56,24 @@ pub fn execute_hotspots(limit: usize, commits: usize) -> Result<()> {
          GROUP BY file_path"
     ).into_diagnostic()?;
 
-    let file_complexities: HashMap<String, i32> = stmt.query_map([], |row| {
-        Ok((row.get(0)?, row.get(1)?))
-    }).into_diagnostic()?
-    .filter_map(|res| res.ok())
-    .collect();
+    let file_complexities: HashMap<String, i32> = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .into_diagnostic()?
+        .filter_map(|res| res.ok())
+        .collect();
 
     let mut hotspots = Vec::new();
 
     for (path, freq) in frequency_map {
         let path_str = path.to_string();
         let complexity = file_complexities.get(&path_str).cloned().unwrap_or(0);
-        
-        // Scoring: 
+
+        // Scoring:
         // Normalized Frequency (0-1) + Normalized Complexity (0-1)
         // For simplicity: frequency / total_commits + complexity / 50 (capped at 1.0)
         let f_score = freq as f32 / total_eligible_commits as f32;
         let c_score = (complexity as f32 / 50.0).min(1.0);
-        
+
         let score = (f_score * 0.5) + (c_score * 0.5);
 
         hotspots.push(Hotspot {
@@ -80,7 +84,12 @@ pub fn execute_hotspots(limit: usize, commits: usize) -> Result<()> {
         });
     }
 
-    hotspots.sort_unstable_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+    hotspots.sort_unstable_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.path.cmp(&b.path))
+    });
     hotspots.truncate(limit);
 
     crate::output::human::print_hotspots_table(&hotspots);

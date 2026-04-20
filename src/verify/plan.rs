@@ -20,7 +20,11 @@ pub struct VerificationPlan {
 
 const DEFAULT_COMMAND: &str = "cargo test -j 1 -- --test-threads=1";
 
-pub fn build_plan(packet: &ImpactPacket, rules: &Rules, predicted: &[PredictedFile]) -> VerificationPlan {
+pub fn build_plan(
+    packet: &ImpactPacket,
+    rules: &Rules,
+    predicted: &[PredictedFile],
+) -> VerificationPlan {
     let mut commands: Vec<String> = Vec::new();
     let mut predicted_steps: Vec<VerificationStep> = Vec::new();
 
@@ -54,7 +58,11 @@ pub fn build_plan(packet: &ImpactPacket, rules: &Rules, predicted: &[PredictedFi
                     predicted_steps.push(VerificationStep {
                         command: cmd.clone(),
                         timeout_secs: DEFAULT_AUTO_TIMEOUT_SECS,
-                        description: format!("Predicted impact ({}) on {}", p_file.reason, p_file.path.display()),
+                        description: format!(
+                            "Predicted impact ({}) on {}",
+                            p_file.reason,
+                            p_file.path.display()
+                        ),
                     });
                 }
             }
@@ -89,8 +97,12 @@ pub fn build_plan(packet: &ImpactPacket, rules: &Rules, predicted: &[PredictedFi
     // Deduplicate all steps by command
     // Note: If multiple files predict the same command, we keep the first one
     // But we should sort first for determinism
-    steps.sort_unstable_by(|a, b| a.command.cmp(&b.command).then(a.description.cmp(&b.description)));
-    
+    steps.sort_unstable_by(|a, b| {
+        a.command
+            .cmp(&b.command)
+            .then(a.description.cmp(&b.description))
+    });
+
     let mut unique_steps = Vec::new();
     let mut seen_commands = std::collections::HashSet::new();
     for step in steps {
@@ -99,7 +111,9 @@ pub fn build_plan(packet: &ImpactPacket, rules: &Rules, predicted: &[PredictedFi
         }
     }
 
-    VerificationPlan { steps: unique_steps }
+    VerificationPlan {
+        steps: unique_steps,
+    }
 }
 
 #[cfg(test)]
@@ -292,12 +306,19 @@ mod tests {
 
         let plan = build_plan(&packet, &rules, &predicted);
 
-        // Should include default (because no global/change rules match) 
-        // PLUS the predicted rule match.
-        assert!(plan.steps.iter().any(|s| s.command == DEFAULT_COMMAND));
-        assert!(plan.steps.iter().any(|s| s.command == "cargo test --test '*'"));
-        
-        let predicted_step = plan.steps.iter().find(|s| s.command == "cargo test --test '*'").unwrap();
+        // Should include ONLY the predicted rule match (overrides default).
+        assert_eq!(plan.steps.len(), 1);
+        assert!(
+            plan.steps
+                .iter()
+                .any(|s| s.command == "cargo test --test '*'")
+        );
+
+        let predicted_step = plan
+            .steps
+            .iter()
+            .find(|s| s.command == "cargo test --test '*'")
+            .unwrap();
         assert!(predicted_step.description.contains("Predicted impact"));
     }
 }

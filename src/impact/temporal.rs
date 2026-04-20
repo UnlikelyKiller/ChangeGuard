@@ -34,9 +34,10 @@ impl<'repo> HistoryProvider for GixHistoryProvider<'repo> {
             return Err(GitError::ShallowClone);
         }
 
-        let head = self.repo.head_commit().map_err(|e| GitError::MetadataError {
-            source: e.into(),
-        })?;
+        let head = self
+            .repo
+            .head_commit()
+            .map_err(|e| GitError::MetadataError { source: e.into() })?;
 
         let mut history = Vec::new();
         let walk = head
@@ -52,18 +53,20 @@ impl<'repo> HistoryProvider for GixHistoryProvider<'repo> {
             }
 
             let info = res.map_err(|e| GitError::MetadataError { source: e.into() })?;
-            let commit = info.id().object().map_err(|e| GitError::MetadataError {
-                source: e.into(),
-            })?.into_commit();
+            let commit = info
+                .id()
+                .object()
+                .map_err(|e| GitError::MetadataError { source: e.into() })?
+                .into_commit();
 
             let is_merge = commit.parent_ids().count() > 1;
             let mut files = HashSet::new();
 
             if !is_merge {
-                let current_tree = commit.tree().map_err(|e| GitError::MetadataError {
-                    source: e.into(),
-                })?;
-                
+                let current_tree = commit
+                    .tree()
+                    .map_err(|e| GitError::MetadataError { source: e.into() })?;
+
                 let parent_id = commit.parent_ids().next();
                 let parent_tree = if let Some(p_id) = parent_id {
                     p_id.object()
@@ -75,20 +78,31 @@ impl<'repo> HistoryProvider for GixHistoryProvider<'repo> {
                     self.repo.empty_tree()
                 };
 
-                let changes = self.repo
+                let changes = self
+                    .repo
                     .diff_tree_to_tree(Some(&parent_tree), Some(&current_tree), None)
                     .map_err(|e| GitError::MetadataError { source: e.into() })?;
 
                 for change in changes {
                     match change {
-                        ChangeDetached::Addition { location, .. } |
-                        ChangeDetached::Deletion { location, .. } |
-                        ChangeDetached::Modification { location, .. } => {
-                            files.insert(Utf8PathBuf::from(String::from_utf8_lossy(&location).into_owned()));
+                        ChangeDetached::Addition { location, .. }
+                        | ChangeDetached::Deletion { location, .. }
+                        | ChangeDetached::Modification { location, .. } => {
+                            files.insert(Utf8PathBuf::from(
+                                String::from_utf8_lossy(&location).into_owned(),
+                            ));
                         }
-                        ChangeDetached::Rewrite { location, source_location, .. } => {
-                            files.insert(Utf8PathBuf::from(String::from_utf8_lossy(&location).into_owned()));
-                            files.insert(Utf8PathBuf::from(String::from_utf8_lossy(&source_location).into_owned()));
+                        ChangeDetached::Rewrite {
+                            location,
+                            source_location,
+                            ..
+                        } => {
+                            files.insert(Utf8PathBuf::from(
+                                String::from_utf8_lossy(&location).into_owned(),
+                            ));
+                            files.insert(Utf8PathBuf::from(
+                                String::from_utf8_lossy(&source_location).into_owned(),
+                            ));
                         }
                     }
                 }
@@ -113,7 +127,7 @@ impl<P: HistoryProvider> TemporalEngine<P> {
 
     pub fn calculate_couplings(&self) -> Result<Vec<TemporalCoupling>, GitError> {
         let history = self.provider.get_history(self.config.max_commits)?;
-        
+
         let mut commit_count = 0;
         let mut file_commit_map: HashMap<Utf8PathBuf, HashSet<usize>> = HashMap::new();
         let mut commit_id = 0;
@@ -124,15 +138,14 @@ impl<P: HistoryProvider> TemporalEngine<P> {
                 continue;
             }
 
-            if commit_set.files.len() > self.config.max_files_per_commit || commit_set.files.is_empty() {
+            if commit_set.files.len() > self.config.max_files_per_commit
+                || commit_set.files.is_empty()
+            {
                 continue;
             }
 
             for file in commit_set.files {
-                file_commit_map
-                    .entry(file)
-                    .or_default()
-                    .insert(commit_id);
+                file_commit_map.entry(file).or_default().insert(commit_id);
             }
 
             commit_count += 1;
@@ -151,7 +164,6 @@ impl<P: HistoryProvider> TemporalEngine<P> {
         files.sort_unstable();
 
         for i in 0..files.len() {
-
             for j in i + 1..files.len() {
                 let file_a = &files[i];
                 let file_b = &files[j];

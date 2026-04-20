@@ -26,15 +26,25 @@ fn test_rust_complexity() {
     "#;
 
     let scorer = NativeComplexityScorer::new();
-    let result = scorer.score_file(Utf8Path::new("test.rs"), source, Language::Rust).unwrap();
+    let result = scorer
+        .score_file(Utf8Path::new("test.rs"), source, Language::Rust)
+        .unwrap();
 
     assert_eq!(result.functions.len(), 2);
-    
-    let simple = result.functions.iter().find(|f| f.name == "simple").unwrap();
+
+    let simple = result
+        .functions
+        .iter()
+        .find(|f| f.name == "simple")
+        .unwrap();
     assert_eq!(simple.cyclomatic, 1);
     assert_eq!(simple.cognitive, 0);
 
-    let complex = result.functions.iter().find(|f| f.name == "complex").unwrap();
+    let complex = result
+        .functions
+        .iter()
+        .find(|f| f.name == "complex")
+        .unwrap();
     // Cyclomatic: 1 (base) + 1 (if) + 1 (for) + 1 (if) + 1 (else/match) + 2 (match arms) = 7?
     // Let's see what the implementation gives.
     assert!(complex.cyclomatic > 1);
@@ -57,10 +67,16 @@ def complex(x):
     "#;
 
     let scorer = NativeComplexityScorer::new();
-    let result = scorer.score_file(Utf8Path::new("test.py"), source, Language::Python).unwrap();
+    let result = scorer
+        .score_file(Utf8Path::new("test.py"), source, Language::Python)
+        .unwrap();
 
     assert_eq!(result.functions.len(), 2);
-    let complex = result.functions.iter().find(|f| f.name == "complex").unwrap();
+    let complex = result
+        .functions
+        .iter()
+        .find(|f| f.name == "complex")
+        .unwrap();
     assert!(complex.cyclomatic > 1);
     assert!(complex.cognitive > 1);
 }

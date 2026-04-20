@@ -46,10 +46,14 @@ pub enum GitError {
     },
 
     #[error("Shallow clone detected")]
-    #[diagnostic(help("Temporal analysis requires full history. Run `git fetch --unshallow` to fix."))]
+    #[diagnostic(help(
+        "Temporal analysis requires full history. Run `git fetch --unshallow` to fix."
+    ))]
     ShallowClone,
 
-    #[error("Insufficient history for temporal analysis (found {found} commits, need at least {required})")]
+    #[error(
+        "Insufficient history for temporal analysis (found {found} commits, need at least {required})"
+    )]
     InsufficientHistory { found: usize, required: usize },
 }
 

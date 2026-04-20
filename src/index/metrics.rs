@@ -18,10 +18,21 @@ pub struct SymbolComplexity {
 }
 
 pub trait ComplexityScorer {
-    fn score_file(&self, path: &Utf8Path, source: &str, language: Language) -> Result<FileComplexity>;
+    fn score_file(
+        &self,
+        path: &Utf8Path,
+        source: &str,
+        language: Language,
+    ) -> Result<FileComplexity>;
 }
 
 pub struct NativeComplexityScorer;
+
+impl Default for NativeComplexityScorer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl NativeComplexityScorer {
     pub fn new() -> Self {
@@ -35,15 +46,23 @@ impl NativeComplexityScorer {
 
         while let Some(current) = stack.pop() {
             let kind = current.kind();
-            
+
             // Branching points that increase cyclomatic complexity
-            if matches!(kind, 
-                "if_statement" | "if_expression" | 
-                "for_statement" | "for_expression" | 
-                "while_statement" | "while_expression" |
-                "loop_expression" |
-                "match_arm" | "case_item" |
-                "&&" | "||" | "and" | "or"
+            if matches!(
+                kind,
+                "if_statement"
+                    | "if_expression"
+                    | "for_statement"
+                    | "for_expression"
+                    | "while_statement"
+                    | "while_expression"
+                    | "loop_expression"
+                    | "match_arm"
+                    | "case_item"
+                    | "&&"
+                    | "||"
+                    | "and"
+                    | "or"
             ) {
                 complexity += 1;
             }
@@ -65,20 +84,25 @@ impl NativeComplexityScorer {
         let kind = node.kind();
         let mut current_nesting = nesting;
 
-        let is_nesting_increment = matches!(kind,
-            "if_statement" | "if_expression" |
-            "for_statement" | "for_expression" |
-            "while_statement" | "while_expression" |
-            "loop_expression" |
-            "match_expression" | "switch_statement"
+        let is_nesting_increment = matches!(
+            kind,
+            "if_statement"
+                | "if_expression"
+                | "for_statement"
+                | "for_expression"
+                | "while_statement"
+                | "while_expression"
+                | "loop_expression"
+                | "match_expression"
+                | "switch_statement"
         );
 
         if is_nesting_increment {
             score += 1 + nesting;
             current_nesting += 1;
         } else if matches!(kind, "match_arm" | "case_item") {
-             // Incremented by nesting but doesn't increment nesting itself usually
-             score += nesting; 
+            // Incremented by nesting but doesn't increment nesting itself usually
+            score += nesting;
         } else if matches!(kind, "&&" | "||" | "and" | "or") {
             score += 1;
         }
@@ -94,16 +118,25 @@ impl NativeComplexityScorer {
 }
 
 impl ComplexityScorer for NativeComplexityScorer {
-    fn score_file(&self, _path: &Utf8Path, source: &str, language: Language) -> Result<FileComplexity> {
+    fn score_file(
+        &self,
+        _path: &Utf8Path,
+        source: &str,
+        language: Language,
+    ) -> Result<FileComplexity> {
         let mut parser = tree_sitter::Parser::new();
         let ts_language = match language {
             Language::Rust => tree_sitter_rust::LANGUAGE.into(),
             Language::TypeScript => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
             Language::Python => tree_sitter_python::LANGUAGE.into(),
         };
-        parser.set_language(&ts_language).map_err(|e| miette::miette!("TS language error: {e}"))?;
+        parser
+            .set_language(&ts_language)
+            .map_err(|e| miette::miette!("TS language error: {e}"))?;
 
-        let tree = parser.parse(source, None).ok_or_else(|| miette::miette!("Failed to parse source"))?;
+        let tree = parser
+            .parse(source, None)
+            .ok_or_else(|| miette::miette!("Failed to parse source"))?;
         let root = tree.root_node();
 
         let mut functions = Vec::new();
@@ -112,9 +145,17 @@ impl ComplexityScorer for NativeComplexityScorer {
 
         while let Some(node) = stack.pop() {
             let kind = node.kind();
-            if matches!(kind, "function_item" | "function_definition" | "method_declaration" | "arrow_function") {
-                let name = node.child_by_field_name("name")
-                    .map(|n| n.utf8_text(source.as_bytes()).unwrap_or("anonymous").to_string())
+            if matches!(
+                kind,
+                "function_item" | "function_definition" | "method_declaration" | "arrow_function"
+            ) {
+                let name = node
+                    .child_by_field_name("name")
+                    .map(|n| {
+                        n.utf8_text(source.as_bytes())
+                            .unwrap_or("anonymous")
+                            .to_string()
+                    })
                     .unwrap_or_else(|| "anonymous".to_string());
 
                 functions.push(SymbolComplexity {

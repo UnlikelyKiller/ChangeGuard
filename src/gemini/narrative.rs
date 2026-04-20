@@ -6,7 +6,7 @@ impl NarrativeEngine {
     pub fn generate_risk_prompt(packet: &ImpactPacket) -> String {
         let mut prompt = String::new();
         prompt.push_str("Act as a Senior Software Architect. Provide a high-level narrative summary of the following change impact report.\n\n");
-        
+
         prompt.push_str("## Core Analysis\n");
         prompt.push_str(&format!("- Overall Risk Level: {:?}\n", packet.risk_level));
         prompt.push_str("- Risk Reasons:\n");
@@ -15,12 +15,18 @@ impl NarrativeEngine {
         }
 
         prompt.push_str("\n## Changes Summary\n");
-        prompt.push_str(&format!("- Total files changed: {}\n", packet.changes.len()));
+        prompt.push_str(&format!(
+            "- Total files changed: {}\n",
+            packet.changes.len()
+        ));
         for file in packet.changes.iter().take(5) {
             prompt.push_str(&format!("  * {} ({})\n", file.path.display(), file.status));
         }
         if packet.changes.len() > 5 {
-            prompt.push_str(&format!("  * ... and {} more files\n", packet.changes.len() - 5));
+            prompt.push_str(&format!(
+                "  * ... and {} more files\n",
+                packet.changes.len() - 5
+            ));
         }
 
         if !packet.hotspots.is_empty() {
@@ -50,7 +56,7 @@ impl NarrativeEngine {
 
         prompt.push_str("\n## Task\n");
         prompt.push_str("Explain the 'Butterfly Effect' of these changes. What is the most likely thing to break that is NOT in the changed files? What should the reviewer focus on most?");
-        
+
         prompt
     }
 }

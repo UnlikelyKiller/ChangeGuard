@@ -2,14 +2,14 @@
 
 ## Milestone I: Phase 2 Remediation (Active)
 
-*   **Track 30: Foundation & Safety Remediation** (Critical)
-    *   Status: Planning
+*   **Track 30: Foundation & Safety Remediation**
+    *   Status: Completed
     *   Spec: `conductor/track30/spec.md`
     *   Plan: `conductor/track30/plan.md`
     *   Goal: Restore green CI gates (fmt, clippy, tests), fix critical secret redaction/persistence issues, and remove production unwraps.
-    *   Audit3 findings: Critical gating failures, unredacted packet DB storage, `unwrap()` violations.
+    *   Key additions: Green CI suite, secured redact-before-save persistence, zero production unwraps in impact/hotspots.
 
-*   **Track 31: Intelligence & Determinism Hardening** (High)
+*   **Track 31: Intelligence & Determinism Hardening** (High) (Next)
     *   Status: Planning
     *   Spec: `conductor/track31/spec.md`
     *   Plan: `conductor/track31/plan.md`

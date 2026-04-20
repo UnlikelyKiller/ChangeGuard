@@ -2,7 +2,7 @@ use crate::git::repo::{get_head_info, open_repo};
 use crate::git::status::get_repo_status;
 use crate::git::{ChangeType, RepoSnapshot};
 use crate::impact::packet::{AnalysisStatus, ChangedFile, FileAnalysisStatus, ImpactPacket};
-use crate::index::languages::{parse_symbols, Language};
+use crate::index::languages::{Language, parse_symbols};
 use crate::index::metrics::ComplexityScorer;
 use crate::index::references::extract_import_export;
 use crate::index::runtime_usage::extract_runtime_usage;
@@ -58,17 +58,17 @@ pub fn execute_impact() -> Result<()> {
 
     // Run temporal coupling analysis
     let history_provider = crate::impact::temporal::GixHistoryProvider::new(&repo);
-    let temporal_engine = crate::impact::temporal::TemporalEngine::new(history_provider.clone(), config.temporal.clone());
+    let temporal_engine = crate::impact::temporal::TemporalEngine::new(
+        history_provider.clone(),
+        config.temporal.clone(),
+    );
     match temporal_engine.calculate_couplings() {
         Ok(couplings) => {
             packet.temporal_couplings = couplings;
         }
         Err(e) => {
             tracing::warn!("Temporal analysis failed: {e}");
-            println!(
-                "{} Temporal analysis skipped: {e}",
-                warning_marker()
-            );
+            println!("{} Temporal analysis skipped: {e}", warning_marker());
         }
     }
 
@@ -92,12 +92,20 @@ pub fn execute_impact() -> Result<()> {
         }
     }
 
+    // Finalize and redact BEFORE persisting anywhere
+    packet.finalize();
+    let redactions = crate::impact::redact::redact_secrets(&mut packet);
+    if !redactions.is_empty() {
+        tracing::info!("Redacted {} secret(s) from impact packet", redactions.len());
+    }
+
     // Persist to SQLite and run federated analysis
     let db_path = layout.state_subdir().join("ledger.db");
     match crate::state::storage::StorageManager::init(db_path.as_std_path()) {
         Ok(storage) => {
             // Federated Intelligence
-            if let Err(e) = crate::federated::impact::check_cross_repo_impact(&mut packet, &storage) {
+            if let Err(e) = crate::federated::impact::check_cross_repo_impact(&mut packet, &storage)
+            {
                 tracing::warn!("Federated impact analysis failed: {e}");
             }
 
@@ -113,10 +121,7 @@ pub fn execute_impact() -> Result<()> {
                 }
                 Err(e) => {
                     tracing::warn!("Hotspot analysis failed: {e}");
-                    println!(
-                        "{} Hotspot analysis skipped: {e}",
-                        warning_marker()
-                    );
+                    println!("{} Hotspot analysis skipped: {e}", warning_marker());
                 }
             }
 
@@ -135,14 +140,6 @@ pub fn execute_impact() -> Result<()> {
                 warning_marker()
             );
         }
-    }
-
-    packet.finalize();
-
-    // Redact secrets before writing to disk
-    let redactions = crate::impact::redact::redact_secrets(&mut packet);
-    if !redactions.is_empty() {
-        tracing::info!("Redacted {} secret(s) from impact packet", redactions.len());
     }
 
     write_impact_report(&layout, &packet)?;
@@ -295,18 +292,27 @@ fn analyze_changed_file(relative_path: &Path, base_dir: &Path) -> AnalysisOutcom
     // Integrate Complexity Scoring
     if let (Some(syms), Some(lang)) = (&mut symbols, Language::from_extension(extension)) {
         let scorer = crate::index::metrics::NativeComplexityScorer::new();
-        match scorer.score_file(camino::Utf8Path::from_path(relative_path).unwrap(), &content, lang) {
-            Ok(file_complexity) => {
+        if let Some(path) = camino::Utf8Path::from_path(relative_path) {
+            if let Err(e) = scorer.score_file(path, &content, lang) {
+                warnings.push(format!(
+                    "{}: complexity scoring failed: {e}",
+                    relative_path.display()
+                ));
+            } else if let Ok(file_complexity) = scorer.score_file(path, &content, lang) {
                 for sym in syms {
-                    if let Some(symbol_complexity) = file_complexity.functions.iter().find(|f| f.name == sym.name) {
+                    if let Some(symbol_complexity) =
+                        file_complexity.functions.iter().find(|f| f.name == sym.name)
+                    {
                         sym.cognitive_complexity = Some(symbol_complexity.cognitive as i32);
                         sym.cyclomatic_complexity = Some(symbol_complexity.cyclomatic as i32);
                     }
                 }
             }
-            Err(e) => {
-                warnings.push(format!("{}: complexity scoring failed: {e}", relative_path.display()));
-            }
+        } else {
+            warnings.push(format!(
+                "{}: complexity scoring skipped: path is not valid UTF-8",
+                relative_path.display()
+            ));
         }
     }
 

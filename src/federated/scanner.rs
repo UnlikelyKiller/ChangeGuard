@@ -26,9 +26,8 @@ impl FederatedScanner {
 
         for entry in entries {
             let entry = entry.into_diagnostic()?;
-            let path = Utf8PathBuf::from_path_buf(entry.path()).map_err(|_| {
-                miette::miette!("Invalid UTF-8 path: {:?}", entry.path())
-            })?;
+            let path = Utf8PathBuf::from_path_buf(entry.path())
+                .map_err(|_| miette::miette!("Invalid UTF-8 path: {:?}", entry.path()))?;
 
             // Security: Skip symlinks to prevent escapes
             let metadata = fs::symlink_metadata(&path).into_diagnostic()?;

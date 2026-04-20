@@ -14,7 +14,11 @@ use miette::Result;
 use std::env;
 use tracing::{info, warn};
 
-pub fn execute_verify(command_str: Option<String>, timeout_secs: u64, no_predict: bool) -> Result<()> {
+pub fn execute_verify(
+    command_str: Option<String>,
+    timeout_secs: u64,
+    no_predict: bool,
+) -> Result<()> {
     let current_dir = env::current_dir()
         .map_err(|e| miette::miette!("Failed to get current directory: {}", e))?;
     let layout = Layout::new(current_dir.to_string_lossy().as_ref());

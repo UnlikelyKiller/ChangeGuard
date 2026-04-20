@@ -22,7 +22,9 @@ pub fn map_impact_to_diagnostics(packet: &ImpactPacket) -> HashMap<PathBuf, Vec<
             diagnostics.push(Diagnostic {
                 range: Range::new(Position::new(0, 0), Position::new(0, 0)),
                 severity: Some(severity),
-                code: Some(tower_lsp_server::ls_types::NumberOrString::String("risk".to_string())),
+                code: Some(tower_lsp_server::ls_types::NumberOrString::String(
+                    "risk".to_string(),
+                )),
                 code_description: None,
                 source: Some("ChangeGuard".to_string()),
                 message: format!(
@@ -41,7 +43,9 @@ pub fn map_impact_to_diagnostics(packet: &ImpactPacket) -> HashMap<PathBuf, Vec<
             diagnostics.push(Diagnostic {
                 range: Range::new(Position::new(0, 0), Position::new(0, 0)),
                 severity: Some(DiagnosticSeverity::WARNING),
-                code: Some(tower_lsp_server::ls_types::NumberOrString::String("analysis-warning".to_string())),
+                code: Some(tower_lsp_server::ls_types::NumberOrString::String(
+                    "analysis-warning".to_string(),
+                )),
                 code_description: None,
                 source: Some("ChangeGuard".to_string()),
                 message: warning.clone(),
@@ -59,7 +63,9 @@ pub fn map_impact_to_diagnostics(packet: &ImpactPacket) -> HashMap<PathBuf, Vec<
                     diagnostics.push(Diagnostic {
                         range: Range::new(Position::new(0, 0), Position::new(0, 0)),
                         severity: Some(DiagnosticSeverity::INFORMATION),
-                        code: Some(tower_lsp_server::ls_types::NumberOrString::String("public-change".to_string())),
+                        code: Some(tower_lsp_server::ls_types::NumberOrString::String(
+                            "public-change".to_string(),
+                        )),
                         code_description: None,
                         source: Some("ChangeGuard".to_string()),
                         message: format!("Public symbol modified: {}", symbol.name),
@@ -70,20 +76,23 @@ pub fn map_impact_to_diagnostics(packet: &ImpactPacket) -> HashMap<PathBuf, Vec<
                 }
 
                 // Map complexity if available
-                if let Some(cog) = symbol.cognitive_complexity {
-                    if cog > 10 {
-                        diagnostics.push(Diagnostic {
-                            range: Range::new(Position::new(0, 0), Position::new(0, 0)),
-                            severity: Some(DiagnosticSeverity::WARNING),
-                            code: Some(tower_lsp_server::ls_types::NumberOrString::String("high-cognitive-complexity".to_string())),
-                            code_description: None,
-                            source: Some("ChangeGuard".to_string()),
-                            message: format!("Symbol '{}' has high cognitive complexity: {}", symbol.name, cog),
-                            related_information: None,
-                            tags: None,
-                            data: None,
-                        });
-                    }
+                if let Some(cog) = symbol.cognitive_complexity.filter(|&c| c > 10) {
+                    diagnostics.push(Diagnostic {
+                        range: Range::new(Position::new(0, 0), Position::new(0, 0)),
+                        severity: Some(DiagnosticSeverity::WARNING),
+                        code: Some(tower_lsp_server::ls_types::NumberOrString::String(
+                            "high-cognitive-complexity".to_string(),
+                        )),
+                        code_description: None,
+                        source: Some("ChangeGuard".to_string()),
+                        message: format!(
+                            "Symbol '{}' has high cognitive complexity: {}",
+                            symbol.name, cog
+                        ),
+                        related_information: None,
+                        tags: None,
+                        data: None,
+                    });
                 }
             }
         }
@@ -101,11 +110,13 @@ pub fn map_impact_to_diagnostics(packet: &ImpactPacket) -> HashMap<PathBuf, Vec<
             coupling.file_b.display(),
             coupling.score
         );
-        
+
         let diag = Diagnostic {
             range: Range::new(Position::new(0, 0), Position::new(0, 0)),
             severity: Some(DiagnosticSeverity::HINT),
-            code: Some(tower_lsp_server::ls_types::NumberOrString::String("temporal-coupling".to_string())),
+            code: Some(tower_lsp_server::ls_types::NumberOrString::String(
+                "temporal-coupling".to_string(),
+            )),
             code_description: None,
             source: Some("ChangeGuard".to_string()),
             message,
@@ -114,8 +125,11 @@ pub fn map_impact_to_diagnostics(packet: &ImpactPacket) -> HashMap<PathBuf, Vec<
             data: None,
         };
 
-        diagnostics_map.entry(coupling.file_a.clone()).or_default().push(diag.clone());
-        
+        diagnostics_map
+            .entry(coupling.file_a.clone())
+            .or_default()
+            .push(diag.clone());
+
         // Reverse message for the second file
         let mut diag_b = diag;
         diag_b.message = format!(
@@ -123,7 +137,10 @@ pub fn map_impact_to_diagnostics(packet: &ImpactPacket) -> HashMap<PathBuf, Vec<
             coupling.file_a.display(),
             coupling.score
         );
-        diagnostics_map.entry(coupling.file_b.clone()).or_default().push(diag_b);
+        diagnostics_map
+            .entry(coupling.file_b.clone())
+            .or_default()
+            .push(diag_b);
     }
 
     diagnostics_map
@@ -132,14 +149,16 @@ pub fn map_impact_to_diagnostics(packet: &ImpactPacket) -> HashMap<PathBuf, Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::impact::packet::{TemporalCoupling, RiskLevel, FileAnalysisStatus};
+    use crate::impact::packet::{ChangedFile, FileAnalysisStatus, RiskLevel, TemporalCoupling};
 
     #[test]
     fn test_map_impact_to_diagnostics() {
-        let mut packet = ImpactPacket::default();
-        packet.risk_level = RiskLevel::High;
-        packet.risk_reasons = vec!["Something bad".to_string()];
-        
+        let mut packet = ImpactPacket {
+            risk_level: RiskLevel::High,
+            risk_reasons: vec!["Something bad".to_string()],
+            ..ImpactPacket::default()
+        };
+
         packet.changes.push(ChangedFile {
             path: PathBuf::from("src/main.rs"),
             status: "Modified".to_string(),
@@ -165,9 +184,20 @@ mod tests {
         let main_diags = &map[&PathBuf::from("src/main.rs")];
         // Risk, Warning, Temporal Coupling = 3
         assert_eq!(main_diags.len(), 3);
-        
-        assert!(main_diags.iter().any(|d| d.message.contains("Risk Level: High")));
-        assert!(main_diags.iter().any(|d| d.message.contains("Old API used")));
-        assert!(main_diags.iter().any(|d| d.message.contains("Temporal coupling detected with src/lib.rs")));
+
+        assert!(
+            main_diags
+                .iter()
+                .any(|d| d.message.contains("Risk Level: High"))
+        );
+        assert!(
+            main_diags
+                .iter()
+                .any(|d| d.message.contains("Old API used"))
+        );
+        assert!(main_diags.iter().any(|d| {
+            d.message
+                .contains("Temporal coupling detected with src/lib.rs")
+        }));
     }
 }

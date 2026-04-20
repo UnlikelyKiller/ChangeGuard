@@ -18,6 +18,6 @@ fn test_watch_invalid_config_fails_visibly() {
     fs::create_dir_all(&state_dir).unwrap();
     fs::write(state_dir.join("config.toml"), "[watch]\ndebounce_ms = 0\n").unwrap();
 
-    let err = execute_watch(100).unwrap_err();
+    let err = execute_watch(100, false).unwrap_err();
     assert!(format!("{err:?}").contains("debounce_ms"));
 }

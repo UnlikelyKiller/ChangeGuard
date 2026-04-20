@@ -178,7 +178,8 @@ impl ImpactPacket {
         self.changes.sort_unstable();
         self.temporal_couplings.sort_unstable();
         self.hotspots.sort_unstable_by(|a, b| {
-            b.score.partial_cmp(&a.score)
+            b.score
+                .partial_cmp(&a.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| a.path.cmp(&b.path))
         });
@@ -186,7 +187,7 @@ impl ImpactPacket {
     }
 
     /// Truncates the packet to fit within a target character limit.
-    /// Priority: 
+    /// Priority:
     /// 1. Strip verification stdout/stderr
     /// 2. Strip symbol/import/runtime data for unchanged files (if any were included)
     /// 3. Strip temporal couplings

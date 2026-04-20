@@ -1,16 +1,16 @@
-use crate::federated::schema::{FederatedSchema, PublicInterface};
 use crate::federated::scanner::FederatedScanner;
-use crate::federated::storage::{update_federated_link, get_federated_links};
+use crate::federated::schema::{FederatedSchema, PublicInterface};
+use crate::federated::storage::{get_federated_links, update_federated_link};
 use crate::git::repo::open_repo;
+use crate::index::storage::get_public_symbols;
 use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
-use crate::index::storage::get_public_symbols;
 use camino::Utf8PathBuf;
 use chrono::Utc;
 use miette::{IntoDiagnostic, Result};
+use owo_colors::OwoColorize;
 use std::env;
 use std::fs;
-use owo_colors::OwoColorize;
 
 pub fn execute_federate_export() -> Result<()> {
     let current_dir = env::current_dir().into_diagnostic()?;
@@ -19,7 +19,8 @@ pub fn execute_federate_export() -> Result<()> {
     let storage = StorageManager::init(db_path.as_std_path())?;
 
     let repo = open_repo(&current_dir)?;
-    let repo_name = repo.workdir()
+    let repo_name = repo
+        .workdir()
         .and_then(|p| p.file_name())
         .and_then(|s| s.to_str())
         .unwrap_or("unknown")
@@ -28,7 +29,8 @@ pub fn execute_federate_export() -> Result<()> {
     println!("Exporting public interfaces for {}...", repo_name.cyan());
 
     let symbols = get_public_symbols(storage.get_connection())?;
-    let public_interfaces = symbols.into_iter()
+    let public_interfaces = symbols
+        .into_iter()
         .map(|s| PublicInterface {
             symbol: s.name,
             file: s.file_path,
@@ -38,11 +40,15 @@ pub fn execute_federate_export() -> Result<()> {
 
     let schema = FederatedSchema::new(repo_name, public_interfaces);
     let schema_json = serde_json::to_string_pretty(&schema).into_diagnostic()?;
-    
+
     let schema_path = layout.state_subdir().join("schema.json");
     fs::write(&schema_path, schema_json).into_diagnostic()?;
 
-    println!("{} Schema exported to {}", "SUCCESS".green().bold(), schema_path.cyan());
+    println!(
+        "{} Schema exported to {}",
+        "SUCCESS".green().bold(),
+        schema_path.cyan()
+    );
     Ok(())
 }
 
@@ -71,11 +77,15 @@ pub fn execute_federate_scan() -> Result<()> {
             storage.get_connection(),
             &schema.repo_name,
             path.as_str(),
-            &timestamp
+            &timestamp,
         )?;
     }
 
-    println!("{} Discovered {} sibling(s).", "SUCCESS".green().bold(), siblings.len());
+    println!(
+        "{} Discovered {} sibling(s).",
+        "SUCCESS".green().bold(),
+        siblings.len()
+    );
     Ok(())
 }
 

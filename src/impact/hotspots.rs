@@ -38,21 +38,21 @@ pub fn calculate_hotspots(
          GROUP BY file_path"
     ).into_diagnostic()?;
 
-    let file_complexities: HashMap<String, i32> = stmt.query_map([], |row| {
-        Ok((row.get(0)?, row.get(1)?))
-    }).into_diagnostic()?
-    .filter_map(|res| res.ok())
-    .collect();
+    let file_complexities: HashMap<String, i32> = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .into_diagnostic()?
+        .filter_map(|res| res.ok())
+        .collect();
 
     let mut hotspots = Vec::new();
 
     for (path, freq) in frequency_map {
         let path_str = path.to_string();
         let complexity = file_complexities.get(&path_str).cloned().unwrap_or(0);
-        
+
         let f_score = freq as f32 / total_eligible_commits as f32;
         let c_score = (complexity as f32 / 50.0).min(1.0);
-        
+
         let score = (f_score * 0.5) + (c_score * 0.5);
 
         hotspots.push(Hotspot {
@@ -63,7 +63,12 @@ pub fn calculate_hotspots(
         });
     }
 
-    hotspots.sort_unstable_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+    hotspots.sort_unstable_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.path.cmp(&b.path))
+    });
     hotspots.truncate(limit);
 
     Ok(hotspots)
