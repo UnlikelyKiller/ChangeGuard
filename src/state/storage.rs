@@ -6,6 +6,15 @@ use rusqlite::Connection;
 use std::path::Path;
 use tracing::info;
 
+use crate::index::symbols::{Symbol, SymbolKind};
+
+pub struct StoredSymbol {
+    pub file_path: String,
+    pub name: String,
+    pub kind: SymbolKind,
+    pub is_public: bool,
+}
+
 pub struct StorageManager {
     conn: Connection,
 }

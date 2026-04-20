@@ -63,6 +63,23 @@ pub fn get_migrations() -> Migrations<'static> {
         M::up(
             "ALTER TABLE symbols ADD COLUMN cyclomatic_complexity INTEGER;",
         ),
+        M::up(
+            "CREATE TABLE federated_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sibling_name TEXT NOT NULL UNIQUE,
+                sibling_path TEXT NOT NULL,
+                last_scanned_at TEXT NOT NULL
+            );",
+        ),
+        M::up(
+            "CREATE TABLE federated_dependencies (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                local_symbol TEXT NOT NULL,
+                sibling_name TEXT NOT NULL,
+                sibling_symbol TEXT NOT NULL,
+                FOREIGN KEY (sibling_name) REFERENCES federated_links(sibling_name)
+            );",
+        ),
     ])
 }
 
@@ -91,6 +108,8 @@ mod tests {
             "verification_runs",
             "verification_results",
             "symbols",
+            "federated_links",
+            "federated_dependencies",
         ];
 
         for table in &expected_tables {

@@ -76,6 +76,11 @@ pub enum Commands {
         #[arg(long, short, default_value_t = 100)]
         commits: usize,
     },
+    /// Manage federated intelligence across multiple repositories
+    Federate {
+        #[command(subcommand)]
+        command: FederateCommands,
+    },
     /// Start the LSP-Lite ChangeGuard daemon
     #[cfg(feature = "daemon")]
     Daemon {
@@ -83,6 +88,16 @@ pub enum Commands {
         #[arg(long, short, default_value_t = 1000)]
         interval: u64,
     },
+}
+
+#[derive(Subcommand)]
+pub enum FederateCommands {
+    /// Export public interfaces for other repositories to consume
+    Export,
+    /// Scan sibling directories for ChangeGuard schemas
+    Scan,
+    /// Show status of federated links
+    Status,
 }
 
 pub fn run() -> Result<()> {
@@ -109,6 +124,11 @@ pub fn run() -> Result<()> {
         Commands::Hotspots { limit, commits } => {
             crate::commands::hotspots::execute_hotspots(limit, commits)
         }
+        Commands::Federate { command } => match command {
+            FederateCommands::Export => crate::commands::federate::execute_federate_export(),
+            FederateCommands::Scan => crate::commands::federate::execute_federate_scan(),
+            FederateCommands::Status => crate::commands::federate::execute_federate_status(),
+        },
         #[cfg(feature = "daemon")]
         Commands::Daemon { interval } => crate::commands::daemon::execute_daemon(interval),
     }

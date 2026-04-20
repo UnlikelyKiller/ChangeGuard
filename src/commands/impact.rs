@@ -92,6 +92,32 @@ pub fn execute_impact() -> Result<()> {
         }
     }
 
+    // Persist to SQLite and run federated analysis
+    let db_path = layout.state_subdir().join("ledger.db");
+    match crate::state::storage::StorageManager::init(db_path.as_std_path()) {
+        Ok(storage) => {
+            // Federated Intelligence
+            if let Err(e) = crate::federated::impact::check_cross_repo_impact(&mut packet, &storage) {
+                tracing::warn!("Federated impact analysis failed: {e}");
+            }
+
+            if let Err(e) = storage.save_packet(&packet) {
+                tracing::warn!("SQLite save failed: {e}");
+                println!(
+                    "{} Impact report saved to disk but SQLite ledger was not updated. The 'ask' command may not find this report.",
+                    warning_marker()
+                );
+            }
+        }
+        Err(e) => {
+            tracing::warn!("SQLite init failed: {e}");
+            println!(
+                "{} Could not initialize SQLite. Impact report saved to disk but not persisted to database.",
+                warning_marker()
+            );
+        }
+    }
+
     packet.finalize();
 
     // Redact secrets before writing to disk
@@ -109,27 +135,6 @@ pub fn execute_impact() -> Result<()> {
         success_marker(),
         ".changeguard/reports/latest-impact.json".cyan()
     );
-
-    // Persist to SQLite
-    let db_path = layout.state_subdir().join("ledger.db");
-    match crate::state::storage::StorageManager::init(db_path.as_std_path()) {
-        Ok(storage) => {
-            if let Err(e) = storage.save_packet(&packet) {
-                tracing::warn!("SQLite save failed: {e}");
-                println!(
-                    "{} Impact report saved to disk but SQLite ledger was not updated. The 'ask' command may not find this report.",
-                    warning_marker()
-                );
-            }
-        }
-        Err(e) => {
-            tracing::warn!("SQLite init failed: {e}");
-            println!(
-                "{} Could not initialize SQLite. Impact report saved to disk but not persisted to database.",
-                warning_marker()
-            );
-        }
-    }
 
     Ok(())
 }

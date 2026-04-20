@@ -38,14 +38,14 @@
 
 ## Milestone H: Cross-Repo and Narrative Reporting
 
-*   **Track 28: Federated Intelligence (Cross-Repo)** (Next)
-    *   Status: Planning
+*   **Track 28: Federated Intelligence (Cross-Repo)**
+    *   Status: Completed
     *   Spec: `conductor/track28/spec.md`
     *   Plan: `conductor/track28/plan.md`
-    *   Goal: Support analysis across multiple repositories using a shared "Global Brain" or federated SQLite ledgers.
-    *   Key additions: `src/federated/`, Multi-repo risk aggregation, global dependency mapping.
+    *   Goal: Support analysis across multiple repositories using a shared intelligence via `.changeguard/schema.json` and federated SQLite ledgers.
+    *   Key additions: `src/federated/`, `changeguard federate` command (export, scan, status), safe sibling discovery, cross-repo impact warnings.
 
-*   **Track 29: Advanced Narrative Reporting (Gemini)** (Final)
+*   **Track 29: Advanced Narrative Reporting (Gemini)** (Final) (Next)
     *   Status: Planning
     *   Spec: `conductor/track29/spec.md`
     *   Plan: `conductor/track29/plan.md`
@@ -58,10 +58,16 @@
 2. Track 20 (Determinism and Error Visibility Hardening)
 3. Track 21 (Verification Process Hardening)
 4. Track 22 (Structural Completion and Plan Reconciliation)
-5. Track 28 (Federated Intelligence)
-6. Track 29 (Advanced Narrative Reporting)
+5. Track 29 (Advanced Narrative Reporting)
 
 ## Completed Tracks
+
+*   **Track 28: Federated Intelligence (Cross-Repo)**
+    *   Status: Completed
+    *   Spec: `conductor/track28/spec.md`
+    *   Plan: `conductor/track28/plan.md`
+    *   Goal: Support analysis across multiple repositories using a shared intelligence via `.changeguard/schema.json` and federated SQLite ledgers.
+    *   Key additions: `src/federated/`, `changeguard federate` command (export, scan, status), safe sibling discovery, cross-repo impact warnings.
 
 *   **Track 27: LSP-Lite ChangeGuard Daemon**
     *   Status: Completed

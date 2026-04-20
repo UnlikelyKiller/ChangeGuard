@@ -2,6 +2,7 @@ pub mod cli;
 pub mod commands;
 pub mod config;
 pub mod exec;
+pub mod federated;
 pub mod gemini;
 pub mod git;
 pub mod impact;
