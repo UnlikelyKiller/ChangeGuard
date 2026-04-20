@@ -14,3 +14,6 @@ pub mod state;
 pub mod util;
 pub mod verify;
 pub mod watch;
+
+#[cfg(feature = "daemon")]
+pub mod daemon;

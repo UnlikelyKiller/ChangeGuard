@@ -37,14 +37,15 @@
     *   Goal: Wire token budgeting and truncation annotations into Gemini execution, and add golden prompt tests.
     *   Audit3 findings: Token budget unused, truncation annotation absent, Gemini fallback incomplete.
 
-*   **Track 35: LSP Daemon Resolution** (Critical)
-    *   Status: Planning
+*   **Track 35: LSP Daemon Resolution**
+    *   Status: Completed
     *   Spec: `conductor/track35/spec.md`
     *   Plan: `conductor/track35/plan.md`
-    *   Goal: Replace the stub implementation with a fully-featured LSP server in `src/daemon/` (with Tokio runtime and lifecycle management).
-    *   Audit3 findings: Daemon is just a watch wrapper, missing LSP features and lifecycle management.
+    *   Goal: Replace the stub implementation with a fully-featured LSP server using `tower-lsp-server` and `tokio`.
+    *   Key additions: Real-time diagnostic reporting, robust lifecycle (PID management), read-only WAL SQLite access, and native async trait implementation.
 
-## Active Tracks (Phase 1)
+## Completed Tracks
+
 
 *   **Track 19: Reset and Recovery Completion** (Next)
     *   Status: Planning
