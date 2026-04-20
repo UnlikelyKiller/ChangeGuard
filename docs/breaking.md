@@ -13,12 +13,35 @@ This document tracks significant breaking changes, major version bumps, and API 
 | **tree-sitter** | 0.26.8 | Transition to v0.26.x (late 2025/2026) with CLI and API cleanups. | Low |
 | **gix** | 0.81.0 | High-velocity releases, but v0.x semver avoids major breakage. | Low |
 | **notify-debouncer-full** | 0.7.0 | v0.8.0-rc.1 in progress; v0.7.x stable. | Low |
-| **tracing** | 0.1.x | Remains in 0.1.x; minor accidental breakage in 0.1.38 yanked. | Very Low |
-| **camino** | 1.2.2 | Minimal changes; focuses on UTF-8 path safety. | Very Low |
+| **tower-lsp-server** | 0.23.0 | **v0.23.0 (Phase 2)**: Migration from `lsp-types` to `ls-types`. | Moderate |
+| **linfa** | 0.8.1 | **v0.8.1 (Phase 2)**: Breaking `ndarray` 0.16 upgrade. | Moderate |
+| **ChangeGuard CLI** | Phase 2 | **Behavioral**: Probabilistic verification ordering; new subcommands. | Moderate |
 
 ---
 
 ## Detailed Findings
+
+### Phase 2: Intelligence & Federation Shifts
+The following breaking changes are introduced as part of the Phase 2 implementation plan to support temporal analysis, complexity scoring, and LSP integration.
+
+#### CLI & Behavioral
+- **Probabilistic Verification (Moderate):** The `verify` command now reorders execution based on historical failure data. The output sequence is no longer deterministic relative to input order, though it remains deterministic relative to the SQLite state.
+- **Subcommand Additions (Low):** Addition of `hotspots`, `daemon`, and `export-schema`.
+
+#### API & Dependencies
+- **tower-lsp-server (v0.23.0):**
+    - **Namespace Shift:** Migration from `lsp-types` to `ls-types` (community fork).
+    - **Trait Update:** `LanguageServer` no longer uses `#[async_trait]`.
+- **linfa (v0.8.1):**
+    - **Numerical Backend:** Upgraded to `ndarray` 0.16. Version alignment is required across all crates using `ndarray`.
+- **rusqlite (v0.39.0):**
+    - **Statement Safety:** Multi-statement strings are now rejected in `execute()`.
+    - **Integer Types:** `u64`/`usize` support is disabled by default; all database integrations must shift to `i64`.
+
+#### Configuration & Schema
+- **Impact Packet Schema (Moderate):** Introduction of `schema_version`. Phase 1 packets lack this field and may require migration for Phase 2 tools.
+- **Configuration Namespaces (Low):** New `temporal.*` and `metrics.*` keys added to `config.toml`.
+- **Database Migrations (High):** Phase 2 introduces tables for `temporal_coupling`, `probability_history`, and `federated_cache`. Databases migrated to Phase 2 are not backward-compatible with Phase 1 binaries.
 
 ### thiserror (v2.0.0)
 - **Release Date:** November 2024
