@@ -18,6 +18,17 @@ pub struct FederatedSchema {
 impl FederatedSchema {
     pub const VERSION: &'static str = "1.0";
 
+    pub fn validate(&self) -> miette::Result<()> {
+        if self.schema_version != Self::VERSION {
+            return Err(miette::miette!(
+                "Unsupported schema version: {}. Expected: {}",
+                self.schema_version,
+                Self::VERSION
+            ));
+        }
+        Ok(())
+    }
+
     pub fn new(repo_name: String, mut public_interfaces: Vec<PublicInterface>) -> Self {
         // Engineering standard: deterministic sorting
         public_interfaces.sort_by(|a, b| {

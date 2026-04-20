@@ -1,10 +1,10 @@
 use crate::federated::schema::FederatedSchema;
-use crate::federated::storage::get_federated_links;
+use crate::federated::storage::{get_dependencies_for_sibling, get_federated_links};
 use crate::impact::packet::ImpactPacket;
 use crate::state::storage::StorageManager;
-use miette::{IntoDiagnostic, Result};
-use std::collections::HashMap;
+use miette::Result;
 use std::fs;
+use std::panic;
 
 pub fn check_cross_repo_impact(packet: &mut ImpactPacket, storage: &StorageManager) -> Result<()> {
     let links = get_federated_links(storage.get_connection())?;
@@ -12,36 +12,74 @@ pub fn check_cross_repo_impact(packet: &mut ImpactPacket, storage: &StorageManag
         return Ok(());
     }
 
-    let mut sibling_schemas = HashMap::new();
+    let mut impact_reasons = Vec::new();
+
     for (name, path, _) in links {
         let schema_path = std::path::Path::new(&path)
             .join(".changeguard")
             .join("schema.json");
-        if schema_path.exists() {
-            let content = fs::read_to_string(schema_path).into_diagnostic()?;
-            if let Ok(schema) = serde_json::from_str::<FederatedSchema>(&content) {
-                sibling_schemas.insert(name, schema);
+
+        if !schema_path.exists() {
+            impact_reasons.push(format!(
+                "Cross-repo impact: Sibling '{}' schema is unavailable or invalid.",
+                name
+            ));
+            continue;
+        }
+
+        let content = match fs::read_to_string(&schema_path) {
+            Ok(c) => c,
+            Err(_) => {
+                impact_reasons.push(format!(
+                    "Cross-repo impact: Sibling '{}' schema is unavailable or invalid.",
+                    name
+                ));
+                continue;
+            }
+        };
+
+        // JSON Safety: Wrap in catch_unwind
+        let schema_result = panic::catch_unwind(|| serde_json::from_str::<FederatedSchema>(&content));
+
+        let schema = match schema_result {
+            Ok(Ok(s)) => s,
+            _ => {
+                impact_reasons.push(format!(
+                    "Cross-repo impact: Sibling '{}' schema is unavailable or invalid.",
+                    name
+                ));
+                continue;
+            }
+        };
+
+        if let Err(_) = schema.validate() {
+            impact_reasons.push(format!(
+                "Cross-repo impact: Sibling '{}' schema is unavailable or invalid.",
+                name
+            ));
+            continue;
+        }
+
+        let dependencies = get_dependencies_for_sibling(storage.get_connection(), &name)?;
+
+        for (local_symbol, sibling_symbol) in dependencies {
+            let exists = schema
+                .public_interfaces
+                .iter()
+                .any(|i| i.symbol == sibling_symbol);
+            if !exists {
+                impact_reasons.push(format!(
+                    "Cross-repo impact: Local symbol '{}' depends on sibling '{}' interface '{}' which was removed.",
+                    local_symbol, name, sibling_symbol
+                ));
             }
         }
     }
 
-    // Engineering Standard: We currently only check if a local file depends on a sibling interface
-    // based on our stored federated_dependencies table.
-    // This requires a discovery phase during 'impact' or a background task.
-    // For Track 28, we'll implement a simple "Changed Sibling" warning.
-
-    for (name, _schema) in sibling_schemas {
-        // In a real implementation, we would compare the current sibling schema
-        // with the one we had when we last recorded federated dependencies.
-        // If the sibling schema changed (e.g. a symbol removed or type changed),
-        // we find which local symbols depend on it.
-
-        // For the current scope, let's add a generic diagnostic if a sibling is known.
-        packet.risk_reasons.push(format!(
-            "Cross-repo monitoring active for sibling: {}. Run 'changeguard federate scan' to refresh.",
-            name
-        ));
-    }
+    // Engineering standard: deterministic sorting
+    impact_reasons.sort();
+    impact_reasons.dedup();
+    packet.risk_reasons.extend(impact_reasons);
 
     Ok(())
 }

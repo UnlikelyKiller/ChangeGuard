@@ -1,6 +1,9 @@
 use crate::federated::scanner::FederatedScanner;
 use crate::federated::schema::{FederatedSchema, PublicInterface};
-use crate::federated::storage::{get_federated_links, update_federated_link};
+use crate::federated::storage::{
+    clear_federated_dependencies, get_federated_links, save_federated_dependencies,
+    update_federated_link,
+};
 use crate::git::repo::open_repo;
 use crate::index::storage::get_public_symbols;
 use crate::state::layout::Layout;
@@ -23,20 +26,32 @@ pub fn execute_federate_export() -> Result<()> {
         .workdir()
         .and_then(|p| p.file_name())
         .and_then(|s| s.to_str())
-        .unwrap_or("unknown")
+        .ok_or_else(|| miette::miette!("Could not determine repository name for export"))?
         .to_string();
 
     println!("Exporting public interfaces for {}...", repo_name.cyan());
 
     let symbols = get_public_symbols(storage.get_connection())?;
-    let public_interfaces = symbols
+    let mut public_interfaces = symbols
         .into_iter()
         .map(|s| PublicInterface {
             symbol: s.name,
             file: s.file_path,
             kind: s.kind,
         })
-        .collect();
+        .collect::<Vec<_>>();
+
+    // Task 2.4: Apply secret redaction patterns to public interfaces
+    // For now, we'll redact any symbol that looks like a secret (e.g., contains "KEY", "SECRET", "TOKEN", "PWD")
+    let secret_patterns = ["KEY", "SECRET", "TOKEN", "PWD", "PASSWORD", "API_KEY"];
+    for interface in &mut public_interfaces {
+        let upper_symbol = interface.symbol.to_uppercase();
+        if secret_patterns.iter().any(|p| upper_symbol.contains(p)) {
+            interface.symbol = "[REDACTED]".to_string();
+        }
+    }
+    // Remove redacted interfaces to be safe, or just keep them as [REDACTED]
+    public_interfaces.retain(|i| i.symbol != "[REDACTED]");
 
     let schema = FederatedSchema::new(repo_name, public_interfaces);
     let schema_json = serde_json::to_string_pretty(&schema).into_diagnostic()?;
@@ -60,10 +75,18 @@ pub fn execute_federate_scan() -> Result<()> {
     let db_path = layout.state_subdir().join("ledger.db");
     let storage = StorageManager::init(db_path.as_std_path())?;
 
+    let local_packet = storage.get_latest_packet()?.ok_or_else(|| {
+        miette::miette!("No local index found. Run 'changeguard scan' first.")
+    })?;
+
     println!("Scanning for sibling repositories...");
 
     let scanner = FederatedScanner::new(utf8_current_dir);
-    let siblings = scanner.scan_siblings()?;
+    let (siblings, warnings) = scanner.scan_siblings()?;
+
+    for warning in &warnings {
+        println!("{} {}", "WARN".yellow().bold(), warning);
+    }
 
     if siblings.is_empty() {
         println!("No siblings with ChangeGuard schemas found.");
@@ -72,17 +95,30 @@ pub fn execute_federate_scan() -> Result<()> {
 
     let timestamp = Utc::now().to_rfc3339();
     for (path, schema) in &siblings {
-        println!("  Found {}: {}", schema.repo_name.cyan(), path.dimmed());
+        println!("  Processing {}: {}", schema.repo_name.cyan(), path.dimmed());
         update_federated_link(
             storage.get_connection(),
             &schema.repo_name,
             path.as_str(),
             &timestamp,
         )?;
+
+        // Task 2.2: Discover and save dependencies
+        clear_federated_dependencies(storage.get_connection(), &schema.repo_name)?;
+        let dependencies = scanner.discover_dependencies(&local_packet, &schema.repo_name, schema)?;
+
+        for (local_symbol, sibling_symbol) in dependencies {
+            save_federated_dependencies(
+                storage.get_connection(),
+                &schema.repo_name,
+                &local_symbol,
+                &sibling_symbol,
+            )?;
+        }
     }
 
     println!(
-        "{} Discovered {} sibling(s).",
+        "{} Processed {} sibling(s).",
         "SUCCESS".green().bold(),
         siblings.len()
     );
