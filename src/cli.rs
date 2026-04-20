@@ -26,6 +26,9 @@ pub enum Commands {
         /// The interval in milliseconds to batch events
         #[arg(long, short, default_value_t = 1000)]
         interval: u64,
+        /// Output events as line-delimited JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Analyze the impact of changes and generate a report
     Impact,
@@ -73,6 +76,13 @@ pub enum Commands {
         #[arg(long, short, default_value_t = 100)]
         commits: usize,
     },
+    /// Start the LSP-Lite ChangeGuard daemon
+    #[cfg(feature = "daemon")]
+    Daemon {
+        /// The interval in milliseconds to batch events
+        #[arg(long, short, default_value_t = 1000)]
+        interval: u64,
+    },
 }
 
 pub fn run() -> Result<()> {
@@ -82,7 +92,7 @@ pub fn run() -> Result<()> {
         Commands::Init { no_gitignore } => crate::commands::init::execute_init(no_gitignore),
         Commands::Doctor => crate::commands::doctor::execute_doctor(),
         Commands::Scan => crate::commands::scan::execute_scan(),
-        Commands::Watch { interval } => crate::commands::watch::execute_watch(interval),
+        Commands::Watch { interval, json } => crate::commands::watch::execute_watch(interval, json),
         Commands::Impact => crate::commands::impact::execute_impact(),
         Commands::Verify {
             command,
@@ -99,5 +109,7 @@ pub fn run() -> Result<()> {
         Commands::Hotspots { limit, commits } => {
             crate::commands::hotspots::execute_hotspots(limit, commits)
         }
+        #[cfg(feature = "daemon")]
+        Commands::Daemon { interval } => crate::commands::daemon::execute_daemon(interval),
     }
 }

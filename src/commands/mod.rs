@@ -7,6 +7,8 @@ pub mod reset;
 pub mod scan;
 pub mod verify;
 pub mod watch;
+#[cfg(feature = "daemon")]
+pub mod daemon;
 
 use miette::Diagnostic;
 use thiserror::Error;
