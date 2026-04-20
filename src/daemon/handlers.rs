@@ -1,9 +1,9 @@
-use tower_lsp_server::ls_types::*;
-use tower_lsp_server::Client;
-use std::sync::Arc;
-use tracing::warn;
 use crate::daemon::state::ReadOnlyStorage;
 use crate::output::lsp::map_impact_to_diagnostics;
+use std::sync::Arc;
+use tower_lsp_server::Client;
+use tower_lsp_server::ls_types::*;
+use tracing::warn;
 
 pub struct LspHandlers {
     client: Client,
@@ -31,7 +31,7 @@ impl LspHandlers {
         let Some(path) = uri.to_file_path() else {
             return;
         };
-        
+
         // In a real implementation, we would trigger a background analysis here.
         // For Track 35, we integrate with diagnostics reporting from latest state.
         match self.storage.get_latest_packet() {
@@ -43,24 +43,28 @@ impl LspHandlers {
                         .find(|(p, _)| **p == path)
                         .map(|(_, d)| d.clone())
                         .unwrap_or_default();
-                    
-                    self.client.publish_diagnostics(
-                        uri,
-                        diagnostics,
-                        None,
-                    ).await;
+
+                    self.client
+                        .publish_diagnostics(uri, diagnostics, None)
+                        .await;
                 }
-            },
+            }
             Err(e) => warn!("Failed to get latest packet for diagnostics: {e}"),
         }
     }
 
-    pub async fn on_hover(&self, _params: HoverParams) -> tower_lsp_server::jsonrpc::Result<Option<Hover>> {
+    pub async fn on_hover(
+        &self,
+        _params: HoverParams,
+    ) -> tower_lsp_server::jsonrpc::Result<Option<Hover>> {
         // Implementation for Hover: provide impact summaries
         Ok(None)
     }
 
-    pub async fn on_code_lens(&self, _params: CodeLensParams) -> tower_lsp_server::jsonrpc::Result<Option<Vec<CodeLens>>> {
+    pub async fn on_code_lens(
+        &self,
+        _params: CodeLensParams,
+    ) -> tower_lsp_server::jsonrpc::Result<Option<Vec<CodeLens>>> {
         // Implementation for CodeLens: provide risk/complexity scores
         Ok(None)
     }

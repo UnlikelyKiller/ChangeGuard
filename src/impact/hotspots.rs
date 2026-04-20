@@ -29,13 +29,11 @@ pub fn calculate_hotspots(
         for file in &commit_set.files {
             // Apply filtering during crawl
             let path_str = file.as_str();
-            
-            if let Some(dir) = dir_filter {
-                if !path_str.starts_with(dir) {
-                    continue;
-                }
+
+            if dir_filter.is_some_and(|dir| !path_str.starts_with(dir)) {
+                continue;
             }
-            
+
             if lang_filter.is_some_and(|lang| !path_str.ends_with(&format!(".{lang}"))) {
                 continue;
             }
@@ -55,13 +53,15 @@ pub fn calculate_hotspots(
     ).into_diagnostic()?;
 
     let file_complexities: HashMap<String, i32> = stmt
-        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i32>(1)?)))
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i32>(1)?))
+        })
         .into_diagnostic()?
-        .filter_map(|res| res.ok())
-        .collect();
+        .collect::<rusqlite::Result<HashMap<String, i32>>>()
+        .into_diagnostic()?;
 
     let mut hotspots = Vec::new();
-    
+
     // Find max frequency for normalization
     let max_freq = frequency_map.values().max().cloned().unwrap_or(1) as f32;
     // Find max complexity for normalization
@@ -71,12 +71,12 @@ pub fn calculate_hotspots(
         let path_str = path.to_string();
         let complexity = file_complexities.get(&path_str).cloned().unwrap_or(0);
 
-        // Scoring: 
+        // Scoring:
         // Normalized Frequency (0-1) * Normalized Complexity (0-1)
         // Multiplication surfaces the "worst of both worlds" more effectively than addition.
         let f_norm = freq as f32 / max_freq;
         let c_norm = complexity as f32 / max_comp;
-        
+
         let score = f_norm * c_norm;
 
         hotspots.push(Hotspot {

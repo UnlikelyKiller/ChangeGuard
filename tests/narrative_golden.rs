@@ -1,5 +1,7 @@
 use changeguard::gemini::narrative::NarrativeEngine;
-use changeguard::impact::packet::{ChangedFile, Hotspot, ImpactPacket, RiskLevel, TemporalCoupling};
+use changeguard::impact::packet::{
+    ChangedFile, Hotspot, ImpactPacket, RiskLevel, TemporalCoupling,
+};
 use std::path::PathBuf;
 
 #[test]

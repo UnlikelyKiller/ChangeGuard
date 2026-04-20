@@ -1,8 +1,8 @@
+use miette::{IntoDiagnostic, Result, miette};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
 use sysinfo::{Pid, System};
-use miette::{IntoDiagnostic, Result, miette};
 use tracing::{info, warn};
 
 pub struct DaemonLifecycle {

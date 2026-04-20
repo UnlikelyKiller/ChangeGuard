@@ -14,7 +14,11 @@ pub struct CommitFileSet {
 }
 
 pub trait HistoryProvider {
-    fn get_history(&self, max_commits: usize, all_parents: bool) -> Result<Vec<CommitFileSet>, GitError>;
+    fn get_history(
+        &self,
+        max_commits: usize,
+        all_parents: bool,
+    ) -> Result<Vec<CommitFileSet>, GitError>;
 }
 
 #[derive(Clone)]
@@ -29,7 +33,11 @@ impl<'repo> GixHistoryProvider<'repo> {
 }
 
 impl<'repo> HistoryProvider for GixHistoryProvider<'repo> {
-    fn get_history(&self, max_commits: usize, all_parents: bool) -> Result<Vec<CommitFileSet>, GitError> {
+    fn get_history(
+        &self,
+        max_commits: usize,
+        all_parents: bool,
+    ) -> Result<Vec<CommitFileSet>, GitError> {
         if self.repo.is_shallow() {
             return Err(GitError::ShallowClone);
         }
@@ -41,14 +49,16 @@ impl<'repo> HistoryProvider for GixHistoryProvider<'repo> {
 
         let mut history = Vec::new();
         let mut walk = head.id().ancestors();
-        
+
         if !all_parents {
             walk = walk.first_parent_only();
         } else {
             walk = walk.sorting(gix::revision::walk::Sorting::BreadthFirst);
         }
 
-        let walk = walk.all().map_err(|e| GitError::MetadataError { source: e.into() })?;
+        let walk = walk
+            .all()
+            .map_err(|e| GitError::MetadataError { source: e.into() })?;
 
         for res in walk {
             if history.len() >= max_commits {
@@ -62,8 +72,8 @@ impl<'repo> HistoryProvider for GixHistoryProvider<'repo> {
                     continue;
                 }
             };
-            
-            let commit = match info.id().object().and_then(|obj| Ok(obj.into_commit())) {
+
+            let commit = match info.id().object().map(|obj| obj.into_commit()) {
                 Ok(commit) => commit,
                 Err(e) => {
                     tracing::warn!("Failed to retrieve commit object for {}: {e}", info.id());
@@ -88,7 +98,11 @@ impl<'repo> HistoryProvider for GixHistoryProvider<'repo> {
                     match p_id.object().map(|obj| obj.into_commit().tree()) {
                         Ok(Ok(tree)) => tree,
                         _ => {
-                            tracing::warn!("Failed to retrieve parent tree for commit {}: parent {}", info.id(), p_id);
+                            tracing::warn!(
+                                "Failed to retrieve parent tree for commit {}: parent {}",
+                                info.id(),
+                                p_id
+                            );
                             self.repo.empty_tree()
                         }
                     }
@@ -96,13 +110,17 @@ impl<'repo> HistoryProvider for GixHistoryProvider<'repo> {
                     self.repo.empty_tree()
                 };
 
-                let changes = match self.repo.diff_tree_to_tree(Some(&parent_tree), Some(&current_tree), None) {
-                    Ok(changes) => changes,
-                    Err(e) => {
-                        tracing::warn!("Failed to diff tree for commit {}: {e}", info.id());
-                        continue;
-                    }
-                };
+                let changes =
+                    match self
+                        .repo
+                        .diff_tree_to_tree(Some(&parent_tree), Some(&current_tree), None)
+                    {
+                        Ok(changes) => changes,
+                        Err(e) => {
+                            tracing::warn!("Failed to diff tree for commit {}: {e}", info.id());
+                            continue;
+                        }
+                    };
 
                 for change in changes {
                     match change {
@@ -147,7 +165,9 @@ impl<P: HistoryProvider> TemporalEngine<P> {
     }
 
     pub fn calculate_couplings(&self) -> Result<Vec<TemporalCoupling>, GitError> {
-        let history = self.provider.get_history(self.config.max_commits, self.config.all_parents)?;
+        let history = self
+            .provider
+            .get_history(self.config.max_commits, self.config.all_parents)?;
 
         let mut commit_count = 0;
         let mut file_commit_map: HashMap<Utf8PathBuf, HashSet<usize>> = HashMap::new();
@@ -218,12 +238,13 @@ impl<P: HistoryProvider> TemporalEngine<P> {
 
         // Deterministic sorting by score (desc) then paths
         couplings.sort_by(|a, b| {
-            b.score.partial_cmp(&a.score)
+            b.score
+                .partial_cmp(&a.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| a.file_a.cmp(&b.file_a))
                 .then_with(|| a.file_b.cmp(&b.file_b))
         });
-        
+
         Ok(couplings)
     }
 }

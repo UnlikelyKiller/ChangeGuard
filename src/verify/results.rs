@@ -26,6 +26,8 @@ pub struct VerificationResult {
 pub struct VerificationReport {
     pub plan: Option<VerificationPlan>,
     pub results: Vec<VerificationResult>,
+    #[serde(default)]
+    pub prediction_warnings: Vec<String>,
     pub overall_pass: bool,
     pub timestamp: String,
 }
@@ -36,9 +38,15 @@ impl VerificationReport {
         Self {
             plan,
             results,
+            prediction_warnings: Vec::new(),
             overall_pass,
             timestamp: Utc::now().to_rfc3339(),
         }
+    }
+
+    pub fn with_warnings(mut self, warnings: Vec<String>) -> Self {
+        self.prediction_warnings = warnings;
+        self
     }
 }
 

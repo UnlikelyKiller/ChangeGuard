@@ -36,7 +36,10 @@ pub fn execute_hotspots(
     )?;
 
     if json {
-        println!("{}", serde_json::to_string_pretty(&hotspots).into_diagnostic()?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&hotspots).into_diagnostic()?
+        );
     } else {
         crate::output::human::print_hotspots_table(&hotspots);
     }

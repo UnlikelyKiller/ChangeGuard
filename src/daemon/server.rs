@@ -1,10 +1,10 @@
-use tower_lsp_server::ls_types::*;
-use tower_lsp_server::{Client, LanguageServer};
-use std::sync::Arc;
-use tracing::info;
+use crate::daemon::handlers::LspHandlers;
 use crate::daemon::lifecycle::DaemonLifecycle;
 use crate::daemon::state::ReadOnlyStorage;
-use crate::daemon::handlers::LspHandlers;
+use std::sync::Arc;
+use tower_lsp_server::ls_types::*;
+use tower_lsp_server::{Client, LanguageServer};
+use tracing::info;
 
 pub struct Backend {
     pub client: Client,
@@ -28,7 +28,10 @@ impl Backend {
 }
 
 impl LanguageServer for Backend {
-    async fn initialize(&self, _: InitializeParams) -> tower_lsp_server::jsonrpc::Result<InitializeResult> {
+    async fn initialize(
+        &self,
+        _: InitializeParams,
+    ) -> tower_lsp_server::jsonrpc::Result<InitializeResult> {
         info!("LSP Server Initializing");
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
@@ -74,7 +77,10 @@ impl LanguageServer for Backend {
         self.handlers.on_hover(params).await
     }
 
-    async fn code_lens(&self, params: CodeLensParams) -> tower_lsp_server::jsonrpc::Result<Option<Vec<CodeLens>>> {
+    async fn code_lens(
+        &self,
+        params: CodeLensParams,
+    ) -> tower_lsp_server::jsonrpc::Result<Option<Vec<CodeLens>>> {
         self.handlers.on_code_lens(params).await
     }
 }

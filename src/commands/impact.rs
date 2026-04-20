@@ -304,8 +304,10 @@ fn analyze_changed_file(relative_path: &Path, base_dir: &Path) -> AnalysisOutcom
             match scorer.score_file(path, &content, lang) {
                 Ok(file_complexity) => {
                     for sym in syms {
-                        if let Some(symbol_complexity) =
-                            file_complexity.functions.iter().find(|f| f.name == sym.name)
+                        if let Some(symbol_complexity) = file_complexity
+                            .functions
+                            .iter()
+                            .find(|f| f.name == sym.name)
                         {
                             sym.cognitive_complexity = Some(symbol_complexity.cognitive as i32);
                             sym.cyclomatic_complexity = Some(symbol_complexity.cyclomatic as i32);

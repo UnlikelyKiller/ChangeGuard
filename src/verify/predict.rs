@@ -54,21 +54,21 @@ impl Predictor {
                     for imp in &imports.imported_from {
                         let imp_norm = imp.replace("::", "/");
                         let imp_path = Path::new(&imp_norm);
-                        
+
                         for changed in &changed_paths {
                             // Match if the import string matches the changed file's path (heuristically)
                             // 1. Exact match (after normalization)
                             // 2. Import is a suffix of the changed path (e.g. "models/user" matches "src/models/user.rs")
                             // 3. Changed path is a suffix of the import (less likely but possible with relative paths)
-                            
+
                             let changed_str = changed.to_string_lossy();
                             let changed_no_ext = changed.with_extension("");
                             let changed_no_ext_str = changed_no_ext.to_string_lossy();
 
-                            if changed == imp_path || 
-                               changed_no_ext == imp_path ||
-                               changed_str.ends_with(&imp_norm) ||
-                               changed_no_ext_str.ends_with(&imp_norm)
+                            if changed == imp_path
+                                || changed_no_ext == imp_path
+                                || changed_str.ends_with(&imp_norm)
+                                || changed_no_ext_str.ends_with(&imp_norm)
                             {
                                 predicted.insert(PredictedFile {
                                     path: hist_file.path.clone(),
@@ -106,10 +106,7 @@ impl Predictor {
 
         let mut files: Vec<_> = predicted.into_iter().collect();
         files.sort();
-        
-        PredictionResult {
-            files,
-            warnings,
-        }
+
+        PredictionResult { files, warnings }
     }
 }

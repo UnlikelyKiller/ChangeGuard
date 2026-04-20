@@ -151,7 +151,6 @@ mod tests {
     use super::*;
     use crate::impact::packet::{ChangedFile, FileAnalysisStatus, RiskLevel, TemporalCoupling};
 
-
     #[test]
     fn test_map_impact_to_diagnostics() {
         let mut packet = ImpactPacket {

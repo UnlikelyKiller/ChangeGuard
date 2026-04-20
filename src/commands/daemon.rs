@@ -1,15 +1,15 @@
 #[cfg(feature = "daemon")]
-use miette::{Result, IntoDiagnostic, miette};
-#[cfg(feature = "daemon")]
-use tower_lsp_server::{LspService, Server};
-#[cfg(feature = "daemon")]
 use crate::daemon::{Backend, lifecycle::DaemonLifecycle, state::ReadOnlyStorage};
 #[cfg(feature = "daemon")]
-use tokio::runtime::Builder;
+use camino::Utf8PathBuf;
+#[cfg(feature = "daemon")]
+use miette::{IntoDiagnostic, Result, miette};
 #[cfg(feature = "daemon")]
 use std::env;
 #[cfg(feature = "daemon")]
-use camino::Utf8PathBuf;
+use tokio::runtime::Builder;
+#[cfg(feature = "daemon")]
+use tower_lsp_server::{LspService, Server};
 
 #[cfg(feature = "daemon")]
 pub fn execute_daemon(_interval_ms: u64) -> Result<()> {
@@ -25,7 +25,7 @@ pub fn execute_daemon(_interval_ms: u64) -> Result<()> {
                 .map_err(|_| miette!("Invalid UTF-8 path in repo root"))?
         }
         Err(_) => Utf8PathBuf::from_path_buf(current_dir)
-            .map_err(|_| miette!("Invalid UTF-8 path in current directory"))?
+            .map_err(|_| miette!("Invalid UTF-8 path in current directory"))?,
     };
 
     // 2. Build constrained tokio runtime
@@ -45,12 +45,10 @@ pub fn execute_daemon(_interval_ms: u64) -> Result<()> {
         let stdin = tokio::io::stdin();
         let stdout = tokio::io::stdout();
 
-        let (service, socket) = LspService::new(|client| {
-            Backend::new(client, lifecycle, storage)
-        });
+        let (service, socket) = LspService::new(|client| Backend::new(client, lifecycle, storage));
 
         Server::new(stdin, stdout, socket).serve(service).await;
-        
+
         Ok(())
     })
 }

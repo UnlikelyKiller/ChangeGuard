@@ -151,7 +151,14 @@ pub fn run() -> Result<()> {
             dir,
             lang,
             all_parents,
-        } => crate::commands::hotspots::execute_hotspots(limit, commits, json, dir, lang, all_parents),
+        } => crate::commands::hotspots::execute_hotspots(
+            limit,
+            commits,
+            json,
+            dir,
+            lang,
+            all_parents,
+        ),
         Commands::Federate { command } => match command {
             FederateCommands::Export => crate::commands::federate::execute_federate_export(),
             FederateCommands::Scan => crate::commands::federate::execute_federate_scan(),

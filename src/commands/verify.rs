@@ -24,12 +24,16 @@ pub fn execute_verify(
     let layout = Layout::new(current_dir.to_string_lossy().as_ref());
     let manual_requested = command_str.is_some();
 
+    let mut current_warnings = Vec::new();
     let (plan, steps) = match command_str {
         Some(cmd) => (None, vec![manual_step(cmd, manual_timeout(timeout_secs))]),
         None => {
             let db_path = layout.state_subdir().join("ledger.db");
             let storage = StorageManager::init(db_path.as_std_path()).ok();
-            let packet = storage.as_ref().and_then(|s| s.get_latest_packet().ok()).flatten();
+            let packet = storage
+                .as_ref()
+                .and_then(|s| s.get_latest_packet().ok())
+                .flatten();
 
             let rules = load_rules(&layout)?;
             let prediction = if no_predict {
@@ -37,7 +41,8 @@ pub fn execute_verify(
             } else {
                 match &packet {
                     Some(p) => {
-                        let history = storage.as_ref()
+                        let history = storage
+                            .as_ref()
                             .and_then(|s| s.get_all_packets().ok())
                             .unwrap_or_default();
                         crate::verify::predict::Predictor::predict(p, &history)
@@ -48,6 +53,7 @@ pub fn execute_verify(
 
             for warning in &prediction.warnings {
                 warn!("{}", warning);
+                current_warnings.push(warning.clone());
             }
 
             let plan = match &packet {
@@ -92,7 +98,8 @@ pub fn execute_verify(
         }
     }
 
-    let report = VerificationReport::new(plan.clone(), persisted_results);
+    let report =
+        VerificationReport::new(plan.clone(), persisted_results).with_warnings(current_warnings);
     write_verify_report(&layout, &report)?;
     persist_verify_report(&layout, &report);
 

@@ -339,7 +339,7 @@ mod tests {
             }],
             ..ImpactPacket::default()
         };
-        
+
         let rules = Rules {
             global: GlobalRules::default(),
             overrides: vec![PathRule {

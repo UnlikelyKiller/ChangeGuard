@@ -9,7 +9,11 @@ struct MockHistoryProvider {
 }
 
 impl HistoryProvider for MockHistoryProvider {
-    fn get_history(&self, _max_commits: usize, _all_parents: bool) -> Result<Vec<CommitFileSet>, GitError> {
+    fn get_history(
+        &self,
+        _max_commits: usize,
+        _all_parents: bool,
+    ) -> Result<Vec<CommitFileSet>, GitError> {
         Ok(self.history.clone())
     }
 }

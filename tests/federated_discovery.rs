@@ -1,10 +1,10 @@
 use camino::Utf8PathBuf;
+use changeguard::federated::impact::check_cross_repo_impact;
 use changeguard::federated::scanner::FederatedScanner;
 use changeguard::federated::schema::{FederatedSchema, PublicInterface};
-use changeguard::federated::impact::check_cross_repo_impact;
 use changeguard::federated::storage::update_federated_link;
-use changeguard::index::symbols::SymbolKind;
 use changeguard::impact::packet::ImpactPacket;
+use changeguard::index::symbols::SymbolKind;
 use changeguard::state::storage::StorageManager;
 use std::fs;
 use tempfile::tempdir;
@@ -47,13 +47,13 @@ fn test_federated_sibling_discovery() {
     assert_eq!(siblings.len(), 1);
     assert_eq!(siblings[0].1.repo_name, "repo-a");
     assert!(warnings.is_empty());
-    }
+}
 
 #[test]
 fn test_federated_path_confinement_security() {
     let tmp = tempdir().unwrap();
     let root_path = Utf8PathBuf::from_path_buf(tmp.path().to_path_buf()).unwrap();
-    
+
     // Discovery root
     let discovery_root = root_path.join("discovery");
     fs::create_dir_all(&discovery_root).unwrap();
@@ -101,7 +101,7 @@ fn test_federated_invalid_schema_recovery() {
 fn test_federated_cross_repo_impact_resolution() {
     let tmp = tempdir().unwrap();
     let root_path = Utf8PathBuf::from_path_buf(tmp.path().to_path_buf()).unwrap();
-    
+
     let db_path = tmp.path().join("test.db");
     let storage = StorageManager::init(&db_path).unwrap();
 
@@ -109,7 +109,7 @@ fn test_federated_cross_repo_impact_resolution() {
     let repo_a = root_path.join("repo-a");
     let repo_a_cg = repo_a.join(".changeguard");
     fs::create_dir_all(&repo_a_cg).unwrap();
-    
+
     // Initial schema has 'old_symbol'
     let schema_v1 = FederatedSchema::new(
         "repo-a".to_string(),
@@ -117,11 +117,21 @@ fn test_federated_cross_repo_impact_resolution() {
             symbol: "old_symbol".to_string(),
             file: "src/lib.rs".to_string(),
             kind: SymbolKind::Function,
-        }]
+        }],
     );
-    fs::write(repo_a_cg.join("schema.json"), serde_json::to_string(&schema_v1).unwrap()).unwrap();
+    fs::write(
+        repo_a_cg.join("schema.json"),
+        serde_json::to_string(&schema_v1).unwrap(),
+    )
+    .unwrap();
 
-    update_federated_link(storage.get_connection(), "repo-a", repo_a.as_str(), "2026-01-01").unwrap();
+    update_federated_link(
+        storage.get_connection(),
+        "repo-a",
+        repo_a.as_str(),
+        "2026-01-01",
+    )
+    .unwrap();
 
     // 2. Record local dependency on 'old_symbol'
     storage.get_connection().execute(
@@ -131,7 +141,11 @@ fn test_federated_cross_repo_impact_resolution() {
 
     // 3. Sibling REMOVES 'old_symbol'
     let schema_v2 = FederatedSchema::new("repo-a".to_string(), vec![]);
-    fs::write(repo_a_cg.join("schema.json"), serde_json::to_string(&schema_v2).unwrap()).unwrap();
+    fs::write(
+        repo_a_cg.join("schema.json"),
+        serde_json::to_string(&schema_v2).unwrap(),
+    )
+    .unwrap();
 
     // 4. Run impact analysis
     let mut packet = ImpactPacket::default();
@@ -139,5 +153,10 @@ fn test_federated_cross_repo_impact_resolution() {
 
     println!("ACTUAL REASONS: {:?}", packet.risk_reasons);
     assert!(!packet.risk_reasons.is_empty());
-    assert!(packet.risk_reasons.iter().any(|r| r.contains("interface 'old_symbol' which was removed")));
+    assert!(
+        packet
+            .risk_reasons
+            .iter()
+            .any(|r| r.contains("interface 'old_symbol' which was removed"))
+    );
 }

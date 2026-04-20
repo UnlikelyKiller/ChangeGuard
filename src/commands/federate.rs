@@ -75,9 +75,9 @@ pub fn execute_federate_scan() -> Result<()> {
     let db_path = layout.state_subdir().join("ledger.db");
     let storage = StorageManager::init(db_path.as_std_path())?;
 
-    let local_packet = storage.get_latest_packet()?.ok_or_else(|| {
-        miette::miette!("No local index found. Run 'changeguard scan' first.")
-    })?;
+    let local_packet = storage
+        .get_latest_packet()?
+        .ok_or_else(|| miette::miette!("No local index found. Run 'changeguard scan' first."))?;
 
     println!("Scanning for sibling repositories...");
 
@@ -95,7 +95,11 @@ pub fn execute_federate_scan() -> Result<()> {
 
     let timestamp = Utc::now().to_rfc3339();
     for (path, schema) in &siblings {
-        println!("  Processing {}: {}", schema.repo_name.cyan(), path.dimmed());
+        println!(
+            "  Processing {}: {}",
+            schema.repo_name.cyan(),
+            path.dimmed()
+        );
         update_federated_link(
             storage.get_connection(),
             &schema.repo_name,
@@ -105,7 +109,8 @@ pub fn execute_federate_scan() -> Result<()> {
 
         // Task 2.2: Discover and save dependencies
         clear_federated_dependencies(storage.get_connection(), &schema.repo_name)?;
-        let dependencies = scanner.discover_dependencies(&local_packet, &schema.repo_name, schema)?;
+        let dependencies =
+            scanner.discover_dependencies(&local_packet, &schema.repo_name, schema)?;
 
         for (local_symbol, sibling_symbol) in dependencies {
             save_federated_dependencies(

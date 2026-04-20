@@ -3,13 +3,13 @@
 ## Milestone J: Phase 2 Final Remediation (Active)
 
 *   **Track 36: Critical Remediation & Green CI**
-    *   Status: Planning
+    *   Status: Completed
     *   Spec: `conductor/track36/spec.md`
     *   Plan: `conductor/track36/plan.md`
     *   Goal: Restore `cargo fmt` and `cargo clippy`, fix silent hotspot row error dropping, and surface prediction degradation in `verify`.
     *   Key additions: Green CI pipeline, visible SQLite hotspot errors, user-visible verification prediction warnings.
 
-*   **Track 37: LSP Daemon Functional Completion**
+*   **Track 37: LSP Daemon Functional Completion** (Next)
     *   Status: Planning
     *   Spec: `conductor/track37/spec.md`
     *   Plan: `conductor/track37/plan.md`

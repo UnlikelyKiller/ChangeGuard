@@ -1,5 +1,7 @@
 use changeguard::gemini::narrative::NarrativeEngine;
-use changeguard::impact::packet::{ImpactPacket, RiskLevel, ChangedFile, FileAnalysisStatus, Hotspot, TemporalCoupling};
+use changeguard::impact::packet::{
+    ChangedFile, FileAnalysisStatus, Hotspot, ImpactPacket, RiskLevel, TemporalCoupling,
+};
 use std::path::PathBuf;
 
 #[test]
@@ -36,21 +38,17 @@ fn test_narrative_golden_prompt() {
                 analysis_warnings: Vec::new(),
             },
         ],
-        temporal_couplings: vec![
-            TemporalCoupling {
-                file_a: PathBuf::from("src/auth.rs"),
-                file_b: PathBuf::from("src/session.rs"),
-                score: 0.85,
-            },
-        ],
-        hotspots: vec![
-            Hotspot {
-                path: PathBuf::from("src/auth.rs"),
-                score: 0.92,
-                complexity: 45,
-                frequency: 150,
-            },
-        ],
+        temporal_couplings: vec![TemporalCoupling {
+            file_a: PathBuf::from("src/auth.rs"),
+            file_b: PathBuf::from("src/session.rs"),
+            score: 0.85,
+        }],
+        hotspots: vec![Hotspot {
+            path: PathBuf::from("src/auth.rs"),
+            score: 0.92,
+            complexity: 45,
+            frequency: 150,
+        }],
         verification_results: Vec::new(),
     };
 

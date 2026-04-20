@@ -1,6 +1,8 @@
-use changeguard::impact::packet::{ImpactPacket, ChangedFile, TemporalCoupling, FileAnalysisStatus};
+use changeguard::impact::packet::{
+    ChangedFile, FileAnalysisStatus, ImpactPacket, TemporalCoupling,
+};
 use changeguard::index::references::ImportExport;
-use changeguard::verify::predict::{Predictor, PredictionReason};
+use changeguard::verify::predict::{PredictionReason, Predictor};
 use std::path::PathBuf;
 
 #[test]
@@ -33,7 +35,7 @@ fn test_structural_prediction() {
     });
 
     let result = Predictor::predict(&current, &[history]);
-    
+
     assert_eq!(result.files.len(), 1);
     assert_eq!(result.files[0].path, PathBuf::from("src/handlers/auth.rs"));
     assert_eq!(result.files[0].reason, PredictionReason::Structural);
@@ -59,7 +61,7 @@ fn test_temporal_prediction() {
     });
 
     let result = Predictor::predict(&current, &[]);
-    
+
     assert_eq!(result.files.len(), 1);
     assert_eq!(result.files[0].path, PathBuf::from("src/b.rs"));
     assert_eq!(result.files[0].reason, PredictionReason::Temporal);
@@ -102,7 +104,7 @@ fn test_deduplication_and_sorting() {
     });
 
     let result = Predictor::predict(&current, &[history]);
-    
+
     // B should appear twice if reasons are different but they are in a BTreeSet of PredictedFile
     // Wait, PredictedFile Eq/Ord includes reason. So it SHOULD appear twice if both reasons exist.
     // Let's verify intended behavior. Usually we want to know ALL reasons.

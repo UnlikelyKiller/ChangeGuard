@@ -39,7 +39,8 @@ pub fn check_cross_repo_impact(packet: &mut ImpactPacket, storage: &StorageManag
         };
 
         // JSON Safety: Wrap in catch_unwind
-        let schema_result = panic::catch_unwind(|| serde_json::from_str::<FederatedSchema>(&content));
+        let schema_result =
+            panic::catch_unwind(|| serde_json::from_str::<FederatedSchema>(&content));
 
         let schema = match schema_result {
             Ok(Ok(s)) => s,

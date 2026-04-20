@@ -59,7 +59,8 @@ pub fn execute_ask(query: Option<String>, mut mode: GeminiMode, narrative: bool)
         query.unwrap_or_default()
     };
 
-    let mut user_prompt = build_user_prompt(mode, &latest_packet, &effective_query, diff.as_deref());
+    let mut user_prompt =
+        build_user_prompt(mode, &latest_packet, &effective_query, diff.as_deref());
 
     if truncated {
         user_prompt.push_str("\n\n[Packet truncated for Gemini submission]");
@@ -87,18 +88,18 @@ pub fn execute_ask(query: Option<String>, mut mode: GeminiMode, narrative: bool)
         let reports_dir = layout.reports_dir();
         std::fs::create_dir_all(&reports_dir).ok();
         let fallback_path = reports_dir.join("fallback-impact.json");
-        
-        if let Ok(json) = serde_json::to_string_pretty(&latest_packet) {
-            if std::fs::write(&fallback_path, json).is_ok() {
-                eprintln!(
-                    "{}",
-                    format!(
-                        "Gemini execution failed. Fallback impact packet saved to {}",
-                        fallback_path
-                    )
-                    .yellow()
-                );
-            }
+
+        if let Ok(json) = serde_json::to_string_pretty(&latest_packet)
+            && std::fs::write(&fallback_path, json).is_ok()
+        {
+            eprintln!(
+                "{}",
+                format!(
+                    "Gemini execution failed. Fallback impact packet saved to {}",
+                    fallback_path
+                )
+                .yellow()
+            );
         }
         return Err(e);
     }

@@ -1,10 +1,10 @@
+use crate::impact::packet::ImpactPacket;
+use miette::{IntoDiagnostic, Result};
 use rusqlite::{Connection, OpenFlags};
 use std::path::Path;
 use std::thread;
 use std::time::Duration;
 use tracing::warn;
-use miette::{IntoDiagnostic, Result};
-use crate::impact::packet::ImpactPacket;
 
 pub struct QueryResult<T> {
     pub data: T,
@@ -27,11 +27,13 @@ impl ReadOnlyStorage {
         let conn = Connection::open_with_flags(
             &self.db_path,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        ).into_diagnostic()?;
-        
+        )
+        .into_diagnostic()?;
+
         // Ensure WAL mode is handled correctly by SQLite
-        conn.execute_batch("PRAGMA journal_mode=WAL;").into_diagnostic()?;
-        
+        conn.execute_batch("PRAGMA journal_mode=WAL;")
+            .into_diagnostic()?;
+
         Ok(conn)
     }
 
@@ -47,21 +49,35 @@ impl ReadOnlyStorage {
             match self.get_connection() {
                 Ok(conn) => {
                     match f(&conn) {
-                        Ok(data) => return Ok(QueryResult { data, data_stale: false }),
+                        Ok(data) => {
+                            return Ok(QueryResult {
+                                data,
+                                data_stale: false,
+                            });
+                        }
                         Err(e) => {
                             // Check if it's a rusqlite error and specifically SQLITE_BUSY
-                            if let Some(rusqlite_err) = e.downcast_ref::<rusqlite::Error>() {
-                                if matches!(rusqlite_err, rusqlite::Error::SqliteFailure(err, _) if err.code == rusqlite::ErrorCode::DatabaseBusy) {
-                                    if attempts < max_attempts {
-                                        warn!("Database busy, retrying in {:?} (attempt {})", backoff, attempts + 1);
-                                        thread::sleep(backoff);
-                                        attempts += 1;
-                                        backoff *= 2;
-                                        continue;
-                                    } else {
-                                        warn!("Database busy, max attempts reached. Returning stale/empty data.");
-                                        return Ok(QueryResult { data: None, data_stale: true });
-                                    }
+                            if let Some(rusqlite_err) = e.downcast_ref::<rusqlite::Error>()
+                                && matches!(rusqlite_err, rusqlite::Error::SqliteFailure(err, _) if err.code == rusqlite::ErrorCode::DatabaseBusy)
+                            {
+                                if attempts < max_attempts {
+                                    warn!(
+                                        "Database busy, retrying in {:?} (attempt {})",
+                                        backoff,
+                                        attempts + 1
+                                    );
+                                    thread::sleep(backoff);
+                                    attempts += 1;
+                                    backoff *= 2;
+                                    continue;
+                                } else {
+                                    warn!(
+                                        "Database busy, max attempts reached. Returning stale/empty data."
+                                    );
+                                    return Ok(QueryResult {
+                                        data: None,
+                                        data_stale: true,
+                                    });
                                 }
                             }
                             return Err(e);
@@ -70,11 +86,15 @@ impl ReadOnlyStorage {
                 }
                 Err(e) => {
                     if attempts < max_attempts {
-                         warn!("Failed to open connection (busy?), retrying in {:?} (attempt {})", backoff, attempts + 1);
-                         thread::sleep(backoff);
-                         attempts += 1;
-                         backoff *= 2;
-                         continue;
+                        warn!(
+                            "Failed to open connection (busy?), retrying in {:?} (attempt {})",
+                            backoff,
+                            attempts + 1
+                        );
+                        thread::sleep(backoff);
+                        attempts += 1;
+                        backoff *= 2;
+                        continue;
                     }
                     return Err(e);
                 }
@@ -84,7 +104,8 @@ impl ReadOnlyStorage {
 
     pub fn get_latest_packet(&self) -> Result<QueryResult<Option<ImpactPacket>>> {
         self.query(|conn| {
-            let mut stmt = conn.prepare("SELECT packet_json FROM snapshots ORDER BY id DESC LIMIT 1")
+            let mut stmt = conn
+                .prepare("SELECT packet_json FROM snapshots ORDER BY id DESC LIMIT 1")
                 .into_diagnostic()?;
             let mut rows = stmt.query([]).into_diagnostic()?;
 

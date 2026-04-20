@@ -70,10 +70,10 @@ pub fn run_query(system_prompt: &str, user_prompt: &str, timeout_secs: Option<u6
         let err = String::from_utf8_lossy(&output.stderr);
         println!("\n{}", "Gemini Error:".bold().red());
         println!("{}", err);
-        let code = exit_status.code().map(|c| c.to_string()).unwrap_or_else(|| "signal".to_string());
-        Err(miette::miette!(
-            "Gemini failed with exit code {}",
-            code
-        ))
+        let code = exit_status
+            .code()
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "signal".to_string());
+        Err(miette::miette!("Gemini failed with exit code {}", code))
     }
 }
