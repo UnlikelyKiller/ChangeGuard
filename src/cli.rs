@@ -61,6 +61,15 @@ pub enum Commands {
         #[arg(long)]
         yes: bool,
     },
+    /// Identify high-risk hotspots in the codebase
+    Hotspots {
+        /// Maximum number of hotspots to show
+        #[arg(long, short, default_value_t = 10)]
+        limit: usize,
+        /// Commit history window to analyze
+        #[arg(long, short, default_value_t = 100)]
+        commits: usize,
+    },
 }
 
 pub fn run() -> Result<()> {
@@ -82,5 +91,8 @@ pub fn run() -> Result<()> {
             all,
             yes,
         } => crate::commands::reset::execute_reset(remove_config, remove_rules, all, yes),
+        Commands::Hotspots { limit, commits } => {
+            crate::commands::hotspots::execute_hotspots(limit, commits)
+        }
     }
 }

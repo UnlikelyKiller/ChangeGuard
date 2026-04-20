@@ -1,5 +1,6 @@
 pub mod ask;
 pub mod doctor;
+pub mod hotspots;
 pub mod impact;
 pub mod init;
 pub mod reset;

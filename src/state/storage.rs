@@ -21,6 +21,10 @@ impl StorageManager {
         Ok(Self { conn })
     }
 
+    pub fn get_connection(&self) -> &Connection {
+        &self.conn
+    }
+
     pub fn save_packet(&self, packet: &ImpactPacket) -> Result<()> {
         let packet_json = serde_json::to_string(packet).into_diagnostic()?;
         let is_clean = if packet.changes.is_empty() { 1 } else { 0 };
