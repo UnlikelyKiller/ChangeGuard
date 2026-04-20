@@ -14,7 +14,7 @@ use miette::Result;
 use std::env;
 use tracing::{info, warn};
 
-pub fn execute_verify(command_str: Option<String>, timeout_secs: u64) -> Result<()> {
+pub fn execute_verify(command_str: Option<String>, timeout_secs: u64, no_predict: bool) -> Result<()> {
     let current_dir = env::current_dir()
         .map_err(|e| miette::miette!("Failed to get current directory: {}", e))?;
     let layout = Layout::new(current_dir.to_string_lossy().as_ref());
@@ -30,8 +30,17 @@ pub fn execute_verify(command_str: Option<String>, timeout_secs: u64) -> Result<
             };
 
             let rules = load_rules(&layout)?;
+            let predicted = if no_predict {
+                Vec::new()
+            } else {
+                match &packet {
+                    Some(p) => crate::verify::predict::Predictor::predict(p),
+                    None => Vec::new(),
+                }
+            };
+
             let plan = match &packet {
-                Some(packet) => build_plan(packet, &rules),
+                Some(packet) => build_plan(packet, &rules, &predicted),
                 None => VerificationPlan {
                     steps: vec![manual_step(
                         "cargo test -j 1 -- --test-threads=1".to_string(),

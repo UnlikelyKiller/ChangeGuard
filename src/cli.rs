@@ -37,6 +37,9 @@ pub enum Commands {
         /// Timeout in seconds
         #[arg(long, short, default_value_t = 60)]
         timeout: u64,
+        /// Disable predictive verification
+        #[arg(long)]
+        no_predict: bool,
     },
     /// Ask Gemini for assistance based on the current context
     Ask {
@@ -81,9 +84,11 @@ pub fn run() -> Result<()> {
         Commands::Scan => crate::commands::scan::execute_scan(),
         Commands::Watch { interval } => crate::commands::watch::execute_watch(interval),
         Commands::Impact => crate::commands::impact::execute_impact(),
-        Commands::Verify { command, timeout } => {
-            crate::commands::verify::execute_verify(command, timeout)
-        }
+        Commands::Verify {
+            command,
+            timeout,
+            no_predict,
+        } => crate::commands::verify::execute_verify(command, timeout, no_predict),
         Commands::Ask { query, mode } => crate::commands::ask::execute_ask(query, mode),
         Commands::Reset {
             remove_config,

@@ -32,14 +32,16 @@
 
 ## Milestone E: Historical Intelligence Tracks (Completed)
 
-## Milestone F: Predictive Verification Tracks
+## Milestone F: Predictive Verification Tracks (Completed)
 
-*   **Track 26: Predictive Verification (Dependency-Aware)** (Next)
+## Milestone G: IDE Integration Tracks
+
+*   **Track 27: LSP-Compliant Diagnostic Output** (Next)
     *   Status: Planning
-    *   Spec: `conductor/track26/spec.md`
-    *   Plan: `conductor/track26/plan.md`
-    *   Goal: Use temporal coupling and structural imports to predict which files *should* be verified even if they haven't changed.
-    *   Key additions: `src/verify/predict.rs`, Graph-based impact propagation, verification plan expansion logic.
+    *   Spec: `conductor/track27/spec.md`
+    *   Plan: `conductor/track27/plan.md`
+    *   Goal: Output findings in a format consumable by IDEs (VS Code, Cursor).
+    *   Key additions: `src/output/lsp.rs`, Diagnostic mapping, IDE-ready JSON stream.
 
 ## Execution Order
 
@@ -47,9 +49,16 @@
 2. Track 20 (Determinism and Error Visibility Hardening)
 3. Track 21 (Verification Process Hardening)
 4. Track 22 (Structural Completion and Plan Reconciliation)
-5. Track 26 (Predictive Verification)
+5. Track 27 (IDE Integration)
 
 ## Completed Tracks
+
+*   **Track 26: Predictive Verification (Dependency-Aware)**
+    *   Status: Completed
+    *   Spec: `conductor/track26/spec.md`
+    *   Plan: `conductor/track26/plan.md`
+    *   Goal: Use temporal coupling and structural imports to predict which files *should* be verified even if they haven't changed.
+    *   Key additions: `src/verify/predict.rs`, Graph-based impact propagation, verification plan expansion logic, `--no-predict` flag.
 
 *   **Track 25: Hotspot Identification (Risk Density)**
     *   Status: Completed
