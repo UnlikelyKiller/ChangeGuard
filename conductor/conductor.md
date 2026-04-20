@@ -34,14 +34,23 @@
 
 ## Milestone F: Predictive Verification Tracks (Completed)
 
-## Milestone G: IDE Integration Tracks
+## Milestone G: IDE Integration Tracks (Completed)
 
-*   **Track 27: LSP-Compliant Diagnostic Output** (Next)
+## Milestone H: Cross-Repo and Narrative Reporting
+
+*   **Track 28: Federated Intelligence (Cross-Repo)** (Next)
     *   Status: Planning
-    *   Spec: `conductor/track27/spec.md`
-    *   Plan: `conductor/track27/plan.md`
-    *   Goal: Output findings in a format consumable by IDEs (VS Code, Cursor).
-    *   Key additions: `src/output/lsp.rs`, Diagnostic mapping, IDE-ready JSON stream.
+    *   Spec: `conductor/track28/spec.md`
+    *   Plan: `conductor/track28/plan.md`
+    *   Goal: Support analysis across multiple repositories using a shared "Global Brain" or federated SQLite ledgers.
+    *   Key additions: `src/federated/`, Multi-repo risk aggregation, global dependency mapping.
+
+*   **Track 29: Advanced Narrative Reporting (Gemini)** (Final)
+    *   Status: Planning
+    *   Spec: `conductor/track29/spec.md`
+    *   Plan: `conductor/track29/plan.md`
+    *   Goal: Enhance the `Ask` command to provide high-level, human-readable narrative summaries of risks and changes.
+    *   Key additions: `src/gemini/narrative.rs`, Structured prompt engineering for risk summaries.
 
 ## Execution Order
 
@@ -49,9 +58,17 @@
 2. Track 20 (Determinism and Error Visibility Hardening)
 3. Track 21 (Verification Process Hardening)
 4. Track 22 (Structural Completion and Plan Reconciliation)
-5. Track 27 (IDE Integration)
+5. Track 28 (Federated Intelligence)
+6. Track 29 (Advanced Narrative Reporting)
 
 ## Completed Tracks
+
+*   **Track 27: LSP-Lite ChangeGuard Daemon**
+    *   Status: Completed
+    *   Spec: `conductor/track27/spec.md`
+    *   Plan: `conductor/track27/plan.md`
+    *   Goal: Enable ChangeGuard to provide background intelligence and IDE-compliant diagnostic output (VS Code, Cursor).
+    *   Key additions: `src/output/lsp.rs`, `src/commands/daemon.rs`, stable JSON-RPC/line-delimited JSON stream, `Watch` mode integration.
 
 *   **Track 26: Predictive Verification (Dependency-Aware)**
     *   Status: Completed
