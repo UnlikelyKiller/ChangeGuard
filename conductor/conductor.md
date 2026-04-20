@@ -9,14 +9,14 @@
     *   Goal: Restore green CI gates (fmt, clippy, tests), fix critical secret redaction/persistence issues, and remove production unwraps.
     *   Key additions: Green CI suite, secured redact-before-save persistence, zero production unwraps in impact/hotspots.
 
-*   **Track 31: Intelligence & Determinism Hardening** (High) (Next)
-    *   Status: Planning
+*   **Track 31: Intelligence & Determinism Hardening**
+    *   Status: Completed
     *   Spec: `conductor/track31/spec.md`
     *   Plan: `conductor/track31/plan.md`
     *   Goal: Fix temporal first-parent traversal, add complexity degradation, and ensure deterministic sorting for hotspots.
-    *   Audit3 findings: Traversal gaps, missing TS tests, non-deterministic sorting, duplicate hotspot logic.
+    *   Key additions: First-parent traversal by default, complexity AST degradation, multiplication-based hotspot scoring, hotspot JSON/filtering.
 
-*   **Track 32: Predictive Verification Completion** (High)
+*   **Track 32: Predictive Verification Completion** (High) (Next)
     *   Status: Planning
     *   Spec: `conductor/track32/spec.md`
     *   Plan: `conductor/track32/plan.md`

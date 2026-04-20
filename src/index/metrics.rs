@@ -8,6 +8,8 @@ use tree_sitter::Node;
 pub struct FileComplexity {
     pub total_sloc: usize,
     pub functions: Vec<SymbolComplexity>,
+    pub ast_incomplete: bool,
+    pub complexity_capped: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -63,6 +65,9 @@ impl NativeComplexityScorer {
                     | "||"
                     | "and"
                     | "or"
+                    | "ternary_expression"
+                    | "conditional_expression"
+                    | "binary_expression" if matches!(current.child_by_field_name("operator").map(|n| n.kind()), Some("&&" | "||"))
             ) {
                 complexity += 1;
             }
@@ -95,6 +100,7 @@ impl NativeComplexityScorer {
                 | "loop_expression"
                 | "match_expression"
                 | "switch_statement"
+                | "catch_clause"
         );
 
         if is_nesting_increment {
@@ -105,6 +111,12 @@ impl NativeComplexityScorer {
             score += nesting;
         } else if matches!(kind, "&&" | "||" | "and" | "or") {
             score += 1;
+        } else if kind == "binary_expression" {
+             if let Some(op) = node.child_by_field_name("operator") {
+                 if matches!(op.kind(), "&&" | "||") {
+                     score += 1;
+                 }
+             }
         }
 
         let mut cursor = node.walk();
@@ -124,6 +136,18 @@ impl ComplexityScorer for NativeComplexityScorer {
         source: &str,
         language: Language,
     ) -> Result<FileComplexity> {
+        let total_sloc = source.lines().count();
+        let complexity_capped = total_sloc > 10_000;
+        
+        if complexity_capped {
+            return Ok(FileComplexity {
+                total_sloc,
+                functions: Vec::new(),
+                ast_incomplete: false,
+                complexity_capped: true,
+            });
+        }
+
         let mut parser = tree_sitter::Parser::new();
         let ts_language = match language {
             Language::Rust => tree_sitter_rust::LANGUAGE.into(),
@@ -138,6 +162,7 @@ impl ComplexityScorer for NativeComplexityScorer {
             .parse(source, None)
             .ok_or_else(|| miette::miette!("Failed to parse source"))?;
         let root = tree.root_node();
+        let ast_incomplete = root.has_error();
 
         let mut functions = Vec::new();
         let mut cursor = root.walk();
@@ -147,7 +172,13 @@ impl ComplexityScorer for NativeComplexityScorer {
             let kind = node.kind();
             if matches!(
                 kind,
-                "function_item" | "function_definition" | "method_declaration" | "arrow_function"
+                "function_item" 
+                | "function_definition" 
+                | "method_declaration" 
+                | "method_definition"
+                | "arrow_function"
+                | "function_declaration"
+                | "generator_function_declaration"
             ) {
                 let name = node
                     .child_by_field_name("name")
@@ -171,8 +202,10 @@ impl ComplexityScorer for NativeComplexityScorer {
         }
 
         Ok(FileComplexity {
-            total_sloc: source.lines().count(),
+            total_sloc,
             functions,
+            ast_incomplete,
+            complexity_capped,
         })
     }
 }

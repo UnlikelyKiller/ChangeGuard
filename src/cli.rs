@@ -31,7 +31,11 @@ pub enum Commands {
         json: bool,
     },
     /// Analyze the impact of changes and generate a report
-    Impact,
+    Impact {
+        /// Enable full history traversal (default is first-parent only)
+        #[arg(long)]
+        all_parents: bool,
+    },
     /// Plan and run targeted verification
     Verify {
         /// The command to run for verification
@@ -75,6 +79,18 @@ pub enum Commands {
         /// Commit history window to analyze
         #[arg(long, short, default_value_t = 100)]
         commits: usize,
+        /// Output hotspots as JSON
+        #[arg(long)]
+        json: bool,
+        /// Filter by directory
+        #[arg(long)]
+        dir: Option<String>,
+        /// Filter by language (extension)
+        #[arg(long)]
+        lang: Option<String>,
+        /// Enable full history traversal (default is first-parent only)
+        #[arg(long)]
+        all_parents: bool,
     },
     /// Manage federated intelligence across multiple repositories
     Federate {
@@ -108,7 +124,7 @@ pub fn run() -> Result<()> {
         Commands::Doctor => crate::commands::doctor::execute_doctor(),
         Commands::Scan => crate::commands::scan::execute_scan(),
         Commands::Watch { interval, json } => crate::commands::watch::execute_watch(interval, json),
-        Commands::Impact => crate::commands::impact::execute_impact(),
+        Commands::Impact { all_parents } => crate::commands::impact::execute_impact(all_parents),
         Commands::Verify {
             command,
             timeout,
@@ -121,9 +137,14 @@ pub fn run() -> Result<()> {
             all,
             yes,
         } => crate::commands::reset::execute_reset(remove_config, remove_rules, all, yes),
-        Commands::Hotspots { limit, commits } => {
-            crate::commands::hotspots::execute_hotspots(limit, commits)
-        }
+        Commands::Hotspots {
+            limit,
+            commits,
+            json,
+            dir,
+            lang,
+            all_parents,
+        } => crate::commands::hotspots::execute_hotspots(limit, commits, json, dir, lang, all_parents),
         Commands::Federate { command } => match command {
             FederateCommands::Export => crate::commands::federate::execute_federate_export(),
             FederateCommands::Scan => crate::commands::federate::execute_federate_scan(),

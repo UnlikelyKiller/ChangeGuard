@@ -14,7 +14,7 @@ pub struct CommitFileSet {
 }
 
 pub trait HistoryProvider {
-    fn get_history(&self, max_commits: usize) -> Result<Vec<CommitFileSet>, GitError>;
+    fn get_history(&self, max_commits: usize, all_parents: bool) -> Result<Vec<CommitFileSet>, GitError>;
 }
 
 #[derive(Clone)]
@@ -29,7 +29,7 @@ impl<'repo> GixHistoryProvider<'repo> {
 }
 
 impl<'repo> HistoryProvider for GixHistoryProvider<'repo> {
-    fn get_history(&self, max_commits: usize) -> Result<Vec<CommitFileSet>, GitError> {
+    fn get_history(&self, max_commits: usize, all_parents: bool) -> Result<Vec<CommitFileSet>, GitError> {
         if self.repo.is_shallow() {
             return Err(GitError::ShallowClone);
         }
@@ -40,48 +40,69 @@ impl<'repo> HistoryProvider for GixHistoryProvider<'repo> {
             .map_err(|e| GitError::MetadataError { source: e.into() })?;
 
         let mut history = Vec::new();
-        let walk = head
-            .id()
-            .ancestors()
-            .sorting(gix::revision::walk::Sorting::BreadthFirst)
-            .all()
-            .map_err(|e| GitError::MetadataError { source: e.into() })?;
+        let mut walk = head.id().ancestors();
+        
+        if !all_parents {
+            walk = walk.first_parent();
+        } else {
+            walk = walk.sorting(gix::revision::walk::Sorting::BreadthFirst);
+        }
+
+        let walk = walk.all().map_err(|e| GitError::MetadataError { source: e.into() })?;
 
         for res in walk {
             if history.len() >= max_commits {
                 break;
             }
 
-            let info = res.map_err(|e| GitError::MetadataError { source: e.into() })?;
-            let commit = info
-                .id()
-                .object()
-                .map_err(|e| GitError::MetadataError { source: e.into() })?
-                .into_commit();
+            let info = match res {
+                Ok(info) => info,
+                Err(e) => {
+                    tracing::warn!("Failed to retrieve commit info during history walk: {e}");
+                    continue;
+                }
+            };
+            
+            let commit = match info.id().object().and_then(|obj| Ok(obj.into_commit())) {
+                Ok(commit) => commit,
+                Err(e) => {
+                    tracing::warn!("Failed to retrieve commit object for {}: {e}", info.id());
+                    continue;
+                }
+            };
 
             let is_merge = commit.parent_ids().count() > 1;
             let mut files = HashSet::new();
 
             if !is_merge {
-                let current_tree = commit
-                    .tree()
-                    .map_err(|e| GitError::MetadataError { source: e.into() })?;
+                let current_tree = match commit.tree() {
+                    Ok(tree) => tree,
+                    Err(e) => {
+                        tracing::warn!("Failed to retrieve tree for commit {}: {e}", info.id());
+                        continue;
+                    }
+                };
 
                 let parent_id = commit.parent_ids().next();
                 let parent_tree = if let Some(p_id) = parent_id {
-                    p_id.object()
-                        .map_err(|e| GitError::MetadataError { source: e.into() })?
-                        .into_commit()
-                        .tree()
-                        .map_err(|e| GitError::MetadataError { source: e.into() })?
+                    match p_id.object().and_then(|obj| Ok(obj.into_commit().tree())) {
+                        Ok(Ok(tree)) => tree,
+                        _ => {
+                            tracing::warn!("Failed to retrieve parent tree for commit {}: parent {}", info.id(), p_id);
+                            self.repo.empty_tree()
+                        }
+                    }
                 } else {
                     self.repo.empty_tree()
                 };
 
-                let changes = self
-                    .repo
-                    .diff_tree_to_tree(Some(&parent_tree), Some(&current_tree), None)
-                    .map_err(|e| GitError::MetadataError { source: e.into() })?;
+                let changes = match self.repo.diff_tree_to_tree(Some(&parent_tree), Some(&current_tree), None) {
+                    Ok(changes) => changes,
+                    Err(e) => {
+                        tracing::warn!("Failed to diff tree for commit {}: {e}", info.id());
+                        continue;
+                    }
+                };
 
                 for change in changes {
                     match change {
@@ -126,7 +147,7 @@ impl<P: HistoryProvider> TemporalEngine<P> {
     }
 
     pub fn calculate_couplings(&self) -> Result<Vec<TemporalCoupling>, GitError> {
-        let history = self.provider.get_history(self.config.max_commits)?;
+        let history = self.provider.get_history(self.config.max_commits, self.config.all_parents)?;
 
         let mut commit_count = 0;
         let mut file_commit_map: HashMap<Utf8PathBuf, HashSet<usize>> = HashMap::new();
@@ -177,7 +198,7 @@ impl<P: HistoryProvider> TemporalEngine<P> {
                 let score_a = common_count / commits_a.len() as f32;
                 let score_b = common_count / commits_b.len() as f32;
 
-                if score_a >= self.config.coupling_threshold {
+                if score_a > self.config.coupling_threshold {
                     couplings.push(TemporalCoupling {
                         file_a: file_a.clone().into(),
                         file_b: file_b.clone().into(),
@@ -185,7 +206,7 @@ impl<P: HistoryProvider> TemporalEngine<P> {
                     });
                 }
 
-                if score_b >= self.config.coupling_threshold {
+                if score_b > self.config.coupling_threshold {
                     couplings.push(TemporalCoupling {
                         file_a: file_b.clone().into(),
                         file_b: file_a.clone().into(),
@@ -195,7 +216,14 @@ impl<P: HistoryProvider> TemporalEngine<P> {
             }
         }
 
-        couplings.sort_unstable();
+        // Deterministic sorting by score (desc) then paths
+        couplings.sort_by(|a, b| {
+            b.score.partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.file_a.cmp(&b.file_a))
+                .then_with(|| a.file_b.cmp(&b.file_b))
+        });
+        
         Ok(couplings)
     }
 }

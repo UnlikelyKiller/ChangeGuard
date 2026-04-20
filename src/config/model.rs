@@ -48,6 +48,8 @@ pub struct TemporalConfig {
     pub max_files_per_commit: usize,
     #[serde(default = "default_coupling_threshold")]
     pub coupling_threshold: f32,
+    #[serde(default = "default_all_parents")]
+    pub all_parents: bool,
 }
 
 impl Default for TemporalConfig {
@@ -56,6 +58,7 @@ impl Default for TemporalConfig {
             max_commits: default_max_commits(),
             max_files_per_commit: default_max_files_per_commit(),
             coupling_threshold: default_coupling_threshold(),
+            all_parents: default_all_parents(),
         }
     }
 }
@@ -68,6 +71,9 @@ fn default_max_files_per_commit() -> usize {
 }
 fn default_coupling_threshold() -> f32 {
     0.75
+}
+fn default_all_parents() -> bool {
+    false
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

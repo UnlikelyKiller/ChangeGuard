@@ -26,7 +26,7 @@ struct AnalysisOutcome {
     analysis_warnings: Vec<String>,
 }
 
-pub fn execute_impact() -> Result<()> {
+pub fn execute_impact(all_parents: bool) -> Result<()> {
     let current_dir = env::current_dir()
         .map_err(|e| miette::miette!("Failed to get current directory: {}", e))?;
 
@@ -47,7 +47,7 @@ pub fn execute_impact() -> Result<()> {
     let mut packet = map_snapshot_to_packet(snapshot, &current_dir)?;
 
     // Load main config for temporal analysis
-    let config = crate::config::load::load_config(&layout).unwrap_or_else(|e| {
+    let mut config = crate::config::load::load_config(&layout).unwrap_or_else(|e| {
         tracing::warn!("Failed to load config: {e}. Using defaults.");
         println!(
             "{} Could not load config. Using default temporal analysis settings.",
@@ -55,6 +55,11 @@ pub fn execute_impact() -> Result<()> {
         );
         crate::config::model::Config::default()
     });
+
+    // CLI override
+    if all_parents {
+        config.temporal.all_parents = true;
+    }
 
     // Run temporal coupling analysis
     let history_provider = crate::impact::temporal::GixHistoryProvider::new(&repo);
@@ -293,19 +298,22 @@ fn analyze_changed_file(relative_path: &Path, base_dir: &Path) -> AnalysisOutcom
     if let (Some(syms), Some(lang)) = (&mut symbols, Language::from_extension(extension)) {
         let scorer = crate::index::metrics::NativeComplexityScorer::new();
         if let Some(path) = camino::Utf8Path::from_path(relative_path) {
-            if let Err(e) = scorer.score_file(path, &content, lang) {
-                warnings.push(format!(
-                    "{}: complexity scoring failed: {e}",
-                    relative_path.display()
-                ));
-            } else if let Ok(file_complexity) = scorer.score_file(path, &content, lang) {
-                for sym in syms {
-                    if let Some(symbol_complexity) =
-                        file_complexity.functions.iter().find(|f| f.name == sym.name)
-                    {
-                        sym.cognitive_complexity = Some(symbol_complexity.cognitive as i32);
-                        sym.cyclomatic_complexity = Some(symbol_complexity.cyclomatic as i32);
+            match scorer.score_file(path, &content, lang) {
+                Ok(file_complexity) => {
+                    for sym in syms {
+                        if let Some(symbol_complexity) =
+                            file_complexity.functions.iter().find(|f| f.name == sym.name)
+                        {
+                            sym.cognitive_complexity = Some(symbol_complexity.cognitive as i32);
+                            sym.cyclomatic_complexity = Some(symbol_complexity.cyclomatic as i32);
+                        }
                     }
+                }
+                Err(e) => {
+                    warnings.push(format!(
+                        "{}: complexity scoring failed: {e}",
+                        relative_path.display()
+                    ));
                 }
             }
         } else {
