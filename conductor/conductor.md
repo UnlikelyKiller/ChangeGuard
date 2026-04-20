@@ -1,6 +1,50 @@
 # ChangeGuard Conductor
 
-## Active Tracks
+## Milestone I: Phase 2 Remediation (Active)
+
+*   **Track 30: Foundation & Safety Remediation** (Critical)
+    *   Status: Planning
+    *   Spec: `conductor/track30/spec.md`
+    *   Plan: `conductor/track30/plan.md`
+    *   Goal: Restore green CI gates (fmt, clippy, tests), fix critical secret redaction/persistence issues, and remove production unwraps.
+    *   Audit3 findings: Critical gating failures, unredacted packet DB storage, `unwrap()` violations.
+
+*   **Track 31: Intelligence & Determinism Hardening** (High)
+    *   Status: Planning
+    *   Spec: `conductor/track31/spec.md`
+    *   Plan: `conductor/track31/plan.md`
+    *   Goal: Fix temporal first-parent traversal, add complexity degradation, and ensure deterministic sorting for hotspots.
+    *   Audit3 findings: Traversal gaps, missing TS tests, non-deterministic sorting, duplicate hotspot logic.
+
+*   **Track 32: Predictive Verification Completion** (High)
+    *   Status: Planning
+    *   Spec: `conductor/track32/spec.md`
+    *   Plan: `conductor/track32/plan.md`
+    *   Goal: Implement structural prediction (removing placeholders) and add missing predictor tests and degradation warnings.
+    *   Audit3 findings: Placeholder code in production, structural prediction absent.
+
+*   **Track 33: Federated Intelligence Completion** (High)
+    *   Status: Planning
+    *   Spec: `conductor/track33/spec.md`
+    *   Plan: `conductor/track33/plan.md`
+    *   Goal: Implement real cross-repo impact resolution with dependency edges, schema validation, and path confinement.
+    *   Audit3 findings: Generic placeholder warnings, missing schema validation, lack of path confinement.
+
+*   **Track 34: Narrative Reporting Completion** (High)
+    *   Status: Planning
+    *   Spec: `conductor/track34/spec.md`
+    *   Plan: `conductor/track34/plan.md`
+    *   Goal: Wire token budgeting and truncation annotations into Gemini execution, and add golden prompt tests.
+    *   Audit3 findings: Token budget unused, truncation annotation absent, Gemini fallback incomplete.
+
+*   **Track 35: LSP Daemon Resolution** (Critical)
+    *   Status: Planning
+    *   Spec: `conductor/track35/spec.md`
+    *   Plan: `conductor/track35/plan.md`
+    *   Goal: Replace the stub implementation with a fully-featured LSP server in `src/daemon/` (with Tokio runtime and lifecycle management).
+    *   Audit3 findings: Daemon is just a watch wrapper, missing LSP features and lifecycle management.
+
+## Active Tracks (Phase 1)
 
 *   **Track 19: Reset and Recovery Completion** (Next)
     *   Status: Planning
@@ -38,99 +82,30 @@
 
 ## Milestone H: Cross-Repo and Narrative Reporting (Completed)
 
-## Completed Tracks
+## Completed Tracks (Phase 2 - Partial/Needs Remediation)
 
-*   **Track 29: Advanced Narrative Reporting (Gemini)**
-    *   Status: Completed
-    *   Spec: `conductor/track29/spec.md`
-    *   Plan: `conductor/track29/plan.md`
-    *   Goal: Enhance the `Ask` command to provide high-level, human-readable narrative summaries of risks and changes.
-    *   Key additions: `src/gemini/narrative.rs`, Structured Senior Architect prompt templates, `Narrative` mode integration in `Ask` command.
+*   **Track 29: Advanced Narrative Reporting (Gemini)** (Status: Partial)
+*   **Track 28: Federated Intelligence (Cross-Repo)** (Status: Partial)
+*   **Track 27: LSP-Lite ChangeGuard Daemon** (Status: Fail)
+*   **Track 26: Predictive Verification (Dependency-Aware)** (Status: Fail/Partial)
+*   **Track 25: Hotspot Identification (Risk Density)** (Status: Partial)
+*   **Track 24: Complexity Indexing (Spike & Implementation)** (Status: Partial Pass)
+*   **Track 23: Temporal Intelligence (History Extraction)** (Status: Partial Pass)
 
-*   **Track 28: Federated Intelligence (Cross-Repo)**
-    *   Status: Completed
-    *   Spec: `conductor/track28/spec.md`
-    *   Plan: `conductor/track28/plan.md`
-    *   Goal: Support analysis across multiple repositories using a shared intelligence via `.changeguard/schema.json` and federated SQLite ledgers.
-    *   Key additions: `src/federated/`, `changeguard federate` command (export, scan, status), safe sibling discovery, cross-repo impact warnings.
-
-*   **Track 27: LSP-Lite ChangeGuard Daemon**
-    *   Status: Completed
-    *   Spec: `conductor/track27/spec.md`
-    *   Plan: `conductor/track27/plan.md`
-    *   Goal: Enable ChangeGuard to provide background intelligence and IDE-compliant diagnostic output (VS Code, Cursor).
-    *   Key additions: `src/output/lsp.rs`, `src/commands/daemon.rs`, stable JSON-RPC/line-delimited JSON stream, `Watch` mode integration.
-
-*   **Track 26: Predictive Verification (Dependency-Aware)**
-    *   Status: Completed
-    *   Spec: `conductor/track26/spec.md`
-    *   Plan: `conductor/track26/plan.md`
-    *   Goal: Use temporal coupling and structural imports to predict which files *should* be verified even if they haven't changed.
-    *   Key additions: `src/verify/predict.rs`, Graph-based impact propagation, verification plan expansion logic, `--no-predict` flag.
-
-*   **Track 25: Hotspot Identification (Risk Density)**
-    *   Status: Completed
-    *   Spec: `conductor/track25/spec.md`
-    *   Plan: `conductor/track25/plan.md`
-    *   Goal: Combine change frequency (Track 23) with structural complexity (Track 24) to output Risk Maps.
-    *   Key additions: `src/commands/hotspots.rs`, `changeguard hotspots` CLI command, Risk Density scoring engine, human-readable hotspot tables.
-
-*   **Track 24: Complexity Indexing (Spike & Implementation)**
-    *   Status: Completed
-    *   Spec: `conductor/track24/spec.md`
-    *   Plan: `conductor/track24/plan.md`
-    *   Goal: Measure cognitive and cyclomatic complexity for functions and structs to weight impact risks.
-    *   Key additions: `src/index/metrics.rs`, `NativeComplexityScorer` using tree-sitter, SQLite persistence for symbol complexity.
-
-*   **Track 23: Temporal Intelligence (History Extraction)**
-    *   Status: Completed
-    *   Spec: `conductor/track23/spec.md`
-    *   Plan: `conductor/track23/plan.md`
-    *   Goal: Identify "Logical Coupling" between files by crawling git history.
-    *   Key additions: `src/impact/temporal.rs`, `gix` 0.81.0 integration, deterministic affinity mapping, configurable commit depth.
-
-*   **Track 13: Final Integration**
-    *   Status: Completed with follow-up required
-    *   Note: reset was treated as complete in the original track sequence, but the current repo still lacks a real `src/commands/reset.rs` implementation. This is now addressed by active **Track 19: Reset and Recovery Completion**.
-
-*   **Track 12: UI/UX Refinement**
-    *   Status: Completed
-
-*   **Track 11: Ask Gemini Baseline**
-    *   Status: Completed
-
-*   **Track 10: State SQLite Persistence**
-    *   Status: Completed
-
-*   **Track 9: Change Risk Analysis Engine**
-    *   Status: Completed
-
-*   **Track 8: Determinism Contract and Subprocess Control**
-    *   Status: Completed
-
-*   **Track 7: Language-Aware Symbol Extraction**
-    *   Status: Completed
-
-*   **Track 6: Watch Mode and Batch Debouncing**
-    *   Status: Completed
-
-*   **Track 5: Basic Impact Packet Shell**
-    *   Status: Completed
-
-*   **Track 4: Git Scan Foundation**
-    *   Status: Completed
-
-*   **Track 3: Config and Rule Loading**
-    *   Status: Completed
-
-*   **Track 2: Doctor and Platform Detection**
-    *   Status: Completed
-
-*   **Track 1: Repo-Local State Layout and Init**
-    *   Status: Completed
-
-*   **Track 0: Bootstrap CLI Skeleton**
-    *   Status: Completed
+*   **Track 13: Final Integration** (Status: Completed with follow-up required)
+*   **Track 12: UI/UX Refinement** (Status: Completed)
+*   **Track 11: Ask Gemini Baseline** (Status: Completed)
+*   **Track 10: State SQLite Persistence** (Status: Completed)
+*   **Track 9: Change Risk Analysis Engine** (Status: Completed)
+*   **Track 8: Determinism Contract and Subprocess Control** (Status: Completed)
+*   **Track 7: Language-Aware Symbol Extraction** (Status: Completed)
+*   **Track 6: Watch Mode and Batch Debouncing** (Status: Completed)
+*   **Track 5: Basic Impact Packet Shell** (Status: Completed)
+*   **Track 4: Git Scan Foundation** (Status: Completed)
+*   **Track 3: Config and Rule Loading** (Status: Completed)
+*   **Track 2: Doctor and Platform Detection** (Status: Completed)
+*   **Track 1: Repo-Local State Layout and Init** (Status: Completed)
+*   **Track 0: Bootstrap CLI Skeleton** (Status: Completed)
 
 ## Workflow
 
