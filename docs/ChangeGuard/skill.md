@@ -42,6 +42,24 @@ changeguard doctor
 
 If the command is unavailable, do not invent ChangeGuard output. Tell the user it is not installed or not on `PATH`, then continue with normal repository inspection.
 
+If installation is allowed, install ChangeGuard like a normal CLI:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/UnlikelyKiller/ChangeGuard/main/install/install.sh | sh
+```
+
+On Windows PowerShell:
+
+```powershell
+iwr https://raw.githubusercontent.com/UnlikelyKiller/ChangeGuard/main/install/install.ps1 -UseB | iex
+```
+
+After installing, open a new terminal if needed and re-run:
+
+```bash
+changeguard doctor
+```
+
 If the repo has not been initialized and the user wants ChangeGuard used here:
 
 ```bash

@@ -6,6 +6,18 @@ The tool is designed to stay local and explain its work. It does not act as an a
 
 ## Install
 
+One-line install for AI agents and developers:
+
+```powershell
+iwr https://raw.githubusercontent.com/UnlikelyKiller/ChangeGuard/main/install/install.ps1 -UseB | iex
+```
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/UnlikelyKiller/ChangeGuard/main/install/install.sh | sh
+```
+
+Manual install from a checkout:
+
 ```powershell
 cargo install --path .
 ```
@@ -15,6 +27,8 @@ The LSP daemon is behind an optional feature:
 ```powershell
 cargo install --path . --features daemon
 ```
+
+See [docs/installation.md](docs/installation.md) for installer options, release assets, and agent bootstrap instructions.
 
 ## Quickstart
 
