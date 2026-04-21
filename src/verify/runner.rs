@@ -159,8 +159,10 @@ fn looks_like_command_not_found(result: &ExecutionResult) -> bool {
     result.exit_code != 0
         && (stderr.contains("not recognized as an internal or external command")
             || stderr.contains("command not found")
+            || (result.exit_code == 127 && stderr.contains("not found"))
             || stdout.contains("not recognized as an internal or external command")
-            || stdout.contains("command not found"))
+            || stdout.contains("command not found")
+            || (result.exit_code == 127 && stdout.contains("not found")))
 }
 
 #[cfg(test)]
@@ -237,6 +239,19 @@ mod tests {
         let result = execute_step(&prepared, &ProcessPolicy::default()).unwrap();
         assert_eq!(result.exit_code, 0);
         assert!(result.stdout.to_ascii_lowercase().contains("hello"));
+    }
+
+    #[test]
+    fn shell_exit_127_not_found_is_normalized() {
+        let result = ExecutionResult {
+            exit_code: 127,
+            stdout: String::new(),
+            stderr: "sh: 1: missing_tool: not found".to_string(),
+            duration: Duration::from_millis(1),
+            truncated: false,
+        };
+
+        assert!(looks_like_command_not_found(&result));
     }
 
     #[test]
