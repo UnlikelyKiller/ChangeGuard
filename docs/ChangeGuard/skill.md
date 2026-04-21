@@ -118,6 +118,7 @@ changeguard scan
 changeguard impact
 changeguard verify
 changeguard hotspots
+changeguard federate status
 ```
 
 Use targeted variants when appropriate:
@@ -127,6 +128,9 @@ changeguard impact --all-parents
 changeguard verify --no-predict
 changeguard hotspots --limit 20 --commits 500
 changeguard hotspots --json
+changeguard federate export
+changeguard federate scan
+changeguard reset --all --yes
 ```
 
 Use Gemini-assisted reporting only when Gemini is configured and the user wants AI synthesis:
@@ -136,6 +140,12 @@ changeguard ask "What should I verify next?"
 changeguard ask --mode suggest "What checks should I run?"
 changeguard ask --mode review-patch "Review the current diff."
 changeguard ask --narrative
+```
+
+The LSP daemon is available when built with the `daemon` feature:
+
+```bash
+changeguard daemon
 ```
 
 ## How To Interpret Results
