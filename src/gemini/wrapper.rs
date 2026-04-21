@@ -1,3 +1,4 @@
+use crate::platform::env::{ExecutableStatus, find_executable};
 use indicatif::{ProgressBar, ProgressStyle};
 use miette::{IntoDiagnostic, Result};
 use owo_colors::OwoColorize;
@@ -27,7 +28,7 @@ pub fn run_query(
     pb.set_message(format!("Consulting Gemini ({model})..."));
     pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
-    let mut cmd = Command::new("gemini");
+    let mut cmd = gemini_command()?;
     cmd.args(["--model", model, "--prompt", ""]);
     let full_input = format!("{}\n\n{}", system_prompt, user_prompt);
 
@@ -86,6 +87,31 @@ pub fn run_query(
     }
 }
 
+fn gemini_command() -> Result<Command> {
+    match find_executable("gemini") {
+        ExecutableStatus::Found(path) => Ok(command_for_executable(&path)),
+        ExecutableStatus::NotFound => Err(miette::miette!(
+            "Gemini CLI not found. Install Gemini CLI to enable narrative summaries."
+        )),
+    }
+}
+
+fn command_for_executable(path: &Path) -> Command {
+    if cfg!(target_os = "windows")
+        && path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("ps1"))
+    {
+        let mut cmd = Command::new("powershell");
+        cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]);
+        cmd.arg(path);
+        return cmd;
+    }
+
+    Command::new(path)
+}
+
 fn configure_api_key(cmd: &mut Command, configured_key: Option<&str>) {
     if let Some(key) = configured_key.and_then(non_empty) {
         cmd.env("GEMINI_API_KEY", key);
@@ -141,8 +167,9 @@ fn non_empty(value: &str) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::read_env_key;
+    use super::{command_for_executable, read_env_key};
     use std::fs;
+    use std::path::Path;
     use tempfile::tempdir;
 
     #[test]
@@ -165,5 +192,21 @@ mod tests {
         fs::write(&env_path, "GEMINI_API_KEY=\n").unwrap();
 
         assert_eq!(read_env_key(&env_path), None);
+    }
+
+    #[test]
+    fn wraps_windows_powershell_shims() {
+        let cmd = command_for_executable(Path::new("gemini.ps1"));
+        if cfg!(target_os = "windows") {
+            assert_eq!(cmd.get_program().to_string_lossy(), "powershell");
+            let args: Vec<_> = cmd
+                .get_args()
+                .map(|arg| arg.to_string_lossy().to_string())
+                .collect();
+            assert!(args.iter().any(|arg| arg == "-File"));
+            assert!(args.iter().any(|arg| arg == "gemini.ps1"));
+        } else {
+            assert_eq!(cmd.get_program().to_string_lossy(), "gemini.ps1");
+        }
     }
 }
