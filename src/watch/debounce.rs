@@ -1,5 +1,5 @@
 use camino::Utf8PathBuf;
-use notify_debouncer_full::{Debouncer, FileIdMap, new_debouncer, notify::*};
+use notify_debouncer_full::{Debouncer, RecommendedCache, new_debouncer, notify::*};
 use parking_lot::Mutex;
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,7 +14,7 @@ pub type WatchCallback = Box<dyn Fn(WatchBatch) + Send + Sync>;
 
 pub struct Watcher {
     #[allow(dead_code)]
-    debouncer: Debouncer<RecommendedWatcher, FileIdMap>,
+    debouncer: Debouncer<RecommendedWatcher, RecommendedCache>,
 }
 
 impl Watcher {
