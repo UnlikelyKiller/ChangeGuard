@@ -1,86 +1,107 @@
-# Research: Breaking Changes (Post-April 2024)
+# Breaking And Compatibility Notes
 
-This document tracks significant breaking changes, major version bumps, and API shifts for ChangeGuard's core dependencies since April 2024.
+This document tracks dependency and project-level compatibility concerns for the current ChangeGuard implementation.
 
 ## Summary Table
 
-| Dependency | Current Version | Notable Breaking Changes (since 04/2024) | Impact Level |
+| Dependency / Area | Current Version / Status | Compatibility Notes | Impact |
 | :--- | :--- | :--- | :--- |
-| **thiserror** | 2.0.x | **v2.0.0 (Nov 2024)**: Major version bump for `no_std` support. | Moderate |
-| **rusqlite** | 0.39.0 | **v0.39.0 (Mar 2026)**: Breaking changes in statement preparation and type impls. | Moderate |
-| **clap** | 4.6.1 | v5.0.0 is in development (unstable-v5); v4.x remains stable. | Low (Planning) |
-| **miette** | 7.6.0 | v7.0.0 released Feb 2024; v7.x stable since then. | Low |
-| **tree-sitter** | 0.26.8 | Transition to v0.26.x (late 2025/2026) with CLI and API cleanups. | Low |
-| **gix** | 0.81.0 | High-velocity releases, but v0.x semver avoids major breakage. | Low |
-| **notify-debouncer-full** | 0.7.0 | v0.8.0-rc.1 in progress; v0.7.x stable. | Low |
-| **tower-lsp-server** | 0.23.0 | **v0.23.0 (Phase 2)**: Migration from `lsp-types` to `ls-types`. | Moderate |
-| **linfa** | 0.8.1 | **v0.8.1 (Phase 2)**: Breaking `ndarray` 0.16 upgrade. | Moderate |
-| **ChangeGuard CLI** | Phase 2 | **Behavioral**: Probabilistic verification ordering; new subcommands. | Moderate |
+| **thiserror** | 2.0.x | v2 removed some raw-identifier formatting behavior. | Low |
+| **rusqlite** | 0.39.0 | Tight statement validation; unsigned integer SQL conversions are not default. | Moderate |
+| **clap** | 4.6.1 | v4 stable; v5 remains future work. | Low |
+| **miette** | 7.6.0 | v7 stable. | Low |
+| **tree-sitter** | 0.26.8 | Parser family must be upgraded together. | Moderate |
+| **gix** | 0.81.0 | High-churn pre-1.0 API. | Moderate |
+| **notify-debouncer-full** | 0.7.0 | Watch behavior is platform-sensitive. | Low |
+| **tower-lsp-server** | 0.23.0 | Optional daemon feature; uses `ls-types` and native async trait methods. | Moderate |
+| **ChangeGuard state** | Phase 2 schema | Adds symbol complexity, federated links, federated dependencies, and richer reports. | Moderate |
 
----
+## Project-Level Changes
 
-## Detailed Findings
+### CLI Additions
 
-### Phase 2: Intelligence & Federation Shifts
-The following breaking changes are introduced as part of the Phase 2 implementation plan to support temporal analysis, complexity scoring, and LSP integration.
+Phase 2 added:
 
-#### CLI & Behavioral
-- **Probabilistic Verification (Moderate):** The `verify` command now reorders execution based on historical failure data. The output sequence is no longer deterministic relative to input order, though it remains deterministic relative to the SQLite state.
-- **Subcommand Additions (Low):** Addition of `hotspots`, `daemon`, and `export-schema`.
+- `hotspots`
+- `federate export`
+- `federate scan`
+- `federate status`
+- `daemon` behind `--features daemon`
+- `impact --all-parents`
+- `hotspots --json --dir --lang --all-parents`
+- `verify --no-predict`
+- `ask --narrative`
+- reset recovery flags
 
-#### API & Dependencies
-- **tower-lsp-server (v0.23.0):**
-    - **Namespace Shift:** Migration from `lsp-types` to `ls-types` (community fork).
-    - **Trait Update:** `LanguageServer` no longer uses `#[async_trait]`.
-- **linfa (v0.8.1):**
-    - **Numerical Backend:** Upgraded to `ndarray` 0.16. Version alignment is required across all crates using `ndarray`.
-- **rusqlite (v0.39.0):**
-    - **Statement Safety:** Multi-statement strings are now rejected in `execute()`.
-    - **Integer Types:** `u64`/`usize` support is disabled by default; all database integrations must shift to `i64`.
+The previously planned standalone `export-schema` command is implemented as `changeguard federate export`.
 
-#### Configuration & Schema
-- **Impact Packet Schema (Moderate):** Introduction of `schema_version`. Phase 1 packets lack this field and may require migration for Phase 2 tools.
-- **Configuration Namespaces (Low):** New `temporal.*` and `metrics.*` keys added to `config.toml`.
-- **Database Migrations (High):** Phase 2 introduces tables for `temporal_coupling`, `probability_history`, and `federated_cache`. Databases migrated to Phase 2 are not backward-compatible with Phase 1 binaries.
+### Verification Behavior
 
-### thiserror (v2.0.0)
-- **Release Date:** November 2024
-- **Key Changes:**
-    - **`no_std` Support:** The primary driver for v2.0 was official `no_std` support (requiring Rust 1.81+).
-    - **Raw Identifiers:** Referencing keyword-named fields in format strings using raw identifiers (e.g., `{r#type}`) is no longer accepted. Use the unraw name (e.g., `{type}`) instead.
-- **Impact on ChangeGuard:** Minimal, unless raw identifiers are used in error messages.
+`verify` remains deterministic for identical repository/config/SQLite state. Prediction now uses:
 
-### rusqlite (v0.39.0)
-- **Release Date:** March 2026
-- **Key Changes:**
-    - **Statement Validation:** `Connection::execute` now checks that there is no "tail" (remaining SQL) after the first statement.
-    - **Multiple Statements:** `prepare` now checks for multiple statements to prevent accidental SQL injection or logic errors.
-    - **Type Defaults:** Disabled `u64` and `usize` `ToSql`/`FromSql` implementations by default to avoid ambiguity with SQLite's signed 64-bit integers.
-- **Impact on ChangeGuard:** Significant if using raw `execute` calls with multi-statement strings or relying on unsigned integer conversions.
+- current repository import scanning
+- latest impact packet data
+- historical impact packets
+- temporal couplings, recomputed when missing and possible
 
-### clap (v4.6.1)
-- **Status:** v4.x is the current stable branch.
-- **Future:** **v5.0.0** is in development (accessible via `unstable-v5` feature).
-- **Recent Breaks (v4.x):** Mostly MSRV bumps (now 1.85 for v4.6.0+).
-- **v5.0.0 Preview:** `ArgPredicate` is now `non_exhaustive`; default `term_width` behavior changes to "source format".
-- **Impact on ChangeGuard:** Low, provided the project sticks to the stable v4.x features.
+Prediction degradation appears in `latest-verify.json` under `prediction_warnings`.
 
-### tree-sitter (v0.26.x)
-- **Release Period:** Late 2025 – Early 2026
-- **Key Changes:**
-    - CLI flag cleanup (e.g., removal of `--emit=lib`).
-    - Deprecation of ABI 13 in favor of newer versions.
-    - Experimental native QuickJS runtime for better performance.
-- **Impact on ChangeGuard:** Moderate if using the CLI for grammar generation; low for library usage.
+### State And Reports
 
-### gix (v0.81.0)
-- **Status:** `gix` follows a rapid release cycle (v0.x). While it changes frequently, it avoids v1.0 stability, meaning "breaking" changes are frequent but usually scoped to specific sub-crates.
-- **Impact on ChangeGuard:** High maintenance burden to keep up with the latest `gix` abstractions, but no "wall" of breaking changes since April 2024.
+Phase 2 state is still repo-local under `.changeguard/`. Important generated artifacts include:
 
-### miette (v7.6.0)
-- **Status:** v7.0.0 was released just before the target window (Feb 2024). Since then, releases (up to 7.6.0) have focused on bug fixes and `clippy` lint elision.
-- **Impact on ChangeGuard:** Stable.
+- `.changeguard/reports/latest-impact.json`
+- `.changeguard/reports/latest-verify.json`
+- `.changeguard/reports/fallback-impact.json`
+- `.changeguard/state/ledger.db`
+- `.changeguard/state/schema.json`
 
-### notify-debouncer-full (0.7.0)
-- **Status:** Stable. v0.8.0-rc.1 is in pre-release but v0.7.0 remains the standard.
-- **Impact on ChangeGuard:** None.
+SQLite migrations add symbol complexity columns and federation tables. Older databases should be allowed to migrate forward through `rusqlite_migration`; Phase 1 binaries should not be expected to understand Phase 2 data.
+
+## Dependency Details
+
+### rusqlite 0.39.0
+
+- Keep SQL operations single-statement.
+- Store Rust `usize` and `u64` values as `i64` when writing SQLite rows.
+- The daemon opens SQLite read-only and must not execute write-capable PRAGMAs from that connection.
+
+### tower-lsp-server 0.23.0
+
+- The daemon uses `tower-lsp-server` 0.23 and `ls-types`.
+- `LanguageServer` methods are native async trait methods.
+- Tokio features must include runtime, stdio, macros, and time support.
+
+### tree-sitter 0.26.x
+
+- Rust, TypeScript, and Python parser crates should be upgraded together.
+- Re-run symbol, import/export, runtime usage, and complexity tests after parser changes.
+- Complexity behavior is intentionally native; the `arborist-metrics` decision is documented in [architecture/arborist-metrics-decision.md](architecture/arborist-metrics-decision.md).
+
+### gix 0.81.0
+
+- `gix` is pre-1.0 and changes quickly.
+- Re-check status, diff, first-parent traversal, and tree-diff assumptions after upgrades.
+- Temporal tests include a real git fixture for first-parent behavior.
+
+### Gemini CLI
+
+- ChangeGuard shells out to `gemini analyze`.
+- Missing Gemini CLI must produce: `Gemini CLI not found. Install Gemini CLI to enable narrative summaries.`
+- Narrative mode uses one structured prompt rather than the generic question template.
+
+## Validation After Changes
+
+Run:
+
+```powershell
+cargo fmt --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-features -j 1 -- --test-threads=1
+```
+
+For daemon-specific changes, also run:
+
+```powershell
+cargo test --all-features --test daemon_lifecycle -- --test-threads=1
+```

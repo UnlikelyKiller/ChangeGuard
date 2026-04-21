@@ -9,3 +9,14 @@ ignore_patterns = ["dist/**", "coverage/**"]
 [gemini]
 model = "gemini-2.5-pro"
 timeout_secs = 120
+context_window = 128000
+
+[temporal]
+max_commits = 1000
+max_files_per_commit = 50
+coupling_threshold = 0.75
+all_parents = false
+
+[hotspots]
+max_commits = 500
+limit = 10
