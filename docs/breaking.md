@@ -86,7 +86,7 @@ SQLite migrations add symbol complexity columns and federation tables. Older dat
 
 ### Gemini CLI
 
-- ChangeGuard shells out to `gemini analyze`.
+- ChangeGuard shells out to `gemini --model <selected-model> --prompt ""`.
 - Missing Gemini CLI must produce: `Gemini CLI not found. Install Gemini CLI to enable narrative summaries.`
 - Narrative mode uses one structured prompt rather than the generic question template.
 

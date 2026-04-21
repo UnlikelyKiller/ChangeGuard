@@ -1,6 +1,8 @@
 use crate::config::load::load_config;
+use crate::config::model::{DEFAULT_GEMINI_DEEP_MODEL, DEFAULT_GEMINI_FAST_MODEL, GeminiConfig};
 use crate::gemini::modes::{GeminiMode, build_system_prompt, build_user_prompt};
 use crate::gemini::run_query;
+use crate::impact::packet::{ImpactPacket, RiskLevel};
 use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
 use miette::Result;
@@ -79,8 +81,15 @@ pub fn execute_ask(query: Option<String>, mut mode: GeminiMode, narrative: bool)
     }
 
     let timeout_secs = config.gemini.timeout_secs;
+    let model = select_gemini_model(&config.gemini, mode, &latest_packet);
 
-    if let Err(e) = run_query(&system_prompt, &sanitize_result.sanitized, timeout_secs) {
+    if let Err(e) = run_query(
+        &system_prompt,
+        &sanitize_result.sanitized,
+        timeout_secs,
+        model,
+        config.gemini.api_key.as_deref(),
+    ) {
         let reports_dir = layout.reports_dir();
         std::fs::create_dir_all(&reports_dir).map_err(|write_err| {
             miette::miette!(
@@ -135,5 +144,88 @@ fn get_cached_diff() -> Option<String> {
         Some(String::from_utf8_lossy(&output.stdout).to_string())
     } else {
         None
+    }
+}
+
+pub(crate) fn select_gemini_model<'a>(
+    config: &'a GeminiConfig,
+    mode: GeminiMode,
+    packet: &ImpactPacket,
+) -> &'a str {
+    if let Some(model) = non_empty(config.model.as_deref()) {
+        return model;
+    }
+
+    if mode == GeminiMode::ReviewPatch || packet.risk_level == RiskLevel::High {
+        return non_empty(config.deep_model.as_deref()).unwrap_or(DEFAULT_GEMINI_DEEP_MODEL);
+    }
+
+    non_empty(config.fast_model.as_deref()).unwrap_or(DEFAULT_GEMINI_FAST_MODEL)
+}
+
+fn non_empty(value: Option<&str>) -> Option<&str> {
+    let value = value?.trim();
+    if value.is_empty() { None } else { Some(value) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn flash_lite_is_default_for_routine_asks() {
+        let packet = ImpactPacket {
+            risk_level: RiskLevel::Medium,
+            ..ImpactPacket::default()
+        };
+
+        assert_eq!(
+            select_gemini_model(&GeminiConfig::default(), GeminiMode::Analyze, &packet),
+            DEFAULT_GEMINI_FAST_MODEL
+        );
+    }
+
+    #[test]
+    fn pro_is_default_for_patch_review_and_high_risk() {
+        let high_risk_packet = ImpactPacket {
+            risk_level: RiskLevel::High,
+            ..ImpactPacket::default()
+        };
+        let medium_risk_packet = ImpactPacket {
+            risk_level: RiskLevel::Medium,
+            ..ImpactPacket::default()
+        };
+
+        assert_eq!(
+            select_gemini_model(
+                &GeminiConfig::default(),
+                GeminiMode::Analyze,
+                &high_risk_packet
+            ),
+            DEFAULT_GEMINI_DEEP_MODEL
+        );
+        assert_eq!(
+            select_gemini_model(
+                &GeminiConfig::default(),
+                GeminiMode::ReviewPatch,
+                &medium_risk_packet,
+            ),
+            DEFAULT_GEMINI_DEEP_MODEL
+        );
+    }
+
+    #[test]
+    fn explicit_model_overrides_routing() {
+        let config = GeminiConfig {
+            model: Some("gemini-custom".to_string()),
+            fast_model: Some("fast-custom".to_string()),
+            deep_model: Some("deep-custom".to_string()),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            select_gemini_model(&config, GeminiMode::ReviewPatch, &ImpactPacket::default()),
+            "gemini-custom"
+        );
     }
 }

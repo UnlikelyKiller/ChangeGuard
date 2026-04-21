@@ -1,5 +1,5 @@
 use crate::config::error::ConfigError;
-use crate::config::model::Config;
+use crate::config::model::{Config, GeminiConfig};
 use miette::Result;
 
 /// Validates the configuration, returning an error for invalid values.
@@ -18,14 +18,9 @@ pub fn validate_config(config: &Config) -> Result<()> {
         .into());
     }
 
-    if let Some(model) = &config.gemini.model
-        && model.trim().is_empty()
-    {
-        return Err(ConfigError::ValidationFailed {
-            reason: "gemini.model must be non-empty if present".to_string(),
-        }
-        .into());
-    }
+    validate_optional_model(&config.gemini, "model")?;
+    validate_optional_model(&config.gemini, "fast_model")?;
+    validate_optional_model(&config.gemini, "deep_model")?;
 
     for pattern in &config.watch.ignore_patterns {
         if globset::Glob::new(pattern).is_err() {
@@ -34,6 +29,26 @@ pub fn validate_config(config: &Config) -> Result<()> {
             }
             .into());
         }
+    }
+
+    Ok(())
+}
+
+fn validate_optional_model(config: &GeminiConfig, field: &str) -> Result<()> {
+    let value = match field {
+        "model" => &config.model,
+        "fast_model" => &config.fast_model,
+        "deep_model" => &config.deep_model,
+        _ => return Ok(()),
+    };
+
+    if let Some(model) = value
+        && model.trim().is_empty()
+    {
+        return Err(ConfigError::ValidationFailed {
+            reason: format!("gemini.{field} must be non-empty if present"),
+        }
+        .into());
     }
 
     Ok(())
@@ -102,6 +117,20 @@ mod tests {
             ..Default::default()
         };
         assert!(validate_config(&config).is_ok());
+    }
+
+    #[test]
+    fn test_empty_routed_model() {
+        let config = Config {
+            gemini: GeminiConfig {
+                fast_model: Some("   ".to_string()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let err = validate_config(&config).unwrap_err();
+        let msg = format!("{:?}", err);
+        assert!(msg.contains("fast_model"));
     }
 
     #[test]

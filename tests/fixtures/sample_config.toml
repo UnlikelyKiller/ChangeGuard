@@ -6,4 +6,6 @@ debounce_ms = 500
 ignore_patterns = ["dist/**"]
 
 [gemini]
+fast_model = "gemini-3.1-flash-lite-preview"
+deep_model = "gemini-3.1-pro-preview"
 timeout_secs = 120

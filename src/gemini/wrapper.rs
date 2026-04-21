@@ -2,13 +2,20 @@ use indicatif::{ProgressBar, ProgressStyle};
 use miette::{IntoDiagnostic, Result};
 use owo_colors::OwoColorize;
 use std::io::Write;
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 use wait_timeout::ChildExt;
 
 const DEFAULT_GEMINI_TIMEOUT_SECS: u64 = 120;
 
-pub fn run_query(system_prompt: &str, user_prompt: &str, timeout_secs: Option<u64>) -> Result<()> {
+pub fn run_query(
+    system_prompt: &str,
+    user_prompt: &str,
+    timeout_secs: Option<u64>,
+    model: &str,
+    api_key: Option<&str>,
+) -> Result<()> {
     let timeout = Duration::from_secs(timeout_secs.unwrap_or(DEFAULT_GEMINI_TIMEOUT_SECS));
 
     let pb = ProgressBar::new_spinner();
@@ -17,16 +24,17 @@ pub fn run_query(system_prompt: &str, user_prompt: &str, timeout_secs: Option<u6
             .template("{spinner:.green} {msg}")
             .unwrap_or_else(|_| ProgressStyle::default_spinner()),
     );
-    pb.set_message("Consulting Gemini...");
+    pb.set_message(format!("Consulting Gemini ({model})..."));
     pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
     let mut cmd = Command::new("gemini");
-    cmd.arg("analyze");
+    cmd.args(["--model", model, "--prompt", ""]);
     let full_input = format!("{}\n\n{}", system_prompt, user_prompt);
 
     cmd.stdin(Stdio::piped());
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
+    configure_api_key(&mut cmd, api_key);
 
     let mut child = match cmd.spawn() {
         Ok(child) => child,
@@ -75,5 +83,87 @@ pub fn run_query(system_prompt: &str, user_prompt: &str, timeout_secs: Option<u6
             .map(|c| c.to_string())
             .unwrap_or_else(|| "signal".to_string());
         Err(miette::miette!("Gemini failed with exit code {}", code))
+    }
+}
+
+fn configure_api_key(cmd: &mut Command, configured_key: Option<&str>) {
+    if let Some(key) = configured_key.and_then(non_empty) {
+        cmd.env("GEMINI_API_KEY", key);
+        return;
+    }
+
+    if std::env::var_os("GEMINI_API_KEY").is_some() {
+        return;
+    }
+
+    if let Some(key) = read_env_key(Path::new(".env")) {
+        cmd.env("GEMINI_API_KEY", key);
+    }
+}
+
+fn read_env_key(path: &Path) -> Option<String> {
+    let contents = std::fs::read_to_string(path).ok()?;
+    for line in contents.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        let Some((key, value)) = trimmed.split_once('=') else {
+            continue;
+        };
+        let key = key.trim().strip_prefix("export ").unwrap_or(key.trim());
+        if key != "GEMINI_API_KEY" {
+            continue;
+        }
+
+        let value = value
+            .trim()
+            .trim_matches('"')
+            .trim_matches('\'')
+            .to_string();
+        if !value.is_empty() {
+            return Some(value);
+        }
+    }
+
+    None
+}
+
+fn non_empty(value: &str) -> Option<&str> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::read_env_key;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn reads_gemini_key_from_env_file() {
+        let tmp = tempdir().unwrap();
+        let env_path = tmp.path().join(".env");
+        fs::write(
+            &env_path,
+            "\n# local secret\nIGNORED\nexport GEMINI_API_KEY=\"test-key-value\"\nOTHER=value\n",
+        )
+        .unwrap();
+
+        assert_eq!(read_env_key(&env_path), Some("test-key-value".to_string()));
+    }
+
+    #[test]
+    fn ignores_missing_or_empty_env_key() {
+        let tmp = tempdir().unwrap();
+        let env_path = tmp.path().join(".env");
+        fs::write(&env_path, "GEMINI_API_KEY=\n").unwrap();
+
+        assert_eq!(read_env_key(&env_path), None);
     }
 }

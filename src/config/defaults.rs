@@ -16,6 +16,12 @@ max_commits = 500
 limit = 10
 
 [gemini]
+# Prefer GEMINI_API_KEY in the environment or local .env.
 # api_key = "..."
-# model = "gemini-2.0-flash-exp"
+# Optional override for every ask mode:
+# model = "gemini-3.1-pro-preview"
+fast_model = "gemini-3.1-flash-lite-preview"
+deep_model = "gemini-3.1-pro-preview"
+timeout_secs = 120
+context_window = 128000
 "#;

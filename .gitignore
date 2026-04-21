@@ -1,4 +1,7 @@
 .changeguard/
+.env
+.env.*
+!.env.example
 
 .project-ledger/
 target/

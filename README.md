@@ -123,6 +123,10 @@ Impact packets are redacted before SQLite persistence. Gemini prompts are saniti
 
 ChangeGuard shells out to the `gemini` CLI. Ensure it is on `PATH` before using `changeguard ask`.
 
+- `GEMINI_API_KEY` can be supplied from the process environment or a repo-local `.env` file. `.env` is ignored by git; use `.env.example` as the template.
+- By default, routine `analyze`, `suggest`, and narrative requests use `gemini-3.1-flash-lite-preview` for lower latency and cost.
+- High-risk packets and `review-patch` requests use `gemini-3.1-pro-preview` for deeper reasoning and code review.
+- Set `gemini.model` in `.changeguard/config.toml` only when you want one explicit model for every ask mode.
 - `--mode analyze`: blast-radius and risk reasoning
 - `--mode suggest`: targeted verification recommendations
 - `--mode review-patch`: patch review with live diff context

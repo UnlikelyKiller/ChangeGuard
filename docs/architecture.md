@@ -117,8 +117,11 @@ Gemini integration is subprocess-based. Prompt flow:
 1. truncate impact packet context to budget
 2. construct the mode-specific prompt
 3. sanitize secrets from user/context payload
-4. invoke `gemini analyze`
-5. write a fallback impact artifact on Gemini failure when possible
+4. select the Gemini model
+5. invoke `gemini --model <model> --prompt ""`
+6. write a fallback impact artifact on Gemini failure when possible
+
+Model routing uses `gemini.model` as an explicit override. Without an override, routine `analyze`, `suggest`, and narrative prompts use `gemini-3.1-flash-lite-preview` for low-latency, cost-sensitive assistance. `review-patch` and high-risk packets use `gemini-3.1-pro-preview` for deeper reasoning over code and risk context. `GEMINI_API_KEY` is passed from the process environment, optional local `.env`, or repo-local config.
 
 Narrative mode uses one structured narrative prompt instead of nesting that prompt under the generic question template.
 
