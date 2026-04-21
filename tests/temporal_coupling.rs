@@ -1,8 +1,14 @@
 use camino::Utf8PathBuf;
 use changeguard::config::model::TemporalConfig;
 use changeguard::git::GitError;
-use changeguard::impact::temporal::{CommitFileSet, HistoryProvider, TemporalEngine};
+use changeguard::impact::temporal::{
+    CommitFileSet, GixHistoryProvider, HistoryProvider, TemporalEngine,
+};
 use std::collections::HashSet;
+use std::fs;
+use std::path::Path;
+use std::process::Command;
+use tempfile::tempdir;
 
 struct MockHistoryProvider {
     history: Vec<CommitFileSet>,
@@ -110,4 +116,66 @@ fn test_insufficient_history_error() {
     let result = engine.calculate_couplings();
 
     assert!(matches!(result, Err(GitError::InsufficientHistory { .. })));
+}
+
+#[test]
+fn test_gix_history_provider_uses_first_parent_by_default() {
+    let tmp = tempdir().unwrap();
+    run_git(tmp.path(), &["init"]);
+    run_git(tmp.path(), &["config", "user.email", "test@example.com"]);
+    run_git(tmp.path(), &["config", "user.name", "ChangeGuard Test"]);
+
+    fs::write(tmp.path().join("main.txt"), "0\n").unwrap();
+    run_git(tmp.path(), &["add", "."]);
+    run_git(tmp.path(), &["commit", "-m", "initial"]);
+
+    for i in 1..12 {
+        fs::write(tmp.path().join("main.txt"), format!("{i}\n")).unwrap();
+        run_git(tmp.path(), &["add", "."]);
+        run_git(tmp.path(), &["commit", "-m", &format!("main {i}")]);
+    }
+
+    run_git(tmp.path(), &["checkout", "-b", "side"]);
+    fs::write(tmp.path().join("side.txt"), "side\n").unwrap();
+    run_git(tmp.path(), &["add", "."]);
+    run_git(tmp.path(), &["commit", "-m", "side"]);
+
+    run_git(tmp.path(), &["checkout", "master"]);
+    run_git(
+        tmp.path(),
+        &["merge", "--no-ff", "side", "-m", "merge side"],
+    );
+
+    let repo = gix::discover(tmp.path()).unwrap();
+    let provider = GixHistoryProvider::new(&repo);
+
+    let first_parent = provider.get_history(50, false).unwrap();
+    let all_parents = provider.get_history(50, true).unwrap();
+
+    assert!(
+        first_parent
+            .iter()
+            .all(|commit| !commit.files.contains(&Utf8PathBuf::from("side.txt"))),
+        "first-parent traversal should not include side-branch-only commits"
+    );
+    assert!(
+        all_parents
+            .iter()
+            .any(|commit| commit.files.contains(&Utf8PathBuf::from("side.txt"))),
+        "all-parent traversal should include side-branch commits"
+    );
+}
+
+fn run_git(dir: &Path, args: &[&str]) {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git {:?} failed: {}",
+        args,
+        String::from_utf8_lossy(&output.stderr)
+    );
 }

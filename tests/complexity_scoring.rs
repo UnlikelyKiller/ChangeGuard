@@ -1,6 +1,6 @@
 use camino::Utf8Path;
 use changeguard::index::languages::Language;
-use changeguard::index::metrics::{ComplexityScorer, NativeComplexityScorer};
+use changeguard::index::metrics::{ComplexityResult, ComplexityScorer, NativeComplexityScorer};
 
 #[test]
 fn test_rust_complexity() {
@@ -45,10 +45,8 @@ fn test_rust_complexity() {
         .iter()
         .find(|f| f.name == "complex")
         .unwrap();
-    // Cyclomatic: 1 (base) + 1 (if) + 1 (for) + 1 (if) + 1 (else/match) + 2 (match arms) = 7?
-    // Let's see what the implementation gives.
-    assert!(complex.cyclomatic > 1);
-    assert!(complex.cognitive > 1);
+    assert_eq!(complex.cyclomatic, 6);
+    assert_eq!(complex.cognitive, 10);
 }
 
 #[test]
@@ -77,6 +75,74 @@ def complex(x):
         .iter()
         .find(|f| f.name == "complex")
         .unwrap();
-    assert!(complex.cyclomatic > 1);
-    assert!(complex.cognitive > 1);
+    assert_eq!(complex.cyclomatic, 4);
+    assert_eq!(complex.cognitive, 6);
+}
+
+#[test]
+fn test_typescript_complexity() {
+    let source = r#"
+function simple() {
+  return 1;
+}
+
+function complex(value: number) {
+  if (value > 10) {
+    for (const item of [1, 2, 3]) {
+      if (item === value) {
+        return item;
+      }
+    }
+  }
+  return value > 0 ? value : 0;
+}
+    "#;
+
+    let scorer = NativeComplexityScorer::new();
+    let result = scorer
+        .score_file(Utf8Path::new("test.ts"), source, Language::TypeScript)
+        .unwrap();
+
+    assert_eq!(result.functions.len(), 2);
+    let complex = result
+        .functions
+        .iter()
+        .find(|f| f.name == "complex")
+        .unwrap();
+    assert_eq!(complex.cyclomatic, 5);
+    assert_eq!(complex.cognitive, 7);
+}
+
+#[test]
+fn test_syntax_error_marks_ast_incomplete() {
+    let source = "fn broken( { if true {";
+    let scorer = NativeComplexityScorer::new();
+    let result = scorer
+        .score_file(Utf8Path::new("broken.rs"), source, Language::Rust)
+        .unwrap();
+
+    assert!(result.ast_incomplete);
+    assert!(!result.complexity_capped);
+}
+
+#[test]
+fn test_unsupported_language_is_not_applicable() {
+    let scorer = NativeComplexityScorer::new();
+    let result = scorer
+        .score_supported_path(Utf8Path::new("README.md"), "# title")
+        .unwrap();
+
+    assert!(matches!(result, ComplexityResult::NotApplicable { .. }));
+}
+
+#[test]
+fn test_large_file_caps_complexity() {
+    let source = "fn a() {}\n".repeat(10_001);
+    let scorer = NativeComplexityScorer::new();
+    let result = scorer
+        .score_file(Utf8Path::new("large.rs"), &source, Language::Rust)
+        .unwrap();
+
+    assert!(result.complexity_capped);
+    assert!(result.functions.is_empty());
 }

@@ -11,7 +11,10 @@ use crate::verify::runner::{execute_step, prepare_manual_step, prepare_rule_step
 use crate::verify::timeouts::{DEFAULT_AUTO_TIMEOUT_SECS, manual_timeout};
 use chrono::Utc;
 use miette::Result;
+use std::collections::BTreeMap;
 use std::env;
+use std::fs;
+use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
 pub fn execute_verify(
@@ -29,23 +32,77 @@ pub fn execute_verify(
         Some(cmd) => (None, vec![manual_step(cmd, manual_timeout(timeout_secs))]),
         None => {
             let db_path = layout.state_subdir().join("ledger.db");
-            let storage = StorageManager::init(db_path.as_std_path()).ok();
-            let packet = storage
-                .as_ref()
-                .and_then(|s| s.get_latest_packet().ok())
-                .flatten();
+            let storage = match StorageManager::init(db_path.as_std_path()) {
+                Ok(storage) => Some(storage),
+                Err(err) => {
+                    let warning =
+                        format!("Prediction disabled: failed to initialize SQLite storage: {err}");
+                    warn!("{warning}");
+                    current_warnings.push(warning);
+                    None
+                }
+            };
+            let mut packet = match storage.as_ref() {
+                Some(storage) => match storage.get_latest_packet() {
+                    Ok(packet) => packet,
+                    Err(err) => {
+                        let warning =
+                            format!("Prediction disabled: failed to load latest packet: {err}");
+                        warn!("{warning}");
+                        current_warnings.push(warning);
+                        None
+                    }
+                },
+                None => None,
+            };
 
             let rules = load_rules(&layout)?;
             let prediction = if no_predict {
                 crate::verify::predict::PredictionResult::default()
             } else {
+                if let Some(packet) = &mut packet {
+                    recompute_temporal_if_missing(
+                        packet,
+                        &current_dir,
+                        &layout,
+                        &mut current_warnings,
+                    );
+                }
+
                 match &packet {
                     Some(p) => {
-                        let history = storage
-                            .as_ref()
-                            .and_then(|s| s.get_all_packets().ok())
-                            .unwrap_or_default();
-                        crate::verify::predict::Predictor::predict(p, &history)
+                        let history = match storage.as_ref() {
+                            Some(storage) => match storage.get_all_packets() {
+                                Ok(history) => history,
+                                Err(err) => {
+                                    let warning = format!(
+                                        "Historical prediction degraded: failed to load packet history: {err}"
+                                    );
+                                    warn!("{warning}");
+                                    current_warnings.push(warning);
+                                    Vec::new()
+                                }
+                            },
+                            None => Vec::new(),
+                        };
+
+                        let current_imports = match scan_current_imports(&current_dir) {
+                            Ok(imports) => imports,
+                            Err(err) => {
+                                let warning = format!(
+                                    "Current structural prediction degraded: failed to scan repository imports: {err}"
+                                );
+                                warn!("{warning}");
+                                current_warnings.push(warning);
+                                BTreeMap::new()
+                            }
+                        };
+
+                        crate::verify::predict::Predictor::predict_with_current_imports(
+                            p,
+                            &history,
+                            &current_imports,
+                        )
                     }
                     None => crate::verify::predict::PredictionResult::default(),
                 }
@@ -164,4 +221,102 @@ fn persist_verify_report(layout: &Layout, report: &VerificationReport) {
             warn!("Failed to persist verification result: {err}");
         }
     }
+}
+
+fn recompute_temporal_if_missing(
+    packet: &mut crate::impact::packet::ImpactPacket,
+    current_dir: &Path,
+    layout: &Layout,
+    warnings: &mut Vec<String>,
+) {
+    if !packet.temporal_couplings.is_empty() || packet.changes.is_empty() {
+        return;
+    }
+
+    let repo = match crate::git::repo::open_repo(current_dir) {
+        Ok(repo) => repo,
+        Err(err) => {
+            let warning = format!("Temporal prediction degraded: failed to open repository: {err}");
+            warn!("{warning}");
+            warnings.push(warning);
+            return;
+        }
+    };
+
+    let config = match crate::config::load::load_config(layout) {
+        Ok(config) => config,
+        Err(err) => {
+            let warning = format!("Temporal prediction degraded: failed to load config: {err}");
+            warn!("{warning}");
+            warnings.push(warning);
+            return;
+        }
+    };
+
+    let provider = crate::impact::temporal::GixHistoryProvider::new(&repo);
+    let engine = crate::impact::temporal::TemporalEngine::new(provider, config.temporal);
+
+    match engine.calculate_couplings() {
+        Ok(couplings) => {
+            packet.temporal_couplings = couplings;
+        }
+        Err(err) => {
+            let warning = format!("Temporal prediction degraded: {err}");
+            warn!("{warning}");
+            warnings.push(warning);
+        }
+    }
+}
+
+fn scan_current_imports(
+    root: &Path,
+) -> Result<BTreeMap<PathBuf, crate::index::references::ImportExport>> {
+    let mut imports = BTreeMap::new();
+    scan_imports_recursive(root, root, &mut imports)?;
+    Ok(imports)
+}
+
+fn scan_imports_recursive(
+    root: &Path,
+    dir: &Path,
+    imports: &mut BTreeMap<PathBuf, crate::index::references::ImportExport>,
+) -> Result<()> {
+    for entry in fs::read_dir(dir)
+        .map_err(|err| miette::miette!("failed to read directory {}: {err}", dir.display()))?
+    {
+        let entry =
+            entry.map_err(|err| miette::miette!("failed to read directory entry: {err}"))?;
+        let path = entry.path();
+        let file_name = entry.file_name();
+        let file_name = file_name.to_string_lossy();
+
+        if path.is_dir() {
+            if matches!(file_name.as_ref(), ".git" | ".changeguard" | "target") {
+                continue;
+            }
+            scan_imports_recursive(root, &path, imports)?;
+            continue;
+        }
+
+        let Some(extension) = path.extension().and_then(|ext| ext.to_str()) else {
+            continue;
+        };
+        if crate::index::languages::Language::from_extension(extension).is_none() {
+            continue;
+        }
+
+        let source = fs::read_to_string(&path).map_err(|err| {
+            miette::miette!("failed to read source file {}: {err}", path.display())
+        })?;
+        let relative = path.strip_prefix(root).unwrap_or(&path).to_path_buf();
+        if let Some(import_export) =
+            crate::index::references::extract_import_export(&relative, &source).map_err(|err| {
+                miette::miette!("failed to parse imports for {}: {err}", relative.display())
+            })?
+        {
+            imports.insert(relative, import_export);
+        }
+    }
+
+    Ok(())
 }

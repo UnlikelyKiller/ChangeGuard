@@ -19,6 +19,12 @@ pub struct SymbolComplexity {
     pub cyclomatic: usize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ComplexityResult {
+    Scored(FileComplexity),
+    NotApplicable { reason: String },
+}
+
 pub trait ComplexityScorer {
     fn score_file(
         &self,
@@ -39,6 +45,23 @@ impl Default for NativeComplexityScorer {
 impl NativeComplexityScorer {
     pub fn new() -> Self {
         Self
+    }
+
+    pub fn score_supported_path(&self, path: &Utf8Path, source: &str) -> Result<ComplexityResult> {
+        let Some(extension) = path.extension() else {
+            return Ok(ComplexityResult::NotApplicable {
+                reason: "file has no extension".to_string(),
+            });
+        };
+
+        let Some(language) = Language::from_extension(extension) else {
+            return Ok(ComplexityResult::NotApplicable {
+                reason: format!("unsupported extension .{extension}"),
+            });
+        };
+
+        self.score_file(path, source, language)
+            .map(ComplexityResult::Scored)
     }
 
     fn calculate_cyclomatic(&self, node: Node, language: Language) -> usize {

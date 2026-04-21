@@ -26,6 +26,23 @@ impl FederatedSchema {
                 Self::VERSION
             ));
         }
+        if self.repo_name.trim().is_empty() {
+            return Err(miette::miette!(
+                "Invalid schema: repo_name must not be empty"
+            ));
+        }
+        for interface in &self.public_interfaces {
+            if interface.symbol.trim().is_empty() {
+                return Err(miette::miette!(
+                    "Invalid schema: public interface symbol must not be empty"
+                ));
+            }
+            if interface.file.trim().is_empty() {
+                return Err(miette::miette!(
+                    "Invalid schema: public interface file must not be empty"
+                ));
+            }
+        }
         Ok(())
     }
 

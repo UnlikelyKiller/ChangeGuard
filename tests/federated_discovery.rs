@@ -98,6 +98,94 @@ fn test_federated_invalid_schema_recovery() {
 }
 
 #[test]
+fn test_federated_rejects_unsupported_schema_version() {
+    let tmp = tempdir().unwrap();
+    let root_path = Utf8PathBuf::from_path_buf(tmp.path().to_path_buf()).unwrap();
+
+    let repo_a = root_path.join("repo-a");
+    let repo_a_cg = repo_a.join(".changeguard");
+    fs::create_dir_all(&repo_a_cg).unwrap();
+
+    fs::write(
+        repo_a_cg.join("schema.json"),
+        r#"{"schema_version":"999.0","repo_name":"repo-a","public_interfaces":[]}"#,
+    )
+    .unwrap();
+
+    let current_repo = root_path.join("current");
+    fs::create_dir_all(&current_repo).unwrap();
+
+    let scanner = FederatedScanner::new(current_repo);
+    let (siblings, warnings) = scanner.scan_siblings().unwrap();
+
+    assert!(siblings.is_empty());
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("Unsupported schema version"))
+    );
+}
+
+#[test]
+fn test_federated_sibling_limit_is_reported() {
+    let tmp = tempdir().unwrap();
+    let root_path = Utf8PathBuf::from_path_buf(tmp.path().to_path_buf()).unwrap();
+
+    for i in 0..3 {
+        let repo = root_path.join(format!("repo-{i}"));
+        let repo_cg = repo.join(".changeguard");
+        fs::create_dir_all(&repo_cg).unwrap();
+        let schema = FederatedSchema::new(format!("repo-{i}"), vec![]);
+        fs::write(
+            repo_cg.join("schema.json"),
+            serde_json::to_string(&schema).unwrap(),
+        )
+        .unwrap();
+    }
+
+    let current_repo = root_path.join("current");
+    fs::create_dir_all(&current_repo).unwrap();
+
+    let scanner = FederatedScanner::new(current_repo).with_limit(2);
+    let (siblings, warnings) = scanner.scan_siblings().unwrap();
+
+    assert_eq!(siblings.len(), 2);
+    assert!(warnings.iter().any(|w| w.contains("Reached sibling limit")));
+}
+
+#[test]
+fn test_federated_symlink_sibling_is_skipped() {
+    let tmp = tempdir().unwrap();
+    let root_path = Utf8PathBuf::from_path_buf(tmp.path().to_path_buf()).unwrap();
+
+    let workspace = root_path.join("workspace");
+    fs::create_dir_all(&workspace).unwrap();
+
+    let real_repo = root_path.join("outside-real-repo");
+    let real_cg = real_repo.join(".changeguard");
+    fs::create_dir_all(&real_cg).unwrap();
+    let schema = FederatedSchema::new("real-repo".to_string(), vec![]);
+    fs::write(
+        real_cg.join("schema.json"),
+        serde_json::to_string(&schema).unwrap(),
+    )
+    .unwrap();
+
+    let symlink_path = workspace.join("linked-repo");
+    if create_dir_symlink(real_repo.as_std_path(), symlink_path.as_std_path()).is_err() {
+        return;
+    }
+
+    let current_repo = workspace.join("current");
+    fs::create_dir_all(&current_repo).unwrap();
+
+    let scanner = FederatedScanner::new(current_repo);
+    let (siblings, _warnings) = scanner.scan_siblings().unwrap();
+
+    assert!(siblings.is_empty());
+}
+
+#[test]
 fn test_federated_cross_repo_impact_resolution() {
     let tmp = tempdir().unwrap();
     let root_path = Utf8PathBuf::from_path_buf(tmp.path().to_path_buf()).unwrap();
@@ -159,4 +247,14 @@ fn test_federated_cross_repo_impact_resolution() {
             .iter()
             .any(|r| r.contains("interface 'old_symbol' which was removed"))
     );
+}
+
+#[cfg(windows)]
+fn create_dir_symlink(target: &std::path::Path, link: &std::path::Path) -> std::io::Result<()> {
+    std::os::windows::fs::symlink_dir(target, link)
+}
+
+#[cfg(unix)]
+fn create_dir_symlink(target: &std::path::Path, link: &std::path::Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
 }

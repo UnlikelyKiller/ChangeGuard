@@ -108,6 +108,11 @@ pub fn execute_impact(all_parents: bool) -> Result<()> {
     let db_path = layout.state_subdir().join("ledger.db");
     match crate::state::storage::StorageManager::init(db_path.as_std_path()) {
         Ok(storage) => {
+            if let Err(e) = refresh_federated_dependencies(&current_dir, &packet, &storage) {
+                tracing::warn!("Federated discovery refresh failed: {e}");
+                println!("{} Federated discovery skipped: {e}", warning_marker());
+            }
+
             // Federated Intelligence
             if let Err(e) = crate::federated::impact::check_cross_repo_impact(&mut packet, &storage)
             {
@@ -159,6 +164,47 @@ pub fn execute_impact(all_parents: bool) -> Result<()> {
         success_marker(),
         ".changeguard/reports/latest-impact.json".cyan()
     );
+
+    Ok(())
+}
+
+fn refresh_federated_dependencies(
+    current_dir: &Path,
+    packet: &ImpactPacket,
+    storage: &crate::state::storage::StorageManager,
+) -> Result<()> {
+    let utf8_current_dir = camino::Utf8PathBuf::from_path_buf(current_dir.to_path_buf())
+        .map_err(|_| miette::miette!("Invalid UTF-8 path in current directory"))?;
+    let scanner = crate::federated::scanner::FederatedScanner::new(utf8_current_dir);
+    let (siblings, warnings) = scanner.scan_siblings()?;
+
+    for warning in warnings {
+        tracing::warn!("Federated discovery warning: {warning}");
+    }
+
+    let timestamp = chrono::Utc::now().to_rfc3339();
+    for (path, schema) in siblings {
+        crate::federated::storage::update_federated_link(
+            storage.get_connection(),
+            &schema.repo_name,
+            path.as_str(),
+            &timestamp,
+        )?;
+        crate::federated::storage::clear_federated_dependencies(
+            storage.get_connection(),
+            &schema.repo_name,
+        )?;
+        for (local_symbol, sibling_symbol) in
+            scanner.discover_dependencies(packet, &schema.repo_name, &schema)?
+        {
+            crate::federated::storage::save_federated_dependencies(
+                storage.get_connection(),
+                &schema.repo_name,
+                &local_symbol,
+                &sibling_symbol,
+            )?;
+        }
+    }
 
     Ok(())
 }

@@ -1,6 +1,7 @@
 use crate::impact::packet::ImpactPacket;
+use crate::index::references::ImportExport;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -34,55 +35,30 @@ pub struct Predictor;
 
 impl Predictor {
     pub fn predict(packet: &ImpactPacket, history: &[ImpactPacket]) -> PredictionResult {
+        Self::predict_with_current_imports(packet, history, &BTreeMap::new())
+    }
+
+    pub fn predict_with_current_imports(
+        packet: &ImpactPacket,
+        history: &[ImpactPacket],
+        current_imports: &BTreeMap<PathBuf, ImportExport>,
+    ) -> PredictionResult {
         let mut predicted = BTreeSet::new();
         let mut warnings = Vec::new();
 
         let changed_paths: BTreeSet<PathBuf> =
             packet.changes.iter().map(|f| f.path.clone()).collect();
 
-        // 1. Structural Prediction (Depth 1)
-        // Identify files in history (all known files) that import any of the changed files.
+        add_structural_predictions(&mut predicted, &changed_paths, current_imports.iter());
+
         for hist_packet in history {
-            for hist_file in &hist_packet.changes {
-                // If this file is already in the 'changes' of the current packet, it's not a "prediction"
-                // (it's already being verified).
-                if changed_paths.contains(&hist_file.path) {
-                    continue;
-                }
-
-                if let Some(imports) = &hist_file.imports {
-                    for imp in &imports.imported_from {
-                        let imp_norm = imp.replace("::", "/");
-                        let imp_path = Path::new(&imp_norm);
-
-                        for changed in &changed_paths {
-                            // Match if the import string matches the changed file's path (heuristically)
-                            // 1. Exact match (after normalization)
-                            // 2. Import is a suffix of the changed path (e.g. "models/user" matches "src/models/user.rs")
-                            // 3. Changed path is a suffix of the import (less likely but possible with relative paths)
-
-                            let changed_str = changed.to_string_lossy();
-                            let changed_no_ext = changed.with_extension("");
-                            let changed_no_ext_str = changed_no_ext.to_string_lossy();
-
-                            if changed == imp_path
-                                || changed_no_ext == imp_path
-                                || changed_str.ends_with(&imp_norm)
-                                || changed_no_ext_str.ends_with(&imp_norm)
-                            {
-                                predicted.insert(PredictedFile {
-                                    path: hist_file.path.clone(),
-                                    reason: PredictionReason::Structural,
-                                });
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
+            let historical_imports = hist_packet
+                .changes
+                .iter()
+                .filter_map(|file| file.imports.as_ref().map(|imports| (&file.path, imports)));
+            add_structural_predictions(&mut predicted, &changed_paths, historical_imports);
         }
 
-        // 2. Temporal Prediction
         if packet.temporal_couplings.is_empty() && !packet.changes.is_empty() {
             warnings.push("Temporal coupling data is missing or unavailable; falling back to structural-only prediction.".to_string());
         }
@@ -109,4 +85,43 @@ impl Predictor {
 
         PredictionResult { files, warnings }
     }
+}
+
+fn add_structural_predictions<'a, I>(
+    predicted: &mut BTreeSet<PredictedFile>,
+    changed_paths: &BTreeSet<PathBuf>,
+    imports_by_file: I,
+) where
+    I: IntoIterator<Item = (&'a PathBuf, &'a ImportExport)>,
+{
+    for (path, imports) in imports_by_file {
+        if changed_paths.contains(path) {
+            continue;
+        }
+
+        if imports_changed_path(imports, changed_paths) {
+            predicted.insert(PredictedFile {
+                path: path.clone(),
+                reason: PredictionReason::Structural,
+            });
+        }
+    }
+}
+
+fn imports_changed_path(imports: &ImportExport, changed_paths: &BTreeSet<PathBuf>) -> bool {
+    imports.imported_from.iter().any(|import| {
+        let import_norm = import.replace("::", "/");
+        let import_path = Path::new(&import_norm);
+
+        changed_paths.iter().any(|changed| {
+            let changed_str = changed.to_string_lossy();
+            let changed_no_ext = changed.with_extension("");
+            let changed_no_ext_str = changed_no_ext.to_string_lossy();
+
+            changed == import_path
+                || changed_no_ext == import_path
+                || changed_str.ends_with(&import_norm)
+                || changed_no_ext_str.ends_with(&import_norm)
+        })
+    })
 }

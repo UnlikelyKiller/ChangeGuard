@@ -52,15 +52,12 @@ pub fn execute_ask(query: Option<String>, mut mode: GeminiMode, narrative: bool)
 
     let system_prompt = build_system_prompt(mode);
 
-    // For Narrative mode, use the structured summary as the query
-    let effective_query = if mode == GeminiMode::Narrative {
+    let mut user_prompt = if mode == GeminiMode::Narrative {
         crate::gemini::narrative::NarrativeEngine::generate_risk_prompt(&latest_packet)
     } else {
-        query.unwrap_or_default()
+        let effective_query = query.unwrap_or_default();
+        build_user_prompt(mode, &latest_packet, &effective_query, diff.as_deref())
     };
-
-    let mut user_prompt =
-        build_user_prompt(mode, &latest_packet, &effective_query, diff.as_deref());
 
     if truncated {
         user_prompt.push_str("\n\n[Packet truncated for Gemini submission]");
@@ -84,23 +81,33 @@ pub fn execute_ask(query: Option<String>, mut mode: GeminiMode, narrative: bool)
     let timeout_secs = config.gemini.timeout_secs;
 
     if let Err(e) = run_query(&system_prompt, &sanitize_result.sanitized, timeout_secs) {
-        // Fallback: save the impact packet as an artifact
         let reports_dir = layout.reports_dir();
-        std::fs::create_dir_all(&reports_dir).ok();
+        std::fs::create_dir_all(&reports_dir).map_err(|write_err| {
+            miette::miette!(
+                "Gemini execution failed ({e}); additionally failed to create fallback report directory {}: {write_err}",
+                reports_dir
+            )
+        })?;
         let fallback_path = reports_dir.join("fallback-impact.json");
-
-        if let Ok(json) = serde_json::to_string_pretty(&latest_packet)
-            && std::fs::write(&fallback_path, json).is_ok()
-        {
-            eprintln!(
-                "{}",
-                format!(
-                    "Gemini execution failed. Fallback impact packet saved to {}",
-                    fallback_path
-                )
-                .yellow()
-            );
-        }
+        let json = serde_json::to_string_pretty(&latest_packet).map_err(|write_err| {
+            miette::miette!(
+                "Gemini execution failed ({e}); additionally failed to serialize fallback impact packet: {write_err}"
+            )
+        })?;
+        std::fs::write(&fallback_path, json).map_err(|write_err| {
+            miette::miette!(
+                "Gemini execution failed ({e}); additionally failed to write fallback impact packet to {}: {write_err}",
+                fallback_path
+            )
+        })?;
+        eprintln!(
+            "{}",
+            format!(
+                "Gemini execution failed. Fallback impact packet saved to {}",
+                fallback_path
+            )
+            .yellow()
+        );
         return Err(e);
     }
 

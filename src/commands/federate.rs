@@ -41,17 +41,14 @@ pub fn execute_federate_export() -> Result<()> {
         })
         .collect::<Vec<_>>();
 
-    // Task 2.4: Apply secret redaction patterns to public interfaces
-    // For now, we'll redact any symbol that looks like a secret (e.g., contains "KEY", "SECRET", "TOKEN", "PWD")
-    let secret_patterns = ["KEY", "SECRET", "TOKEN", "PWD", "PASSWORD", "API_KEY"];
-    for interface in &mut public_interfaces {
-        let upper_symbol = interface.symbol.to_uppercase();
-        if secret_patterns.iter().any(|p| upper_symbol.contains(p)) {
-            interface.symbol = "[REDACTED]".to_string();
-        }
-    }
-    // Remove redacted interfaces to be safe, or just keep them as [REDACTED]
-    public_interfaces.retain(|i| i.symbol != "[REDACTED]");
+    public_interfaces.retain(|interface| {
+        crate::impact::redact::sanitize_prompt(
+            &interface.symbol,
+            crate::impact::redact::DEFAULT_MAX_BYTES,
+        )
+        .redactions
+        .is_empty()
+    });
 
     let schema = FederatedSchema::new(repo_name, public_interfaces);
     let schema_json = serde_json::to_string_pretty(&schema).into_diagnostic()?;
