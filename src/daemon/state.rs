@@ -22,24 +22,16 @@ impl ReadOnlyStorage {
         }
     }
 
-    fn get_connection(&self) -> Result<Connection> {
-        // Open in read-only mode and enable WAL compatibility
-        let conn = Connection::open_with_flags(
+    fn get_connection(&self) -> rusqlite::Result<Connection> {
+        Connection::open_with_flags(
             &self.db_path,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )
-        .into_diagnostic()?;
-
-        // Ensure WAL mode is handled correctly by SQLite
-        conn.execute_batch("PRAGMA journal_mode=WAL;")
-            .into_diagnostic()?;
-
-        Ok(conn)
     }
 
     pub fn query<F, T>(&self, f: F) -> Result<QueryResult<Option<T>>>
     where
-        F: Fn(&Connection) -> Result<Option<T>>,
+        F: Fn(&Connection) -> rusqlite::Result<Option<T>>,
     {
         let mut backoff = Duration::from_millis(100);
         let mut attempts = 0;
@@ -47,44 +39,47 @@ impl ReadOnlyStorage {
 
         loop {
             match self.get_connection() {
-                Ok(conn) => {
-                    match f(&conn) {
-                        Ok(data) => {
-                            return Ok(QueryResult {
-                                data,
-                                data_stale: false,
-                            });
-                        }
-                        Err(e) => {
-                            // Check if it's a rusqlite error and specifically SQLITE_BUSY
-                            if let Some(rusqlite_err) = e.downcast_ref::<rusqlite::Error>()
-                                && matches!(rusqlite_err, rusqlite::Error::SqliteFailure(err, _) if err.code == rusqlite::ErrorCode::DatabaseBusy)
-                            {
-                                if attempts < max_attempts {
-                                    warn!(
-                                        "Database busy, retrying in {:?} (attempt {})",
-                                        backoff,
-                                        attempts + 1
-                                    );
-                                    thread::sleep(backoff);
-                                    attempts += 1;
-                                    backoff *= 2;
-                                    continue;
-                                } else {
-                                    warn!(
-                                        "Database busy, max attempts reached. Returning stale/empty data."
-                                    );
-                                    return Ok(QueryResult {
-                                        data: None,
-                                        data_stale: true,
-                                    });
-                                }
-                            }
-                            return Err(e);
-                        }
+                Ok(conn) => match f(&conn) {
+                    Ok(data) => {
+                        return Ok(QueryResult {
+                            data,
+                            data_stale: false,
+                        });
                     }
-                }
+                    Err(e) => {
+                        if is_database_busy(&e) {
+                            if attempts < max_attempts {
+                                warn!(
+                                    "Database busy, retrying in {:?} (attempt {})",
+                                    backoff,
+                                    attempts + 1
+                                );
+                                thread::sleep(backoff);
+                                attempts += 1;
+                                backoff *= 2;
+                                continue;
+                            } else {
+                                warn!(
+                                    "Database busy, max attempts reached. Returning stale/empty data."
+                                );
+                                return Ok(QueryResult {
+                                    data: None,
+                                    data_stale: true,
+                                });
+                            }
+                        }
+                        return Err(e).into_diagnostic();
+                    }
+                },
                 Err(e) => {
+                    if is_database_busy(&e) && attempts >= max_attempts {
+                        warn!("Database busy, max attempts reached. Returning stale/empty data.");
+                        return Ok(QueryResult {
+                            data: None,
+                            data_stale: true,
+                        });
+                    }
+
                     if attempts < max_attempts {
                         warn!(
                             "Failed to open connection (busy?), retrying in {:?} (attempt {})",
@@ -96,26 +91,42 @@ impl ReadOnlyStorage {
                         backoff *= 2;
                         continue;
                     }
-                    return Err(e);
+                    return Err(e).into_diagnostic();
                 }
             }
         }
     }
 
     pub fn get_latest_packet(&self) -> Result<QueryResult<Option<ImpactPacket>>> {
-        self.query(|conn| {
-            let mut stmt = conn
-                .prepare("SELECT packet_json FROM snapshots ORDER BY id DESC LIMIT 1")
-                .into_diagnostic()?;
-            let mut rows = stmt.query([]).into_diagnostic()?;
+        let result = self.query(|conn| {
+            let mut stmt =
+                conn.prepare("SELECT packet_json FROM snapshots ORDER BY id DESC LIMIT 1")?;
+            let mut rows = stmt.query([])?;
 
-            if let Some(row) = rows.next().into_diagnostic()? {
-                let json: String = row.get(0).into_diagnostic()?;
-                let packet: ImpactPacket = serde_json::from_str(&json).into_diagnostic()?;
-                Ok(Some(packet))
+            if let Some(row) = rows.next()? {
+                row.get::<_, String>(0).map(Some)
             } else {
                 Ok(None)
             }
+        })?;
+
+        let data = match result.data {
+            Some(json) => Some(serde_json::from_str(&json).into_diagnostic()?),
+            None => None,
+        };
+
+        Ok(QueryResult {
+            data,
+            data_stale: result.data_stale,
         })
     }
+}
+
+fn is_database_busy(error: &rusqlite::Error) -> bool {
+    matches!(
+        error,
+        rusqlite::Error::SqliteFailure(err, _)
+            if err.code == rusqlite::ErrorCode::DatabaseBusy
+                || err.code == rusqlite::ErrorCode::DatabaseLocked
+    )
 }

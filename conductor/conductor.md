@@ -9,14 +9,14 @@
     *   Goal: Restore `cargo fmt` and `cargo clippy`, fix silent hotspot row error dropping, and surface prediction degradation in `verify`.
     *   Key additions: Green CI pipeline, visible SQLite hotspot errors, user-visible verification prediction warnings.
 
-*   **Track 37: LSP Daemon Functional Completion** (Next)
-    *   Status: Planning
+*   **Track 37: LSP Daemon Functional Completion**
+    *   Status: Completed
     *   Spec: `conductor/track37/spec.md`
     *   Plan: `conductor/track37/plan.md`
     *   Goal: Implement real Hover, CodeLens, real-time diagnostics, broken-stdin self-termination, and lifecycle tests, removing all placeholders.
     *   Key additions: Fully functional LSP handlers, `data_stale` surface handling, stdin auto-termination, robust daemon lifecycle tests.
 
-*   **Track 38: Complexity & Temporal Hardening**
+*   **Track 38: Complexity & Temporal Hardening** (Next)
     *   Status: Planning
     *   Spec: `conductor/track38/spec.md`
     *   Plan: `conductor/track38/plan.md`

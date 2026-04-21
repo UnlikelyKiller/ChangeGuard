@@ -7,12 +7,17 @@ use tracing::{info, warn};
 
 pub struct DaemonLifecycle {
     pid_file: PathBuf,
+    parent_pid: Option<u32>,
 }
 
 impl DaemonLifecycle {
-    pub fn new(root: &Path) -> Self {
+    pub fn new(root: &Path, parent_pid: Option<u32>) -> Self {
         let pid_file = root.join(".changeguard").join("daemon.pid");
-        Self { pid_file }
+        let parent_pid = parent_pid.or_else(current_parent_pid);
+        Self {
+            pid_file,
+            parent_pid,
+        }
     }
 
     pub fn setup(&self) -> Result<()> {
@@ -50,15 +55,24 @@ impl DaemonLifecycle {
         Ok(())
     }
 
-    fn is_process_alive(&self, pid: u32) -> bool {
+    pub fn is_process_alive(&self, pid: u32) -> bool {
         let mut sys = System::new_all();
         sys.refresh_all();
         sys.process(Pid::from(pid as usize)).is_some()
     }
+
+    pub fn check_parent_alive(&self) -> bool {
+        if let Some(ppid) = self.parent_pid {
+            self.is_process_alive(ppid)
+        } else {
+            true
+        }
+    }
 }
 
-pub fn check_stdin_alive() -> bool {
-    // In a real LSP, we might want to check if stdin is still open.
-    // For now, tower-lsp handles the main loop, but we can provide this for the server to check.
-    true
+fn current_parent_pid() -> Option<u32> {
+    let mut sys = System::new_all();
+    sys.refresh_all();
+    let current = sys.process(Pid::from(process::id() as usize))?;
+    current.parent().map(|pid| pid.as_u32())
 }

@@ -53,6 +53,19 @@ impl LanguageServer for Backend {
         self.client
             .log_message(MessageType::INFO, "ChangeGuard LSP server initialized")
             .await;
+
+        let lifecycle = self.lifecycle.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+            loop {
+                interval.tick().await;
+                if !lifecycle.check_parent_alive() {
+                    tracing::error!("Parent process died. LSP Server self-terminating.");
+                    let _ = lifecycle.cleanup();
+                    std::process::exit(0);
+                }
+            }
+        });
     }
 
     async fn shutdown(&self) -> tower_lsp_server::jsonrpc::Result<()> {

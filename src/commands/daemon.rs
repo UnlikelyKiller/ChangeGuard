@@ -28,6 +28,10 @@ pub fn execute_daemon(_interval_ms: u64) -> Result<()> {
             .map_err(|_| miette!("Invalid UTF-8 path in current directory"))?,
     };
 
+    let parent_pid = env::var("CHANGEGUARD_PARENT_PID")
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok());
+
     // 2. Build constrained tokio runtime
     let rt = Builder::new_multi_thread()
         .worker_threads(2)
@@ -36,18 +40,18 @@ pub fn execute_daemon(_interval_ms: u64) -> Result<()> {
         .into_diagnostic()?;
 
     rt.block_on(async move {
-        let lifecycle = DaemonLifecycle::new(root.as_std_path());
+        let lifecycle = DaemonLifecycle::new(root.as_std_path(), parent_pid);
         lifecycle.setup()?;
 
         let db_path = root.join(".changeguard").join("state").join("ledger.db");
         let storage = ReadOnlyStorage::new(db_path.as_std_path());
 
-        let stdin = tokio::io::stdin();
-        let stdout = tokio::io::stdout();
+        let (service, socket) =
+            LspService::build(|client| Backend::new(client, lifecycle, storage)).finish();
 
-        let (service, socket) = LspService::new(|client| Backend::new(client, lifecycle, storage));
-
-        Server::new(stdin, stdout, socket).serve(service).await;
+        Server::new(tokio::io::stdin(), tokio::io::stdout(), socket)
+            .serve(service)
+            .await;
 
         Ok(())
     })
