@@ -148,6 +148,16 @@ The LSP daemon is available when built with the `daemon` feature:
 changeguard daemon
 ```
 
+## Strategic Reasoning for AI Agents
+
+When acting as a coding agent, use ChangeGuard signals to adjust your strategy:
+
+1. **Temporal Coupling (The "Hidden" Link)**: If `latest-impact.json` shows a high affinity (e.g., >70%) between a changed file and an unchanged file, you **MUST** read the unchanged file. Assume there is a logical dependency that imports alone do not show.
+2. **Hotspots (The "Danger Zone")**: Files with high hotspot scores are "brittle." If you must edit a hotspot, prioritize refactoring or extremely high test coverage. Avoid adding complexity to an already complex hotspot.
+3. **Federated Impact (Cross-Repo)**: If `federated_impact` warnings appear, your change might break a sibling repository. You must explain this risk to the user and suggest an `export-schema` to verify the contract.
+4. **Predictive Verification**: If `verify` suggests tests that seem unrelated to your change, **trust the predictor**. It is likely based on historical failure correlations that aren't obvious from the code alone.
+5. **Stale Data**: If you see a `data_stale` warning or a `data-stale` diagnostic, run `changeguard scan` and `changeguard impact` immediately to refresh the local cache.
+
 ## How To Interpret Results
 
 Treat `riskLevel` as a routing signal:
