@@ -23,7 +23,7 @@ fn test_drift_detection_creates_unaudited() {
     fs::write(&entity_path, "").unwrap();
 
     {
-        let mut drift_mgr = DriftManager::new(storage.get_connection_mut(), repo_root.clone());
+        let mut drift_mgr = DriftManager::new(storage.get_connection_mut(), repo_root.clone(), Config::default());
         drift_mgr
             .process_event(entity)
             .expect("Should process drift");
@@ -49,7 +49,7 @@ fn test_drift_detection_increments_count() {
     fs::write(&entity_path, "").unwrap();
 
     {
-        let mut drift_mgr = DriftManager::new(storage.get_connection_mut(), repo_root.clone());
+        let mut drift_mgr = DriftManager::new(storage.get_connection_mut(), repo_root.clone(), Config::default());
         drift_mgr.process_event(entity).unwrap();
         drift_mgr.process_event(entity).unwrap();
     }
@@ -87,7 +87,7 @@ fn test_drift_detection_ignores_pending() {
     }
 
     {
-        let mut drift_mgr = DriftManager::new(storage.get_connection_mut(), repo_root.clone());
+        let mut drift_mgr = DriftManager::new(storage.get_connection_mut(), repo_root.clone(), Config::default());
         drift_mgr
             .process_event(entity)
             .expect("Should process tracked file without drift");
@@ -112,7 +112,7 @@ fn test_reconcile_drift() {
     fs::write(repo_root.join(entity), "").unwrap();
 
     {
-        let mut drift_mgr = DriftManager::new(storage.get_connection_mut(), repo_root.clone());
+        let mut drift_mgr = DriftManager::new(storage.get_connection_mut(), repo_root.clone(), Config::default());
         drift_mgr.process_event(entity).unwrap();
     }
 
@@ -150,7 +150,7 @@ fn test_adopt_drift() {
     fs::write(repo_root.join(entity), "").unwrap();
 
     {
-        let mut drift_mgr = DriftManager::new(storage.get_connection_mut(), repo_root.clone());
+        let mut drift_mgr = DriftManager::new(storage.get_connection_mut(), repo_root.clone(), Config::default());
         drift_mgr.process_event(entity).unwrap();
     }
 
@@ -163,7 +163,7 @@ fn test_adopt_drift() {
         let unaudited = tx_mgr.get_all_unaudited().unwrap();
         let tx_id = unaudited[0].tx_id.clone();
 
-        tx_mgr.adopt_drift(Some(tx_id), None, false).unwrap();
+        tx_mgr.adopt_drift(Some(tx_id), None, false, None).unwrap();
     }
 
     let tx_mgr =
@@ -189,7 +189,7 @@ fn test_bulk_reconcile_by_pattern() {
     fs::write(repo_root.join("docs/readme.md"), "").unwrap();
 
     {
-        let mut drift_mgr = DriftManager::new(storage.get_connection_mut(), repo_root.clone());
+        let mut drift_mgr = DriftManager::new(storage.get_connection_mut(), repo_root.clone(), Config::default());
         drift_mgr.process_event("src/a.rs").unwrap();
         drift_mgr.process_event("src/b.rs").unwrap();
         drift_mgr.process_event("docs/readme.md").unwrap();
@@ -227,7 +227,7 @@ fn test_auto_reconcile_on_commit() {
     fs::write(repo_root.join(entity), "").unwrap();
 
     {
-        let mut drift_mgr = DriftManager::new(storage.get_connection_mut(), repo_root.clone());
+        let mut drift_mgr = DriftManager::new(storage.get_connection_mut(), repo_root.clone(), Config::default());
         drift_mgr.process_event(entity).unwrap();
     }
 

@@ -20,7 +20,6 @@ pub struct FederatedLedgerEntry {
     pub reason: String,
     pub is_breaking: bool,
     pub committed_at: String,
-    pub trace_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

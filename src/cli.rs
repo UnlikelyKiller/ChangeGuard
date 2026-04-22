@@ -167,8 +167,11 @@ pub enum LedgerCommands {
         #[arg(long)]
         breaking: bool,
         /// Automatically reconcile matching UNAUDITED drift
-        #[arg(long)]
+        #[arg(long, overrides_with = "no_auto_reconcile")]
         auto_reconcile: bool,
+        /// Do not auto-reconcile drift (overrides config)
+        #[arg(long)]
+        no_auto_reconcile: bool,
     },
     /// Roll back a PENDING transaction
     Rollback {
@@ -184,7 +187,7 @@ pub enum LedgerCommands {
         #[arg(long)]
         tx_id: Option<String>,
         /// Reconcile by entity pattern (glob)
-        #[arg(long)]
+        #[arg(long = "entity-pattern")]
         pattern: Option<String>,
         /// Reconcile all UNAUDITED drift
         #[arg(long)]
@@ -199,11 +202,14 @@ pub enum LedgerCommands {
         #[arg(long)]
         tx_id: Option<String>,
         /// Adopt by entity pattern (glob)
-        #[arg(long)]
+        #[arg(long = "entity-pattern")]
         pattern: Option<String>,
         /// Adopt all UNAUDITED drift
         #[arg(long)]
         all: bool,
+        /// Reason for adopting the drift
+        #[arg(long, short)]
+        reason: Option<String>,
     },
     /// Atomically start and commit a change
     Atomic {
@@ -289,6 +295,9 @@ pub enum LedgerCommands {
         /// Only search for breaking changes
         #[arg(long, short)]
         breaking: bool,
+        /// Limit the number of results
+        #[arg(long, short, default_value_t = 50)]
+        limit: usize,
     },
 }
 
@@ -361,6 +370,7 @@ pub fn run() -> Result<()> {
                 change_type,
                 breaking,
                 auto_reconcile,
+                no_auto_reconcile,
             } => crate::commands::ledger::execute_ledger_commit(
                 tx_id,
                 summary,
@@ -368,6 +378,7 @@ pub fn run() -> Result<()> {
                 change_type,
                 breaking,
                 auto_reconcile,
+                no_auto_reconcile,
             ),
             LedgerCommands::Rollback { tx_id, reason } => {
                 crate::commands::ledger::execute_ledger_rollback(tx_id, reason)
@@ -382,7 +393,8 @@ pub fn run() -> Result<()> {
                 tx_id,
                 pattern,
                 all,
-            } => crate::commands::ledger::execute_ledger_adopt(tx_id, pattern, all),
+                reason,
+            } => crate::commands::ledger::execute_ledger_adopt(tx_id, pattern, all, reason),
             LedgerCommands::Atomic {
                 entity,
                 summary,
@@ -421,8 +433,9 @@ pub fn run() -> Result<()> {
                 category,
                 days,
                 breaking,
+                limit,
             } => crate::commands::ledger_search::execute_ledger_search(
-                query, category, days, breaking,
+                query, category, days, breaking, limit,
             ),
         },
         #[cfg(feature = "daemon")]

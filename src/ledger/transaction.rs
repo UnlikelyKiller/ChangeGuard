@@ -1,4 +1,5 @@
 use chrono::Utc;
+use globset::{Glob, GlobSetBuilder};
 use rusqlite::Connection;
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -44,24 +45,46 @@ impl<'a> TransactionManager<'a> {
         }
 
         // Tech Stack Enforcement
-        if self.config.ledger.enforcement_enabled
-            && let Some(ref action) = req.planned_action
-        {
+        if self.config.ledger.enforcement_enabled {
             let cat_str = serde_json::to_string(&req.category)
                 .unwrap_or_default()
                 .trim_matches('"')
                 .to_string();
             let mappings = db.get_category_mappings(Some(&cat_str))?;
+
             for m in mappings {
+                // Check CategoryStackMapping.glob against entity if present
+                if let Some(ref mapping_glob) = m.glob
+                    && let Ok(glob) = Glob::new(mapping_glob)
+                    && let Ok(set) = GlobSetBuilder::new().add(glob).build()
+                    && !set.is_match(&normalized)
+                {
+                    continue;
+                }
+
                 if let Some(rule) = db.get_tech_stack_rule(&m.stack_category)? {
-                    for forbidden in rule.rules {
-                        if forbidden.to_uppercase().starts_with("NO ") {
-                            let term = &forbidden[3..];
-                            if action.to_lowercase().contains(&term.to_lowercase()) {
+                    for rule_text in &rule.rules {
+                        if rule_text.to_uppercase().starts_with("NO ") {
+                            let term = &rule_text[3..];
+                            let term_lower = term.to_lowercase();
+
+                            // Check planned_action text (if provided)
+                            if let Some(ref action) = req.planned_action
+                                && action.to_lowercase().contains(&term_lower)
+                            {
                                 return Err(LedgerError::RuleViolation(format!(
                                     "Planned action violates tech stack rule for {} (forbidden term: {})",
                                     rule.name,
-                                    forbidden[3..].to_lowercase()
+                                    term_lower
+                                )));
+                            }
+
+                            // Also check entity path
+                            if normalized.to_lowercase().contains(&term_lower) {
+                                return Err(LedgerError::RuleViolation(format!(
+                                    "Entity path violates tech stack rule for {} (forbidden term: {})",
+                                    rule.name,
+                                    term_lower
                                 )));
                             }
                         }
@@ -134,13 +157,17 @@ impl<'a> TransactionManager<'a> {
                 if !v.enabled {
                     continue;
                 }
-                // Check glob if present
-                if let Some(ref glob) = v.glob
-                    && !tx
-                        .entity_normalized
-                        .contains(glob.replace('*', "").as_str())
-                {
-                    continue;
+                // Check glob if present using proper globset matching
+                if let Some(ref pattern) = v.glob {
+                    let glob = Glob::new(pattern)
+                        .map_err(|e| LedgerError::Validation(format!("Invalid glob pattern '{}': {}", pattern, e)))?;
+                    let mut builder = GlobSetBuilder::new();
+                    builder.add(glob);
+                    let globset = builder.build()
+                        .map_err(|e| LedgerError::Validation(format!("Failed to build globset for '{}': {}", pattern, e)))?;
+                    if !globset.is_match(&tx.entity_normalized) {
+                        continue;
+                    }
                 }
 
                 let absolute_path = self.repo_root.join(&tx.entity_normalized);
@@ -252,7 +279,14 @@ impl<'a> TransactionManager<'a> {
         commit_req: CommitRequest,
     ) -> Result<(), LedgerError> {
         let tx_id = self.start_change(tx_req)?;
-        self.commit_change(tx_id, commit_req)
+        if let Err(commit_err) = self.commit_change(tx_id.clone(), commit_req) {
+            // Attempt cleanup rollback; prefer returning the original error
+            if let Err(rollback_err) = self.rollback_change(tx_id) {
+                tracing::warn!("atomic_change: rollback after commit failure also failed: {rollback_err}");
+            }
+            return Err(commit_err);
+        }
+        Ok(())
     }
 
     pub fn reconcile_drift(
@@ -325,6 +359,7 @@ impl<'a> TransactionManager<'a> {
         tx_id: Option<String>,
         pattern: Option<String>,
         all: bool,
+        reason: Option<String>,
     ) -> Result<(), LedgerError> {
         let db = LedgerDb::new(self.conn);
         let to_adopt = if all {
@@ -352,6 +387,10 @@ impl<'a> TransactionManager<'a> {
 
         let tx_ids: Vec<String> = to_adopt.iter().map(|tx| tx.tx_id.clone()).collect();
         db.update_transaction_status_bulk(&tx_ids, "PENDING", None)?;
+
+        if let Some(reason_text) = reason {
+            tracing::info!("Adopted drift with reason: {reason_text}");
+        }
 
         Ok(())
     }
@@ -415,9 +454,10 @@ impl<'a> TransactionManager<'a> {
         category: Option<&str>,
         days: Option<u64>,
         breaking_only: bool,
+        limit: Option<usize>,
     ) -> Result<Vec<LedgerEntry>, LedgerError> {
         let db = LedgerDb::new(self.conn);
-        db.search_ledger(query, category, days, breaking_only)
+        db.search_ledger(query, category, days, breaking_only, limit)
     }
 
     pub fn get_ledger_entries(&self, entity: &str) -> Result<Vec<LedgerEntry>, LedgerError> {
