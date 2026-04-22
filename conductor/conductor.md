@@ -45,11 +45,18 @@
     *   Key additions: Enforcement enums/types, Migration M13, `ledger register` and `ledger stack` commands.
 
 *   **Track L3-R: Enforcement Remediation**
-    *   Status: Active
+    *   Status: Completed
     *   Spec: `conductor/trackL3-R/spec.md`
     *   Plan: `conductor/trackL3-R/plan.md`
     *   Goal: Address Codex findings for Track L3-1: JSON defaults, CLI alignment, FK enforcement, and filtering.
     *   Key additions: Serde defaults, flagged CLI args, category filtering, SQLite FK pragma.
+
+*   **Track L3-2: Enforcement & Validation Logic**
+    *   Status: Active
+    *   Spec: `conductor/trackL3-2/spec.md`
+    *   Plan: `conductor/trackL3-2/plan.md`
+    *   Goal: Implement active tech stack enforcement and commit-time validator execution.
+    *   Key additions: `NO <term>` check at start, validator runner (shell execution, timeouts, {entity} substitution), lifecycle integration.
 
 ## Milestone J: Phase 2 Final Remediation (Completed)
 
