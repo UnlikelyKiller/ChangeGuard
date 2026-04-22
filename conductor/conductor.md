@@ -38,11 +38,18 @@
     *   Key additions: `ledger reconcile`, `ledger adopt`, drift transition logic, reconciliation provenance.
 
 *   **Track L3-1: Enforcement Data Model & Registration**
-    *   Status: Active
+    *   Status: Completed
     *   Spec: `conductor/trackL3-1/spec.md`
     *   Plan: `conductor/trackL3-1/plan.md`
     *   Goal: Implement data model and CLI for tech stack enforcement and commit validators.
     *   Key additions: Enforcement enums/types, Migration M13, `ledger register` and `ledger stack` commands.
+
+*   **Track L3-R: Enforcement Remediation**
+    *   Status: Active
+    *   Spec: `conductor/trackL3-R/spec.md`
+    *   Plan: `conductor/trackL3-R/plan.md`
+    *   Goal: Address Codex findings for Track L3-1: JSON defaults, CLI alignment, FK enforcement, and filtering.
+    *   Key additions: Serde defaults, flagged CLI args, category filtering, SQLite FK pragma.
 
 ## Milestone J: Phase 2 Final Remediation (Completed)
 
