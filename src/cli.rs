@@ -107,6 +107,11 @@ pub enum Commands {
         #[command(subcommand)]
         command: FederateCommands,
     },
+    /// Manage the ChangeGuard Ledger (transactional provenance)
+    Ledger {
+        #[command(subcommand)]
+        command: LedgerCommands,
+    },
     /// Start the LSP-Lite ChangeGuard daemon
     #[cfg(feature = "daemon")]
     Daemon {
@@ -124,6 +129,78 @@ pub enum FederateCommands {
     Scan,
     /// Show status of federated links
     Status,
+}
+
+#[derive(Subcommand)]
+pub enum LedgerCommands {
+    /// Start a new transaction
+    Start {
+        /// The entity being changed (path/symbol)
+        entity: String,
+        /// The category of change
+        #[arg(long, short, value_enum, default_value_t = crate::ledger::Category::Feature)]
+        category: crate::ledger::Category,
+        /// A brief description of the planned action
+        #[arg(long, short)]
+        message: Option<String>,
+        /// Associated issue reference (e.g., JIRA-123)
+        #[arg(long)]
+        issue: Option<String>,
+    },
+    /// Commit a PENDING transaction to the ledger
+    Commit {
+        /// Transaction ID or unique prefix
+        tx_id: String,
+        /// High-level summary of the change
+        #[arg(long, short)]
+        summary: String,
+        /// Technical reasoning for the change
+        #[arg(long, short)]
+        reason: String,
+        /// Type of change performed
+        #[arg(long, value_enum, default_value_t = crate::ledger::ChangeType::Modify)]
+        change_type: crate::ledger::ChangeType,
+        /// Mark as a breaking change
+        #[arg(long)]
+        breaking: bool,
+    },
+    /// Roll back a PENDING transaction
+    Rollback {
+        /// Transaction ID or unique prefix
+        tx_id: String,
+    },
+    /// Atomically start and commit a change
+    Atomic {
+        /// The entity being changed (path/symbol)
+        entity: String,
+        /// High-level summary of the change
+        #[arg(long, short)]
+        summary: String,
+        /// Technical reasoning for the change
+        #[arg(long, short)]
+        reason: String,
+        /// The category of change
+        #[arg(long, short, value_enum, default_value_t = crate::ledger::Category::Chore)]
+        category: crate::ledger::Category,
+    },
+    /// Add a note/lesson to the most recent transaction for an entity
+    Note {
+        /// The entity (path/symbol)
+        entity: String,
+        /// The note or lesson learned
+        note: String,
+    },
+    /// Show the current status of the ledger and pending transactions
+    Status {
+        /// Show full history for an entity
+        #[arg(long)]
+        entity: Option<String>,
+    },
+    /// Resume a PENDING transaction (set as active in session)
+    Resume {
+        /// Transaction ID or unique prefix
+        tx_id: String,
+    },
 }
 
 pub fn run() -> Result<()> {
@@ -173,6 +250,22 @@ pub fn run() -> Result<()> {
             FederateCommands::Export => crate::commands::federate::execute_federate_export(),
             FederateCommands::Scan => crate::commands::federate::execute_federate_scan(),
             FederateCommands::Status => crate::commands::federate::execute_federate_status(),
+        },
+        Commands::Ledger { command } => match command {
+            LedgerCommands::Start { entity, category, message, issue } => 
+                crate::commands::ledger::execute_ledger_start(entity, category, message, issue),
+            LedgerCommands::Commit { tx_id, summary, reason, change_type, breaking } =>
+                crate::commands::ledger::execute_ledger_commit(tx_id, summary, reason, change_type, breaking),
+            LedgerCommands::Rollback { tx_id } =>
+                crate::commands::ledger::execute_ledger_rollback(tx_id),
+            LedgerCommands::Atomic { entity, summary, reason, category } =>
+                crate::commands::ledger::execute_ledger_atomic(entity, summary, reason, category),
+            LedgerCommands::Note { entity, note } =>
+                crate::commands::ledger::execute_ledger_note(entity, note),
+            LedgerCommands::Status { entity } =>
+                crate::commands::ledger::execute_ledger_status(entity),
+            LedgerCommands::Resume { tx_id } =>
+                crate::commands::ledger::execute_ledger_resume(tx_id),
         },
         #[cfg(feature = "daemon")]
         Commands::Daemon { interval } => crate::commands::daemon::execute_daemon(interval),

@@ -6,6 +6,7 @@ pub mod federate;
 pub mod hotspots;
 pub mod impact;
 pub mod init;
+pub mod ledger;
 pub mod reset;
 pub mod scan;
 pub mod verify;

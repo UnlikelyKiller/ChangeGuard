@@ -10,7 +10,7 @@
     *   Key additions: `src/ledger/types.rs`, `src/ledger/error.rs`, SQLite migrations M11-M12, `LedgerConfig`.
 
 *   **Track L1-2: Transaction Lifecycle Management**
-    *   Status: Active
+    *   Status: Completed
     *   Spec: `conductor/trackL1-2/spec.md`
     *   Plan: `conductor/trackL1-2/plan.md`
     *   Goal: Implement the core transaction lifecycle (start, commit, rollback, atomic) and CLI commands.
