@@ -32,7 +32,6 @@ pub fn export_ledger_entries(
             reason: e.reason,
             is_breaking: e.is_breaking,
             committed_at: e.committed_at,
-            trace_id: e.trace_id,
         })
         .collect();
 

@@ -42,6 +42,7 @@ pub fn execute_ledger_search(
     category: Option<Category>,
     days: Option<u64>,
     breaking: bool,
+    limit: usize,
 ) -> Result<()> {
     let layout = get_layout()?;
     let db_path = layout.state_subdir().join("ledger.db");
@@ -61,7 +62,7 @@ pub fn execute_ledger_search(
     });
 
     let results = manager
-        .search_ledger(&query, cat_filter.as_deref(), days, breaking)
+        .search_ledger(&query, cat_filter.as_deref(), days, breaking, Some(limit))
         .map_err(|e| miette::miette!("{}", e))?;
 
     if results.is_empty() {

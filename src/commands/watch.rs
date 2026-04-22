@@ -80,7 +80,8 @@ pub fn execute_watch(interval_ms: u64, json_output: bool) -> Result<()> {
             }
 
             // Drift detection
-            let mut drift_mgr = DriftManager::new(storage.get_connection_mut(), repo_root.clone());
+            let drift_config = load_config(&layout).unwrap_or_default();
+            let mut drift_mgr = DriftManager::new(storage.get_connection_mut(), repo_root.clone(), drift_config);
             for event in &batch.events {
                 if let Err(e) = drift_mgr.process_event(event.path.as_str()) {
                     tracing::warn!("Failed to process drift for {}: {:?}", event.path, e);

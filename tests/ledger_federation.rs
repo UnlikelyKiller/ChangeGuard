@@ -50,7 +50,6 @@ fn test_ledger_federation_flow() {
         reason: "Test reason".to_string(),
         is_breaking: true,
         committed_at: Utc::now().to_rfc3339(),
-        trace_id: None,
     };
 
     let schema =

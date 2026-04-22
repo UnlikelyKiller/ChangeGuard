@@ -331,6 +331,7 @@ impl<'a> LedgerDb<'a> {
         category: Option<&str>,
         days: Option<u64>,
         breaking_only: bool,
+        limit: Option<usize>,
     ) -> Result<Vec<LedgerEntry>, LedgerError> {
         let mut sql =
             "SELECT l.id, l.tx_id, l.category, l.entry_type, l.entity, l.entity_normalized,
@@ -342,15 +343,21 @@ impl<'a> LedgerDb<'a> {
              WHERE ledger_fts MATCH ?1"
                 .to_string();
 
+        let mut param_idx = 2u32;
+        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(query.to_string())];
+
         if let Some(cat) = category {
-            sql.push_str(&format!(" AND l.category = '{}'", cat.replace('\'', "''")));
+            sql.push_str(&format!(" AND l.category = ?{param_idx}"));
+            params.push(Box::new(cat.to_string()));
+            param_idx += 1;
         }
 
         if let Some(d) = days {
             sql.push_str(&format!(
-                " AND l.committed_at >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-{} days')",
-                d
+                " AND l.committed_at >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?{param_idx})"
             ));
+            params.push(Box::new(format!("-{d} days")));
+            param_idx += 1;
         }
 
         if breaking_only {
@@ -358,6 +365,11 @@ impl<'a> LedgerDb<'a> {
         }
 
         sql.push_str(" ORDER BY f.rank, l.committed_at DESC");
+
+        if let Some(lim) = limit {
+            sql.push_str(&format!(" LIMIT ?{param_idx}"));
+            params.push(Box::new(lim as i64));
+        }
 
         let mut stmt = self.conn.prepare(&sql).map_err(|e| {
             if let rusqlite::Error::SqliteFailure(_err, Some(msg)) = &e
@@ -368,7 +380,8 @@ impl<'a> LedgerDb<'a> {
             LedgerError::from(e)
         })?;
 
-        let rows = stmt.query_map([query], |row| self.map_ledger_entry(row))?;
+        let rows =
+            stmt.query_map(rusqlite::params_from_iter(params), |row| self.map_ledger_entry(row))?;
 
         let mut entries = Vec::new();
         for entry in rows {

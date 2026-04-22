@@ -67,14 +67,22 @@ pub fn execute_ledger_commit(
     change_type: ChangeType,
     breaking: bool,
     auto_reconcile: bool,
+    no_auto_reconcile: bool,
 ) -> Result<()> {
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
     let config = load_ledger_config(&layout);
+    let should_auto_reconcile = if no_auto_reconcile {
+        false
+    } else if auto_reconcile {
+        true
+    } else {
+        config.ledger.auto_reconcile
+    };
     let mut tx_mgr =
         TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
 
-    if auto_reconcile {
+    if should_auto_reconcile {
         let full_id = tx_mgr
             .resolve_tx_id(&tx_id)
             .map_err(|e| miette::miette!("{}", e))?;
@@ -147,6 +155,7 @@ pub fn execute_ledger_adopt(
     tx_id: Option<String>,
     pattern: Option<String>,
     all: bool,
+    reason: Option<String>,
 ) -> Result<()> {
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
@@ -155,7 +164,7 @@ pub fn execute_ledger_adopt(
         TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
 
     tx_mgr
-        .adopt_drift(tx_id, pattern, all)
+        .adopt_drift(tx_id, pattern, all, reason)
         .map_err(|e| miette::miette!("{}", e))?;
 
     println!("{}", "Drift adopted into pending transactions.".green());
@@ -225,6 +234,7 @@ pub fn execute_ledger_status(entity_filter: Option<String>, compact: bool) -> Re
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
     let config = load_ledger_config(&layout);
+    let stale_threshold = config.ledger.stale_threshold_hours as i64;
     let tx_mgr = TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
     let clock = SystemClock;
 
@@ -240,7 +250,7 @@ pub fn execute_ledger_status(entity_filter: Option<String>, compact: bool) -> Re
             let status_icon = if Utc::now()
                 .signed_duration_since(started_at.with_timezone(&Utc))
                 .num_hours()
-                >= 24
+                >= stale_threshold
             {
                 get_status_icon(LedgerStatus::Stale)
             } else {
@@ -318,7 +328,7 @@ pub fn execute_ledger_status(entity_filter: Option<String>, compact: bool) -> Re
                 let is_stale = Utc::now()
                     .signed_duration_since(started_at.with_timezone(&Utc))
                     .num_hours()
-                    >= 24;
+                    >= stale_threshold;
                 let stale_indicator = if is_stale {
                     format!("{} STALE", "󰀦".red())
                 } else {
