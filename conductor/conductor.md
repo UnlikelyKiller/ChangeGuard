@@ -17,11 +17,18 @@
     *   Key additions: `src/ledger/db.rs`, `src/ledger/transaction.rs`, `src/ledger/session.rs`, `ledger start/commit/rollback/atomic`.
 
 *   **Track L1-R: Ledger Phase 1 Remediation**
-    *   Status: Active
+    *   Status: Completed
     *   Spec: `conductor/trackL1-R/spec.md`
     *   Plan: `conductor/trackL1-R/plan.md`
     *   Goal: Address the high and medium severity findings from the Codex review for Phase L1.
     *   Key additions: Transactional safety, correct lifecycle states, robust path normalization, WAL concurrency, verification persistence, and CLI gaps.
+
+*   **Track L2-1: Ledger Drift Detection**
+    *   Status: Active
+    *   Spec: `conductor/trackL2-1/spec.md`
+    *   Plan: `conductor/trackL2-1/plan.md`
+    *   Goal: Integrate file watcher with the ledger to detect and record untracked changes (drift).
+    *   Key additions: Watcher transaction checks, UNAUDITED record creation, drift counting, enhanced status reporting.
 
 ## Milestone J: Phase 2 Final Remediation (Completed)
 
