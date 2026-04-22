@@ -212,15 +212,15 @@ changeguard verify --no-predict            # Skip predictive suggestions
 
 ```bash
 changeguard ledger start --entity PATH --category CAT [--message TEXT] [--issue REF]
-changeguard ledger commit --tx-id ID --summary TEXT --reason TEXT [--change-type TYPE] [--breaking] [--auto-reconcile]
+changeguard ledger commit --tx-id ID --summary TEXT --reason TEXT [--change-type TYPE] [--breaking] [--auto-reconcile | --no-auto-reconcile]
 changeguard ledger rollback --tx-id ID --reason TEXT
 changeguard ledger atomic --entity PATH --summary TEXT --reason TEXT [--category CAT]
 changeguard ledger note --entity PATH NOTE
 changeguard ledger resume [ID]                              # Find most recent PENDING tx or resume specific
 changeguard ledger status [--entity PATH] [--compact]       # Holistic view or entity history
-changeguard ledger reconcile [--tx-id ID] [--pattern GLOB] [--all] --reason TEXT
-changeguard ledger adopt [--tx-id ID] [--pattern GLOB] [--all]
-changeguard ledger search QUERY [--category CAT] [--days N] [--breaking] # FTS5 search
+changeguard ledger reconcile [--tx-id ID] [--entity-pattern GLOB] [--all] --reason TEXT
+changeguard ledger adopt [--tx-id ID] [--entity-pattern GLOB] [--all] [--reason TEXT]
+changeguard ledger search QUERY [--category CAT] [--days N] [--breaking] [--limit N] # FTS5 search
 changeguard ledger audit [--entity PATH] [--include-unaudited]           # Detailed provenance
 changeguard ledger stack [--category CAT]                   # Show tech stack and validators
 changeguard ledger register --rule-type TYPE --payload JSON [--force]   # Add enforcement rules
@@ -276,9 +276,12 @@ When acting as a coding agent, use ChangeGuard signals to adjust your strategy:
 3. **Federated Impact (Cross-Repo)**: If `federated_impact` warnings appear, your change might break a sibling repository. You must explain this risk to the user.
 4. **Predictive Verification**: If `verify` suggests tests that seem unrelated to your change, **trust the predictor**. It is likely based on historical failure correlations.
 5. **Drift Detection**: If `changeguard ledger status` shows UNAUDITED entries, files were modified without a pending transaction. Either reconcile them (`ledger reconcile`) or adopt them (`ledger adopt`) before proceeding. This is the trust-and-verify model in action.
-6. **Tech Stack Enforcement**: `ledger start` will reject a transaction if the `planned_action` violates registered tech stack rules (e.g., using a forbidden library).
-7. **Commit Validation**: `ledger commit` runs shell-command validators (e.g., linters, tests). `ERROR` level failures block the commit.
+6. **Tech Stack Enforcement**: `ledger start` will reject a transaction if the `planned_action` or entity path violates registered tech stack rules (e.g., using a forbidden library). Category-to-stack mappings with glob filters scope rules to specific entity paths.
+7. **Commit Validation**: `ledger commit` runs shell-command validators (e.g., linters, tests). Validators with glob patterns only run when the entity matches. `ERROR` level failures block the commit.
 8. **Data Classification**: `changeguard reset` preserves `ledger.db` by default. Use `--include-ledger` (requires `--yes`) to remove provenance data alongside derived state.
+9. **Auto-Reconcile from Config**: `ledger commit` defaults to `config.ledger.auto_reconcile` (default: true). Use `--no-auto-reconcile` to override. Drift is reconciled for the entity being committed.
+10. **Drift Categorization**: Watcher-detected drift assigns category from DB or config watcher patterns (matched by glob). Unmatched paths default to `FEATURE`.
+11. **Configurable Stale Threshold**: PENDING transactions older than `config.ledger.stale_threshold_hours` (default: 24h) show a stale indicator in `ledger status`.
 
 ## How To Interpret Results
 
@@ -331,9 +334,12 @@ ChangeGuard:
 
 - Full UUID is always displayed in `ledger start`.
 - `ledger resume` finds the most recent PENDING transaction.
-- Entity paths are auto-normalized to forward-slashes relative to repo root.
-- Watcher-detected drift creates UNAUDITED transactions.
+- Entity paths are auto-normalized to forward-slashes relative to repo root using lexical path cleaning (no filesystem canonicalization).
+- Watcher-detected drift creates UNAUDITED transactions; category is determined by watcher pattern matching.
 - Commit validators run with timeouts to prevent hanging the CLI.
+- Validator glob patterns use proper glob matching (globset), not substring checks.
+- `atomic_change` rolls back the started transaction if commit fails, preventing orphaned PENDING entries.
+- Federation import uses the same secure path normalization as local ledger entries.
 
 ## Repo-Specific Notes
 
