@@ -17,14 +17,18 @@ use std::fs;
 
 pub fn execute_federate_export() -> Result<()> {
     let current_dir = env::current_dir().into_diagnostic()?;
-    let layout = Layout::new(current_dir.to_string_lossy().as_ref());
+    let repo = open_repo(&current_dir).into_diagnostic()?;
+    let repo_root = repo
+        .workdir()
+        .ok_or_else(|| miette::miette!("Could not determine repository root"))?
+        .to_path_buf();
+
+    let layout = Layout::new(repo_root.to_string_lossy().as_ref());
     let db_path = layout.state_subdir().join("ledger.db");
     let storage = StorageManager::init(db_path.as_std_path())?;
 
-    let repo = open_repo(&current_dir)?;
-    let repo_name = repo
-        .workdir()
-        .and_then(|p| p.file_name())
+    let repo_name = repo_root
+        .file_name()
         .and_then(|s| s.to_str())
         .ok_or_else(|| miette::miette!("Could not determine repository name for export"))?
         .to_string();
@@ -50,7 +54,11 @@ pub fn execute_federate_export() -> Result<()> {
         .is_empty()
     });
 
-    let schema = FederatedSchema::new(repo_name, public_interfaces);
+    let ledger_entries =
+        crate::ledger::federation::export_ledger_entries(storage.get_connection(), 30)
+            .into_diagnostic()?;
+
+    let schema = FederatedSchema::new(repo_name, public_interfaces).with_ledger(ledger_entries);
     let schema_json = serde_json::to_string_pretty(&schema).into_diagnostic()?;
 
     let schema_path = layout.state_subdir().join("schema.json");
@@ -66,11 +74,17 @@ pub fn execute_federate_export() -> Result<()> {
 
 pub fn execute_federate_scan() -> Result<()> {
     let current_dir = env::current_dir().into_diagnostic()?;
-    let utf8_current_dir = Utf8PathBuf::from_path_buf(current_dir.clone())
+    let repo = open_repo(&current_dir).into_diagnostic()?;
+    let repo_root = repo
+        .workdir()
+        .ok_or_else(|| miette::miette!("Could not determine repository root"))?
+        .to_path_buf();
+
+    let utf8_repo_root = Utf8PathBuf::from_path_buf(repo_root.clone())
         .map_err(|_| miette::miette!("Invalid UTF-8 path"))?;
-    let layout = Layout::new(current_dir.to_string_lossy().as_ref());
+    let layout = Layout::new(repo_root.to_string_lossy().as_ref());
     let db_path = layout.state_subdir().join("ledger.db");
-    let storage = StorageManager::init(db_path.as_std_path())?;
+    let mut storage = StorageManager::init(db_path.as_std_path())?;
 
     let local_packet = storage
         .get_latest_packet()?
@@ -78,7 +92,7 @@ pub fn execute_federate_scan() -> Result<()> {
 
     println!("Scanning for sibling repositories...");
 
-    let scanner = FederatedScanner::new(utf8_current_dir);
+    let scanner = FederatedScanner::new(utf8_repo_root);
     let (siblings, warnings) = scanner.scan_siblings()?;
 
     for warning in &warnings {
@@ -117,6 +131,17 @@ pub fn execute_federate_scan() -> Result<()> {
                 &sibling_symbol,
             )?;
         }
+
+        // Import federated ledger entries if present
+        if let Some(entries) = &schema.ledger {
+            crate::ledger::federation::import_federated_entries(
+                storage.get_connection_mut(),
+                &repo_root,
+                &schema.repo_name,
+                entries,
+            )
+            .into_diagnostic()?;
+        }
     }
 
     println!(
@@ -129,7 +154,12 @@ pub fn execute_federate_scan() -> Result<()> {
 
 pub fn execute_federate_status() -> Result<()> {
     let current_dir = env::current_dir().into_diagnostic()?;
-    let layout = Layout::new(current_dir.to_string_lossy().as_ref());
+    let repo = open_repo(&current_dir).into_diagnostic()?;
+    let repo_root = repo
+        .workdir()
+        .ok_or_else(|| miette::miette!("Could not determine repository root"))?;
+
+    let layout = Layout::new(repo_root.to_string_lossy().as_ref());
     let db_path = layout.state_subdir().join("ledger.db");
     let storage = StorageManager::init(db_path.as_std_path())?;
 

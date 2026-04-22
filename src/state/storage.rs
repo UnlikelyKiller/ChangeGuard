@@ -23,6 +23,11 @@ impl StorageManager {
     pub fn init(db_path: &Path) -> Result<Self> {
         let mut conn = Connection::open(db_path).into_diagnostic()?;
 
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;",
+        )
+        .into_diagnostic()?;
+
         let migrations = get_migrations();
         migrations.to_latest(&mut conn).into_diagnostic()?;
 
@@ -32,6 +37,10 @@ impl StorageManager {
 
     pub fn get_connection(&self) -> &Connection {
         &self.conn
+    }
+
+    pub fn get_connection_mut(&mut self) -> &mut Connection {
+        &mut self.conn
     }
 
     pub fn save_packet(&self, packet: &ImpactPacket) -> Result<()> {

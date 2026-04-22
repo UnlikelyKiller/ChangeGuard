@@ -105,6 +105,8 @@ pub fn get_migrations() -> Migrations<'static> {
                 tree_hash          TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_transactions_entity_status ON transactions(entity_normalized, status);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_unaudited_entity ON transactions(entity_normalized) WHERE status = 'UNAUDITED';
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_pending_entity ON transactions(entity_normalized) WHERE status = 'PENDING';
             CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(status);
             CREATE INDEX IF NOT EXISTS idx_transactions_session_id ON transactions(session_id);
             CREATE INDEX IF NOT EXISTS idx_transactions_operation_id ON transactions(operation_id);",
@@ -123,6 +125,9 @@ pub fn get_migrations() -> Migrations<'static> {
                 reason             TEXT NOT NULL,
                 is_breaking        INTEGER DEFAULT 0,
                 committed_at       TEXT NOT NULL,
+                verification_status TEXT,
+                verification_basis TEXT,
+                outcome_notes      TEXT,
                 issue_ref          TEXT,
                 trace_id           TEXT,
                 origin             TEXT NOT NULL DEFAULT 'LOCAL',
@@ -147,6 +152,57 @@ pub fn get_migrations() -> Migrations<'static> {
                 INSERT INTO ledger_fts(ledger_fts, rowid, entity, summary, reason) VALUES ('delete', old.id, old.entity, old.summary, old.reason);
                 INSERT INTO ledger_fts(rowid, entity, summary, reason) VALUES (new.id, new.entity, new.summary, new.reason);
             END;",
+        ),
+        M::up(
+            "CREATE TABLE IF NOT EXISTS tech_stack (
+                category           TEXT PRIMARY KEY,
+                name               TEXT NOT NULL,
+                version_constraint TEXT,
+                rules              TEXT NOT NULL DEFAULT '[]',
+                locked             INTEGER DEFAULT 0,
+                status             TEXT DEFAULT 'ACTIVE',
+                entity_type        TEXT DEFAULT 'FILE',
+                registered_at      TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS commit_validators (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                category           TEXT NOT NULL,
+                name               TEXT NOT NULL,
+                description        TEXT,
+                executable         TEXT NOT NULL,
+                args               TEXT NOT NULL,
+                timeout_ms         INTEGER DEFAULT 30000,
+                glob               TEXT,
+                validation_level   TEXT DEFAULT 'ERROR',
+                enabled            INTEGER DEFAULT 1
+            );
+            CREATE TABLE IF NOT EXISTS category_stack_mappings (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                ledger_category    TEXT NOT NULL,
+                stack_category     TEXT NOT NULL REFERENCES tech_stack(category),
+                glob               TEXT,
+                description        TEXT
+            );
+            CREATE TABLE IF NOT EXISTS watcher_patterns (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                glob               TEXT NOT NULL,
+                category           TEXT NOT NULL,
+                source             TEXT NOT NULL DEFAULT 'CONFIG',
+                description        TEXT
+            );",
+        ),
+        M::up(
+            "CREATE TABLE IF NOT EXISTS token_provenance (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                tx_id              TEXT NOT NULL REFERENCES transactions(tx_id),
+                entity             TEXT NOT NULL,
+                entity_normalized  TEXT NOT NULL,
+                symbol_name        TEXT NOT NULL,
+                symbol_type        TEXT NOT NULL,
+                action             TEXT NOT NULL -- 'ADDED', 'MODIFIED', 'DELETED'
+            );
+            CREATE INDEX IF NOT EXISTS idx_token_provenance_tx_id ON token_provenance(tx_id);
+            CREATE INDEX IF NOT EXISTS idx_token_provenance_entity_symbol ON token_provenance(entity_normalized, symbol_name);",
         ),
     ])
 }
@@ -181,6 +237,11 @@ mod tests {
             "transactions",
             "ledger_entries",
             "ledger_fts",
+            "tech_stack",
+            "commit_validators",
+            "category_stack_mappings",
+            "watcher_patterns",
+            "token_provenance",
         ];
 
         for table in &expected_tables {
@@ -193,6 +254,36 @@ mod tests {
                 .unwrap();
             assert_eq!(count, 1, "Table {} should exist", table);
         }
+    }
+
+    #[test]
+    fn test_insert_and_query_token_provenance() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let migrations = get_migrations();
+        migrations.to_latest(&mut conn).unwrap();
+
+        let tx_id = "550e8400-e29b-41d4-a716-446655440000";
+        conn.execute(
+            "INSERT INTO transactions (tx_id, status, category, entity, entity_normalized, session_id, started_at) 
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            (tx_id, "PENDING", "FEATURE", "src/main.rs", "src/main.rs", "session-1", "2026-01-01T00:00:00Z"),
+        ).unwrap();
+
+        conn.execute(
+            "INSERT INTO token_provenance (tx_id, entity, entity_normalized, symbol_name, symbol_type, action)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            (tx_id, "src/main.rs", "src/main.rs", "main", "Function", "ADDED"),
+        ).unwrap();
+
+        let (name, action): (String, String) = conn
+            .query_row(
+                "SELECT symbol_name, action FROM token_provenance WHERE tx_id = ?1",
+                [tx_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(name, "main");
+        assert_eq!(action, "ADDED");
     }
 
     #[test]

@@ -21,10 +21,11 @@ struct ResetItem {
 pub fn execute_reset(
     remove_config: bool,
     remove_rules: bool,
+    include_ledger: bool,
     remove_all: bool,
     confirm_destructive: bool,
 ) -> Result<()> {
-    if (remove_all || remove_config || remove_rules) && !confirm_destructive {
+    if (remove_all || remove_config || remove_rules || include_ledger) && !confirm_destructive {
         return Err(miette!(
             "Destructive reset options require confirmation. Re-run with '--yes'."
         ));
@@ -39,7 +40,7 @@ pub fn execute_reset(
     let mut items = if remove_all {
         vec![remove_path(layout.state_dir.clone(), &layout.state_dir)]
     } else {
-        default_reset_items(&layout, remove_config, remove_rules)
+        default_reset_items(&layout, remove_config, remove_rules, include_ledger)
     };
     items.sort_by(|a, b| a.path.cmp(&b.path));
 
@@ -63,12 +64,38 @@ pub fn execute_reset(
     }
 }
 
-fn default_reset_items(layout: &Layout, remove_config: bool, remove_rules: bool) -> Vec<ResetItem> {
+fn default_reset_items(
+    layout: &Layout,
+    remove_config: bool,
+    remove_rules: bool,
+    include_ledger: bool,
+) -> Vec<ResetItem> {
     let mut items = vec![
         remove_path(layout.logs_dir(), &layout.state_dir),
         remove_path(layout.tmp_dir(), &layout.state_dir),
         remove_path(layout.reports_dir(), &layout.state_dir),
-        remove_path(layout.state_subdir(), &layout.state_dir),
+        // Derived state files (cache, rebuildable) — always removed
+        remove_path(
+            layout.state_subdir().join("current-batch.json"),
+            &layout.state_dir,
+        ),
+        remove_path(layout.state_subdir().join("snapshots"), &layout.state_dir),
+        // Durable user data — preserved by default, removed only with --include-ledger
+        maybe_preserve_or_remove(
+            layout.state_subdir().join("ledger.db"),
+            &layout.state_dir,
+            include_ledger,
+        ),
+        maybe_preserve_or_remove(
+            layout.state_subdir().join("ledger.db-wal"),
+            &layout.state_dir,
+            include_ledger,
+        ),
+        maybe_preserve_or_remove(
+            layout.state_subdir().join("ledger.db-shm"),
+            &layout.state_dir,
+            include_ledger,
+        ),
     ];
 
     items.push(maybe_preserve_or_remove(

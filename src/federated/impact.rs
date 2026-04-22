@@ -1,6 +1,7 @@
 use crate::federated::schema::FederatedSchema;
 use crate::federated::storage::{get_dependencies_for_sibling, get_federated_links};
 use crate::impact::packet::ImpactPacket;
+use crate::ledger::db::LedgerDb;
 use crate::state::storage::StorageManager;
 use miette::Result;
 use std::fs;
@@ -13,6 +14,7 @@ pub fn check_cross_repo_impact(packet: &mut ImpactPacket, storage: &StorageManag
     }
 
     let mut impact_reasons = Vec::new();
+    let db = LedgerDb::new(storage.get_connection());
 
     for (name, path, _) in links {
         let schema_path = std::path::Path::new(&path)
@@ -64,11 +66,25 @@ pub fn check_cross_repo_impact(packet: &mut ImpactPacket, storage: &StorageManag
         let dependencies = get_dependencies_for_sibling(storage.get_connection(), &name)?;
 
         for (local_symbol, sibling_symbol) in dependencies {
-            let exists = schema
+            // Check for removal
+            let interface = schema
                 .public_interfaces
                 .iter()
-                .any(|i| i.symbol == sibling_symbol);
-            if !exists {
+                .find(|i| i.symbol == sibling_symbol);
+
+            if let Some(iface) = interface {
+                // If exists, check for recent imported ledger entries for this entity from this sibling
+                let federated_entries = db
+                    .get_federated_entries_by_entity(&iface.file, &name, 30)
+                    .map_err(|e| miette::miette!("{}", e))?;
+
+                for entry in federated_entries {
+                    impact_reasons.push(format!(
+                        "Cross-repo impact: Sibling '{}' modified '{}' ([FEDERATED] {})",
+                        name, entry.entity, entry.summary
+                    ));
+                }
+            } else {
                 impact_reasons.push(format!(
                     "Cross-repo impact: Local symbol '{}' depends on sibling '{}' interface '{}' which was removed.",
                     local_symbol, name, sibling_symbol

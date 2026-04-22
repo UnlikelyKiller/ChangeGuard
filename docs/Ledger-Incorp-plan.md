@@ -799,7 +799,9 @@ The implementation should proceed in the following order. Each phase has a verif
 
 ---
 
-## Phase L1: Transaction Lifecycle & Data Model
+## Phase L1: Transaction Lifecycle & Data Model [COMPLETED]
+
+**Status**: Implemented in **Track L1-1** (Data Model & Migrations) and **Track L1-2** (Lifecycle & CLI Commands).
 
 ### Objective
 
@@ -807,21 +809,15 @@ Establish the transaction data model, lifecycle management, and core CLI command
 
 ### Deliverables
 
-- `src/ledger/types.rs` — Category, ChangeType, VerificationStatus, VerificationBasis, EntryType enums
-- `src/ledger/error.rs` — LedgerError enum (thiserror + miette::Diagnostic)
-- `src/ledger/db.rs` — Ledger-specific SQLite operations (shares `rusqlite::Connection` with StorageManager)
-- `src/ledger/transaction.rs` — Transaction lifecycle manager (start, commit, rollback, adopt)
-- `src/ledger/session.rs` — Session ID generation, stale transaction detection
-- `src/state/migrations.rs` — New migration adding transactions, ledger_entries, ledger_fts tables
-- `src/commands/ledger.rs` — `ledger start` command
-- `src/commands/ledger_commit.rs` — `ledger commit` command
-- `src/commands/ledger_rollback.rs` — `ledger rollback` command
-- `src/commands/ledger_atomic.rs` — `ledger atomic` command (start+commit in one call)
-- `src/commands/ledger_status.rs` — `ledger status` command
-- `src/commands/ledger_note.rs` — `ledger note` lightweight command
-- `src/commands/ledger_resume.rs` — `ledger resume` command
-- `src/config/model.rs` — LedgerConfig section
-- `src/cli.rs` — `ledger` subcommand group
+- `src/ledger/types.rs` — [DONE]
+- `src/ledger/error.rs` — [DONE]
+- `src/ledger/db.rs` — [DONE]
+- `src/ledger/transaction.rs` — [DONE]
+- `src/ledger/session.rs` — [DONE]
+- `src/state/migrations.rs` — [DONE] (M11, M12)
+- `src/commands/ledger.rs` — [DONE] (Grouped start/commit/rollback/atomic/note/status/resume)
+- `src/config/model.rs` — [DONE] (LedgerConfig)
+- `src/cli.rs` — [DONE] (Ledger group)
 
 ### Functional Requirements
 
@@ -891,7 +887,9 @@ All entity paths are normalized before storage:
 
 ---
 
-## Phase L2: Drift Detection & Reconciliation
+## Phase L2: Drift Detection & Reconciliation [IN PROGRESS]
+
+**Status**: Implementing in **Track L2-1** (Ledger Drift Detection) and **Track L2-2** (Reconciliation & Adoption).
 
 ### Objective
 
@@ -899,12 +897,12 @@ Connect ChangeGuard's existing file watcher to the transaction system so that un
 
 ### Deliverables
 
-- `src/ledger/drift.rs` — Watcher event → UNAUDITED transaction bridge
-- `src/commands/ledger_reconcile.rs` — `ledger reconcile` command
-- `src/commands/ledger_adopt.rs` — `ledger adopt` command
-- Extend `src/watch/` — Emit drift events to transaction system
-- Extend `src/commands/ledger_status.rs` — Separate active session from stale drift
-- `src/ledger/session.rs` — Stale transaction cleanup (background, configurable threshold)
+- `src/ledger/drift.rs` — Watcher event → UNAUDITED transaction bridge [DONE]
+- `src/commands/ledger_reconcile.rs` — `ledger reconcile` command [IN PROGRESS]
+- `src/commands/ledger_adopt.rs` — `ledger adopt` command [IN PROGRESS]
+- Extend `src/watch/` — Emit drift events to transaction system [DONE]
+- Extend `src/commands/ledger_status.rs` — Separate active session from stale drift [DONE]
+- `src/ledger/session.rs` — Stale transaction cleanup (background, configurable threshold) [TODO]
 
 ### Functional Requirements
 
@@ -979,7 +977,9 @@ Precedence: CLI flag > config default. If neither is specified, the config defau
 
 ---
 
-## Phase L3: Tech Stack Enforcement & Validators
+## Phase L3: Tech Stack Enforcement & Validators [IN PROGRESS]
+
+**Status**: Implementing in **Track L3-1** (Enforcement Data Model & Registration) [DONE] and **Track L3-2** (Enforcement & Validation Logic) [IN PROGRESS].
 
 ### Objective
 
@@ -987,12 +987,12 @@ Implement architectural constraint enforcement that prevents violations before c
 
 ### Deliverables
 
-- `src/ledger/enforcement.rs` — Tech stack rule checking at transaction start
-- `src/ledger/validators.rs` — Shell-command validators at commit time
-- `src/commands/ledger_stack.rs` — `ledger stack` command (read rules)
-- `src/commands/ledger_register.rs` — `ledger register` command (add rules/validators)
-- Extend `src/commands/init.rs` — Auto-detect tech stack, seed defaults
-- `src/state/migrations.rs` — New migration for tech_stack, commit_validators, category_stack_mappings tables
+- `src/ledger/enforcement.rs` — Tech stack rule checking at transaction start [IN PROGRESS]
+- `src/ledger/validators.rs` — Shell-command validators at commit time [IN PROGRESS]
+- `src/commands/ledger_stack.rs` — `ledger stack` command (read rules) [DONE]
+- `src/commands/ledger_register.rs` — `ledger register` command (add rules/validators) [DONE]
+- Extend `src/commands/init.rs` — Auto-detect tech stack, seed defaults [TODO]
+- `src/state/migrations.rs` — New migration for tech_stack, commit_validators, category_stack_mappings tables [DONE] (M13)
 
 ### Functional Requirements
 
@@ -1055,7 +1055,9 @@ Implement architectural constraint enforcement that prevents violations before c
 
 ---
 
-## Phase L4: Search, Audit & ADR Export
+## Phase L4: Search, Audit & ADR Export [COMPLETED]
+
+**Status**: Implemented in **Track L4-1** (ADR Generation) and **Track L4-2** (FTS5 Search).
 
 ### Objective
 
@@ -1063,12 +1065,12 @@ Make the audit trail queryable and exportable through FTS5 search, holistic proj
 
 ### Deliverables
 
-- `src/ledger/search.rs` — FTS5 search engine
-- `src/commands/ledger_search.rs` — `ledger search` command (positional query)
-- `src/commands/ledger_audit.rs` — `ledger audit` command (holistic project state)
-- `src/ledger/adr.rs` — MADR-format ADR exporter
-- `src/commands/ledger_adr.rs` — `ledger adr` command
-- `src/commands/ledger_scaffold.rs` — `ledger scaffold` command
+- `src/ledger/adr.rs` — MADR-format ADR exporter [DONE]
+- `src/commands/ledger_adr.rs` — `ledger adr` command [DONE]
+- `src/commands/ledger_search.rs` — `ledger search` command (positional query) [DONE]
+- `src/ledger/db.rs` — FTS5 search query logic [DONE]
+- `src/commands/ledger_audit.rs` — `ledger audit` command (holistic project state) [TODO]
+- `src/commands/ledger_scaffold.rs` — `ledger scaffold` command [TODO]
 
 ### Functional Requirements
 

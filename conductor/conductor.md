@@ -59,11 +59,68 @@
     *   Key additions: `NO <term>` check at start, validator runner (shell execution, timeouts, {entity} substitution), lifecycle integration.
 
 *   **Track L3-R2: Enforcement Logic Remediation**
-    *   Status: Active
+    *   Status: Completed
     *   Spec: `conductor/trackL3-R2/spec.md`
     *   Plan: `conductor/trackL3-R2/plan.md`
     *   Goal: Address Codex findings for Track L3-2: absolute path substitution, global validator inclusion, and specific error variants.
     *   Key additions: Absolute entity path in validators, 'ALL' category support in DB queries, RuleViolation and ValidatorFailed errors.
+
+*   **Track L4-1: Transaction-Linked ADR Generation**
+    *   Status: Completed
+    *   Spec: `conductor/trackL4-1/spec.md`
+    *   Plan: `conductor/trackL4-1/plan.md`
+    *   Goal: Implement the `ledger adr` command to export architectural decisions as MADR-format markdown.
+    *   Key additions: `ledger adr` command, MADR template, entry fetching for architecture/breaking changes.
+
+*   **Track L4-2: FTS5 Search Integration**
+    *   Status: Completed
+    *   Spec: `conductor/trackL4-2/spec.md`
+    *   Plan: `conductor/trackL4-2/plan.md`
+    *   Goal: Implement the `ledger search` command using SQLite FTS5 for full-text search across ledger entries.
+    *   Key additions: `ledger search` command, FTS5 query logic in DB, ranked search results.
+
+*   **Track L4-R: Search & ADR Remediation**
+    *   Status: Completed
+    *   Spec: `conductor/trackL4-R/spec.md`
+    *   Plan: `conductor/trackL4-R/plan.md`
+    *   Goal: Address Codex findings for Phase L4: FTS alias fix, timestamp format alignment, and MADR template completion.
+    *   Key additions: `f MATCH` query, RFC3339 date comparison, ADR `## Decision` section, `TransactionManager` search wrapper.
+
+*   **Track L5-1: Token-Level Provenance**
+    *   Status: Completed
+    *   Spec: `conductor/trackL5-1/spec.md`
+    *   Plan: `conductor/trackL5-1/plan.md`
+    *   Goal: Implement token-level attribution to transactions, recording symbol modifications in the ledger.
+    *   Key additions: `token_provenance` table (M14), symbol attribution logic, symbol-level history in audit.
+
+*   **Track L6-1: Ledger Federation**
+    *   Status: Completed
+    *   Spec: `conductor/trackL6-1/spec.md`
+    *   Plan: `conductor/trackL6-1/plan.md`
+    *   Goal: Implement cross-repo ledger federation, exporting local entries and importing sibling entries.
+    *   Key additions: `ledger` array in `schema.json`, federated audit/impact views, [FEDERATED] markings.
+
+*   **Track L6-R: Ledger Federation Remediation**
+    *   Status: Completed
+    *   Spec: `conductor/trackL6-R/spec.md`
+    *   Plan: `conductor/trackL6-R/plan.md`
+    *   Goal: Address Codex findings for Track L6-1: correct federation identity, path confinement, export limit, and impact query.
+    *   Key additions: `origin = SIBLING`, `trace_id = sibling_name`, 30-day export limit, local DB impact query for siblings.
+
+*   **Track L7-1: Production Polish**
+    *   Status: Completed
+    *   Spec: `conductor/trackL7-1/spec.md`
+    *   Plan: `conductor/trackL7-1/plan.md`
+    *   Goal: Polish the Ledger implementation for production readiness: UI enhancements, actionable errors, and complete documentation.
+    *   Key additions: Color-coded icons, refined miette errors, comprehensive README and skill documentation.
+
+*   **Track L-H1: Ledger Production Hardening**
+    *   Status: Active
+    *   Spec: `conductor/trackL-H1/spec.md`
+    *   Plan: `conductor/trackL-H1/plan.md`
+    *   Goal: Address critical and high-severity Codex findings: lifecycle invariants, durable state protection, and secure path normalization.
+    *   Key additions: Unique PENDING index, conditional status updates, --include-ledger reset flag, lexical path normalization utility, ProcessPolicy for validators.
+
 
 ## Milestone J: Phase 2 Final Remediation (Completed)
 

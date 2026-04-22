@@ -1,7 +1,9 @@
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, ValueEnum, Default,
+)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[value(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Category {
@@ -16,7 +18,9 @@ pub enum Category {
     Chore,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, ValueEnum, Default,
+)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[value(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ChangeType {
@@ -27,13 +31,14 @@ pub enum ChangeType {
     Delete,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, ValueEnum)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[value(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum EntryType {
     Implementation,
     Architecture,
     Lesson,
+    Reconciliation,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
@@ -93,6 +98,10 @@ pub struct Transaction {
     pub source: String,
     pub started_at: String,
     pub resolved_at: Option<String>,
+    pub detected_at: Option<String>,
+    pub drift_count: i32,
+    pub first_seen_at: Option<String>,
+    pub last_seen_at: Option<String>,
     pub issue_ref: Option<String>,
 }
 
@@ -109,6 +118,11 @@ pub struct LedgerEntry {
     pub reason: String,
     pub is_breaking: bool,
     pub committed_at: String,
+    pub verification_status: Option<VerificationStatus>,
+    pub verification_basis: Option<VerificationBasis>,
+    pub outcome_notes: Option<String>,
+    pub origin: String,
+    pub trace_id: Option<String>,
 }
 
 #[cfg(test)]
