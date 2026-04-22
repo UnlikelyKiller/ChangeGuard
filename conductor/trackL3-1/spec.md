@@ -1,36 +1,144 @@
-# Specification: Track L3-1: Ledger-Aware Scan & Impact
+# Specification: Track L3-1 - Enforcement Data Model & Registration
 
-## Overview
-This track implements the foundational layer of Phase L3 / L5 (Change Intelligence Integration) by bridging the gap between ChangeGuard's scan/impact tools and the Ledger's provenance tracking. It involves augmenting the CLI output of `scan` to reflect active (PENDING) transactions, embedding transaction metadata into the `ImpactPacket`, and providing bulk ledger retrieval utilities.
+## Objective
+Implement the foundational data model, types, and CLI commands for Phase L3 (Tech Stack Enforcement & Validators) as outlined in `docs/Ledger-Incorp-plan.md`. This enables users to register and view tech stack rules and commit validators, preparing the system for active constraint enforcement at transaction start and commit times.
 
-## Requirements
+## Deliverables
 
-### 1. `src/ledger/transaction.rs` Helper Methods
-- **`get_pending_for_paths`**: Add a method to `TransactionManager` that accepts a list of file paths (as strings or `Path`s) and bulk-queries the `LedgerDb` for PENDING transactions associated with those normalized paths.
-- Returns a mapping (e.g., `HashMap<String, Transaction>`) of normalized path to the associated transaction.
-- Implementation should map paths using `entity_normalized` before querying. A new bulk query method in `LedgerDb` (e.g., `get_pending_by_entities`) should be implemented using an `IN` clause or by iterating.
+### 1. `src/ledger/enforcement.rs`
+Define the types and structures for the enforcement data model:
 
-### 2. `src/impact/packet.rs` Data Model Updates
-- Update the `ChangedFile` struct to include:
-  - `pub tx_id: Option<String>`
-  - `pub category: Option<String>`
-  - `pub planned_action: Option<String>`
-- Use `#[serde(default, skip_serializing_if = "Option::is_none")]` annotations for backward compatibility with existing `.json` packets.
+- `RuleType`: Enum for `TECH_STACK`, `VALIDATOR`, `MAPPING`, `WATCHER`.
+- `TechStackRule`: Represents an entry in the `tech_stack` table.
+- `ValidationLevel`: Enum `Error`, `Warning` (default `Error`).
+- `CommitValidator`: Represents an entry in the `commit_validators` table.
+- `CategoryMapping`: Represents an entry in the `category_stack_mappings` table.
 
-### 3. `src/commands/impact.rs` Updates
-- During `execute_impact`, attempt to initialize the `StorageManager`.
-- If successful, use a `TransactionManager` to query PENDING transactions for all detected changed files.
-- Inject the `tx_id`, `category`, and `planned_action` into each `ChangedFile` entry in the `ImpactPacket`.
-- This ensures the JSON impact report written to `.changeguard/reports/` includes transaction metadata for downstream processors.
+```rust
+use serde::{Deserialize, Serialize};
 
-### 4. `src/commands/scan.rs` Updates
-- Initialize `StorageManager` during `execute_scan`.
-- Query PENDING transactions for all files in the `RepoSnapshot`.
-- Update `src/output/human.rs` -> `print_scan_summary` to accept the transaction mapping (e.g., `Option<&HashMap<PathBuf, String>>`).
-- Modify the scan summary table to include a new "Tx" column (`["State", "Action", "Tx", "File Path"]`).
-- For each path, display the truncated `tx_id` (e.g., first 8 characters) or "UNTRACKED" (dimmed) if no transaction exists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum RuleType {
+    TechStack,
+    Validator,
+    Mapping,
+    Watcher,
+}
 
-## Technical Details & Constraints
-- **Graceful Degradation**: If `StorageManager` fails to initialize (e.g., outside a changeguard context), `scan` and `impact` should fall back to standard behavior with `None` or "UNTRACKED".
-- **Path Normalization**: The `entity_normalized` logic from `TransactionManager` must be used strictly to match git status paths with database entities.
-- **TDD Requirement**: Integration tests must be added to `tests/cli_scan.rs` and `tests/cli_impact.rs` validating behavior with and without active ledger transactions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TechStackRule {
+    pub category: String, // e.g., DATABASE, BACKEND_LANG
+    pub name: String,
+    pub version_constraint: Option<String>,
+    #[serde(default)]
+    pub rules: Vec<String>,
+    #[serde(default)]
+    pub locked: bool,
+    #[serde(default = "default_status")]
+    pub status: String,
+    #[serde(default = "default_entity_type")]
+    pub entity_type: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ValidationLevel {
+    Error,
+    Warning,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommitValidator {
+    pub category: String, // e.g., FEATURE, ARCHITECTURE
+    pub name: String,
+    pub description: Option<String>,
+    pub executable: String,
+    pub args: Vec<String>,
+    #[serde(default = "default_timeout")]
+    pub timeout_ms: i32,
+    pub glob: Option<String>,
+    #[serde(default = "default_validation_level")]
+    pub validation_level: ValidationLevel,
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CategoryMappingPayload {
+    pub ledger_category: String,
+    pub stack_category: String,
+    pub glob: Option<String>,
+    pub description: Option<String>,
+}
+```
+
+### 2. `src/state/migrations.rs`
+Add `M13` to `get_migrations()` containing the following table schemas:
+- `tech_stack`
+- `commit_validators`
+- `category_stack_mappings`
+- `watcher_patterns`
+
+```sql
+CREATE TABLE IF NOT EXISTS tech_stack (
+    category           TEXT PRIMARY KEY,
+    name               TEXT NOT NULL,
+    version_constraint TEXT,
+    rules              TEXT NOT NULL DEFAULT '[]',
+    locked             INTEGER DEFAULT 0,
+    status             TEXT DEFAULT 'ACTIVE',
+    entity_type        TEXT DEFAULT 'FILE',
+    registered_at      TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS commit_validators (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    category           TEXT NOT NULL,
+    name               TEXT NOT NULL,
+    description        TEXT,
+    executable         TEXT NOT NULL,
+    args               TEXT NOT NULL,
+    timeout_ms         INTEGER DEFAULT 30000,
+    glob               TEXT,
+    validation_level   TEXT DEFAULT 'ERROR',
+    enabled            INTEGER DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS category_stack_mappings (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    ledger_category    TEXT NOT NULL,
+    stack_category     TEXT NOT NULL REFERENCES tech_stack(category),
+    glob               TEXT,
+    description        TEXT
+);
+
+CREATE TABLE IF NOT EXISTS watcher_patterns (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    glob               TEXT NOT NULL,
+    category           TEXT NOT NULL,
+    source             TEXT NOT NULL DEFAULT 'CONFIG',
+    description        TEXT
+);
+```
+
+### 3. `src/ledger/db.rs`
+Implement helper methods to handle inserting and fetching rules from the database:
+- `pub fn insert_tech_stack_rule(&self, rule: &TechStackRule) -> Result<()>`
+- `pub fn get_tech_stack_rules(&self, category: Option<&str>) -> Result<Vec<TechStackRule>>`
+- `pub fn insert_commit_validator(&self, validator: &CommitValidator) -> Result<()>`
+- `pub fn get_commit_validators(&self, category: Option<&str>) -> Result<Vec<CommitValidator>>`
+- `pub fn insert_category_mapping(&self, mapping: &CategoryMappingPayload) -> Result<()>`
+
+### 4. `src/cli.rs` and CLI commands
+Extend `LedgerCommands` with:
+- `Register`: Takes `--rule-type` (enum) and `--payload` (JSON string).
+- `Stack`: Takes optional `--category` string to filter the output.
+
+Add handlers for the CLI:
+- `src/commands/ledger_register.rs`: Parses the JSON string into the appropriate struct based on the `RuleType`, validates it, and saves it via `ledger::db.rs`.
+- `src/commands/ledger_stack.rs`: Fetches the rules via `ledger::db.rs` and formats them in a clear human-readable output or JSON.
+
+### 5. Tests
+- Update `tests/ledger_enforcement.rs` or unit tests inside `src/ledger/db.rs` and `src/commands/ledger_register.rs` following TDD.
+- Verify basic schema instantiation, insertion of different JSON payloads, and reading back values.

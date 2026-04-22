@@ -1,17 +1,19 @@
-## Plan: Ledger-Aware Scan & Impact
+## Plan: Track L3-1 - Enforcement Data Model & Registration
 
-### Phase 1: Data Model & Ledger Retrieval Foundation
-- [ ] Task 1.1: Update `src/impact/packet.rs`. Add `tx_id`, `category`, and `planned_action` (all `Option<String>`) to the `ChangedFile` struct. Add `#[serde(default, skip_serializing_if = "Option::is_none")]` annotations for backward compatibility. Update tests.
-- [ ] Task 1.2: Update `src/ledger/db.rs`. Implement `get_pending_by_entities(entities: &[String]) -> Result<Vec<Transaction>, LedgerError>` to efficiently bulk retrieve PENDING transactions.
-- [ ] Task 1.3: Update `src/ledger/transaction.rs`. Add `get_pending_for_paths(paths: &[impl AsRef<Path>]) -> Result<HashMap<PathBuf, Transaction>, LedgerError>` to `TransactionManager` which normalizes paths and calls the new DB method.
+### Phase 1: Data Model & Database Migrations
+- [ ] Task 1.1: Create `src/ledger/enforcement.rs` and implement the types `RuleType` (enum: `TechStack`, `Validator`, `Mapping`, `Watcher`), `TechStackRule`, `ValidationLevel`, `CommitValidator`, and payload structs for mappings and watchers.
+- [ ] Task 1.2: Update `src/state/migrations.rs` to add Migration `M13`. This must create the `tech_stack`, `commit_validators`, `category_stack_mappings`, and `watcher_patterns` tables.
+- [ ] Task 1.3: Add a unit test in `src/state/migrations.rs` to verify that `M13` creates the tables correctly and allows inserting JSON lists (e.g., `rules`, `args`) properly.
+- [ ] Task 1.4: Update `src/ledger/db.rs` with data access methods (`insert_tech_stack_rule`, `get_tech_stack_rules`, `insert_commit_validator`, `get_commit_validators`, `insert_category_mapping`, `insert_watcher_pattern`). Make sure arrays (`rules`, `args`) are correctly serialized/deserialized to JSON strings during SQLite insertions.
 
-### Phase 2: Impact Command Integration
-- [ ] Task 2.1: Update `src/commands/impact.rs`. In `execute_impact`, initialize SQLite (`StorageManager`) and `TransactionManager` early. Use the `get_pending_for_paths` method on all modified file paths from the snapshot.
-- [ ] Task 2.2: Update `map_snapshot_to_packet` in `src/commands/impact.rs` to accept the transaction map and populate the new `tx_id`, `category`, and `planned_action` fields for each `ChangedFile` entry. Handle the missing ledger database gracefully.
-- [ ] Task 2.3: Update `tests/cli_impact.rs`. Add an integration test that creates a ledger transaction and verifies the `tx_id` is present in the generated `impact` JSON report.
+### Phase 2: Registration Commands & Routing
+- [ ] Task 2.1: Update `src/cli.rs` and `LedgerCommands` to add the `Register` subcommand (taking `--rule-type` and `--payload`) and the `Stack` subcommand (taking optional `--category`).
+- [ ] Task 2.2: Create `src/commands/ledger_register.rs`. Implement the `execute_ledger_register` function, which handles parsing the `--payload` JSON based on the `--rule-type` and inserting it via the `ledger::db` module. Include validation to prevent malformed payloads.
+- [ ] Task 2.3: Create `src/commands/ledger_stack.rs`. Implement `execute_ledger_stack` to retrieve and format registered rules (`tech_stack` rules, and optionally `commit_validators`).
+- [ ] Task 2.4: Update the `run()` match statement in `src/cli.rs` (or dispatch logic in `src/commands/ledger.rs`) to dispatch `LedgerCommands::Register` and `LedgerCommands::Stack` to their respective execution handlers.
 
-### Phase 3: Scan Command Integration
-- [ ] Task 3.1: Update `src/output/human.rs`. Modify `print_scan_summary` to accept `tx_map: Option<&HashMap<PathBuf, String>>`. Update the CLI table definition to `["State", "Action", "Tx", "File Path"]`. Display the truncated `tx_id` (first 8 characters) or "UNTRACKED" (dimmed).
-- [ ] Task 3.2: Update `src/commands/scan.rs`. In `execute_scan`, attempt to query the `StorageManager` and `TransactionManager` for all changed paths to construct the `tx_map`.
-- [ ] Task 3.3: Pass the mapping into `print_scan_summary`. Ensure that if the database is missing or an error occurs, it falls back to an empty map (displaying "UNTRACKED").
-- [ ] Task 3.4: Update `tests/cli_scan.rs`. Add an integration test where a pending transaction exists, verifying the CLI table output contains the `tx_id`.
+### Phase 3: Testing & Verification
+- [ ] Task 3.1: Create `tests/ledger_enforcement.rs` to establish a TDD verification loop.
+- [ ] Task 3.2: Write tests for `ledger register` with valid JSON payloads for each `RuleType`.
+- [ ] Task 3.3: Write tests for `ledger register` to ensure it rejects invalid JSON payloads or payloads that don't match the schema for the requested `RuleType`.
+- [ ] Task 3.4: Verify `ledger stack` output includes recently registered tech stack items.
