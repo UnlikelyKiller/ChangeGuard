@@ -3,11 +3,18 @@
 ## Milestone L: Ledger Incorporation (Active)
 
 *   **Track L1-1: Ledger Data Model & Migrations**
-    *   Status: Active
+    *   Status: Completed
     *   Spec: `conductor/trackL1-1/spec.md`
     *   Plan: `conductor/trackL1-1/plan.md`
     *   Goal: Implement Phase L1 (Transaction Lifecycle & Data Model) - Data Model, Error types, and Migrations M11 & M12.
     *   Key additions: `src/ledger/types.rs`, `src/ledger/error.rs`, SQLite migrations M11-M12, `LedgerConfig`.
+
+*   **Track L1-2: Transaction Lifecycle Management**
+    *   Status: Active
+    *   Spec: `conductor/trackL1-2/spec.md`
+    *   Plan: `conductor/trackL1-2/plan.md`
+    *   Goal: Implement the core transaction lifecycle (start, commit, rollback, atomic) and CLI commands.
+    *   Key additions: `src/ledger/db.rs`, `src/ledger/transaction.rs`, `src/ledger/session.rs`, `ledger start/commit/rollback/atomic`.
 
 ## Milestone J: Phase 2 Final Remediation (Completed)
 
