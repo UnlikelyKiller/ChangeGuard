@@ -380,8 +380,9 @@ impl<'a> LedgerDb<'a> {
             LedgerError::from(e)
         })?;
 
-        let rows =
-            stmt.query_map(rusqlite::params_from_iter(params), |row| self.map_ledger_entry(row))?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(params), |row| {
+            self.map_ledger_entry(row)
+        })?;
 
         let mut entries = Vec::new();
         for entry in rows {

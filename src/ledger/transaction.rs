@@ -74,8 +74,7 @@ impl<'a> TransactionManager<'a> {
                             {
                                 return Err(LedgerError::RuleViolation(format!(
                                     "Planned action violates tech stack rule for {} (forbidden term: {})",
-                                    rule.name,
-                                    term_lower
+                                    rule.name, term_lower
                                 )));
                             }
 
@@ -83,8 +82,7 @@ impl<'a> TransactionManager<'a> {
                             if normalized.to_lowercase().contains(&term_lower) {
                                 return Err(LedgerError::RuleViolation(format!(
                                     "Entity path violates tech stack rule for {} (forbidden term: {})",
-                                    rule.name,
-                                    term_lower
+                                    rule.name, term_lower
                                 )));
                             }
                         }
@@ -159,12 +157,20 @@ impl<'a> TransactionManager<'a> {
                 }
                 // Check glob if present using proper globset matching
                 if let Some(ref pattern) = v.glob {
-                    let glob = Glob::new(pattern)
-                        .map_err(|e| LedgerError::Validation(format!("Invalid glob pattern '{}': {}", pattern, e)))?;
+                    let glob = Glob::new(pattern).map_err(|e| {
+                        LedgerError::Validation(format!(
+                            "Invalid glob pattern '{}': {}",
+                            pattern, e
+                        ))
+                    })?;
                     let mut builder = GlobSetBuilder::new();
                     builder.add(glob);
-                    let globset = builder.build()
-                        .map_err(|e| LedgerError::Validation(format!("Failed to build globset for '{}': {}", pattern, e)))?;
+                    let globset = builder.build().map_err(|e| {
+                        LedgerError::Validation(format!(
+                            "Failed to build globset for '{}': {}",
+                            pattern, e
+                        ))
+                    })?;
                     if !globset.is_match(&tx.entity_normalized) {
                         continue;
                     }
@@ -282,7 +288,9 @@ impl<'a> TransactionManager<'a> {
         if let Err(commit_err) = self.commit_change(tx_id.clone(), commit_req) {
             // Attempt cleanup rollback; prefer returning the original error
             if let Err(rollback_err) = self.rollback_change(tx_id) {
-                tracing::warn!("atomic_change: rollback after commit failure also failed: {rollback_err}");
+                tracing::warn!(
+                    "atomic_change: rollback after commit failure also failed: {rollback_err}"
+                );
             }
             return Err(commit_err);
         }
