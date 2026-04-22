@@ -25,7 +25,7 @@ fn test_scan_integration_clean() {
 
     let _guard = DirGuard::new(root);
 
-    let result = execute_scan();
+    let result = execute_scan(false);
     assert!(result.is_ok());
 
     let layout = Layout::new(root.to_string_lossy().as_ref());
@@ -57,7 +57,7 @@ fn test_scan_integration_dirty() {
 
     let _guard = DirGuard::new(root);
 
-    let result = execute_scan();
+    let result = execute_scan(false);
     assert!(result.is_ok());
 
     let layout = Layout::new(root.to_string_lossy().as_ref());
@@ -89,7 +89,7 @@ fn test_scan_integration_detached() {
 
     let _guard = DirGuard::new(root);
 
-    let result = execute_scan();
+    let result = execute_scan(false);
     assert!(result.is_ok());
 }
 

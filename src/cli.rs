@@ -20,7 +20,11 @@ pub enum Commands {
     /// Check the health of the environment and tools
     Doctor,
     /// Scan the repository for changes
-    Scan,
+    Scan {
+        /// Also run impact analysis after scanning
+        #[arg(long)]
+        impact: bool,
+    },
     /// Watch the repository for changes and batch them
     Watch {
         /// The interval in milliseconds to batch events
@@ -35,6 +39,9 @@ pub enum Commands {
         /// Enable full history traversal (default is first-parent only)
         #[arg(long)]
         all_parents: bool,
+        /// Show condensed one-line summary instead of full analysis
+        #[arg(long)]
+        summary: bool,
     },
     /// Plan and run targeted verification
     Verify {
@@ -125,9 +132,9 @@ pub fn run() -> Result<()> {
     match cli.command {
         Commands::Init { no_gitignore } => crate::commands::init::execute_init(no_gitignore),
         Commands::Doctor => crate::commands::doctor::execute_doctor(),
-        Commands::Scan => crate::commands::scan::execute_scan(),
+        Commands::Scan { impact } => crate::commands::scan::execute_scan(impact),
         Commands::Watch { interval, json } => crate::commands::watch::execute_watch(interval, json),
-        Commands::Impact { all_parents } => crate::commands::impact::execute_impact(all_parents),
+        Commands::Impact { all_parents, summary } => crate::commands::impact::execute_impact(all_parents, summary),
         Commands::Verify {
             command,
             timeout,

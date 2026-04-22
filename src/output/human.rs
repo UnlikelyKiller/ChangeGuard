@@ -1,6 +1,6 @@
 use crate::exec::boundary::ExecutionResult;
 use crate::git::{ChangeType, RepoSnapshot};
-use crate::impact::packet::{ImpactPacket, RiskLevel};
+use crate::impact::packet::{AnalysisStatus, ImpactPacket, RiskLevel};
 use crate::output::diagnostics::print_header;
 use crate::output::table::build_table;
 use crate::verify::plan::VerificationPlan;
@@ -96,18 +96,70 @@ pub fn print_impact_summary(packet: &ImpactPacket) {
         println!("{table}");
     }
 
-    let partial_analysis_count = packet
+    let mut partial_files: Vec<_> = packet
         .changes
         .iter()
         .filter(|file| !file.analysis_warnings.is_empty())
-        .count();
-    if partial_analysis_count > 0 {
+        .collect();
+
+    if !partial_files.is_empty() {
+        partial_files.sort_unstable_by_key(|f| &f.path);
+
         println!(
-            "\n{} {} file(s) had partial or unsupported analysis. Inspect latest-impact.json for details.",
+            "\n{} {} file(s) had partial or unsupported analysis:",
             "Warning:".yellow().bold(),
-            partial_analysis_count
+            partial_files.len()
         );
+
+        let mut table = build_table(["File", "Issue", "Resolution"]);
+
+        for file in &partial_files {
+            let resolution = match file.analysis_status.symbols {
+                AnalysisStatus::Unsupported => "Unsupported language",
+                AnalysisStatus::ReadFailed => "Check file exists and is readable",
+                AnalysisStatus::ExtractionFailed => "Check syntax or report bug",
+                AnalysisStatus::Ok => "Partial — check warnings",
+                AnalysisStatus::NotRun => "Analysis not yet run",
+            };
+
+            let warning_summary = file.analysis_warnings.join("; ");
+            table.add_row(vec![
+                file.path.display().to_string(),
+                warning_summary,
+                resolution.to_string(),
+            ]);
+        }
+
+        println!("{table}");
     }
+}
+
+pub fn print_impact_brief(packet: &ImpactPacket) {
+    let risk_color = match packet.risk_level {
+        RiskLevel::Low => "LOW".green().bold().to_string(),
+        RiskLevel::Medium => "MEDIUM".yellow().bold().to_string(),
+        RiskLevel::High => "HIGH".red().bold().to_string(),
+    };
+
+    let change_count = packet.changes.len();
+    let coupling_count = packet.temporal_couplings.len();
+    let partial_count = packet
+        .changes
+        .iter()
+        .filter(|f| !f.analysis_warnings.is_empty())
+        .count();
+
+    println!(
+        "{} risk | {} changed | {} couplings{}",
+        risk_color,
+        change_count,
+        coupling_count,
+        if partial_count > 0 {
+            format!(" | {} partial", partial_count)
+        } else {
+            String::new()
+        },
+    );
 }
 
 pub fn print_doctor_report(

@@ -170,11 +170,11 @@ impl<P: HistoryProvider> TemporalEngine<P> {
             .get_history(self.config.max_commits, self.config.all_parents)?;
 
         let mut commit_count = 0;
-        let mut file_commit_map: HashMap<Utf8PathBuf, HashSet<usize>> = HashMap::new();
-        let mut commit_id = 0;
+        // Store (commit_index, weight) for each file
+        let mut file_weighted_commits: HashMap<Utf8PathBuf, Vec<(usize, f64)>> = HashMap::new();
+        let mut total_commit_index = 0;
 
         for commit_set in history {
-            // Skip merge commits
             if commit_set.is_merge {
                 continue;
             }
@@ -185,12 +185,25 @@ impl<P: HistoryProvider> TemporalEngine<P> {
                 continue;
             }
 
+            // Exponential decay: most recent commit gets weight 1.0
+            // weight = 2^(-commit_index / half_life)
+            let weight = if self.config.decay_half_life > 0 {
+                (2.0_f64).powf(
+                    -(total_commit_index as f64) / (self.config.decay_half_life as f64),
+                )
+            } else {
+                1.0 // no decay if half_life is 0 (edge case)
+            };
+
             for file in commit_set.files {
-                file_commit_map.entry(file).or_default().insert(commit_id);
+                file_weighted_commits
+                    .entry(file)
+                    .or_default()
+                    .push((total_commit_index, weight));
             }
 
             commit_count += 1;
-            commit_id += 1;
+            total_commit_index += 1;
         }
 
         if commit_count < 10 {
@@ -200,23 +213,69 @@ impl<P: HistoryProvider> TemporalEngine<P> {
             });
         }
 
+        // Filter files below min_revisions threshold
+        let mut eligible_files: Vec<Utf8PathBuf> = file_weighted_commits
+            .iter()
+            .filter(|(_, commits)| commits.len() >= self.config.min_revisions)
+            .map(|(path, _)| path.clone())
+            .collect();
+        eligible_files.sort_unstable();
+
+        // Build per-file weighted totals for normalization
+        let mut file_total_weight: HashMap<&Utf8PathBuf, f64> = HashMap::new();
+        for path in &eligible_files {
+            let total: f64 = file_weighted_commits[path].iter().map(|(_, w)| w).sum();
+            file_total_weight.insert(path, total);
+        }
+
         let mut couplings = Vec::new();
-        let mut files: Vec<_> = file_commit_map.keys().cloned().collect();
-        files.sort_unstable();
 
-        for i in 0..files.len() {
-            for j in i + 1..files.len() {
-                let file_a = &files[i];
-                let file_b = &files[j];
+        for i in 0..eligible_files.len() {
+            for j in (i + 1)..eligible_files.len() {
+                let file_a = &eligible_files[i];
+                let file_b = &eligible_files[j];
 
-                let commits_a = &file_commit_map[file_a];
-                let commits_b = &file_commit_map[file_b];
+                let commits_a = &file_weighted_commits[file_a];
+                let commits_b = &file_weighted_commits[file_b];
 
-                let intersection: HashSet<_> = commits_a.intersection(commits_b).collect();
-                let common_count = intersection.len() as f32;
+                // Calculate weighted shared commits using merge-join on sorted commit indices
+                let mut shared_weight: f64 = 0.0;
+                let mut shared_count: usize = 0;
 
-                let score_a = common_count / commits_a.len() as f32;
-                let score_b = common_count / commits_b.len() as f32;
+                let mut ai = 0;
+                let mut bi = 0;
+                while ai < commits_a.len() && bi < commits_b.len() {
+                    match commits_a[ai].0.cmp(&commits_b[bi].0) {
+                        std::cmp::Ordering::Less => ai += 1,
+                        std::cmp::Ordering::Greater => bi += 1,
+                        std::cmp::Ordering::Equal => {
+                            // Same commit — use the weight from file_a (same commit, same weight)
+                            shared_weight += commits_a[ai].1;
+                            shared_count += 1;
+                            ai += 1;
+                            bi += 1;
+                        }
+                    }
+                }
+
+                // Apply minimum shared commits threshold
+                if shared_count < self.config.min_shared_commits {
+                    continue;
+                }
+
+                let total_a = file_total_weight[file_a];
+                let total_b = file_total_weight[file_b];
+
+                let score_a = if total_a > 0.0 {
+                    (shared_weight / total_a) as f32
+                } else {
+                    0.0
+                };
+                let score_b = if total_b > 0.0 {
+                    (shared_weight / total_b) as f32
+                } else {
+                    0.0
+                };
 
                 if score_a > self.config.coupling_threshold {
                     couplings.push(TemporalCoupling {
@@ -246,5 +305,142 @@ impl<P: HistoryProvider> TemporalEngine<P> {
         });
 
         Ok(couplings)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn make_config(
+        min_shared_commits: usize,
+        min_revisions: usize,
+        decay_half_life: usize,
+        coupling_threshold: f32,
+    ) -> TemporalConfig {
+        TemporalConfig {
+            max_commits: 1000,
+            max_files_per_commit: 50,
+            coupling_threshold,
+            all_parents: false,
+            min_shared_commits,
+            min_revisions,
+            decay_half_life,
+        }
+    }
+
+    struct MockHistoryProvider {
+        commits: Vec<CommitFileSet>,
+    }
+
+    impl MockHistoryProvider {
+        fn new(commits: Vec<CommitFileSet>) -> Self {
+            Self { commits }
+        }
+    }
+
+    impl HistoryProvider for MockHistoryProvider {
+        fn get_history(
+            &self,
+            _max: usize,
+            _all: bool,
+        ) -> Result<Vec<CommitFileSet>, GitError> {
+            Ok(self.commits.clone())
+        }
+    }
+
+
+    #[test]
+    fn test_coupling_respects_min_shared_commits() {
+        // Two files that only share 2 commits (below default threshold of 3)
+        // should NOT produce a coupling, even if they appear together often enough
+        // in percentage terms.
+        let mut commits = Vec::new();
+
+        // Create 10 commits where file_a and file_b share only 2 commits
+        // but each file appears in enough commits to pass min_revisions
+        for i in 0..10 {
+            let mut files = HashSet::new();
+            files.insert(Utf8PathBuf::from("src/main.rs"));
+            if i < 5 {
+                files.insert(Utf8PathBuf::from("src/lib.rs"));
+            }
+            // file_b only shares commits 0 and 1 with file_a
+            if i < 2 {
+                files.insert(Utf8PathBuf::from("src/helper.rs"));
+            }
+            if i >= 5 {
+                files.insert(Utf8PathBuf::from("src/extra.rs"));
+            }
+            commits.push(CommitFileSet {
+                files,
+                is_merge: false,
+            });
+        }
+
+        let config = make_config(3, 5, 100, 0.5);
+        let provider = MockHistoryProvider::new(commits);
+        let engine = TemporalEngine::new(provider, config);
+
+        let couplings = engine.calculate_couplings().unwrap();
+
+        // src/main.rs and src/helper.rs only share 2 commits (< min_shared_commits=3)
+        // so no coupling between them should be reported
+        let main_helper_couplings: Vec<_> = couplings
+            .iter()
+            .filter(|c| {
+                (c.file_a == PathBuf::from("src/main.rs")
+                    && c.file_b == PathBuf::from("src/helper.rs"))
+                    || (c.file_a == PathBuf::from("src/helper.rs")
+                        && c.file_b == PathBuf::from("src/main.rs"))
+            })
+            .collect();
+        assert!(
+            main_helper_couplings.is_empty(),
+            "Expected no coupling between main.rs and helper.rs (only 2 shared commits), but found: {:?}",
+            main_helper_couplings
+        );
+    }
+
+    #[test]
+    fn test_coupling_respects_min_revisions() {
+        // A file that only appears in 3 commits (below default min_revisions of 5)
+        // should be excluded from coupling analysis entirely.
+        let mut commits = Vec::new();
+
+        for i in 0..10 {
+            let mut files = HashSet::new();
+            files.insert(Utf8PathBuf::from("src/main.rs"));
+            files.insert(Utf8PathBuf::from("src/lib.rs"));
+            // rare.rs only appears in 3 commits
+            if i < 3 {
+                files.insert(Utf8PathBuf::from("src/rare.rs"));
+            }
+            commits.push(CommitFileSet {
+                files,
+                is_merge: false,
+            });
+        }
+
+        let config = make_config(3, 5, 100, 0.5);
+        let provider = MockHistoryProvider::new(commits);
+        let engine = TemporalEngine::new(provider, config);
+
+        let couplings = engine.calculate_couplings().unwrap();
+
+        // rare.rs should not appear in any coupling because it only has 3 revisions (< min_revisions=5)
+        let rare_couplings: Vec<_> = couplings
+            .iter()
+            .filter(|c| {
+                c.file_a == PathBuf::from("src/rare.rs")
+                    || c.file_b == PathBuf::from("src/rare.rs")
+            })
+            .collect();
+        assert!(
+            rare_couplings.is_empty(),
+            "Expected no coupling involving rare.rs (only 3 revisions, below min_revisions=5), but found: {:?}",
+            rare_couplings
+        );
     }
 }
