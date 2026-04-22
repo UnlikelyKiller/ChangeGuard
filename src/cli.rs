@@ -134,7 +134,10 @@ pub fn run() -> Result<()> {
         Commands::Doctor => crate::commands::doctor::execute_doctor(),
         Commands::Scan { impact } => crate::commands::scan::execute_scan(impact),
         Commands::Watch { interval, json } => crate::commands::watch::execute_watch(interval, json),
-        Commands::Impact { all_parents, summary } => crate::commands::impact::execute_impact(all_parents, summary),
+        Commands::Impact {
+            all_parents,
+            summary,
+        } => crate::commands::impact::execute_impact(all_parents, summary),
         Commands::Verify {
             command,
             timeout,

@@ -4,29 +4,15 @@ pub type TomlError = toml::de::Error;
 pub const DEFAULT_GEMINI_FAST_MODEL: &str = "gemini-3.1-flash-lite-preview";
 pub const DEFAULT_GEMINI_DEEP_MODEL: &str = "gemini-3.1-pro-preview";
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct VerifyStep {
     /// Human-readable description of what this step verifies
     pub description: String,
     /// The shell command to execute
     pub command: String,
-    /// Per-step timeout in seconds (defaults to 300 if not specified)
-    #[serde(default = "default_verify_step_timeout")]
-    pub timeout_secs: u64,
-}
-
-fn default_verify_step_timeout() -> u64 {
-    300
-}
-
-impl Default for VerifyStep {
-    fn default() -> Self {
-        Self {
-            description: String::new(),
-            command: String::new(),
-            timeout_secs: default_verify_step_timeout(),
-        }
-    }
+    /// Per-step timeout in seconds. None means use verify.default_timeout_secs.
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -298,10 +284,11 @@ mod tests {
         assert_eq!(config.verify.steps.len(), 2);
         assert_eq!(config.verify.steps[0].description, "Run unit tests");
         assert_eq!(config.verify.steps[0].command, "cargo test");
-        assert_eq!(config.verify.steps[0].timeout_secs, 60);
+        assert_eq!(config.verify.steps[0].timeout_secs, Some(60));
         assert_eq!(config.verify.steps[1].description, "Check formatting");
         assert_eq!(config.verify.steps[1].command, "cargo fmt --check");
-        assert_eq!(config.verify.steps[1].timeout_secs, 300);
+        // Omitted timeout_secs should deserialize as None (uses default_timeout_secs)
+        assert_eq!(config.verify.steps[1].timeout_secs, None);
     }
 
     #[test]

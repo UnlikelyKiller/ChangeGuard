@@ -188,9 +188,7 @@ impl<P: HistoryProvider> TemporalEngine<P> {
             // Exponential decay: most recent commit gets weight 1.0
             // weight = 2^(-commit_index / half_life)
             let weight = if self.config.decay_half_life > 0 {
-                (2.0_f64).powf(
-                    -(total_commit_index as f64) / (self.config.decay_half_life as f64),
-                )
+                (2.0_f64).powf(-(total_commit_index as f64) / (self.config.decay_half_life as f64))
             } else {
                 1.0 // no decay if half_life is 0 (edge case)
             };
@@ -341,15 +339,10 @@ mod tests {
     }
 
     impl HistoryProvider for MockHistoryProvider {
-        fn get_history(
-            &self,
-            _max: usize,
-            _all: bool,
-        ) -> Result<Vec<CommitFileSet>, GitError> {
+        fn get_history(&self, _max: usize, _all: bool) -> Result<Vec<CommitFileSet>, GitError> {
             Ok(self.commits.clone())
         }
     }
-
 
     #[test]
     fn test_coupling_respects_min_shared_commits() {
@@ -390,10 +383,8 @@ mod tests {
         let main_helper_couplings: Vec<_> = couplings
             .iter()
             .filter(|c| {
-                (c.file_a == PathBuf::from("src/main.rs")
-                    && c.file_b == PathBuf::from("src/helper.rs"))
-                    || (c.file_a == PathBuf::from("src/helper.rs")
-                        && c.file_b == PathBuf::from("src/main.rs"))
+                (c.file_a == path("src/main.rs") && c.file_b == path("src/helper.rs"))
+                    || (c.file_a == path("src/helper.rs") && c.file_b == path("src/main.rs"))
             })
             .collect();
         assert!(
@@ -432,15 +423,95 @@ mod tests {
         // rare.rs should not appear in any coupling because it only has 3 revisions (< min_revisions=5)
         let rare_couplings: Vec<_> = couplings
             .iter()
-            .filter(|c| {
-                c.file_a == PathBuf::from("src/rare.rs")
-                    || c.file_b == PathBuf::from("src/rare.rs")
-            })
+            .filter(|c| c.file_a == path("src/rare.rs") || c.file_b == path("src/rare.rs"))
             .collect();
         assert!(
             rare_couplings.is_empty(),
             "Expected no coupling involving rare.rs (only 3 revisions, below min_revisions=5), but found: {:?}",
             rare_couplings
         );
+    }
+
+    #[test]
+    fn test_recent_shared_commits_score_higher_than_old() {
+        // Two file pairs: (recent, old) share the same raw count of commits,
+        // but recent shared commits should produce a higher coupling score
+        // due to exponential decay weighting.
+        let mut commits = Vec::new();
+
+        // Commits 0-4: file_a + file_recent change together (recent)
+        // Commits 5-9: file_a changes alone
+        // Commits 10-19: file_a + file_old change together (old)
+        // Commits 20-29: file_a changes alone
+        // Both file_recent and file_old share 5 commits with file_a.
+        // But file_recent's shared commits are more recent (indices 0-4),
+        // so its weighted shared score should be higher.
+        for _ in 0..5 {
+            let mut files = HashSet::new();
+            files.insert(Utf8PathBuf::from("src/a.rs"));
+            files.insert(Utf8PathBuf::from("src/recent.rs"));
+            commits.push(CommitFileSet {
+                files,
+                is_merge: false,
+            });
+        }
+        for _ in 0..5 {
+            let mut files = HashSet::new();
+            files.insert(Utf8PathBuf::from("src/a.rs"));
+            commits.push(CommitFileSet {
+                files,
+                is_merge: false,
+            });
+        }
+        for _ in 0..5 {
+            let mut files = HashSet::new();
+            files.insert(Utf8PathBuf::from("src/a.rs"));
+            files.insert(Utf8PathBuf::from("src/old.rs"));
+            commits.push(CommitFileSet {
+                files,
+                is_merge: false,
+            });
+        }
+        for _ in 0..5 {
+            let mut files = HashSet::new();
+            files.insert(Utf8PathBuf::from("src/a.rs"));
+            commits.push(CommitFileSet {
+                files,
+                is_merge: false,
+            });
+        }
+
+        // Use low thresholds so both pairs are included
+        let config = make_config(1, 3, 50, 0.2);
+        let provider = MockHistoryProvider::new(commits);
+        let engine = TemporalEngine::new(provider, config);
+
+        let couplings = engine.calculate_couplings().unwrap();
+
+        // Find a→recent and a→old directional couplings
+        let recent_score = couplings
+            .iter()
+            .find(|c| c.file_a == path("src/a.rs") && c.file_b == path("src/recent.rs"))
+            .map(|c| c.score);
+        let old_score = couplings
+            .iter()
+            .find(|c| c.file_a == path("src/a.rs") && c.file_b == path("src/old.rs"))
+            .map(|c| c.score);
+
+        // Both should exist
+        assert!(recent_score.is_some(), "Expected a→recent coupling");
+        assert!(old_score.is_some(), "Expected a→old coupling");
+
+        // Recent shared commits should score higher than old shared commits
+        assert!(
+            recent_score.unwrap() > old_score.unwrap(),
+            "Recent shared commits should produce higher coupling score: recent={:?}, old={:?}",
+            recent_score,
+            old_score
+        );
+    }
+
+    fn path(s: &str) -> PathBuf {
+        PathBuf::from(s)
     }
 }

@@ -48,8 +48,9 @@ pub fn execute_verify(
                 let storage = match StorageManager::init(db_path.as_std_path()) {
                     Ok(storage) => Some(storage),
                     Err(err) => {
-                        let warning =
-                            format!("Prediction disabled: failed to initialize SQLite storage: {err}");
+                        let warning = format!(
+                            "Prediction disabled: failed to initialize SQLite storage: {err}"
+                        );
                         warn!("{warning}");
                         current_warnings.push(warning);
                         None

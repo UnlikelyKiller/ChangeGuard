@@ -45,7 +45,7 @@ fn sanitize_verify_steps(config: &mut Config) {
                 step.description
             );
             false
-        } else if step.timeout_secs == 0 {
+        } else if step.timeout_secs == Some(0) {
             warn!(
                 "Skipping verify step '{}' with zero timeout (use default_timeout_secs or set > 0)",
                 step.description
@@ -98,12 +98,12 @@ mod tests {
         config.verify.steps.push(crate::config::model::VerifyStep {
             description: "Missing command".to_string(),
             command: "   ".to_string(),
-            timeout_secs: 60,
+            timeout_secs: Some(60),
         });
         config.verify.steps.push(crate::config::model::VerifyStep {
             description: "Valid step".to_string(),
             command: "cargo test".to_string(),
-            timeout_secs: 60,
+            timeout_secs: Some(60),
         });
 
         sanitize_verify_steps(&mut config);
@@ -118,12 +118,12 @@ mod tests {
         config.verify.steps.push(crate::config::model::VerifyStep {
             description: "Bad timeout".to_string(),
             command: "cargo test".to_string(),
-            timeout_secs: 0,
+            timeout_secs: Some(0),
         });
         config.verify.steps.push(crate::config::model::VerifyStep {
             description: "Good step".to_string(),
             command: "cargo fmt --check".to_string(),
-            timeout_secs: 60,
+            timeout_secs: Some(60),
         });
 
         sanitize_verify_steps(&mut config);
@@ -138,12 +138,12 @@ mod tests {
         config.verify.steps.push(crate::config::model::VerifyStep {
             description: "Run tests".to_string(),
             command: "cargo test".to_string(),
-            timeout_secs: 60,
+            timeout_secs: Some(60),
         });
         config.verify.steps.push(crate::config::model::VerifyStep {
             description: "Check formatting".to_string(),
             command: "cargo fmt --check".to_string(),
-            timeout_secs: 300,
+            timeout_secs: Some(300),
         });
 
         sanitize_verify_steps(&mut config);

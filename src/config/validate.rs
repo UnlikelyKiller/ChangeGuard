@@ -53,7 +53,7 @@ pub fn validate_config(config: &Config) -> Result<()> {
             }
             .into());
         }
-        if step.timeout_secs == 0 {
+        if step.timeout_secs == Some(0) {
             return Err(ConfigError::ValidationFailed {
                 reason: format!("verify.steps[{}] timeout_secs must be > 0", i),
             }
@@ -62,8 +62,7 @@ pub fn validate_config(config: &Config) -> Result<()> {
     }
     if config.verify.default_timeout_secs == 0 && !config.verify.steps.is_empty() {
         return Err(ConfigError::ValidationFailed {
-            reason: "verify.default_timeout_secs must be > 0 when steps are defined"
-                .to_string(),
+            reason: "verify.default_timeout_secs must be > 0 when steps are defined".to_string(),
         }
         .into());
     }
@@ -227,7 +226,7 @@ mod tests {
                 steps: vec![VerifyStep {
                     description: "Missing command".to_string(),
                     command: "   ".to_string(),
-                    timeout_secs: 60,
+                    timeout_secs: Some(60),
                 }],
                 default_timeout_secs: 300,
             },
@@ -246,7 +245,7 @@ mod tests {
                 steps: vec![VerifyStep {
                     description: "Bad timeout".to_string(),
                     command: "cargo test".to_string(),
-                    timeout_secs: 0,
+                    timeout_secs: Some(0),
                 }],
                 default_timeout_secs: 300,
             },
@@ -265,7 +264,7 @@ mod tests {
                 steps: vec![VerifyStep {
                     description: "Run tests".to_string(),
                     command: "cargo test".to_string(),
-                    timeout_secs: 60,
+                    timeout_secs: Some(60),
                 }],
                 default_timeout_secs: 0,
             },

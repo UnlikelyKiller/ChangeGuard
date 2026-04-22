@@ -131,7 +131,7 @@ pub fn build_plan_from_config(config: &VerifyConfig) -> Option<VerificationPlan>
         .iter()
         .map(|step| VerificationStep {
             command: step.command.clone(),
-            timeout_secs: step.timeout_secs,
+            timeout_secs: step.timeout_secs.unwrap_or(config.default_timeout_secs),
             description: if step.description.is_empty() {
                 format!("From config: {}", step.command)
             } else {
@@ -405,19 +405,22 @@ mod tests {
                 crate::config::model::VerifyStep {
                     description: "Run tests".to_string(),
                     command: "cargo test".to_string(),
-                    timeout_secs: 60,
+                    timeout_secs: Some(60),
                 },
                 crate::config::model::VerifyStep {
-                    description: String::new(), // empty description
+                    description: String::new(),
                     command: "cargo fmt --check".to_string(),
-                    timeout_secs: 300,
+                    timeout_secs: None, // uses default_timeout_secs
                 },
             ],
-            default_timeout_secs: 300,
+            default_timeout_secs: 120,
         };
         let plan = build_plan_from_config(&config).unwrap();
         assert_eq!(plan.steps.len(), 2);
         assert_eq!(plan.steps[0].description, "Run tests");
+        assert_eq!(plan.steps[0].timeout_secs, 60);
         assert_eq!(plan.steps[1].description, "From config: cargo fmt --check");
+        // None timeout_secs should resolve to default_timeout_secs
+        assert_eq!(plan.steps[1].timeout_secs, 120);
     }
 }
