@@ -1,6 +1,15 @@
 # ChangeGuard Conductor
 
-## Milestone J: Phase 2 Final Remediation (Active)
+## Milestone L: Ledger Incorporation (Active)
+
+*   **Track L1-1: Ledger Data Model & Migrations**
+    *   Status: Active
+    *   Spec: `conductor/trackL1-1/spec.md`
+    *   Plan: `conductor/trackL1-1/plan.md`
+    *   Goal: Implement Phase L1 (Transaction Lifecycle & Data Model) - Data Model, Error types, and Migrations M11 & M12.
+    *   Key additions: `src/ledger/types.rs`, `src/ledger/error.rs`, SQLite migrations M11-M12, `LedgerConfig`.
+
+## Milestone J: Phase 2 Final Remediation (Completed)
 
 *   **Track 36: Critical Remediation & Green CI**
     *   Status: Completed
