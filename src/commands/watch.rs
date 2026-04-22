@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use crate::config::load::load_config;
+use crate::ledger::drift::DriftManager;
 use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
 use crate::watch::batch::WatchBatch;
@@ -35,6 +36,7 @@ pub fn execute_watch(interval_ms: u64, json_output: bool) -> Result<()> {
 
     let batch_path = layout.state_subdir().join("current-batch.json");
     let db_path = layout.state_subdir().join("ledger.db");
+    let repo_root = path.as_std_path().to_path_buf();
     let callback = Box::new(move |batch: WatchBatch| {
         if !json_output {
             println!(
@@ -68,14 +70,22 @@ pub fn execute_watch(interval_ms: u64, json_output: bool) -> Result<()> {
             tracing::warn!("Failed to save watch batch JSON: {err}");
         }
 
-        if let Ok(storage) = StorageManager::init(db_path.as_std_path())
-            && let Ok(batch_json) = serde_json::to_string(&batch)
-        {
-            let _ = storage.save_batch(
-                &batch.timestamp.to_rfc3339(),
-                batch.events.len() as u32,
-                &batch_json,
-            );
+        if let Ok(mut storage) = StorageManager::init(db_path.as_std_path()) {
+            if let Ok(batch_json) = serde_json::to_string(&batch) {
+                let _ = storage.save_batch(
+                    &batch.timestamp.to_rfc3339(),
+                    batch.events.len() as u32,
+                    &batch_json,
+                );
+            }
+
+            // Drift detection
+            let mut drift_mgr = DriftManager::new(storage.get_connection_mut(), repo_root.clone());
+            for event in &batch.events {
+                if let Err(e) = drift_mgr.process_event(event.path.as_str()) {
+                    tracing::warn!("Failed to process drift for {}: {:?}", event.path, e);
+                }
+            }
         }
     });
 

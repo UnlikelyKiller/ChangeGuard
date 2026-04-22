@@ -124,14 +124,12 @@ Use `verify` results as the primary ChangeGuard evidence for whether the planned
 
 ## Ledger Workflow (Transactional Provenance)
 
-> **Implementation status**: The ledger subcommand group is **planned but not yet implemented**. The commands below describe the target interface from `docs/Ledger-Incorp-plan.md`. Do not attempt to run these commands until the Ledger incorporation (Phases L1–L7) is complete. For now, use the core workflow (scan, impact, verify) without ledger tracking.
-
 For tracked changes, wrap edits in a ledger transaction:
 
 **Before edits:**
 
 ```bash
-changeguard ledger start --entity src/main.rs --category FEATURE --description "Add auth module"
+changeguard ledger start --entity src/main.rs --category FEATURE --message "Add auth module"
 ```
 
 **After edits and verification:**
@@ -141,16 +139,16 @@ changeguard verify
 changeguard ledger commit --tx-id <id> --change-type MODIFY --summary "Added auth module" --reason "API endpoints need authentication" --verification-status verified --verification-basis tests
 ```
 
-**For single-file surgical edits** (start + commit in one call):
+**For single-file surgical edits** (start + commit in one call, with `--auto-reconcile` to resolve drift):
 
 ```bash
-changeguard ledger atomic --entity src/config.rs --category REFACTOR --change-type MODIFY --summary "Extract config validation" --reason "SRP: separate loading from validation"
+changeguard ledger atomic --entity src/config.rs --category REFACTOR --summary "Extract config validation" --reason "SRP: separate loading from validation"
 ```
 
-**For lightweight documentation changes** (skips verification requirements):
+**For lightweight changes** (e.g., documentation):
 
 ```bash
-changeguard ledger note --entity docs/api.md --summary "Update endpoint docs"
+changeguard ledger note --entity docs/api.md "Update endpoint docs"
 ```
 
 **To find a pending transaction** (instead of hunting for UUIDs):
@@ -162,7 +160,7 @@ changeguard ledger resume
 **To reconcile drift** detected by the watcher:
 
 ```bash
-changeguard ledger reconcile --entity-pattern "src/**/*.rs" --summary "Batch refactor" --reason "Module reorganization"
+changeguard ledger reconcile --all --reason "Intentional local changes"
 ```
 
 ## Persistent Verification Plans
@@ -212,25 +210,21 @@ changeguard verify --no-predict            # Skip predictive suggestions
 
 ### Ledger (Provenance)
 
-> **Not yet implemented.** These commands will be available after the Ledger incorporation is complete (Phases L1–L7). See `docs/Ledger-Incorp-plan.md` for the full specification.
-
 ```bash
-changeguard ledger start --entity PATH --category CAT --description TEXT
-changeguard ledger commit --tx-id ID --change-type TYPE --summary TEXT --reason TEXT
+changeguard ledger start --entity PATH --category CAT [--message TEXT] [--issue REF]
+changeguard ledger commit --tx-id ID --summary TEXT --reason TEXT [--change-type TYPE] [--breaking] [--auto-reconcile]
 changeguard ledger rollback --tx-id ID --reason TEXT
-changeguard ledger atomic --entity PATH --category CAT --change-type TYPE --summary TEXT --reason TEXT
-changeguard ledger note --entity PATH --summary TEXT       # Lightweight, DOCS|CHORE|TOOLING|REFACTOR only
-changeguard ledger resume                                   # Find most recent PENDING tx
-changeguard ledger status [--compact]                       # Pending, unaudited, drift
-changeguard ledger reconcile [--entity-pattern GLOB]        # Resolve watcher-detected drift
-changeguard ledger adopt --tx-id ID --reason TEXT           # Recover stale transaction
-changeguard ledger search QUERY [--category CAT] [--days N] # FTS5 search over history
-changeguard ledger audit [--entity PATH]                    # Holistic project state
-changeguard ledger artifacts [--tx-id ID]                   # Git diff → entity suggestions
-changeguard ledger stack                                    # Show tech stack rules
-changeguard ledger register --rule-type TYPE --payload JSON # Register stack/validator/pattern rules
-changeguard ledger adr [--output-dir DIR] [--days N]        # Export Architectural Decision Records
-changeguard ledger scaffold --category CAT --summary TEXT   # Generate TOML entry template
+changeguard ledger atomic --entity PATH --summary TEXT --reason TEXT [--category CAT]
+changeguard ledger note --entity PATH NOTE
+changeguard ledger resume [ID]                              # Find most recent PENDING tx or resume specific
+changeguard ledger status [--entity PATH] [--compact]       # Holistic view or entity history
+changeguard ledger reconcile [--tx-id ID] [--pattern GLOB] [--all] --reason TEXT
+changeguard ledger adopt [--tx-id ID] [--pattern GLOB] [--all]
+changeguard ledger search QUERY [--category CAT] [--days N] [--breaking] # FTS5 search
+changeguard ledger audit [--entity PATH] [--include-unaudited]           # Detailed provenance
+changeguard ledger stack [--category CAT]                   # Show tech stack and validators
+changeguard ledger register --rule-type TYPE --payload JSON [--force]   # Add enforcement rules
+changeguard ledger adr [--output-dir DIR] [--days N]        # Export decisions to MADR
 ```
 
 ### Hotspots & Federation
@@ -273,26 +267,18 @@ changeguard daemon
 | `DOCS` | Documentation, README, ADRs |
 | `CHORE` | Dependencies, formatting, minor cleanup |
 
-## Verification Requirements
-
-Non-trivial categories (`ARCHITECTURE`, `FEATURE`, `BUGFIX`, `INFRA`) require at commit time:
-
-- `--verification-status` — one of: `verified`, `partially_verified`, `failed`
-- `--verification-basis` — one of: `tests`, `build`, `lint`, `runtime`, `manual_inspection`, `inferred`
-- If not `verified`, must also provide `--outcome-notes`
-
-Other categories (`REFACTOR`, `TOOLING`, `DOCS`, `CHORE`) default to `unverified`/`manual_inspection` if not specified. Use `ledger note` for trivial changes that need no verification at all.
-
 ## Strategic Reasoning for AI Agents
 
 When acting as a coding agent, use ChangeGuard signals to adjust your strategy:
 
-1. **Temporal Coupling (The "Hidden" Link)**: If `latest-impact.json` shows a high affinity (>70%) between a changed file and an unchanged file, you **MUST** read the unchanged file. Assume there is a logical dependency that imports alone do not show. Coupling scores use recency weighting — recent shared commits count more than old ones. Files appearing in fewer than 5 commits or pairs sharing fewer than 3 commits are filtered out.
+1. **Temporal Coupling (The "Hidden" Link)**: If `latest-impact.json` shows a high affinity (>70%) between a changed file and an unchanged file, you **MUST** read the unchanged file. Assume there is a logical dependency that imports alone do not show.
 2. **Hotspots (The "Danger Zone")**: Files with high hotspot scores are "brittle." If you must edit a hotspot, prioritize refactoring or extremely high test coverage. Avoid adding complexity to an already complex hotspot.
-3. **Federated Impact (Cross-Repo)**: If `federated_impact` warnings appear, your change might break a sibling repository. You must explain this risk to the user and suggest an `export-schema` to verify the contract.
-4. **Predictive Verification**: If `verify` suggests tests that seem unrelated to your change, **trust the predictor**. It is likely based on historical failure correlations that aren't obvious from the code alone. Config-defined steps run before predictive mode.
-5. **Stale Data**: If you see a `data_stale` warning, run `changeguard scan` and `changeguard impact` immediately to refresh.
-6. **Drift Detection**: If `changeguard ledger status` shows UNAUDITED entries, files were modified without a pending transaction. Either reconcile them (`ledger reconcile`) or adopt them (`ledger adopt`) before proceeding. This is the trust-and-verify model in action.
+3. **Federated Impact (Cross-Repo)**: If `federated_impact` warnings appear, your change might break a sibling repository. You must explain this risk to the user.
+4. **Predictive Verification**: If `verify` suggests tests that seem unrelated to your change, **trust the predictor**. It is likely based on historical failure correlations.
+5. **Drift Detection**: If `changeguard ledger status` shows UNAUDITED entries, files were modified without a pending transaction. Either reconcile them (`ledger reconcile`) or adopt them (`ledger adopt`) before proceeding. This is the trust-and-verify model in action.
+6. **Tech Stack Enforcement**: `ledger start` will reject a transaction if the `planned_action` violates registered tech stack rules (e.g., using a forbidden library).
+7. **Commit Validation**: `ledger commit` runs shell-command validators (e.g., linters, tests). `ERROR` level failures block the commit.
+8. **Data Classification**: `changeguard reset` preserves `ledger.db` by default. Use `--include-ledger` (requires `--yes`) to remove provenance data alongside derived state.
 
 ## How To Interpret Results
 
@@ -301,8 +287,6 @@ Treat `riskLevel` as a routing signal:
 - `Low`: small or isolated change. Run suggested verification and any obvious local tests.
 - `Medium`: inspect affected files, imports, risk reasons, and predicted verification targets before choosing tests.
 - `High`: slow down. Inspect temporal couplings, hotspots, public API changes, protected paths, runtime/config usage, and cross-repo links before finalizing.
-
-Treat `prediction_warnings` in `latest-verify.json` as important. If prediction inputs degraded, explain that the verification plan may be incomplete.
 
 The `impact --summary` flag outputs a single-line triage: `RISK risk | N changed | N couplings | N partial`. Use it for quick go/no-go decisions.
 
@@ -343,22 +327,13 @@ ChangeGuard:
 - warnings: <prediction/degradation/drift warnings or "none">
 ```
 
-Keep the summary factual. If ChangeGuard could not run, say why and name the fallback verification you performed.
-
 ## Safety Notes
 
-ChangeGuard is local-first, but its `ask` command invokes Gemini CLI. Before using `changeguard ask`, confirm the user is comfortable sending sanitized, truncated repository context to Gemini.
-
-Never paste secrets from `.env`, config files, reports, or terminal output into prompts or final responses. If ChangeGuard reports redaction or prompt truncation, mention that it occurred without revealing the redacted value.
-
-## Key Patterns
-
-- Full UUID is always displayed (never truncated — avoid the 8-char copy-paste friction from older ledger versions).
-- `ledger resume` finds the most recent PENDING transaction so you don't have to hunt for UUIDs.
-- Truncated UUIDs are accepted if unique in the pending set; if ambiguous, you'll get a deterministic error listing candidates (not an interactive prompt).
-- Entity paths are auto-normalized (forward slashes, relative to workspace root). Case-folding for conflict detection is conditional on filesystem semantics — applied on case-insensitive filesystems (Windows, macOS default), preserved on case-sensitive (Linux, WSL2).
-- File must exist on disk at commit time (ghost commit guard). Missing files are annotated as `MODIFIED (MISSING)` rather than rejected.
-- Watcher-detected drift creates UNAUDITED transactions. Reconciling transitions them to RECONCILED (preserves watcher provenance).
+- Full UUID is always displayed in `ledger start`.
+- `ledger resume` finds the most recent PENDING transaction.
+- Entity paths are auto-normalized to forward-slashes relative to repo root.
+- Watcher-detected drift creates UNAUDITED transactions.
+- Commit validators run with timeouts to prevent hanging the CLI.
 
 ## Repo-Specific Notes
 
@@ -367,5 +342,5 @@ Never paste secrets from `.env`, config files, reports, or terminal output into 
   2. `cargo clippy --all-targets --all-features -- -D warnings`
   3. `cargo test --workspace`
 - Protected paths: `src/config/model.rs`, `src/state/migrations.rs`, `src/impact/packet.rs`
-- High-risk modules: `src/impact/temporal.rs`, `src/verify/runner.rs`, `src/ledger/transaction.rs` *(planned)*
+- High-risk modules: `src/impact/temporal.rs`, `src/verify/runner.rs`, `src/ledger/transaction.rs`
 - Cross-repo dependencies: none

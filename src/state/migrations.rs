@@ -76,6 +76,134 @@ pub fn get_migrations() -> Migrations<'static> {
                 FOREIGN KEY (sibling_name) REFERENCES federated_links(sibling_name)
             );",
         ),
+        M::up(
+            "CREATE TABLE IF NOT EXISTS transactions (
+                tx_id              TEXT PRIMARY KEY,
+                operation_id       TEXT,
+                status             TEXT NOT NULL,
+                category           TEXT NOT NULL,
+                entity             TEXT NOT NULL,
+                entity_normalized  TEXT NOT NULL,
+                planned_action     TEXT,
+                session_id         TEXT NOT NULL,
+                source             TEXT NOT NULL DEFAULT 'CLI',
+                started_at         TEXT NOT NULL,
+                resolved_at        TEXT,
+                detected_at        TEXT,
+                drift_count        INTEGER DEFAULT 1,
+                first_seen_at      TEXT,
+                last_seen_at       TEXT,
+                issue_ref          TEXT,
+                change_type        TEXT,
+                summary            TEXT,
+                reason             TEXT,
+                is_breaking        INTEGER DEFAULT 0,
+                verification_status TEXT,
+                verification_basis TEXT,
+                outcome_notes      TEXT,
+                snapshot_id        INTEGER REFERENCES snapshots(id),
+                tree_hash          TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_transactions_entity_status ON transactions(entity_normalized, status);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_unaudited_entity ON transactions(entity_normalized) WHERE status = 'UNAUDITED';
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_pending_entity ON transactions(entity_normalized) WHERE status = 'PENDING';
+            CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(status);
+            CREATE INDEX IF NOT EXISTS idx_transactions_session_id ON transactions(session_id);
+            CREATE INDEX IF NOT EXISTS idx_transactions_operation_id ON transactions(operation_id);",
+        ),
+        M::up(
+            "CREATE TABLE IF NOT EXISTS ledger_entries (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                tx_id              TEXT NOT NULL REFERENCES transactions(tx_id),
+                operation_id       TEXT,
+                category           TEXT NOT NULL,
+                entry_type         TEXT NOT NULL DEFAULT 'IMPLEMENTATION',
+                entity             TEXT NOT NULL,
+                entity_normalized  TEXT NOT NULL,
+                change_type        TEXT NOT NULL,
+                summary            TEXT NOT NULL,
+                reason             TEXT NOT NULL,
+                is_breaking        INTEGER DEFAULT 0,
+                committed_at       TEXT NOT NULL,
+                verification_status TEXT,
+                verification_basis TEXT,
+                outcome_notes      TEXT,
+                issue_ref          TEXT,
+                trace_id           TEXT,
+                origin             TEXT NOT NULL DEFAULT 'LOCAL',
+                snapshot_id        INTEGER REFERENCES snapshots(id),
+                tree_hash          TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_ledger_entries_entity ON ledger_entries(entity_normalized);
+            CREATE INDEX IF NOT EXISTS idx_ledger_entries_category ON ledger_entries(category);
+            CREATE INDEX IF NOT EXISTS idx_ledger_entries_committed_at ON ledger_entries(committed_at);
+            CREATE INDEX IF NOT EXISTS idx_ledger_entries_operation_id ON ledger_entries(operation_id);
+            
+            CREATE VIRTUAL TABLE IF NOT EXISTS ledger_fts
+                USING fts5(entity, summary, reason, content=ledger_entries, content_rowid=id);
+
+            CREATE TRIGGER IF NOT EXISTS ledger_fts_ai AFTER INSERT ON ledger_entries BEGIN
+                INSERT INTO ledger_fts(rowid, entity, summary, reason) VALUES (new.id, new.entity, new.summary, new.reason);
+            END;
+            CREATE TRIGGER IF NOT EXISTS ledger_fts_ad AFTER DELETE ON ledger_entries BEGIN
+                INSERT INTO ledger_fts(ledger_fts, rowid, entity, summary, reason) VALUES ('delete', old.id, old.entity, old.summary, old.reason);
+            END;
+            CREATE TRIGGER IF NOT EXISTS ledger_fts_au AFTER UPDATE ON ledger_entries BEGIN
+                INSERT INTO ledger_fts(ledger_fts, rowid, entity, summary, reason) VALUES ('delete', old.id, old.entity, old.summary, old.reason);
+                INSERT INTO ledger_fts(rowid, entity, summary, reason) VALUES (new.id, new.entity, new.summary, new.reason);
+            END;",
+        ),
+        M::up(
+            "CREATE TABLE IF NOT EXISTS tech_stack (
+                category           TEXT PRIMARY KEY,
+                name               TEXT NOT NULL,
+                version_constraint TEXT,
+                rules              TEXT NOT NULL DEFAULT '[]',
+                locked             INTEGER DEFAULT 0,
+                status             TEXT DEFAULT 'ACTIVE',
+                entity_type        TEXT DEFAULT 'FILE',
+                registered_at      TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS commit_validators (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                category           TEXT NOT NULL,
+                name               TEXT NOT NULL,
+                description        TEXT,
+                executable         TEXT NOT NULL,
+                args               TEXT NOT NULL,
+                timeout_ms         INTEGER DEFAULT 30000,
+                glob               TEXT,
+                validation_level   TEXT DEFAULT 'ERROR',
+                enabled            INTEGER DEFAULT 1
+            );
+            CREATE TABLE IF NOT EXISTS category_stack_mappings (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                ledger_category    TEXT NOT NULL,
+                stack_category     TEXT NOT NULL REFERENCES tech_stack(category),
+                glob               TEXT,
+                description        TEXT
+            );
+            CREATE TABLE IF NOT EXISTS watcher_patterns (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                glob               TEXT NOT NULL,
+                category           TEXT NOT NULL,
+                source             TEXT NOT NULL DEFAULT 'CONFIG',
+                description        TEXT
+            );",
+        ),
+        M::up(
+            "CREATE TABLE IF NOT EXISTS token_provenance (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                tx_id              TEXT NOT NULL REFERENCES transactions(tx_id),
+                entity             TEXT NOT NULL,
+                entity_normalized  TEXT NOT NULL,
+                symbol_name        TEXT NOT NULL,
+                symbol_type        TEXT NOT NULL,
+                action             TEXT NOT NULL -- 'ADDED', 'MODIFIED', 'DELETED'
+            );
+            CREATE INDEX IF NOT EXISTS idx_token_provenance_tx_id ON token_provenance(tx_id);
+            CREATE INDEX IF NOT EXISTS idx_token_provenance_entity_symbol ON token_provenance(entity_normalized, symbol_name);",
+        ),
     ])
 }
 
@@ -106,6 +234,14 @@ mod tests {
             "symbols",
             "federated_links",
             "federated_dependencies",
+            "transactions",
+            "ledger_entries",
+            "ledger_fts",
+            "tech_stack",
+            "commit_validators",
+            "category_stack_mappings",
+            "watcher_patterns",
+            "token_provenance",
         ];
 
         for table in &expected_tables {
@@ -118,6 +254,36 @@ mod tests {
                 .unwrap();
             assert_eq!(count, 1, "Table {} should exist", table);
         }
+    }
+
+    #[test]
+    fn test_insert_and_query_token_provenance() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let migrations = get_migrations();
+        migrations.to_latest(&mut conn).unwrap();
+
+        let tx_id = "550e8400-e29b-41d4-a716-446655440000";
+        conn.execute(
+            "INSERT INTO transactions (tx_id, status, category, entity, entity_normalized, session_id, started_at) 
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            (tx_id, "PENDING", "FEATURE", "src/main.rs", "src/main.rs", "session-1", "2026-01-01T00:00:00Z"),
+        ).unwrap();
+
+        conn.execute(
+            "INSERT INTO token_provenance (tx_id, entity, entity_normalized, symbol_name, symbol_type, action)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            (tx_id, "src/main.rs", "src/main.rs", "main", "Function", "ADDED"),
+        ).unwrap();
+
+        let (name, action): (String, String) = conn
+            .query_row(
+                "SELECT symbol_name, action FROM token_provenance WHERE tx_id = ?1",
+                [tx_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(name, "main");
+        assert_eq!(action, "ADDED");
     }
 
     #[test]
@@ -221,5 +387,45 @@ mod tests {
             .unwrap();
         assert_eq!(path, "src/main.rs");
         assert_eq!(status, "Modified");
+    }
+
+    #[test]
+    fn test_insert_and_query_ledger_transaction() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let migrations = get_migrations();
+        migrations.to_latest(&mut conn).unwrap();
+
+        let tx_id = "550e8400-e29b-41d4-a716-446655440000";
+        conn.execute(
+            "INSERT INTO transactions (tx_id, status, category, entity, entity_normalized, session_id, started_at) 
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            (tx_id, "PENDING", "FEATURE", "src/main.rs", "src/main.rs", "session-1", "2026-01-01T00:00:00Z"),
+        ).unwrap();
+
+        conn.execute(
+            "INSERT INTO ledger_entries (tx_id, category, entry_type, entity, entity_normalized, change_type, summary, reason, committed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            (tx_id, "FEATURE", "IMPLEMENTATION", "src/main.rs", "src/main.rs", "MODIFY", "Add feature X", "Required for Y", "2026-01-01T01:00:00Z"),
+        ).unwrap();
+
+        let (summary, reason): (String, String) = conn
+            .query_row(
+                "SELECT summary, reason FROM ledger_entries WHERE tx_id = ?1",
+                [tx_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(summary, "Add feature X");
+        assert_eq!(reason, "Required for Y");
+
+        // Verify FTS5
+        let fts_summary: String = conn
+            .query_row(
+                "SELECT summary FROM ledger_fts WHERE summary MATCH 'feature'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(fts_summary, "Add feature X");
     }
 }

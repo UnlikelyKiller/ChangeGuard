@@ -7,6 +7,7 @@ pub mod gemini;
 pub mod git;
 pub mod impact;
 pub mod index;
+pub mod ledger;
 pub mod output;
 pub mod platform;
 pub mod policy;

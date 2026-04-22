@@ -53,8 +53,9 @@ changeguard ask "What should I verify next?"
 - `ask`: send sanitized impact context to Gemini in `analyze`, `suggest`, `review-patch`, or narrative mode.
 - `hotspots`: rank files by temporal change frequency multiplied by complexity.
 - `federate`: export public interfaces, scan sibling repositories, and show known federated links.
+- `ledger`: transactional architectural memory (start, commit, rollback, audit, search, adr).
 - `daemon`: optional LSP server with diagnostics, Hover, CodeLens, stale-data handling, and lifecycle management.
-- `reset`: remove derived local state, with opt-in flags for config/rules or the full `.changeguard/` tree.
+- `reset`: remove derived local state, with opt-in flags for config/rules or the full `.changeguard/` tree. Preserves `ledger.db` by default; use `--include-ledger` to remove provenance data.
 
 ## Common Workflows
 
@@ -104,7 +105,30 @@ changeguard federate status
 changeguard impact
 ```
 
-Start the optional LSP daemon:
+Track changes with transactional provenance:
+
+```powershell
+# Start a transaction before editing
+changeguard ledger start --entity src/main.rs --category FEATURE --message "Add auth module"
+
+# After editing and verifying
+changeguard ledger commit --tx-id <id> --change-type MODIFY --summary "Added auth" --reason "API needs authentication"
+
+# Quick single-file change
+changeguard ledger atomic --entity src/config.rs --category REFACTOR --summary "Extract config validation" --reason "SRP"
+
+# Lightweight note for docs changes
+changeguard ledger note --entity docs/api.md "Update endpoint docs"
+
+# Check status and reconcile drift
+changeguard ledger status
+changeguard ledger reconcile --all --reason "Intentional local changes"
+
+# Search and audit
+changeguard ledger search "auth logic" --category FEATURE --days 30
+changeguard ledger audit --include-unaudited
+changeguard ledger adr --output-dir docs/adr
+```
 
 ```powershell
 cargo run --features daemon -- daemon
@@ -114,7 +138,7 @@ cargo run --features daemon -- daemon
 
 ChangeGuard stores repo-local state in `.changeguard/`.
 
-- `.changeguard/config.toml`: runtime configuration, watch debounce, Gemini timeout/context, temporal traversal, and hotspot defaults.
+- `.changeguard/config.toml`: runtime configuration, watch debounce, Gemini timeout/context, temporal traversal, hotspot defaults, and ledger settings (enforcement, auto-reconcile, verification gating).
 - `.changeguard/rules.toml`: policy rules, protected paths, and required verification commands.
 
 Examples live in [docs/examples/config.toml](docs/examples/config.toml), [docs/examples/rules.toml](docs/examples/rules.toml), and [docs/examples/CHANGEGUARD.md](docs/examples/CHANGEGUARD.md).

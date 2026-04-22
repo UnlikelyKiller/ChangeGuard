@@ -254,6 +254,7 @@ dependencies = [
  "clap",
  "comfy-table",
  "ctrlc",
+ "dunce",
  "gix",
  "globset",
  "indicatif",
@@ -261,6 +262,7 @@ dependencies = [
  "notify-debouncer-full",
  "owo-colors",
  "parking_lot",
+ "path-clean",
  "regex",
  "rusqlite",
  "rusqlite_migration",
@@ -278,6 +280,7 @@ dependencies = [
  "tree-sitter-python",
  "tree-sitter-rust",
  "tree-sitter-typescript",
+ "uuid",
  "wait-timeout",
 ]
 
@@ -2310,6 +2313,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "path-clean"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "17359afc20d7ab31fdb42bb844c8b3bb1dabd7dcf7e68428492da7f16966fcef"
+
+[[package]]
 name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3170,6 +3179,18 @@ name = "utf8parse"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
+
+[[package]]
+name = "uuid"
+version = "1.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ddd74a9687298c6858e9b88ec8935ec45d22e8fd5e6394fa1bd4e99a87789c76"
+dependencies = [
+ "getrandom",
+ "js-sys",
+ "serde_core",
+ "wasm-bindgen",
+]
 
 [[package]]
 name = "valuable"
