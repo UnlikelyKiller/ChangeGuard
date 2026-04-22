@@ -82,7 +82,9 @@ fn test_search_basic() {
     db.insert_ledger_entry(&entry2).unwrap();
 
     // Search for "database"
-    let results = db.search_ledger("database", None, None, false, None).unwrap();
+    let results = db
+        .search_ledger("database", None, None, false, None)
+        .unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].summary, "Implement database search");
 
@@ -282,11 +284,15 @@ fn test_search_days_filtering() {
     db.insert_ledger_entry(&entry2).unwrap();
 
     // Search with --days 5
-    let results = db.search_ledger("change", None, Some(5), false, None).unwrap();
+    let results = db
+        .search_ledger("change", None, Some(5), false, None)
+        .unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].summary, "Recent change");
 
     // Search with --days 15
-    let results = db.search_ledger("change", None, Some(15), false, None).unwrap();
+    let results = db
+        .search_ledger("change", None, Some(15), false, None)
+        .unwrap();
     assert_eq!(results.len(), 2);
 }
