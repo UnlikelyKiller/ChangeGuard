@@ -52,11 +52,18 @@
     *   Key additions: Serde defaults, flagged CLI args, category filtering, SQLite FK pragma.
 
 *   **Track L3-2: Enforcement & Validation Logic**
-    *   Status: Active
+    *   Status: Completed
     *   Spec: `conductor/trackL3-2/spec.md`
     *   Plan: `conductor/trackL3-2/plan.md`
     *   Goal: Implement active tech stack enforcement and commit-time validator execution.
     *   Key additions: `NO <term>` check at start, validator runner (shell execution, timeouts, {entity} substitution), lifecycle integration.
+
+*   **Track L3-R2: Enforcement Logic Remediation**
+    *   Status: Active
+    *   Spec: `conductor/trackL3-R2/spec.md`
+    *   Plan: `conductor/trackL3-R2/plan.md`
+    *   Goal: Address Codex findings for Track L3-2: absolute path substitution, global validator inclusion, and specific error variants.
+    *   Key additions: Absolute entity path in validators, 'ALL' category support in DB queries, RuleViolation and ValidatorFailed errors.
 
 ## Milestone J: Phase 2 Final Remediation (Completed)
 
