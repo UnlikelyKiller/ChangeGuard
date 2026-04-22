@@ -31,11 +31,18 @@
     *   Key additions: Watcher transaction checks, UNAUDITED record creation, drift counting, enhanced status reporting.
 
 *   **Track L2-2: Ledger Reconciliation & Adoption**
-    *   Status: Active
+    *   Status: Completed
     *   Spec: `conductor/trackL2-2/spec.md`
     *   Plan: `conductor/trackL2-2/plan.md`
     *   Goal: Implement reconciliation and adoption commands to manage detected drift.
     *   Key additions: `ledger reconcile`, `ledger adopt`, drift transition logic, reconciliation provenance.
+
+*   **Track L3-1: Ledger-Aware Scan & Impact**
+    *   Status: Active
+    *   Spec: `conductor/trackL3-1/spec.md`
+    *   Plan: `conductor/trackL3-1/plan.md`
+    *   Goal: Link change intelligence (scan/impact) to the ledger to provide transactional context for code changes.
+    *   Key additions: Ledger-enriched scan summaries, transaction-linked impact packets, bulk path transaction lookups.
 
 ## Milestone J: Phase 2 Final Remediation (Completed)
 
