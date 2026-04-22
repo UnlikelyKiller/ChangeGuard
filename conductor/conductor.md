@@ -24,11 +24,18 @@
     *   Key additions: Transactional safety, correct lifecycle states, robust path normalization, WAL concurrency, verification persistence, and CLI gaps.
 
 *   **Track L2-1: Ledger Drift Detection**
-    *   Status: Active
+    *   Status: Completed
     *   Spec: `conductor/trackL2-1/spec.md`
     *   Plan: `conductor/trackL2-1/plan.md`
     *   Goal: Integrate file watcher with the ledger to detect and record untracked changes (drift).
     *   Key additions: Watcher transaction checks, UNAUDITED record creation, drift counting, enhanced status reporting.
+
+*   **Track L2-2: Ledger Reconciliation & Adoption**
+    *   Status: Active
+    *   Spec: `conductor/trackL2-2/spec.md`
+    *   Plan: `conductor/trackL2-2/plan.md`
+    *   Goal: Implement reconciliation and adoption commands to manage detected drift.
+    *   Key additions: `ledger reconcile`, `ledger adopt`, drift transition logic, reconciliation provenance.
 
 ## Milestone J: Phase 2 Final Remediation (Completed)
 
