@@ -16,6 +16,13 @@
     *   Goal: Implement the core transaction lifecycle (start, commit, rollback, atomic) and CLI commands.
     *   Key additions: `src/ledger/db.rs`, `src/ledger/transaction.rs`, `src/ledger/session.rs`, `ledger start/commit/rollback/atomic`.
 
+*   **Track L1-R: Ledger Phase 1 Remediation**
+    *   Status: Active
+    *   Spec: `conductor/trackL1-R/spec.md`
+    *   Plan: `conductor/trackL1-R/plan.md`
+    *   Goal: Address the high and medium severity findings from the Codex review for Phase L1.
+    *   Key additions: Transactional safety, correct lifecycle states, robust path normalization, WAL concurrency, verification persistence, and CLI gaps.
+
 ## Milestone J: Phase 2 Final Remediation (Completed)
 
 *   **Track 36: Critical Remediation & Green CI**
