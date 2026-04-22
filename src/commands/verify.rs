@@ -5,7 +5,7 @@ use crate::platform::process_policy::ProcessPolicy;
 use crate::policy::load::load_rules;
 use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
-use crate::verify::plan::{VerificationPlan, VerificationStep, build_plan};
+use crate::verify::plan::{VerificationPlan, VerificationStep, build_plan, build_plan_from_config};
 use crate::verify::results::{VerificationReport, VerificationResult, write_verify_report};
 use crate::verify::runner::{execute_step, prepare_manual_step, prepare_rule_step};
 use crate::verify::timeouts::{DEFAULT_AUTO_TIMEOUT_SECS, manual_timeout};
@@ -31,100 +31,115 @@ pub fn execute_verify(
     let (plan, steps) = match command_str {
         Some(cmd) => (None, vec![manual_step(cmd, manual_timeout(timeout_secs))]),
         None => {
-            let db_path = layout.state_subdir().join("ledger.db");
-            let storage = match StorageManager::init(db_path.as_std_path()) {
-                Ok(storage) => Some(storage),
-                Err(err) => {
-                    let warning =
-                        format!("Prediction disabled: failed to initialize SQLite storage: {err}");
-                    warn!("{warning}");
-                    current_warnings.push(warning);
-                    None
-                }
-            };
-            let mut packet = match storage.as_ref() {
-                Some(storage) => match storage.get_latest_packet() {
-                    Ok(packet) => packet,
+            let config = crate::config::load::load_config(&layout).unwrap_or_else(|e| {
+                let warning = format!("Config load failed: {e}. Using defaults.");
+                warn!("{warning}");
+                current_warnings.push(warning);
+                crate::config::model::Config::default()
+            });
+
+            // Priority 2: config-defined verify steps
+            if let Some(config_plan) = build_plan_from_config(&config.verify) {
+                print_verify_plan(&config_plan);
+                (Some(config_plan.clone()), config_plan.steps)
+            } else {
+                // Priority 3: predictive mode (existing logic)
+                let db_path = layout.state_subdir().join("ledger.db");
+                let storage = match StorageManager::init(db_path.as_std_path()) {
+                    Ok(storage) => Some(storage),
                     Err(err) => {
-                        let warning =
-                            format!("Prediction disabled: failed to load latest packet: {err}");
+                        let warning = format!(
+                            "Prediction disabled: failed to initialize SQLite storage: {err}"
+                        );
                         warn!("{warning}");
                         current_warnings.push(warning);
                         None
                     }
-                },
-                None => None,
-            };
+                };
+                let mut packet = match storage.as_ref() {
+                    Some(storage) => match storage.get_latest_packet() {
+                        Ok(packet) => packet,
+                        Err(err) => {
+                            let warning =
+                                format!("Prediction disabled: failed to load latest packet: {err}");
+                            warn!("{warning}");
+                            current_warnings.push(warning);
+                            None
+                        }
+                    },
+                    None => None,
+                };
 
-            let rules = load_rules(&layout)?;
-            let prediction = if no_predict {
-                crate::verify::predict::PredictionResult::default()
-            } else {
-                if let Some(packet) = &mut packet {
-                    recompute_temporal_if_missing(
-                        packet,
-                        &current_dir,
-                        &layout,
-                        &mut current_warnings,
-                    );
-                }
+                let rules = load_rules(&layout)?;
+                let prediction = if no_predict {
+                    crate::verify::predict::PredictionResult::default()
+                } else {
+                    if let Some(packet) = &mut packet {
+                        recompute_temporal_if_missing(
+                            packet,
+                            &current_dir,
+                            &layout,
+                            &mut current_warnings,
+                        );
+                    }
 
-                match &packet {
-                    Some(p) => {
-                        let history = match storage.as_ref() {
-                            Some(storage) => match storage.get_all_packets() {
-                                Ok(history) => history,
+                    match &packet {
+                        Some(p) => {
+                            let history = match storage.as_ref() {
+                                Some(storage) => match storage.get_all_packets() {
+                                    Ok(history) => history,
+                                    Err(err) => {
+                                        let warning = format!(
+                                            "Historical prediction degraded: failed to load packet history: {err}"
+                                        );
+                                        warn!("{warning}");
+                                        current_warnings.push(warning);
+                                        Vec::new()
+                                    }
+                                },
+                                None => Vec::new(),
+                            };
+
+                            let current_imports = match scan_current_imports(&current_dir) {
+                                Ok(imports) => imports,
                                 Err(err) => {
                                     let warning = format!(
-                                        "Historical prediction degraded: failed to load packet history: {err}"
+                                        "Current structural prediction degraded: failed to scan repository imports: {err}"
                                     );
                                     warn!("{warning}");
                                     current_warnings.push(warning);
-                                    Vec::new()
+                                    BTreeMap::new()
                                 }
-                            },
-                            None => Vec::new(),
-                        };
+                            };
 
-                        let current_imports = match scan_current_imports(&current_dir) {
-                            Ok(imports) => imports,
-                            Err(err) => {
-                                let warning = format!(
-                                    "Current structural prediction degraded: failed to scan repository imports: {err}"
-                                );
-                                warn!("{warning}");
-                                current_warnings.push(warning);
-                                BTreeMap::new()
-                            }
-                        };
-
-                        crate::verify::predict::Predictor::predict_with_current_imports(
-                            p,
-                            &history,
-                            &current_imports,
-                        )
+                            crate::verify::predict::Predictor::predict_with_current_imports(
+                                p,
+                                &history,
+                                &current_imports,
+                            )
+                        }
+                        None => crate::verify::predict::PredictionResult::default(),
                     }
-                    None => crate::verify::predict::PredictionResult::default(),
+                };
+
+                for warning in &prediction.warnings {
+                    warn!("{}", warning);
+                    current_warnings.push(warning.clone());
                 }
-            };
 
-            for warning in &prediction.warnings {
-                warn!("{}", warning);
-                current_warnings.push(warning.clone());
+                let plan = match &packet {
+                    Some(packet) => build_plan(packet, &rules, &prediction.files),
+                    None => VerificationPlan {
+                        steps: vec![manual_step(
+                            "cargo test -j 1 -- --test-threads=1".to_string(),
+                            DEFAULT_AUTO_TIMEOUT_SECS,
+                        )],
+                    },
+                };
+                print_verify_plan(&plan);
+                let steps = plan.steps.clone();
+                (Some(plan), steps)
             }
-
-            let plan = match &packet {
-                Some(packet) => build_plan(packet, &rules, &prediction.files),
-                None => VerificationPlan {
-                    steps: vec![manual_step(
-                        "cargo test -j 1 -- --test-threads=1".to_string(),
-                        DEFAULT_AUTO_TIMEOUT_SECS,
-                    )],
-                },
-            };
-            print_verify_plan(&plan);
-            let steps = plan.steps.clone();
-            (Some(plan), steps)
         }
     };
 

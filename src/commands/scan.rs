@@ -8,7 +8,7 @@ use crate::state::reports::{ScanDiffSummary, ScanReport, write_scan_report};
 use miette::Result;
 use std::env;
 
-pub fn execute_scan() -> Result<()> {
+pub fn execute_scan(run_impact: bool) -> Result<()> {
     let current_dir = env::current_dir()
         .map_err(|e| miette::miette!("Failed to get current directory: {}", e))?;
 
@@ -42,6 +42,10 @@ pub fn execute_scan() -> Result<()> {
     write_scan_report(&layout, &scan_report)?;
 
     print_scan_summary(&snapshot);
+
+    if run_impact {
+        crate::commands::impact::execute_impact(false, false)?;
+    }
 
     Ok(())
 }

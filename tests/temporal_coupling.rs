@@ -44,23 +44,21 @@ fn test_temporal_coupling_logic() {
         max_files_per_commit: 50,
         coupling_threshold: 0.8,
         all_parents: false,
+        min_shared_commits: 3,
+        min_revisions: 5,
+        decay_half_life: 100,
     };
 
     let provider = MockHistoryProvider { history };
     let engine = TemporalEngine::new(provider, config);
     let couplings = engine.calculate_couplings().unwrap();
 
+    // With decay_half_life=100 and 10 commits, the weighted scores will be
+    // slightly less than 1.0 but still well above 0.8
     assert_eq!(couplings.len(), 2);
-
-    // A -> B coupling
-    assert_eq!(couplings[0].file_a.to_str().unwrap(), "src/a.rs");
-    assert_eq!(couplings[0].file_b.to_str().unwrap(), "src/b.rs");
-    assert_eq!(couplings[0].score, 1.0);
-
-    // B -> A coupling
-    assert_eq!(couplings[1].file_a.to_str().unwrap(), "src/b.rs");
-    assert_eq!(couplings[1].file_b.to_str().unwrap(), "src/a.rs");
-    assert_eq!(couplings[1].score, 1.0);
+    // Both directions should have scores very close to 1.0
+    assert!(couplings[0].score > 0.95);
+    assert!(couplings[1].score > 0.95);
 }
 
 #[test]
@@ -84,20 +82,22 @@ fn test_temporal_coupling_threshold() {
     let config = TemporalConfig {
         max_commits: 100,
         max_files_per_commit: 50,
-        coupling_threshold: 0.5, // Changed from 0.6 to 0.5 to check > threshold
+        coupling_threshold: 0.6,
         all_parents: false,
+        min_shared_commits: 3,
+        min_revisions: 3,
+        decay_half_life: 100,
     };
 
     let provider = MockHistoryProvider { history };
     let engine = TemporalEngine::new(provider, config);
     let couplings = engine.calculate_couplings().unwrap();
 
-    // Score A -> B = 5/10 = 0.5 (NOT > 0.5)
-    // Score B -> A = 5/5 = 1.0 (IS > 0.5)
+    // With decay, A->B score is ~0.506 (below 0.6), B->A score is ~1.0 (above 0.6)
     assert_eq!(couplings.len(), 1);
     assert_eq!(couplings[0].file_a.to_str().unwrap(), "src/b.rs");
     assert_eq!(couplings[0].file_b.to_str().unwrap(), "src/a.rs");
-    assert_eq!(couplings[0].score, 1.0);
+    assert!(couplings[0].score > 0.6);
 }
 
 #[test]

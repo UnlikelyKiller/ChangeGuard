@@ -5,6 +5,40 @@ pub const DEFAULT_GEMINI_FAST_MODEL: &str = "gemini-3.1-flash-lite-preview";
 pub const DEFAULT_GEMINI_DEEP_MODEL: &str = "gemini-3.1-pro-preview";
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct VerifyStep {
+    /// Human-readable description of what this step verifies
+    pub description: String,
+    /// The shell command to execute
+    pub command: String,
+    /// Per-step timeout in seconds. None means use verify.default_timeout_secs.
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct VerifyConfig {
+    /// Ordered list of verification steps to run when no `-c` flag is provided
+    #[serde(default)]
+    pub steps: Vec<VerifyStep>,
+    /// Default timeout for steps that don't specify one
+    #[serde(default = "default_verify_timeout")]
+    pub default_timeout_secs: u64,
+}
+
+fn default_verify_timeout() -> u64 {
+    300
+}
+
+impl Default for VerifyConfig {
+    fn default() -> Self {
+        Self {
+            steps: Vec::new(),
+            default_timeout_secs: default_verify_timeout(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Config {
     #[serde(default)]
     pub core: CoreConfig,
@@ -16,6 +50,8 @@ pub struct Config {
     pub temporal: TemporalConfig,
     #[serde(default)]
     pub hotspots: HotspotsConfig,
+    #[serde(default)]
+    pub verify: VerifyConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -52,6 +88,15 @@ pub struct TemporalConfig {
     pub coupling_threshold: f32,
     #[serde(default = "default_all_parents")]
     pub all_parents: bool,
+    /// Minimum number of commits two files must share to be considered coupled
+    #[serde(default = "default_min_shared_commits")]
+    pub min_shared_commits: usize,
+    /// Minimum number of commits a file must appear in to be eligible for coupling
+    #[serde(default = "default_min_revisions")]
+    pub min_revisions: usize,
+    /// Half-life for exponential decay (in commits). Recent commits weighted higher.
+    #[serde(default = "default_decay_half_life")]
+    pub decay_half_life: usize,
 }
 
 impl Default for TemporalConfig {
@@ -61,6 +106,9 @@ impl Default for TemporalConfig {
             max_files_per_commit: default_max_files_per_commit(),
             coupling_threshold: default_coupling_threshold(),
             all_parents: default_all_parents(),
+            min_shared_commits: default_min_shared_commits(),
+            min_revisions: default_min_revisions(),
+            decay_half_life: default_decay_half_life(),
         }
     }
 }
@@ -76,6 +124,16 @@ fn default_coupling_threshold() -> f32 {
 }
 fn default_all_parents() -> bool {
     false
+}
+
+fn default_min_shared_commits() -> usize {
+    3
+}
+fn default_min_revisions() -> usize {
+    5
+}
+fn default_decay_half_life() -> usize {
+    100
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -176,5 +234,67 @@ mod tests {
         let config: Config = toml::from_str(toml_str).unwrap();
         assert!(config.core.strict);
         assert_eq!(config.watch.debounce_ms, 500);
+    }
+
+    #[test]
+    fn test_temporal_config_deserialization() {
+        let toml_str = r#"
+            [temporal]
+            max_commits = 500
+            max_files_per_commit = 30
+            coupling_threshold = 0.5
+            min_shared_commits = 4
+            min_revisions = 8
+            decay_half_life = 50
+        "#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.temporal.max_commits, 500);
+        assert_eq!(config.temporal.max_files_per_commit, 30);
+        assert!((config.temporal.coupling_threshold - 0.5).abs() < f32::EPSILON);
+        assert_eq!(config.temporal.min_shared_commits, 4);
+        assert_eq!(config.temporal.min_revisions, 8);
+        assert_eq!(config.temporal.decay_half_life, 50);
+    }
+
+    #[test]
+    fn test_temporal_config_defaults() {
+        let config = TemporalConfig::default();
+        assert_eq!(config.min_shared_commits, 3);
+        assert_eq!(config.min_revisions, 5);
+        assert_eq!(config.decay_half_life, 100);
+    }
+
+    #[test]
+    fn test_verify_config_deserialization() {
+        let toml_str = r#"
+            [verify]
+            default_timeout_secs = 120
+
+            [[verify.steps]]
+            description = "Run unit tests"
+            command = "cargo test"
+            timeout_secs = 60
+
+            [[verify.steps]]
+            description = "Check formatting"
+            command = "cargo fmt --check"
+        "#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.verify.default_timeout_secs, 120);
+        assert_eq!(config.verify.steps.len(), 2);
+        assert_eq!(config.verify.steps[0].description, "Run unit tests");
+        assert_eq!(config.verify.steps[0].command, "cargo test");
+        assert_eq!(config.verify.steps[0].timeout_secs, Some(60));
+        assert_eq!(config.verify.steps[1].description, "Check formatting");
+        assert_eq!(config.verify.steps[1].command, "cargo fmt --check");
+        // Omitted timeout_secs should deserialize as None (uses default_timeout_secs)
+        assert_eq!(config.verify.steps[1].timeout_secs, None);
+    }
+
+    #[test]
+    fn test_verify_config_defaults() {
+        let config = Config::default();
+        assert!(config.verify.steps.is_empty());
+        assert_eq!(config.verify.default_timeout_secs, 300);
     }
 }

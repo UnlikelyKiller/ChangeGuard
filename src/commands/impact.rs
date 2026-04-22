@@ -26,7 +26,7 @@ struct AnalysisOutcome {
     analysis_warnings: Vec<String>,
 }
 
-pub fn execute_impact(all_parents: bool) -> Result<()> {
+pub fn execute_impact(all_parents: bool, summary: bool) -> Result<()> {
     let current_dir = env::current_dir()
         .map_err(|e| miette::miette!("Failed to get current directory: {}", e))?;
 
@@ -157,7 +157,11 @@ pub fn execute_impact(all_parents: bool) -> Result<()> {
 
     write_impact_report(&layout, &packet)?;
 
-    print_impact_summary(&packet);
+    if summary {
+        crate::output::human::print_impact_brief(&packet);
+    } else {
+        print_impact_summary(&packet);
+    }
 
     println!(
         "\n{} Wrote impact report to {}",

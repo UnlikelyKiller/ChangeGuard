@@ -1,3 +1,4 @@
+use crate::config::model::VerifyConfig;
 use crate::impact::packet::ImpactPacket;
 use crate::policy::rules::Rules;
 use crate::verify::predict::PredictedFile;
@@ -116,6 +117,30 @@ pub fn build_plan(
     VerificationPlan {
         steps: unique_steps,
     }
+}
+
+/// Builds a verification plan from config-defined steps.
+/// Returns None if no steps are defined.
+pub fn build_plan_from_config(config: &VerifyConfig) -> Option<VerificationPlan> {
+    if config.steps.is_empty() {
+        return None;
+    }
+
+    let steps = config
+        .steps
+        .iter()
+        .map(|step| VerificationStep {
+            command: step.command.clone(),
+            timeout_secs: step.timeout_secs.unwrap_or(config.default_timeout_secs),
+            description: if step.description.is_empty() {
+                format!("From config: {}", step.command)
+            } else {
+                step.description.clone()
+            },
+        })
+        .collect();
+
+    Some(VerificationPlan { steps })
 }
 
 #[cfg(test)]
@@ -365,5 +390,37 @@ mod tests {
         assert!(plan.steps[0].description.contains("From rules"));
         assert!(plan.steps[0].description.contains("Predicted impact"));
         assert!(plan.steps[0].description.contains(" | "));
+    }
+
+    #[test]
+    fn test_build_plan_from_config_empty() {
+        let config = VerifyConfig::default();
+        assert!(build_plan_from_config(&config).is_none());
+    }
+
+    #[test]
+    fn test_build_plan_from_config_with_steps() {
+        let config = VerifyConfig {
+            steps: vec![
+                crate::config::model::VerifyStep {
+                    description: "Run tests".to_string(),
+                    command: "cargo test".to_string(),
+                    timeout_secs: Some(60),
+                },
+                crate::config::model::VerifyStep {
+                    description: String::new(),
+                    command: "cargo fmt --check".to_string(),
+                    timeout_secs: None, // uses default_timeout_secs
+                },
+            ],
+            default_timeout_secs: 120,
+        };
+        let plan = build_plan_from_config(&config).unwrap();
+        assert_eq!(plan.steps.len(), 2);
+        assert_eq!(plan.steps[0].description, "Run tests");
+        assert_eq!(plan.steps[0].timeout_secs, 60);
+        assert_eq!(plan.steps[1].description, "From config: cargo fmt --check");
+        // None timeout_secs should resolve to default_timeout_secs
+        assert_eq!(plan.steps[1].timeout_secs, 120);
     }
 }

@@ -3,7 +3,6 @@ use changeguard::gemini::modes::GeminiMode;
 use changeguard::impact::packet::ImpactPacket;
 use changeguard::state::layout::Layout;
 use changeguard::state::storage::StorageManager;
-use std::env;
 use std::fs;
 use tempfile::tempdir;
 
@@ -12,15 +11,14 @@ use common::{DirGuard, cwd_lock};
 
 #[test]
 fn test_ask_command_no_packet() {
+    let _lock = cwd_lock().lock().unwrap();
     let tmp = tempdir().unwrap();
-    let old_dir = env::current_dir().unwrap();
-    env::set_current_dir(tmp.path()).unwrap();
+    let root = camino::Utf8Path::from_path(tmp.path()).unwrap();
+    let _guard = DirGuard::from_utf8(root);
 
     // Should fail because no .changeguard/state/ledger.db exists
     let result = execute_ask(Some("What's up?".into()), GeminiMode::Analyze, false);
     assert!(result.is_err());
-
-    env::set_current_dir(old_dir).unwrap();
 }
 
 #[test]
