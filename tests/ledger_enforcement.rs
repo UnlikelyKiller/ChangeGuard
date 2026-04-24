@@ -292,6 +292,47 @@ fn test_tech_stack_enforcement_at_start() {
     assert!(result_ok.is_ok());
 }
 
+fn get_failing_validator() -> (String, Vec<String>) {
+    if cfg!(windows) {
+        (
+            "powershell".to_string(),
+            vec!["-Command".to_string(), "exit 1".to_string()],
+        )
+    } else {
+        ("sh".to_string(), vec!["-c".to_string(), "exit 1".to_string()])
+    }
+}
+
+fn get_timeout_validator() -> (String, Vec<String>) {
+    if cfg!(windows) {
+        (
+            "powershell".to_string(),
+            vec!["-Command".to_string(), "Start-Sleep -Seconds 2".to_string()],
+        )
+    } else {
+        ("sleep".to_string(), vec!["2".to_string()])
+    }
+}
+
+fn get_path_validator() -> (String, Vec<String>) {
+    if cfg!(windows) {
+        (
+            "powershell".to_string(),
+            vec![
+                "-NoProfile".to_string(),
+                "-Command".to_string(),
+                "Write-Output $args[0]; exit 1".to_string(),
+                "{entity}".to_string(),
+            ],
+        )
+    } else {
+        (
+            "sh".to_string(),
+            vec!["-c".to_string(), "echo $0; exit 1".to_string(), "{entity}".to_string()],
+        )
+    }
+}
+
 #[test]
 fn test_commit_validator_blocking() {
     let dir = tempdir().unwrap();
@@ -300,12 +341,14 @@ fn test_commit_validator_blocking() {
     let conn = storage.get_connection();
     let db = LedgerDb::new(conn);
 
+    let (exe, args) = get_failing_validator();
+
     // 1. Register a failing ERROR validator for FEATURE
     db.insert_commit_validator(&CommitValidator {
         category: "FEATURE".to_string(),
         name: "fail-validator".to_string(),
-        executable: "powershell".to_string(),
-        args: vec!["-Command".to_string(), "exit 1".to_string()],
+        executable: exe,
+        args,
         validation_level: ValidationLevel::Error,
         enabled: true,
         ..Default::default()
@@ -354,12 +397,14 @@ fn test_commit_validator_warning() {
     let storage = StorageManager::init(&db_path).unwrap();
     let db = LedgerDb::new(storage.get_connection());
 
+    let (exe, args) = get_failing_validator();
+
     // 1. Register a failing WARNING validator
     db.insert_commit_validator(&CommitValidator {
         category: "FEATURE".to_string(),
         name: "warn-validator".to_string(),
-        executable: "powershell".to_string(),
-        args: vec!["-Command".to_string(), "exit 1".to_string()],
+        executable: exe,
+        args,
         validation_level: ValidationLevel::Warning,
         enabled: true,
         ..Default::default()
@@ -402,12 +447,14 @@ fn test_commit_validator_timeout() {
     let storage = StorageManager::init(&db_path).unwrap();
     let db = LedgerDb::new(storage.get_connection());
 
+    let (exe, args) = get_timeout_validator();
+
     // 1. Register a timeout validator
     db.insert_commit_validator(&CommitValidator {
         category: "FEATURE".to_string(),
         name: "timeout-validator".to_string(),
-        executable: "powershell".to_string(),
-        args: vec!["-Command".to_string(), "Start-Sleep -Seconds 2".to_string()],
+        executable: exe,
+        args,
         timeout_ms: 100, // Very short timeout
         validation_level: ValidationLevel::Error,
         enabled: true,
@@ -460,17 +507,14 @@ fn test_commit_validator_absolute_path() {
     let storage = StorageManager::init(&db_path).unwrap();
     let db = LedgerDb::new(storage.get_connection());
 
+    let (exe, args) = get_path_validator();
+
     // 1. Register a validator that prints its argument (the entity path)
     db.insert_commit_validator(&CommitValidator {
         category: "FEATURE".to_string(),
         name: "path-validator".to_string(),
-        executable: "powershell".to_string(),
-        args: vec![
-            "-NoProfile".to_string(),
-            "-Command".to_string(),
-            "Write-Output $args[0]; exit 1".to_string(),
-            "{entity}".to_string(),
-        ],
+        executable: exe,
+        args,
         validation_level: ValidationLevel::Error,
         enabled: true,
         ..Default::default()
@@ -532,12 +576,14 @@ fn test_all_category_validators() {
     let storage = StorageManager::init(&db_path).unwrap();
     let db = LedgerDb::new(storage.get_connection());
 
+    let (exe, args) = get_failing_validator();
+
     // 1. Register an 'ALL' category validator
     db.insert_commit_validator(&CommitValidator {
         category: "ALL".to_string(),
         name: "global-validator".to_string(),
-        executable: "powershell".to_string(),
-        args: vec!["-Command".to_string(), "exit 1".to_string()],
+        executable: exe,
+        args,
         validation_level: ValidationLevel::Error,
         enabled: true,
         ..Default::default()
@@ -581,3 +627,4 @@ fn test_all_category_validators() {
         ),
     }
 }
+
