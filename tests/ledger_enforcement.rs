@@ -299,7 +299,10 @@ fn get_failing_validator() -> (String, Vec<String>) {
             vec!["-Command".to_string(), "exit 1".to_string()],
         )
     } else {
-        ("sh".to_string(), vec!["-c".to_string(), "exit 1".to_string()])
+        (
+            "sh".to_string(),
+            vec!["-c".to_string(), "exit 1".to_string()],
+        )
     }
 }
 
@@ -328,7 +331,11 @@ fn get_path_validator() -> (String, Vec<String>) {
     } else {
         (
             "sh".to_string(),
-            vec!["-c".to_string(), "echo $0; exit 1".to_string(), "{entity}".to_string()],
+            vec![
+                "-c".to_string(),
+                "echo $0; exit 1".to_string(),
+                "{entity}".to_string(),
+            ],
         )
     }
 }
@@ -627,4 +634,3 @@ fn test_all_category_validators() {
         ),
     }
 }
-
