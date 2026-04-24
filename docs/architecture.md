@@ -16,35 +16,37 @@ CLI
     -> daemon/      optional LSP diagnostics, Hover, CodeLens
     -> state/       layout, reports, migrations, SQLite persistence
     -> watch/       debounced filesystem event batches
-```
+    -> util/        path normalization, clock, hashing, process
+    ```
 
-## Command Responsibilities
+    ## Command Responsibilities
 
-- `init` creates repo-local configuration and ignore wiring.
-- `doctor` checks the host environment.
-- `scan` records git change summaries.
-- `impact` builds the main impact packet, runs temporal/hotspot/federated enrichment, redacts secrets, writes JSON, and persists to SQLite.
-- `verify` loads rules and latest packet data, recomputes missing temporal context when possible, scans current imports, predicts additional verification targets, runs commands, and writes `latest-verify.json`.
-- `ask` loads the latest impact packet, truncates and sanitizes context, then invokes Gemini.
-- `hotspots` computes risk density from git history and stored complexity.
-- `federate` exports public interfaces and scans sibling schemas.
-- `daemon` is optional and feature-gated behind `--features daemon`.
-- `reset` removes derived state without touching files outside `.changeguard/`.
+    - `init` creates repo-local configuration and ignore wiring.
+    - `doctor` checks the host environment.
+    - `scan` records git change summaries.
+    - `impact` builds the main impact packet, runs temporal/hotspot/federated enrichment, redacts secrets, writes JSON, and persists to SQLite.
+    - `verify` loads rules and latest packet data, recomputes missing temporal context when possible, scans current imports, predicts additional verification targets, runs commands, and writes `latest-verify.json`.
+    - `ask` loads the latest impact packet, truncates and sanitizes context, then invokes Gemini.
+    - `hotspots` computes risk density from git history and stored complexity.
+    - `federate` exports public interfaces and scans sibling schemas.
+    - `audit` (top-level) performs a holistic project audit or history for an entity.
+    - `daemon` is optional and feature-gated behind `--features daemon`.
+    - `reset` removes derived state without touching files outside `.changeguard/`.
 
-## Module Boundaries
+    ## Module Boundaries
 
-- `commands/`: command orchestration only. This layer handles CLI-visible messages, fallback reporting, and composition of lower-level modules.
-- `git/`: repository discovery, status, history, and platform-sensitive git behavior.
-- `index/`: language-aware extraction for symbols, imports/exports, runtime usage, and complexity scoring.
-- `impact/`: packet assembly, secret redaction, temporal coupling, hotspot ranking, and risk scoring.
-- `verify/`: deterministic verification plan generation, predictive verification, subprocess execution, and report persistence.
-- `federated/`: sibling schema parsing, path confinement, dependency discovery, and cross-repo impact checks.
-- `gemini/`: mode-specific prompts, narrative prompt construction, prompt sanitization, and subprocess invocation.
-- `daemon/`: LSP server, read-only state access, diagnostics, Hover, CodeLens, and lifecycle/PID handling.
-- `state/`: repo-local layout, JSON report writing, SQLite migrations, and persistence APIs.
-- `watch/`: event filtering, normalization, batching, and callback dispatch.
-- `platform/`: host, shell, path, and process-policy seams.
-
+    - `commands/`: command orchestration only. This layer handles CLI-visible messages, fallback reporting, and composition of lower-level modules.
+    - `git/`: repository discovery, status, history, and platform-sensitive git behavior.
+    - `index/`: language-aware extraction for symbols, imports/exports, runtime usage, and complexity scoring.      
+    - `impact/`: packet assembly, secret redaction, temporal coupling, hotspot ranking, and risk scoring.
+    - `verify/`: deterministic verification plan generation, predictive verification, subprocess execution, and report persistence.
+    - `federated/`: sibling schema parsing, path confinement, dependency discovery, and cross-repo impact checks.   
+    - `gemini/`: mode-specific prompts, narrative prompt construction, prompt sanitization, and subprocess invocation.
+    - `daemon/`: LSP server, read-only state access, diagnostics, Hover, CodeLens, and lifecycle/PID handling.      
+    - `state/`: repo-local layout, JSON report writing, SQLite migrations, and persistence APIs.
+    - `watch/`: event filtering, normalization, batching, and callback dispatch.
+    - `util/`: shared utilities including secure lexical path normalization (`normalize_relative_path`), clock abstraction, and process execution helpers.
+    - `platform/`: host, shell, path, and process-policy seams.
 ## State Layout
 
 ```text

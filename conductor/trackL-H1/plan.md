@@ -1,22 +1,20 @@
-## Plan: Ledger Production Hardening (Track L-H1)
+## Plan: Ledger Production Hardening & UX Fixes (Track L-H1 v2)
 
-### Phase 1: Ledger Lifecycle Invariants
-- [ ] Task 1.1: Update `src/state/migrations.rs` (Migration M11) to add a `UNIQUE INDEX` on `(entity_normalized, status) WHERE status = 'PENDING'`.
-- [ ] Task 1.2: Update `src/ledger/db.rs` function `update_transaction_status` to append `AND status = 'PENDING'` to the `WHERE` clause.
-- [ ] Task 1.3: Ensure `update_transaction_status` returns the affected row count and update callers to handle 0-row updates as concurrency failures.
+### Phase 1: Ledger Lifecycle & Bulk Updates
+- [x] Task 1.1: Modify `src/ledger/db.rs` `update_transaction_status_bulk` to accept an `expected_status: &str` argument and return `Result<usize, LedgerError>`.
+- [x] Task 1.2: Update the SQL query in `update_transaction_status_bulk` to include `AND status = ?` using the `expected_status`.
+- [x] Task 1.3: Update callers in `src/ledger/transaction.rs` (`reconcile_drift` and `adopt_drift`) to pass `"UNAUDITED"` as the expected status and verify the affected row count.
+- [x] Task 1.4: Add unit tests to verify bulk update concurrency protection.
 
-### Phase 2: Durable State Protection
-- [ ] Task 2.1: Modify `src/cli.rs` to add an `--include-ledger` flag to the `Reset` subcommand.
-- [ ] Task 2.2: Update `src/commands/reset.rs` to exclude `ledger.db` from the default deletion behavior.
-- [ ] Task 2.3: Wire the `--include-ledger` flag in `src/commands/reset.rs` to allow explicit deletion of `ledger.db` when requested.
+### Phase 2: Path Normalization & Reset Verification
+- [x] Task 2.1: Audit `src/ledger/transaction.rs`, `src/ledger/drift.rs`, and `src/ledger/federation.rs` to ensure `normalize_relative_path` is exclusively used. Refactor any remaining ad-hoc path logic.
+- [x] Task 2.2: Add integration tests in `tests/cli_reset.rs` to explicitly verify `ledger.db` is preserved during default reset and deleted when `--include-ledger` is provided.
 
-### Phase 3: Secure Path Normalization
-- [ ] Task 3.1: Create `src/util/path.rs` with the `normalize_relative_path` utility function (implementing lexical normalization and repo-root confinement without `canonicalize`).
-- [ ] Task 3.2: Expose the `path` module in `src/util/mod.rs` (or create it if needed).
-- [ ] Task 3.3: Refactor `TransactionManager` in `src/ledger/transaction.rs` to use `normalize_relative_path`.
-- [ ] Task 3.4: Refactor `DriftManager` in `src/ledger/drift.rs` to use `normalize_relative_path` instead of ad-hoc fallback logic.
-- [ ] Task 3.5: Refactor federation import logic in `src/ledger/federation.rs` to use `normalize_relative_path` instead of substring checks.
+### Phase 3: Federation Root Discovery
+- [x] Task 3.1: Audit `src/commands/federate.rs` (Export, Scan, Status) to ensure Git repo root is resolved via `open_repo` for layout construction, rather than raw `env::current_dir()`.
+- [x] Task 3.2: Add an integration test in `tests/federated_discovery.rs` to run a federate command from a subdirectory and ensure it targets the correct root `.changeguard/state/ledger.db`.
 
-### Phase 4: Security, Policy, & Discovery
-- [ ] Task 4.1: Update `ValidatorRunner` in `src/ledger/validators.rs` to use the shared `ProcessPolicy` for executing commands, replacing direct `Command::new` usage.
-- [ ] Task 4.2: Update federate commands (e.g., in `src/commands/federate.rs` or relevant entry points) to discover the git repo root before constructing `Layout` and `FederatedScanner`.
+### Phase 4: Audit Command Discoverability
+- [x] Task 4.1: Update `src/cli.rs` to add the `Audit` variant to the top-level `Commands` enum, including `--entity` and `--include-unaudited` arguments.
+- [x] Task 4.2: Update `run()` in `src/cli.rs` to map the top-level `Commands::Audit` to `crate::commands::ledger_audit::execute_ledger_audit`.
+- [x] Task 4.3: Add a test in `tests/cli_verify.rs` or `tests/cli_binary.rs` to ensure `changeguard audit` parses correctly and executes.

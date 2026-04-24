@@ -115,7 +115,7 @@
     *   Key additions: Color-coded icons, refined miette errors, comprehensive README and skill documentation.
 
 *   **Track L-H1: Ledger Production Hardening**
-    *   Status: Active
+    *   Status: Completed
     *   Spec: `conductor/trackL-H1/spec.md`
     *   Plan: `conductor/trackL-H1/plan.md`
     *   Goal: Address critical and high-severity Codex findings: lifecycle invariants, durable state protection, and secure path normalization.

@@ -86,9 +86,21 @@ impl FederatedScanner {
                     continue;
                 }
 
-                let schema_path = path.join(".changeguard").join("schema.json");
-                if schema_path.exists() {
-                    match self.load_schema(&schema_path) {
+                // Check for schema in .changeguard/state/schema.json (current)
+                // or .changeguard/schema.json (legacy fallback)
+                let schema_path = path.join(".changeguard").join("state").join("schema.json");
+                let legacy_path = path.join(".changeguard").join("schema.json");
+
+                let final_path = if schema_path.exists() {
+                    Some(schema_path)
+                } else if legacy_path.exists() {
+                    Some(legacy_path)
+                } else {
+                    None
+                };
+
+                if let Some(sp) = final_path {
+                    match self.load_schema(&sp) {
                         Ok(schema) => {
                             if let Err(e) = schema.validate() {
                                 warnings.push(format!("Invalid schema at {}: {}", path, e));
@@ -98,7 +110,7 @@ impl FederatedScanner {
                         }
                         Err(e) => {
                             warnings.push(format!("Failed to load schema from {}: {}", path, e));
-                            warn!("Failed to load schema from {}: {:?}", schema_path, e);
+                            warn!("Failed to load schema from {}: {:?}", sp, e);
                         }
                     }
                 }

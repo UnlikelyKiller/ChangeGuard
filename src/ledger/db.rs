@@ -135,23 +135,25 @@ impl<'a> LedgerDb<'a> {
         &self,
         tx_ids: &[String],
         status: &str,
+        expected_status: &str,
         resolved_at: Option<&str>,
-    ) -> Result<(), LedgerError> {
+    ) -> Result<usize, LedgerError> {
         if tx_ids.is_empty() {
-            return Ok(());
+            return Ok(0);
         }
         let placeholders: Vec<String> = tx_ids.iter().map(|_| "?".to_string()).collect();
         let sql = format!(
-            "UPDATE transactions SET status = ?1, resolved_at = ?2 WHERE tx_id IN ({})",
+            "UPDATE transactions SET status = ?1, resolved_at = ?2 WHERE status = ?3 AND tx_id IN ({})",
             placeholders.join(",")
         );
-        let mut params: Vec<&dyn rusqlite::ToSql> = vec![&status, &resolved_at];
+        let mut params: Vec<&dyn rusqlite::ToSql> = vec![&status, &resolved_at, &expected_status];
         for id in tx_ids {
             params.push(id);
         }
-        self.conn
+        let count = self
+            .conn
             .execute(&sql, rusqlite::params_from_iter(params))?;
-        Ok(())
+        Ok(count)
     }
 
     fn map_transaction(&self, row: &rusqlite::Row) -> rusqlite::Result<Transaction> {

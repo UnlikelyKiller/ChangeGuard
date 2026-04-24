@@ -122,6 +122,15 @@ pub enum Commands {
         #[arg(long, short, default_value_t = 1000)]
         interval: u64,
     },
+    /// Perform a holistic project audit or history for an entity
+    Audit {
+        /// Show history for a specific entity
+        #[arg(long, short)]
+        entity: Option<String>,
+        /// Include UNAUDITED drift in global view
+        #[arg(long)]
+        include_unaudited: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -440,5 +449,9 @@ pub fn run() -> Result<()> {
         },
         #[cfg(feature = "daemon")]
         Commands::Daemon { interval } => crate::commands::daemon::execute_daemon(interval),
+        Commands::Audit {
+            entity,
+            include_unaudited,
+        } => crate::commands::ledger_audit::execute_ledger_audit(entity, include_unaudited),
     }
 }

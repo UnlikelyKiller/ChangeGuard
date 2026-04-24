@@ -2,6 +2,19 @@
 
 These notes summarize dependency-specific cautions for ChangeGuard maintenance.
 
+## Ledger Hardening & UX Fixes (April 2026)
+
+### `changeguard audit`
+- The `audit` command is now available as a top-level command for better discoverability.
+- `changeguard ledger audit` remains available as an alias.
+
+### `changeguard reset`
+- `ledger.db` is now preserved by default during a reset to prevent accidental provenance data loss.
+- Use `--include-ledger` (plus `--yes`) to explicitly remove the ledger database.
+
+### Path Normalization
+- All internal path handling for the ledger and federation now uses a secure lexical normalization utility (`src/util/path.rs`) that prevents repository-root escapes.
+
 ## `rusqlite`
 
 - `0.39.x` tightened statement validation.

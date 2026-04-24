@@ -333,7 +333,14 @@ impl<'a> TransactionManager<'a> {
         {
             let db = LedgerDb::new(&sqlite_tx);
             let tx_ids: Vec<String> = to_reconcile.iter().map(|tx| tx.tx_id.clone()).collect();
-            db.update_transaction_status_bulk(&tx_ids, "RECONCILED", Some(&now))?;
+            let count =
+                db.update_transaction_status_bulk(&tx_ids, "RECONCILED", "UNAUDITED", Some(&now))?;
+            if count != tx_ids.len() {
+                return Err(LedgerError::InvalidState(
+                    "bulk".to_string(),
+                    "Concurrent modification detected during reconciliation".to_string(),
+                ));
+            }
 
             for tx in to_reconcile {
                 let entry = LedgerEntry {
@@ -394,7 +401,13 @@ impl<'a> TransactionManager<'a> {
         }
 
         let tx_ids: Vec<String> = to_adopt.iter().map(|tx| tx.tx_id.clone()).collect();
-        db.update_transaction_status_bulk(&tx_ids, "PENDING", None)?;
+        let count = db.update_transaction_status_bulk(&tx_ids, "PENDING", "UNAUDITED", None)?;
+        if count != tx_ids.len() {
+            return Err(LedgerError::InvalidState(
+                "bulk".to_string(),
+                "Concurrent modification detected during adoption".to_string(),
+            ));
+        }
 
         if let Some(reason_text) = reason {
             tracing::info!("Adopted drift with reason: {reason_text}");
