@@ -37,6 +37,11 @@ fn test_ledger_token_provenance() {
             is_public: true,
             cognitive_complexity: Some(5),
             cyclomatic_complexity: Some(2),
+            line_start: None,
+            line_end: None,
+            qualified_name: None,
+            byte_start: None,
+            byte_end: None,
         },
         ProvenanceAction::Added,
     )];
@@ -73,6 +78,11 @@ fn test_symbol_diff_logic() {
             is_public: true,
             cognitive_complexity: Some(5),
             cyclomatic_complexity: Some(2),
+            line_start: None,
+            line_end: None,
+            qualified_name: None,
+            byte_start: None,
+            byte_end: None,
         },
         Symbol {
             name: "s2".to_string(),
@@ -80,6 +90,11 @@ fn test_symbol_diff_logic() {
             is_public: false,
             cognitive_complexity: None,
             cyclomatic_complexity: None,
+            line_start: None,
+            line_end: None,
+            qualified_name: None,
+            byte_start: None,
+            byte_end: None,
         },
     ];
 
@@ -90,6 +105,11 @@ fn test_symbol_diff_logic() {
             is_public: true,
             cognitive_complexity: Some(8), // modified
             cyclomatic_complexity: Some(3),
+            line_start: None,
+            line_end: None,
+            qualified_name: None,
+            byte_start: None,
+            byte_end: None,
         },
         Symbol {
             name: "s3".to_string(),
@@ -97,6 +117,11 @@ fn test_symbol_diff_logic() {
             is_public: true,
             cognitive_complexity: Some(10),
             cyclomatic_complexity: Some(5),
+            line_start: None,
+            line_end: None,
+            qualified_name: None,
+            byte_start: None,
+            byte_end: None,
         },
     ];
 
