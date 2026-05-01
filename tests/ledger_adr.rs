@@ -40,6 +40,7 @@ fn test_ledger_adr_export() {
                 reason: "Scalability requirements".to_string(),
                 ..Default::default()
             },
+            false,
         )
         .unwrap();
 
@@ -61,6 +62,7 @@ fn test_ledger_adr_export() {
                 is_breaking: true,
                 ..Default::default()
             },
+            false,
         )
         .unwrap();
 

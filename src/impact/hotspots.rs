@@ -46,19 +46,57 @@ pub fn calculate_hotspots(
         return Ok(Vec::new());
     }
 
-    let mut stmt = storage.get_connection().prepare(
-        "SELECT file_path, MAX(IFNULL(cognitive_complexity, 0), IFNULL(cyclomatic_complexity, 0)) as max_comp 
-         FROM symbols 
-         GROUP BY file_path"
-    ).into_diagnostic()?;
+    // Primary: query the impact-time symbols table for complexity data.
+    // Fallback: if the symbols table is empty (no prior impact run), try
+    // project_symbols which is populated by `changeguard index`.
+    let mut file_complexities: HashMap<String, i32> = HashMap::new();
 
-    let file_complexities: HashMap<String, i32> = stmt
-        .query_map([], |row| {
+    // Primary query from the impact-time symbols table
+    let primary_result: HashMap<String, i32> = {
+        let mut stmt = storage.get_connection().prepare(
+            "SELECT file_path, MAX(IFNULL(cognitive_complexity, 0), IFNULL(cyclomatic_complexity, 0)) as max_comp
+             FROM symbols
+             GROUP BY file_path"
+        ).into_diagnostic()?;
+
+        stmt.query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, i32>(1)?))
         })
         .into_diagnostic()?
         .collect::<rusqlite::Result<HashMap<String, i32>>>()
-        .into_diagnostic()?;
+        .into_diagnostic()?
+    };
+
+    if !primary_result.is_empty() {
+        file_complexities = primary_result;
+    } else {
+        // Fallback: try project_symbols (populated by `changeguard index`)
+        let fallback_result = {
+            let mut stmt = storage.get_connection().prepare(
+                "SELECT pf.file_path, MAX(IFNULL(ps.cognitive_complexity, 0), IFNULL(ps.cyclomatic_complexity, 0)) as max_comp
+                 FROM project_symbols ps
+                 JOIN project_files pf ON ps.file_id = pf.id
+                 GROUP BY pf.file_path"
+            ).into_diagnostic()?;
+
+            stmt.query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i32>(1)?))
+            })
+            .into_diagnostic()?
+            .collect::<rusqlite::Result<HashMap<String, i32>>>()
+        };
+
+        match fallback_result {
+            Ok(fallback) => file_complexities = fallback,
+            Err(_) => {
+                // project_symbols table doesn't exist yet (pre-E1-1 database).
+                // All files will get complexity 0, which is the current behavior.
+                tracing::debug!(
+                    "project_symbols table not available, complexity will be 0 for all files"
+                );
+            }
+        }
+    }
 
     let mut hotspots = Vec::new();
 

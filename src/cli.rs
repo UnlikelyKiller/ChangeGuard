@@ -181,6 +181,9 @@ pub enum LedgerCommands {
         /// Do not auto-reconcile drift (overrides config)
         #[arg(long)]
         no_auto_reconcile: bool,
+        /// Skip verification gate enforcement (use with caution)
+        #[arg(long)]
+        force: bool,
     },
     /// Roll back a PENDING transaction
     Rollback {
@@ -380,6 +383,7 @@ pub fn run() -> Result<()> {
                 breaking,
                 auto_reconcile,
                 no_auto_reconcile,
+                force,
             } => crate::commands::ledger::execute_ledger_commit(
                 tx_id,
                 summary,
@@ -388,6 +392,7 @@ pub fn run() -> Result<()> {
                 breaking,
                 auto_reconcile,
                 no_auto_reconcile,
+                force,
             ),
             LedgerCommands::Rollback { tx_id, reason } => {
                 crate::commands::ledger::execute_ledger_rollback(tx_id, reason)

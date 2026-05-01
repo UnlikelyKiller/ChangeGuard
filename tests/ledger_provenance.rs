@@ -52,6 +52,7 @@ fn test_ledger_token_provenance() {
                 summary: "Added my_func".to_string(),
                 ..Default::default()
             },
+            false,
         )
         .unwrap();
 

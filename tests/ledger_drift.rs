@@ -284,6 +284,7 @@ fn test_auto_reconcile_on_commit() {
                     summary: "commit with auto-reconcile".to_string(),
                     ..Default::default()
                 },
+                false,
             )
             .unwrap();
     }

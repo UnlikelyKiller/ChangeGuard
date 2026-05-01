@@ -123,7 +123,12 @@ impl<'a> TransactionManager<'a> {
         Ok(tx_id)
     }
 
-    pub fn commit_change(&mut self, tx_id: String, req: CommitRequest) -> Result<(), LedgerError> {
+    pub fn commit_change(
+        &mut self,
+        tx_id: String,
+        req: CommitRequest,
+        force: bool,
+    ) -> Result<(), LedgerError> {
         let tx_id = self.resolve_tx_id(&tx_id)?;
 
         let tx = {
@@ -134,6 +139,20 @@ impl<'a> TransactionManager<'a> {
 
         if tx.status != "PENDING" {
             return Err(LedgerError::InvalidState(tx_id, tx.status));
+        }
+
+        // Verification gate: require verification status for high-risk categories
+        if !force && self.config.ledger.verify_to_commit {
+            let requires_verification = matches!(
+                tx.category,
+                Category::Architecture | Category::Feature | Category::Bugfix | Category::Infra
+            );
+            if requires_verification && req.verification_status.is_none() {
+                return Err(LedgerError::VerificationRequired(format!(
+                    "{:?}",
+                    tx.category
+                )));
+            }
         }
 
         // Commit Validation
@@ -283,9 +302,10 @@ impl<'a> TransactionManager<'a> {
         &mut self,
         tx_req: TransactionRequest,
         commit_req: CommitRequest,
+        force: bool,
     ) -> Result<(), LedgerError> {
         let tx_id = self.start_change(tx_req)?;
-        if let Err(commit_err) = self.commit_change(tx_id.clone(), commit_req) {
+        if let Err(commit_err) = self.commit_change(tx_id.clone(), commit_req, force) {
             // Attempt cleanup rollback; prefer returning the original error
             if let Err(rollback_err) = self.rollback_change(tx_id) {
                 tracing::warn!(

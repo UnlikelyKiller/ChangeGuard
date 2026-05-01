@@ -60,6 +60,7 @@ pub fn execute_ledger_start(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn execute_ledger_commit(
     tx_id: String,
     summary: String,
@@ -68,6 +69,7 @@ pub fn execute_ledger_commit(
     breaking: bool,
     auto_reconcile: bool,
     no_auto_reconcile: bool,
+    force: bool,
 ) -> Result<()> {
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
@@ -109,6 +111,7 @@ pub fn execute_ledger_commit(
                 is_breaking: breaking,
                 ..Default::default()
             },
+            force,
         )
         .map_err(|e| miette::miette!("{}", e))?;
 
@@ -196,6 +199,7 @@ pub fn execute_ledger_atomic(
                 reason,
                 ..Default::default()
             },
+            false, // atomic commits don't support --force bypass
         )
         .map_err(|e| miette::miette!("{}", e))?;
 
@@ -223,6 +227,7 @@ pub fn execute_ledger_note(entity: String, note: String) -> Result<()> {
                 reason: "Lightweight note".to_string(),
                 ..Default::default()
             },
+            false, // note commits use Chore category, never requires verification
         )
         .map_err(|e| miette::miette!("{}", e))?;
 

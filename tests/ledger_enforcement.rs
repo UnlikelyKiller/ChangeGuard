@@ -387,6 +387,7 @@ fn test_commit_validator_blocking() {
             summary: "test commit".to_string(),
             ..Default::default()
         },
+        false,
     );
 
     match result {
@@ -442,6 +443,7 @@ fn test_commit_validator_warning() {
             summary: "test commit".to_string(),
             ..Default::default()
         },
+        false,
     );
 
     assert!(result.is_ok());
@@ -493,6 +495,7 @@ fn test_commit_validator_timeout() {
             summary: "test commit".to_string(),
             ..Default::default()
         },
+        false,
     );
 
     match result {
@@ -553,6 +556,7 @@ fn test_commit_validator_absolute_path() {
             summary: "test commit".to_string(),
             ..Default::default()
         },
+        false,
     );
 
     match result {
@@ -622,6 +626,7 @@ fn test_all_category_validators() {
             summary: "test commit".to_string(),
             ..Default::default()
         },
+        false,
     );
 
     match result {
@@ -632,5 +637,240 @@ fn test_all_category_validators() {
             "Expected ValidatorFailed error from global-validator, got {:?}",
             result
         ),
+    }
+}
+
+#[test]
+fn test_verification_gate_blocks_high_risk_categories() {
+    let dir = tempdir().unwrap();
+    let db_path = dir.path().join("ledger.db");
+    let mut storage = StorageManager::init(&db_path).unwrap();
+    let repo_root = dir.path().to_path_buf();
+
+    // Create entity files
+    for entity in ["src/main.rs", "src/lib.rs"] {
+        let entity_path = repo_root.join(entity);
+        std::fs::create_dir_all(entity_path.parent().unwrap()).unwrap();
+        std::fs::write(&entity_path, "").unwrap();
+    }
+
+    let mut config = Config::default();
+    config.ledger.verify_to_commit = true;
+
+    let mut tx_mgr = TransactionManager::new(storage.get_connection_mut(), repo_root, config);
+
+    // Test that Architecture category requires verification
+    for category in [
+        Category::Architecture,
+        Category::Feature,
+        Category::Bugfix,
+        Category::Infra,
+    ] {
+        let entity = "src/main.rs";
+        let tx_id = tx_mgr
+            .start_change(TransactionRequest {
+                category,
+                entity: entity.to_string(),
+                ..Default::default()
+            })
+            .unwrap();
+
+        // Commit without verification_status should fail
+        let result = tx_mgr.commit_change(
+            tx_id.clone(),
+            CommitRequest {
+                summary: "test commit".to_string(),
+                reason: "testing".to_string(),
+                ..Default::default()
+            },
+            false,
+        );
+
+        match result {
+            Err(LedgerError::VerificationRequired(cat)) => {
+                assert_eq!(cat, format!("{:?}", category));
+            }
+            _ => panic!(
+                "Expected VerificationRequired for {:?}, got {:?}",
+                category, result
+            ),
+        }
+
+        // Clean up: rollback so we can reuse the entity
+        tx_mgr.rollback_change(tx_id).unwrap();
+    }
+}
+
+#[test]
+fn test_verification_gate_allows_with_status() {
+    let dir = tempdir().unwrap();
+    let db_path = dir.path().join("ledger.db");
+    let mut storage = StorageManager::init(&db_path).unwrap();
+    let repo_root = dir.path().to_path_buf();
+
+    let entity_path = repo_root.join("src/main.rs");
+    std::fs::create_dir_all(entity_path.parent().unwrap()).unwrap();
+    std::fs::write(&entity_path, "").unwrap();
+
+    let mut config = Config::default();
+    config.ledger.verify_to_commit = true;
+
+    let mut tx_mgr = TransactionManager::new(storage.get_connection_mut(), repo_root, config);
+
+    let tx_id = tx_mgr
+        .start_change(TransactionRequest {
+            category: Category::Architecture,
+            entity: "src/main.rs".to_string(),
+            ..Default::default()
+        })
+        .unwrap();
+
+    // Commit WITH verification_status should succeed
+    let result = tx_mgr.commit_change(
+        tx_id,
+        CommitRequest {
+            summary: "Architectural change".to_string(),
+            reason: "Refactored core module".to_string(),
+            verification_status: Some(VerificationStatus::Verified),
+            verification_basis: Some(VerificationBasis::Tests),
+            ..Default::default()
+        },
+        false,
+    );
+
+    assert!(result.is_ok(), "Should succeed with verification status");
+}
+
+#[test]
+fn test_verification_gate_force_override() {
+    let dir = tempdir().unwrap();
+    let db_path = dir.path().join("ledger.db");
+    let mut storage = StorageManager::init(&db_path).unwrap();
+    let repo_root = dir.path().to_path_buf();
+
+    let entity_path = repo_root.join("src/main.rs");
+    std::fs::create_dir_all(entity_path.parent().unwrap()).unwrap();
+    std::fs::write(&entity_path, "").unwrap();
+
+    let mut config = Config::default();
+    config.ledger.verify_to_commit = true;
+
+    let mut tx_mgr = TransactionManager::new(storage.get_connection_mut(), repo_root, config);
+
+    let tx_id = tx_mgr
+        .start_change(TransactionRequest {
+            category: Category::Feature,
+            entity: "src/main.rs".to_string(),
+            ..Default::default()
+        })
+        .unwrap();
+
+    // Commit with force=true should bypass the verification gate
+    let result = tx_mgr.commit_change(
+        tx_id,
+        CommitRequest {
+            summary: "Feature change".to_string(),
+            reason: "New feature".to_string(),
+            ..Default::default()
+        },
+        true,
+    );
+
+    assert!(result.is_ok(), "Should succeed with --force override");
+}
+
+#[test]
+fn test_verification_gate_disabled_by_default() {
+    let dir = tempdir().unwrap();
+    let db_path = dir.path().join("ledger.db");
+    let mut storage = StorageManager::init(&db_path).unwrap();
+    let repo_root = dir.path().to_path_buf();
+
+    let entity_path = repo_root.join("src/main.rs");
+    let _ = std::fs::create_dir_all(entity_path.parent().unwrap());
+    std::fs::write(&entity_path, "").unwrap();
+
+    // Default config has verify_to_commit = false
+    let mut tx_mgr =
+        TransactionManager::new(storage.get_connection_mut(), repo_root, Config::default());
+
+    let tx_id = tx_mgr
+        .start_change(TransactionRequest {
+            category: Category::Architecture,
+            entity: "src/main.rs".to_string(),
+            ..Default::default()
+        })
+        .unwrap();
+
+    // Should succeed without verification when gate is disabled
+    let result = tx_mgr.commit_change(
+        tx_id,
+        CommitRequest {
+            summary: "Architectural change".to_string(),
+            reason: "Refactored".to_string(),
+            ..Default::default()
+        },
+        false,
+    );
+
+    assert!(
+        result.is_ok(),
+        "Should succeed when verify_to_commit is disabled (default)"
+    );
+}
+
+#[test]
+fn test_verification_gate_allows_low_risk_categories() {
+    let dir = tempdir().unwrap();
+    let db_path = dir.path().join("ledger.db");
+    let mut storage = StorageManager::init(&db_path).unwrap();
+    let repo_root = dir.path().to_path_buf();
+
+    for (entity, _category) in [
+        ("docs/readme.md", Category::Docs),
+        ("chore.log", Category::Chore),
+        ("refactor.rs", Category::Refactor),
+        ("tooling.sh", Category::Tooling),
+    ] {
+        let entity_path = repo_root.join(entity);
+        std::fs::create_dir_all(entity_path.parent().unwrap()).unwrap();
+        std::fs::write(&entity_path, "").unwrap();
+    }
+
+    let mut config = Config::default();
+    config.ledger.verify_to_commit = true;
+
+    let mut tx_mgr = TransactionManager::new(storage.get_connection_mut(), repo_root, config);
+
+    // Low-risk categories should not require verification
+    for (entity, category) in [
+        ("docs/readme.md", Category::Docs),
+        ("chore.log", Category::Chore),
+        ("refactor.rs", Category::Refactor),
+        ("tooling.sh", Category::Tooling),
+    ] {
+        let tx_id = tx_mgr
+            .start_change(TransactionRequest {
+                category,
+                entity: entity.to_string(),
+                ..Default::default()
+            })
+            .unwrap();
+
+        let result = tx_mgr.commit_change(
+            tx_id,
+            CommitRequest {
+                summary: format!("{:?} change", category),
+                reason: "testing".to_string(),
+                ..Default::default()
+            },
+            false,
+        );
+
+        assert!(
+            result.is_ok(),
+            "{:?} should not require verification",
+            category
+        );
     }
 }

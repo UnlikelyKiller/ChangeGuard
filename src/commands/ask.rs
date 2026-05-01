@@ -46,9 +46,10 @@ pub fn execute_ask(query: Option<String>, mut mode: GeminiMode, narrative: bool)
     // Read config for settings like timeout
     let config = load_config(&layout)?;
 
-    // Token budgeting (4 chars ~ 1 token).
-    // Track 34 requirement: hard limit of 409,600 characters (~102,400 tokens).
-    let char_limit = 409_600;
+    // Token budgeting: derive from config context_window.
+    // 80% of context_window tokens × 4 chars/token = usable character budget.
+    // Default context_window=128000 → 102,400 tokens → 409,600 chars.
+    let char_limit = (config.gemini.context_window as f64 * 0.8 * 4.0) as usize;
 
     let truncated = latest_packet.truncate_for_context(char_limit);
 

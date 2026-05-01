@@ -53,6 +53,7 @@ fn test_ledger_start_commit_roundtrip() {
                 reason: "Part of track L1-2".to_string(),
                 ..Default::default()
             },
+            false,
         )
         .expect("Should commit transaction");
 
@@ -173,6 +174,7 @@ fn test_ledger_atomic() {
                 reason: "Documentation".to_string(),
                 ..Default::default()
             },
+            false,
         )
         .expect("Should perform atomic change");
 

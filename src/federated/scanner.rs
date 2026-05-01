@@ -1,12 +1,55 @@
 use crate::federated::schema::FederatedSchema;
 use crate::index::languages::{Language, parse_symbols};
+use crate::index::references::extract_import_export;
 use camino::{Utf8Path, Utf8PathBuf};
 use miette::{IntoDiagnostic, Result};
+use regex::Regex;
 use std::fs;
 use std::panic;
 use tracing::warn;
 
 pub const DEFAULT_SIBLING_LIMIT: usize = 20;
+
+/// Check whether a symbol name appears as a whole-word match in the given content.
+/// Uses word-boundary regex to avoid false positives like "api" matching "map_item".
+/// Falls back to exact substring match if the regex fails to compile (e.g., symbol
+/// contains regex metacharacters that break the pattern).
+fn symbol_matches_content(symbol: &str, content: &str) -> bool {
+    // Escape any regex metacharacters in the symbol name, then wrap in word boundaries.
+    let pattern = format!(r"\b{}\b", regex::escape(symbol));
+    match Regex::new(&pattern) {
+        Ok(re) => re.is_match(content),
+        Err(_) => {
+            // Regex compilation failed (unlikely with escaped input); fall back to
+            // substring match as a degraded mode rather than crashing.
+            warn!(
+                "Failed to compile word-boundary regex for symbol '{}', falling back to substring match",
+                symbol
+            );
+            content.contains(symbol)
+        }
+    }
+}
+
+/// Check whether a symbol is imported or referenced via the file's import list.
+/// This is a more precise match than word-boundary regex: if the symbol's module/crate
+/// appears in the file's imports, it's a definitive dependency.
+fn symbol_imported(symbol: &str, path: &Utf8Path, content: &str) -> bool {
+    if let Ok(Some(import_export)) = extract_import_export(path.as_std_path(), content) {
+        // Check if the symbol name or a module path containing it appears in imports.
+        for import in &import_export.imported_from {
+            if import.contains(symbol) {
+                return true;
+            }
+        }
+        for export in &import_export.exported_symbols {
+            if export == symbol {
+                return true;
+            }
+        }
+    }
+    false
+}
 
 pub struct FederatedScanner {
     root: Utf8PathBuf,
@@ -158,7 +201,12 @@ impl FederatedScanner {
                         Err(_) => continue,
                     };
 
-                    if file_content.contains(symbol_to_find) {
+                    // Use import-based matching first (definitive), then word-boundary
+                    // regex (heuristic). This avoids false positives like "api"
+                    // matching "map_item".
+                    let matches_import = symbol_imported(symbol_to_find, utf8_path, &file_content);
+                    let matches_word = symbol_matches_content(symbol_to_find, &file_content);
+                    if matches_import || matches_word {
                         for local_symbol in local_symbols {
                             edges.push((local_symbol.name.clone(), symbol_to_find.clone()));
                         }
@@ -230,7 +278,9 @@ impl FederatedScanner {
 
             for interface in &sibling_schema.public_interfaces {
                 let symbol_to_find = &interface.symbol;
-                if file_content.contains(symbol_to_find) {
+                let matches_import = symbol_imported(symbol_to_find, relative_path, &file_content);
+                let matches_word = symbol_matches_content(symbol_to_find, &file_content);
+                if matches_import || matches_word {
                     for local_symbol in &local_symbol_names {
                         edges.push((local_symbol.clone(), symbol_to_find.clone()));
                     }
@@ -277,5 +327,86 @@ mod dependency_tests {
             dependencies,
             vec![("local_handler".to_string(), "remote_api".to_string())]
         );
+    }
+
+    #[test]
+    fn no_false_positive_substring_match() {
+        // "api" should NOT match "map_item" — the word boundary prevents it.
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(tmp.path().to_path_buf()).unwrap();
+        fs::write(root.join("main.rs"), "pub fn map_item() { }").unwrap();
+
+        let schema = FederatedSchema::new(
+            "sibling".to_string(),
+            vec![PublicInterface {
+                symbol: "api".to_string(),
+                file: "src/lib.rs".to_string(),
+                kind: SymbolKind::Function,
+            }],
+        );
+
+        let scanner = FederatedScanner::new(root);
+        let dependencies = scanner
+            .discover_dependencies_in_current_repo(&schema)
+            .unwrap();
+
+        assert!(
+            dependencies.is_empty(),
+            "Expected no dependencies, got {:?}",
+            dependencies
+        );
+    }
+
+    #[test]
+    fn word_boundary_match_still_works() {
+        // "handler" should match "let result = handler(request);" as a whole word.
+        let tmp = tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(tmp.path().to_path_buf()).unwrap();
+        fs::write(
+            root.join("main.rs"),
+            "pub fn local_fn() { let result = handler(request); }",
+        )
+        .unwrap();
+
+        let schema = FederatedSchema::new(
+            "sibling".to_string(),
+            vec![PublicInterface {
+                symbol: "handler".to_string(),
+                file: "src/lib.rs".to_string(),
+                kind: SymbolKind::Function,
+            }],
+        );
+
+        let scanner = FederatedScanner::new(root);
+        let dependencies = scanner
+            .discover_dependencies_in_current_repo(&schema)
+            .unwrap();
+
+        assert!(
+            !dependencies.is_empty(),
+            "Expected to find 'handler' as a whole-word match"
+        );
+    }
+
+    #[test]
+    fn symbol_matches_content_unit_tests() {
+        // Exact word match
+        assert!(symbol_matches_content(
+            "handler",
+            "let result = handler(request);"
+        ));
+        assert!(symbol_matches_content("api", "use crate::api;"));
+
+        // False positives prevented: substring should NOT match
+        assert!(!symbol_matches_content("api", "map_item"));
+        assert!(!symbol_matches_content("api", "the_capabilities"));
+        assert!(!symbol_matches_content("set", "upsetting"));
+
+        // Should match identifiers at word boundaries
+        assert!(symbol_matches_content(
+            "remote_api",
+            "let x = remote_api();"
+        ));
+        assert!(symbol_matches_content("RemoteApi", "use crate::RemoteApi;"));
     }
 }
