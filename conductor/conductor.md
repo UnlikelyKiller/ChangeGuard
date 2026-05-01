@@ -1,6 +1,6 @@
 # ChangeGuard Conductor
 
-## Milestone L: Ledger Incorporation (Active)
+## Milestone L: Ledger Incorporation (Completed)
 
 *   **Track L1-1: Ledger Data Model & Migrations**
     *   Status: Completed
@@ -206,29 +206,29 @@
 ## Completed Tracks
 
 
-*   **Track 19: Reset and Recovery Completion** (Next)
-    *   Status: Planning
+*   **Track 19: Reset and Recovery Completion**
+    *   Status: Completed
     *   Spec: `conductor/track19/spec.md`
     *   Plan: `conductor/track19/plan.md`
     *   Audit2 findings: Functional finding 1, Phase 14 gap, Source-tree `reset` deficiency
     *   Key additions: real `reset` command, `src/commands/reset.rs`, derived-state cleanup, optional config/rules removal, recovery path for broken local state
 
-*   **Track 20: Determinism and Error Visibility Hardening** (After Track 19)
-    *   Status: Planning
+*   **Track 20: Determinism and Error Visibility Hardening**
+    *   Status: Completed
     *   Spec: `conductor/track20/spec.md`
     *   Plan: `conductor/track20/plan.md`
     *   Audit2 findings: Functional findings 3 and 4, Determinism gaps, Error Visibility gaps
     *   Key additions: validated rule loading, no silent config/rules fallback, explicit partial-analysis warnings in impact packets, deterministic warning ordering
 
-*   **Track 21: Verification Process Hardening** (After Track 20)
-    *   Status: Planning
+*   **Track 21: Verification Process Hardening**
+    *   Status: Completed
     *   Spec: `conductor/track21/spec.md`
     *   Plan: `conductor/track21/plan.md`
     *   Audit2 findings: Functional finding 2, Phase 12 and Phase 15 gaps
     *   Key additions: `verify/runner.rs`, `verify/timeouts.rs`, process-policy enforcement, reduced shell dependence, dedicated platform verification tests
 
-*   **Track 22: Structural Completion and Plan Reconciliation** (Last of Phase 1)
-    *   Status: Planning
+*   **Track 22: Structural Completion and Plan Reconciliation**
+    *   Status: Completed
     *   Spec: `conductor/track22/spec.md`
     *   Plan: `conductor/track22/plan.md`
     *   Audit2 findings: Functional findings 5, 6, 7, remaining source/doc/test layout gaps

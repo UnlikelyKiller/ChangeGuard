@@ -31,6 +31,11 @@ All hardening and polish tracks are done. The build is green, all tests pass, an
     *   **UX Fixes:** Added top-level `changeguard audit` command for discoverability.
 *   **Track L7-1: Production Polish**
     *   Color-coded UI icons, refined `miette` errors, and comprehensive README/Skill documentation.
+*   **Audit 2 Remediation (Tracks 19-22)**
+    *   `Track 19`: Safety-bounded `reset` command.
+    *   `Track 20`: Hardened determinism and error visibility (no silent fallbacks).
+    *   `Track 21`: Hardened verification runner and `ProcessPolicy` enforcement.
+    *   `Track 22`: Scan diff-summary integration and symbol persistence seams.
 
 ## CI Gate
 
