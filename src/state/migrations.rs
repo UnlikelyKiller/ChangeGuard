@@ -204,6 +204,72 @@ pub fn get_migrations() -> Migrations<'static> {
             CREATE INDEX IF NOT EXISTS idx_token_provenance_tx_id ON token_provenance(tx_id);
             CREATE INDEX IF NOT EXISTS idx_token_provenance_entity_symbol ON token_provenance(entity_normalized, symbol_name);",
         ),
+        M::up(
+            "CREATE TABLE IF NOT EXISTS project_files (
+                id              INTEGER PRIMARY KEY,
+                file_path       TEXT NOT NULL,
+                language        TEXT,
+                content_hash    TEXT,
+                git_blob_oid    TEXT,
+                file_size       INTEGER,
+                mtime_ns        INTEGER,
+                parser_version  TEXT NOT NULL DEFAULT '1',
+                parse_status    TEXT NOT NULL DEFAULT 'OK',
+                last_indexed_at TEXT NOT NULL,
+                UNIQUE(file_path)
+            );
+            CREATE TABLE IF NOT EXISTS index_metadata (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS project_symbols (
+                id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_id               INTEGER NOT NULL REFERENCES project_files(id),
+                qualified_name        TEXT NOT NULL,
+                symbol_name           TEXT NOT NULL,
+                symbol_kind           TEXT NOT NULL,
+                visibility            TEXT,
+                entrypoint_kind       TEXT NOT NULL DEFAULT 'INTERNAL',
+                is_public             INTEGER DEFAULT 0,
+                cognitive_complexity  INTEGER,
+                cyclomatic_complexity  INTEGER,
+                line_start           INTEGER,
+                line_end             INTEGER,
+                byte_start           INTEGER,
+                byte_end             INTEGER,
+                signature_hash       TEXT,
+                confidence           REAL NOT NULL DEFAULT 1.0,
+                evidence             TEXT,
+                last_indexed_at      TEXT NOT NULL,
+                UNIQUE(file_id, qualified_name, symbol_kind)
+            );
+            CREATE INDEX IF NOT EXISTS idx_project_symbols_file ON project_symbols(file_id);
+            CREATE INDEX IF NOT EXISTS idx_project_symbols_qualified ON project_symbols(qualified_name);
+            CREATE INDEX IF NOT EXISTS idx_project_symbols_name ON project_symbols(symbol_name);
+            CREATE INDEX IF NOT EXISTS idx_project_symbols_kind ON project_symbols(symbol_kind);
+            CREATE INDEX IF NOT EXISTS idx_project_symbols_entrypoint ON project_symbols(entrypoint_kind);
+            CREATE TABLE IF NOT EXISTS project_docs (
+                id              INTEGER PRIMARY KEY,
+                file_id         INTEGER NOT NULL REFERENCES project_files(id),
+                title           TEXT,
+                summary         TEXT,
+                sections        JSON,
+                code_blocks     JSON,
+                internal_links  JSON,
+                confidence      REAL NOT NULL DEFAULT 1.0,
+                last_indexed_at TEXT NOT NULL,
+                UNIQUE(file_id)
+            );
+            CREATE TABLE IF NOT EXISTS project_topology (
+                id              INTEGER PRIMARY KEY,
+                dir_path        TEXT NOT NULL,
+                role            TEXT NOT NULL,
+                confidence      REAL NOT NULL DEFAULT 1.0,
+                evidence        TEXT,
+                last_indexed_at TEXT NOT NULL,
+                UNIQUE(dir_path)
+            );",
+        ),
     ])
 }
 
@@ -242,6 +308,11 @@ mod tests {
             "category_stack_mappings",
             "watcher_patterns",
             "token_provenance",
+            "project_files",
+            "index_metadata",
+            "project_symbols",
+            "project_docs",
+            "project_topology",
         ];
 
         for table in &expected_tables {
@@ -397,7 +468,7 @@ mod tests {
 
         let tx_id = "550e8400-e29b-41d4-a716-446655440000";
         conn.execute(
-            "INSERT INTO transactions (tx_id, status, category, entity, entity_normalized, session_id, started_at) 
+            "INSERT INTO transactions (tx_id, status, category, entity, entity_normalized, session_id, started_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             (tx_id, "PENDING", "FEATURE", "src/main.rs", "src/main.rs", "session-1", "2026-01-01T00:00:00Z"),
         ).unwrap();
@@ -427,5 +498,66 @@ mod tests {
             )
             .unwrap();
         assert_eq!(fts_summary, "Add feature X");
+    }
+
+    #[test]
+    fn test_insert_and_query_project_files_symbols() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let migrations = get_migrations();
+        migrations.to_latest(&mut conn).unwrap();
+
+        // Insert a project_files row
+        conn.execute(
+            "INSERT INTO project_files (file_path, language, content_hash, git_blob_oid, file_size, mtime_ns, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            ("src/lib.rs", "Rust", "abc123hash", "def456oid", 2048, 1700000000000000000i64, "2026-05-01T00:00:00Z"),
+        ).unwrap();
+
+        // Query back the file and verify defaults
+        let (file_path, parse_status, parser_version): (String, String, String) = conn
+            .query_row(
+                "SELECT file_path, parse_status, parser_version FROM project_files WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(file_path, "src/lib.rs");
+        assert_eq!(parse_status, "OK", "parse_status should default to 'OK'");
+        assert_eq!(parser_version, "1", "parser_version should default to '1'");
+
+        // Insert a project_symbols row referencing that file
+        conn.execute(
+            "INSERT INTO project_symbols (file_id, qualified_name, symbol_name, symbol_kind, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            (1i64, "crate::my_func", "my_func", "Function", "2026-05-01T00:00:00Z"),
+        ).unwrap();
+
+        // Query back the symbol and verify FK relationship + defaults
+        let (sym_name, entrypoint_kind, confidence): (String, String, f64) = conn
+            .query_row(
+                "SELECT symbol_name, entrypoint_kind, confidence FROM project_symbols WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(sym_name, "my_func");
+        assert_eq!(
+            entrypoint_kind, "INTERNAL",
+            "entrypoint_kind should default to 'INTERNAL'"
+        );
+        assert!(
+            (confidence - 1.0).abs() < f64::EPSILON,
+            "confidence should default to 1.0"
+        );
+
+        // Verify the FK join works
+        let (file_path_from_sym,): (String,) = conn
+            .query_row(
+                "SELECT pf.file_path FROM project_symbols ps JOIN project_files pf ON ps.file_id = pf.id WHERE ps.qualified_name = ?1",
+                ["crate::my_func"],
+                |row| Ok((row.get(0)?,)),
+            )
+            .unwrap();
+        assert_eq!(file_path_from_sym, "src/lib.rs");
     }
 }
