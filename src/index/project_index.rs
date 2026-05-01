@@ -1,4 +1,5 @@
 use crate::index::languages::{Language, parse_symbols};
+use crate::index::metrics::{ComplexityScorer, NativeComplexityScorer};
 use crate::index::symbols::Symbol;
 use crate::state::storage::StorageManager;
 use camino::{Utf8Path, Utf8PathBuf};
@@ -158,7 +159,7 @@ impl ProjectIndexer {
 
         let now = chrono::Utc::now().to_rfc3339();
 
-        let (parse_status, symbols) = match parse_symbols(path.as_std_path(), &content) {
+        let (parse_status, mut symbols) = match parse_symbols(path.as_std_path(), &content) {
             Ok(Some(symbols)) => ("OK".to_string(), symbols),
             Ok(None) => ("OK".to_string(), Vec::new()),
             Err(e) => {
@@ -166,6 +167,24 @@ impl ProjectIndexer {
                 ("PARSE_FAILED".to_string(), Vec::new())
             }
         };
+
+        // Enrich symbols with complexity data from the tree-sitter scorer
+        if parse_status == "OK" && let Some(lang) = Language::from_extension(ext) {
+            let scorer = NativeComplexityScorer::new();
+            if let Ok(file_complexity) = scorer.score_file(path, &content, lang) {
+                // Merge complexity scores by matching symbol names
+                for symbol in &mut symbols {
+                    if let Some(sc) = file_complexity
+                        .functions
+                        .iter()
+                        .find(|sc| sc.name == symbol.name)
+                    {
+                        symbol.cognitive_complexity = Some(sc.cognitive as i32);
+                        symbol.cyclomatic_complexity = Some(sc.cyclomatic as i32);
+                    }
+                }
+            }
+        }
 
         let project_file = ProjectFile {
             id: None,
