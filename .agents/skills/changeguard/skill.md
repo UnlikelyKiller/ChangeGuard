@@ -33,7 +33,7 @@ Before making a meaningful edit, assess the risk:
 changeguard scan --impact
 ```
 
-Read the generated report at `.changeguard/reports/latest-impact.json` to identify risk level, affected symbols, and temporal couplings.
+Read the generated report at `.changeguard/reports/latest-impact.json` to identify risk level, affected symbols, temporal couplings, and runtime dependencies (environment variables, config keys).
 
 After making edits, verify the change:
 
@@ -69,7 +69,7 @@ changeguard ledger note --entity <path> "Metadata note"
 Adjust your coding strategy based on ChangeGuard signals:
 
 1. **Temporal Coupling**: If a changed file has a high affinity (>70%) with an unchanged file, you **MUST** read that unchanged file. Logical dependencies often exist where imports do not.
-2. **Hotspots**: Files with high hotspot scores are brittle. Prioritize refactoring or higher test coverage when editing them.
+2. **Hotspots**: Files with high hotspot scores are brittle. Prioritize refactoring or higher test coverage when editing them. **Note**: When entering an unfamiliar codebase, `changeguard hotspots` serves as an orientation map of where complexity is concentrated.
 3. **Federated Impact**: If `federated_impact` warnings appear, your change may break a sibling repository. Explain this risk to the user.
 4. **Predictive Verification**: Trust the `verify` command's suggestions, even if they seem unrelated; they are often based on historical failure correlations.
 5. **Drift Detection**: If `ledger status` shows `UNAUDITED` entries, files were modified outside a transaction. Use `ledger reconcile` or `ledger adopt` before continuing.
