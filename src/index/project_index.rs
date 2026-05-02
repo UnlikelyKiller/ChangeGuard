@@ -1,3 +1,4 @@
+use crate::index::docs::{DocIndexStats, parse_markdown};
 use crate::index::languages::{Language, parse_symbols};
 use crate::index::metrics::{ComplexityScorer, NativeComplexityScorer};
 use crate::index::symbols::Symbol;
@@ -169,7 +170,9 @@ impl ProjectIndexer {
         };
 
         // Enrich symbols with complexity data from the tree-sitter scorer
-        if parse_status == "OK" && let Some(lang) = Language::from_extension(ext) {
+        if parse_status == "OK"
+            && let Some(lang) = Language::from_extension(ext)
+        {
             let scorer = NativeComplexityScorer::new();
             if let Ok(file_complexity) = scorer.score_file(path, &content, lang) {
                 // Merge complexity scores by matching symbol names
@@ -697,6 +700,151 @@ impl ProjectIndexer {
     fn compute_file_hash(&self, path: &Utf8Path) -> Result<String> {
         let content = fs::read_to_string(path).into_diagnostic()?;
         Ok(blake3::hash(content.as_bytes()).to_hex().to_string())
+    }
+
+    /// Discover documentation files (README.md, CONTRIBUTING.md, ARCHITECTURE.md,
+    /// plus any .md files linked from README.md, one level deep).
+    pub fn discover_doc_files(&self) -> Result<Vec<Utf8PathBuf>> {
+        let mut doc_files = Vec::new();
+        let priority_files = ["README.md", "CONTRIBUTING.md", "ARCHITECTURE.md"];
+
+        for name in &priority_files {
+            let path = self.repo_path.join(name);
+            if path.exists() {
+                doc_files.push(path);
+            }
+        }
+
+        // Follow internal links from README.md (one level deep)
+        let readme_path = self.repo_path.join("README.md");
+        if readme_path.exists()
+            && let Ok(content) = fs::read_to_string(&readme_path)
+        {
+            let parsed = parse_markdown(&content, "README.md");
+            for link in &parsed.internal_links {
+                let linked_path = self.repo_path.join(&link.target);
+                if linked_path.exists()
+                    && linked_path.extension().is_some_and(|e| e == "md")
+                    && !doc_files.contains(&linked_path)
+                {
+                    doc_files.push(linked_path);
+                }
+            }
+        }
+
+        // Also check docs/ directory for ARCHITECTURE.md
+        let docs_arch = self.repo_path.join("docs").join("ARCHITECTURE.md");
+        if docs_arch.exists() && !doc_files.contains(&docs_arch) {
+            doc_files.push(docs_arch);
+        }
+
+        doc_files.sort();
+        doc_files.dedup();
+        Ok(doc_files)
+    }
+
+    /// Index documentation files into the project_docs table.
+    pub fn index_docs(&mut self) -> Result<DocIndexStats> {
+        let doc_files = self.discover_doc_files()?;
+        let has_readme = self.repo_path.join("README.md").exists();
+
+        let mut docs_indexed = 0usize;
+        let mut parse_failures = 0usize;
+        let now = chrono::Utc::now().to_rfc3339();
+
+        for doc_path in &doc_files {
+            let relative_path = doc_path
+                .strip_prefix(&self.repo_path)
+                .unwrap_or(doc_path)
+                .to_string();
+
+            let content = match fs::read_to_string(doc_path) {
+                Ok(c) => c,
+                Err(e) => {
+                    warn!("Failed to read doc file {}: {}", doc_path, e);
+                    parse_failures += 1;
+                    continue;
+                }
+            };
+
+            let parsed = parse_markdown(&content, &relative_path);
+
+            // Find or create the project_files entry for this doc
+            let file_id = self.ensure_file_entry(&relative_path, &content, &now)?;
+
+            // Upsert the project_docs entry
+            let sections_json =
+                serde_json::to_string(&parsed.sections).unwrap_or_else(|_| "[]".to_string());
+            let code_blocks_json =
+                serde_json::to_string(&parsed.code_blocks).unwrap_or_else(|_| "[]".to_string());
+            let internal_links_json =
+                serde_json::to_string(&parsed.internal_links).unwrap_or_else(|_| "[]".to_string());
+
+            let conn = self.storage.get_connection_mut();
+            conn.execute(
+                "INSERT OR REPLACE INTO project_docs \
+                 (file_id, title, summary, sections, code_blocks, internal_links, confidence, last_indexed_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                rusqlite::params![
+                    file_id,
+                    parsed.title,
+                    parsed.summary,
+                    sections_json,
+                    code_blocks_json,
+                    internal_links_json,
+                    1.0_f64,
+                    now,
+                ],
+            ).into_diagnostic()?;
+
+            docs_indexed += 1;
+        }
+
+        Ok(DocIndexStats {
+            docs_indexed,
+            parse_failures,
+            missing_readme: !has_readme,
+        })
+    }
+
+    fn ensure_file_entry(&mut self, relative_path: &str, content: &str, now: &str) -> Result<i64> {
+        let content_hash = blake3::hash(content.as_bytes()).to_hex().to_string();
+
+        // Check if file already exists
+        let conn = self.storage.get_connection();
+        let existing_id: Option<i64> = conn
+            .query_row(
+                "SELECT id FROM project_files WHERE file_path = ?1",
+                [relative_path],
+                |row| row.get(0),
+            )
+            .ok();
+
+        if let Some(id) = existing_id {
+            return Ok(id);
+        }
+
+        // Insert new file entry
+        let conn = self.storage.get_connection_mut();
+        conn.execute(
+            "INSERT INTO project_files (file_path, language, content_hash, git_blob_oid, \
+             file_size, mtime_ns, parser_version, parse_status, last_indexed_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            rusqlite::params![
+                relative_path,
+                "Markdown",
+                content_hash,
+                Option::<String>::None,
+                content.len() as i64,
+                Option::<i64>::None,
+                PARSER_VERSION,
+                "OK",
+                now,
+            ],
+        )
+        .into_diagnostic()?;
+
+        Ok(conn.last_insert_rowid())
     }
 }
 
