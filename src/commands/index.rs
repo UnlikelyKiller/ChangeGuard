@@ -232,6 +232,10 @@ pub fn execute_index(
         println!();
         println!("Observability:");
         println!("  Total patterns: {}", obs_stats.total_patterns);
+        println!(
+            "  Error handling patterns: {}",
+            obs_stats.error_handling_patterns
+        );
         println!("  Files processed: {}", obs_stats.files_processed);
         if analyze_graph {
             println!();

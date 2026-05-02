@@ -50,6 +50,8 @@ fn test_narrative_golden_prompt() {
         structural_couplings: vec![],
         centrality_risks: vec![],
         logging_coverage_delta: vec![],
+        error_handling_delta: vec![],
+        infrastructure_dirs: vec![],
         hotspots: vec![Hotspot {
             path: PathBuf::from("src/auth.rs"),
             score: 0.92,

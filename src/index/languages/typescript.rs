@@ -1,6 +1,6 @@
 use crate::index::call_graph::{CallEdge, CallKind, ResolutionStatus};
 use crate::index::data_models::{ExtractedModel, ModelKind};
-use crate::index::observability::{LogLevel, LoggingPattern};
+use crate::index::observability::{ErrorHandlingPattern, LogLevel, LoggingPattern};
 use crate::index::routes::ExtractedRoute;
 use crate::index::symbols::{Symbol, SymbolKind};
 use miette::{IntoDiagnostic, Result};
@@ -687,6 +687,101 @@ fn is_in_ts_test(node: tree_sitter::Node, content: &str) -> bool {
     false
 }
 
+pub fn extract_error_handling(content: &str) -> Result<Vec<ErrorHandlingPattern>> {
+    let mut parser = Parser::new();
+    let language = tree_sitter_typescript::LANGUAGE_TYPESCRIPT;
+    parser.set_language(&language.into()).into_diagnostic()?;
+
+    let tree = parser
+        .parse(content, None)
+        .ok_or_else(|| miette::miette!("Failed to parse TypeScript content"))?;
+
+    let mut patterns = Vec::new();
+    collect_ts_error_handling(tree.root_node(), content, &mut patterns);
+
+    // Cap at 1000 patterns per file
+    patterns.truncate(1000);
+    Ok(patterns)
+}
+
+fn collect_ts_error_handling(
+    node: tree_sitter::Node,
+    content: &str,
+    patterns: &mut Vec<ErrorHandlingPattern>,
+) {
+    let kind = node.kind();
+
+    match kind {
+        "try_statement" => {
+            // try/catch/finally blocks
+            let line_start = node.start_position().row as i32 + 1;
+            let in_test = is_in_ts_test(node, content);
+            patterns.push(ErrorHandlingPattern {
+                line_start,
+                level: Some(LogLevel::Info),
+                framework: "try_catch".to_string(),
+                in_test,
+                confidence: if in_test { 0.7 } else { 1.0 },
+                evidence: "syntactic: try/catch block".to_string(),
+            });
+        }
+        "throw_statement" => {
+            let line_start = node.start_position().row as i32 + 1;
+            let in_test = is_in_ts_test(node, content);
+            patterns.push(ErrorHandlingPattern {
+                line_start,
+                level: Some(LogLevel::Warn),
+                framework: "throw".to_string(),
+                in_test,
+                confidence: if in_test { 0.7 } else { 1.0 },
+                evidence: "syntactic: throw statement".to_string(),
+            });
+        }
+        "call_expression" => {
+            // Check for .catch() calls and Promise.reject
+            let callee_node = node.child(0);
+            if let Some(callee) = callee_node
+                && callee.kind() == "member_expression"
+            {
+                let method_name = extract_ts_member_name(callee, content);
+                if method_name == "catch" {
+                    let line_start = node.start_position().row as i32 + 1;
+                    let in_test = is_in_ts_test(node, content);
+                    patterns.push(ErrorHandlingPattern {
+                        line_start,
+                        level: Some(LogLevel::Info),
+                        framework: "promise_catch".to_string(),
+                        in_test,
+                        confidence: if in_test { 0.7 } else { 1.0 },
+                        evidence: "syntactic: .catch() call".to_string(),
+                    });
+                }
+                // Check for Promise.reject
+                let obj_name = extract_ts_object_name(callee, content);
+                if obj_name == "Promise" && method_name == "reject" {
+                    let line_start = node.start_position().row as i32 + 1;
+                    let in_test = is_in_ts_test(node, content);
+                    patterns.push(ErrorHandlingPattern {
+                        line_start,
+                        level: Some(LogLevel::Warn),
+                        framework: "promise_reject".to_string(),
+                        in_test,
+                        confidence: if in_test { 0.7 } else { 1.0 },
+                        evidence: "syntactic: Promise.reject".to_string(),
+                    });
+                }
+            }
+        }
+        _ => {}
+    }
+
+    // Recurse into children
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_ts_error_handling(child, content, patterns);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1040,5 +1135,67 @@ mod tests {
             .find(|p| p.framework == "console")
             .expect("should find console pattern");
         assert!(test_pattern.in_test);
+    }
+
+    #[test]
+    fn test_extract_error_handling_try_catch_and_throw() {
+        let content = r#"
+            function handleData() {
+                try {
+                    const result = fetchData();
+                    return result;
+                } catch (e) {
+                    throw new Error("failed");
+                }
+            }
+        "#;
+
+        let patterns = extract_error_handling(content).unwrap();
+        let try_catch = patterns
+            .iter()
+            .find(|p| p.framework == "try_catch")
+            .expect("should find try_catch pattern");
+        assert_eq!(try_catch.level, Some(LogLevel::Info));
+        assert!(!try_catch.in_test);
+        assert_eq!(try_catch.evidence, "syntactic: try/catch block");
+
+        let throw_pattern = patterns
+            .iter()
+            .find(|p| p.framework == "throw")
+            .expect("should find throw pattern");
+        assert_eq!(throw_pattern.level, Some(LogLevel::Warn));
+        assert_eq!(throw_pattern.evidence, "syntactic: throw statement");
+    }
+
+    #[test]
+    fn test_extract_error_handling_in_test() {
+        let content = r#"
+            describe("error handling", () => {
+                it("should catch errors", () => {
+                    try {
+                        doSomething();
+                    } catch (e) {
+                        expect(e).toBeDefined();
+                    }
+                });
+            });
+
+            function normalFn() {
+                throw new Error("bad");
+            }
+        "#;
+
+        let patterns = extract_error_handling(content).unwrap();
+        let test_try = patterns
+            .iter()
+            .find(|p| p.framework == "try_catch" && p.in_test)
+            .expect("should find try_catch in test");
+        assert!((test_try.confidence - 0.7).abs() < f64::EPSILON);
+
+        let normal_throw = patterns
+            .iter()
+            .find(|p| p.framework == "throw" && !p.in_test)
+            .expect("should find throw not in test");
+        assert!((normal_throw.confidence - 1.0).abs() < f64::EPSILON);
     }
 }

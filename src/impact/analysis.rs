@@ -245,6 +245,88 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules) -> Result<()> {
     }
     total_weight += observability_total;
 
+    // 3g. Error Handling Reduction Risk
+    // Each file with reduced error handling coverage contributes 25 points, capped at 25 total.
+    let error_handling_weight_per_file = 25;
+    let error_handling_weight_cap = 25;
+    let mut error_handling_total = 0;
+    for delta in &packet.error_handling_delta {
+        if delta.current_count < delta.previous_count
+            && error_handling_total + error_handling_weight_per_file <= error_handling_weight_cap
+        {
+            error_handling_total += error_handling_weight_per_file;
+            let reduction = delta.previous_count - delta.current_count;
+            reasons.push(format!(
+                "Error handling reduced in {}: {} patterns removed",
+                delta.file_path, reduction
+            ));
+            debug!(
+                "Risk Factor: Error handling reduced ({}) +{}",
+                delta.file_path, error_handling_weight_per_file
+            );
+        }
+    }
+    total_weight += error_handling_total;
+
+    // 3h. Infrastructure Error Handling Risk
+    // Changed files in Infrastructure directories that also have error_handling_delta entries
+    // contribute 25 weight per file, capped at 25 total.
+    let infra_weight_per_file = 25;
+    let infra_weight_cap = 25;
+    let mut infra_total = 0;
+
+    // Collect file paths from error_handling_delta for lookup
+    let error_handling_files: std::collections::HashSet<&str> = packet
+        .error_handling_delta
+        .iter()
+        .map(|d| d.file_path.as_str())
+        .collect();
+
+    if !error_handling_files.is_empty() {
+        // Determine infrastructure directories: use topology data if available, else heuristic
+        let infra_dirs: Vec<&str> = if packet.infrastructure_dirs.is_empty() {
+            vec![".github/workflows", "infra", "deploy", "terraform", "k8s"]
+        } else {
+            packet
+                .infrastructure_dirs
+                .iter()
+                .map(|s| s.as_str())
+                .collect()
+        };
+
+        for change in &packet.changes {
+            if infra_total + infra_weight_per_file > infra_weight_cap {
+                break;
+            }
+            let path_str = change.path.to_string_lossy();
+            let path_str_ref = path_str.as_ref();
+
+            // Check if this file is in an infrastructure directory
+            let is_infra = infra_dirs.iter().any(|dir| {
+                path_str_ref.starts_with(dir)
+                    && (path_str_ref.len() == dir.len()
+                        || path_str_ref.chars().nth(dir.len()) == Some('/')
+                        || path_str_ref.chars().nth(dir.len()) == Some('\\'))
+            });
+
+            // Check if this file has an error handling delta
+            let has_error_handling_delta = error_handling_files.contains(path_str_ref);
+
+            if is_infra && has_error_handling_delta {
+                infra_total += infra_weight_per_file;
+                reasons.push(format!(
+                    "Error handling change in infrastructure: {}",
+                    path_str_ref
+                ));
+                debug!(
+                    "Risk Factor: Error handling change in infrastructure ({}) +{}",
+                    path_str_ref, infra_weight_per_file
+                );
+            }
+        }
+    }
+    total_weight += infra_total;
+
     // 4. Scoring
     packet.risk_level = if total_weight > 60 {
         RiskLevel::High
@@ -1149,6 +1231,167 @@ mod tests {
                 .risk_reasons
                 .contains(&"Minimal changes detected".to_string()),
             "expected 'Minimal changes detected' in risk reasons, got {:?}",
+            packet.risk_reasons
+        );
+    }
+
+    #[test]
+    fn test_analyze_risk_error_handling_reduced() {
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("src/handler.rs"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+        });
+        packet.error_handling_delta.push(CoverageDelta {
+            file_path: "src/handler.rs".to_string(),
+            pattern_kind: "ERROR_HANDLE".to_string(),
+            previous_count: 8,
+            current_count: 5,
+            message: "Error handling reduced in src/handler.rs: 3 patterns removed".to_string(),
+        });
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        // Should have a risk reason about error handling reduction
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Error handling reduced")
+                    && r.contains("src/handler.rs")
+                    && r.contains("3 patterns removed")),
+            "expected error handling risk reason, got {:?}",
+            packet.risk_reasons
+        );
+        // 25 weight from error handling reduction -> Medium (>20)
+        assert_eq!(packet.risk_level, RiskLevel::Medium);
+    }
+
+    #[test]
+    fn test_analyze_risk_error_handling_no_regression() {
+        // Empty error_handling_delta should produce no error handling risk reasons
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("README.md"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+        });
+        // error_handling_delta is empty by default
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        assert_eq!(packet.risk_level, RiskLevel::Low);
+        assert!(
+            !packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Error handling reduced")),
+            "expected no error handling risk reasons when empty, got {:?}",
+            packet.risk_reasons
+        );
+        assert!(
+            packet
+                .risk_reasons
+                .contains(&"Minimal changes detected".to_string()),
+            "expected 'Minimal changes detected' in risk reasons, got {:?}",
+            packet.risk_reasons
+        );
+    }
+
+    #[test]
+    fn test_analyze_risk_infrastructure_error_handling() {
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("deploy/config.yaml"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+        });
+        packet.error_handling_delta.push(CoverageDelta {
+            file_path: "deploy/config.yaml".to_string(),
+            pattern_kind: "ERROR_HANDLE".to_string(),
+            previous_count: 5,
+            current_count: 3,
+            message: "Error handling reduced in deploy/config.yaml: 2 patterns removed".to_string(),
+        });
+        // Use topology data: deploy is an Infrastructure directory
+        packet.infrastructure_dirs.push("deploy".to_string());
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        // Should have infrastructure error handling risk reason
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Error handling change in infrastructure")
+                    && r.contains("deploy/config.yaml")),
+            "expected infrastructure error handling risk reason, got {:?}",
+            packet.risk_reasons
+        );
+        // 25 (error handling reduction) + 25 (infrastructure) = 50 weight -> Medium (>20)
+        assert_eq!(packet.risk_level, RiskLevel::Medium);
+    }
+
+    #[test]
+    fn test_analyze_risk_infrastructure_no_topology() {
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("deploy/config.yaml"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+        });
+        packet.error_handling_delta.push(CoverageDelta {
+            file_path: "deploy/config.yaml".to_string(),
+            pattern_kind: "ERROR_HANDLE".to_string(),
+            previous_count: 5,
+            current_count: 3,
+            message: "Error handling reduced in deploy/config.yaml: 2 patterns removed".to_string(),
+        });
+        // infrastructure_dirs is empty — falls back to heuristic which includes "deploy"
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        // Should have infrastructure error handling risk reason via heuristic fallback
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Error handling change in infrastructure")
+                    && r.contains("deploy/config.yaml")),
+            "expected infrastructure error handling risk reason via heuristic, got {:?}",
             packet.risk_reasons
         );
     }
