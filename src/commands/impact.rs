@@ -146,6 +146,12 @@ pub fn execute_impact(all_parents: bool, summary: bool) -> Result<()> {
                 // Graceful degradation: packet.structural_couplings stays empty
             }
 
+            // Populate API routes from the index
+            if let Err(e) = populate_api_routes(&mut packet, &storage) {
+                tracing::warn!("API route population failed: {e}");
+                // Graceful degradation: changed_file.api_routes stays empty
+            }
+
             if let Err(e) = storage.save_packet(&packet) {
                 tracing::warn!("SQLite save failed: {e}");
                 println!(
@@ -270,6 +276,7 @@ fn map_snapshot_to_packet(snapshot: RepoSnapshot, base_dir: &Path) -> Result<Imp
                 runtime_usage: outcome.runtime_usage,
                 analysis_status: outcome.analysis_status,
                 analysis_warnings: outcome.analysis_warnings,
+                api_routes: Vec::new(),
             }
         })
         .collect();
@@ -523,6 +530,89 @@ fn populate_structural_couplings(
                     caller_file_path: std::path::PathBuf::from(caller_file),
                 });
             }
+        }
+    }
+
+    Ok(())
+}
+
+/// Populate each changed file's api_routes by querying the index for routes
+/// where the handler belongs to that file.
+fn populate_api_routes(
+    packet: &mut ImpactPacket,
+    storage: &crate::state::storage::StorageManager,
+) -> miette::Result<()> {
+    use crate::impact::packet::ApiRoute;
+    use rusqlite::OptionalExtension;
+
+    let conn = storage.get_connection();
+
+    // Gracefully skip if api_routes table doesn't exist or is empty
+    let has_routes: Option<i64> = match conn
+        .query_row("SELECT count(*) FROM api_routes LIMIT 1", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .optional()
+    {
+        Ok(Some(count)) if count > 0 => Some(count),
+        Ok(_) => None,
+        Err(_) => return Ok(()), // Table doesn't exist — graceful skip
+    };
+
+    if has_routes.is_none() {
+        return Ok(());
+    }
+
+    // Build a path -> project_files.id lookup
+    let mut file_stmt = conn
+        .prepare("SELECT id, file_path FROM project_files WHERE parse_status != 'DELETED'")
+        .map_err(|e| miette::miette!("Failed to prepare project_files query: {e}"))?;
+
+    let file_rows: Vec<(i64, String)> = file_stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|e| miette::miette!("Failed to query project_files: {e}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| miette::miette!("Failed to collect project_files rows: {e}"))?;
+
+    drop(file_stmt);
+
+    let path_to_id: std::collections::HashMap<String, i64> =
+        file_rows.into_iter().map(|(id, path)| (path, id)).collect();
+
+    // For each changed file, query api_routes where handler_file_id matches
+    for change in &mut packet.changes {
+        let path_str = change.path.to_string_lossy().to_string();
+
+        if let Some(&file_id) = path_to_id.get(&path_str) {
+            let mut route_stmt = conn
+                .prepare(
+                    "SELECT method, path_pattern, handler_symbol_name, framework, route_source,
+                            mount_prefix, is_dynamic, route_confidence, evidence
+                     FROM api_routes WHERE handler_file_id = ?1",
+                )
+                .map_err(|e| miette::miette!("Failed to prepare api_routes query: {e}"))?;
+
+            let routes: Vec<ApiRoute> = route_stmt
+                .query_map([file_id], |row| {
+                    Ok(ApiRoute {
+                        method: row.get::<_, String>(0)?,
+                        path_pattern: row.get::<_, String>(1)?,
+                        handler_symbol_name: row.get::<_, Option<String>>(2)?,
+                        framework: row.get::<_, String>(3)?,
+                        route_source: row.get::<_, String>(4)?,
+                        mount_prefix: row.get::<_, Option<String>>(5)?,
+                        is_dynamic: row.get::<_, i32>(6)? != 0,
+                        route_confidence: row.get::<_, f64>(7)?,
+                        evidence: row.get::<_, Option<String>>(8)?,
+                    })
+                })
+                .map_err(|e| miette::miette!("Failed to query api_routes: {e}"))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| miette::miette!("Failed to collect api_routes rows: {e}"))?;
+
+            change.api_routes = routes;
         }
     }
 

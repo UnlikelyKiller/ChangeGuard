@@ -69,6 +69,9 @@ pub fn execute_index(incremental: bool, check: bool, json: bool) -> Result<()> {
     // Build call graph
     let cg_stats = indexer.build_call_graph()?;
 
+    // Extract API routes
+    let route_stats = indexer.extract_routes()?;
+
     if json {
         let mut output = serde_json::to_value(&stats).into_diagnostic()?;
         let doc_obj = serde_json::to_value(&doc_stats).into_diagnostic()?;
@@ -93,6 +96,12 @@ pub fn execute_index(incremental: bool, check: bool, json: bool) -> Result<()> {
         if let (Some(map), Some(cg)) = (output.as_object_mut(), cg_obj.as_object()) {
             for (k, v) in cg {
                 map.insert(format!("cg_{}", k), v.clone());
+            }
+        }
+        let route_obj = serde_json::to_value(&route_stats).into_diagnostic()?;
+        if let (Some(map), Some(route)) = (output.as_object_mut(), route_obj.as_object()) {
+            for (k, v) in route {
+                map.insert(format!("route_{}", k), v.clone());
             }
         }
         println!(
@@ -162,6 +171,16 @@ pub fn execute_index(incremental: bool, check: bool, json: bool) -> Result<()> {
         println!("  Unresolved:     {}", cg_stats.unresolved_edges);
         println!("  Ambiguous:      {}", cg_stats.ambiguous_edges);
         println!("  Files processed: {}", cg_stats.files_processed);
+        println!();
+        println!("API Routes:");
+        println!("  Total routes:   {}", route_stats.total_routes);
+        if !route_stats.frameworks_detected.is_empty() {
+            println!(
+                "  Frameworks:    {}",
+                route_stats.frameworks_detected.join(", ")
+            );
+        }
+        println!("  Files processed: {}", route_stats.files_processed);
     }
 
     Ok(())

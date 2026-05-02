@@ -253,6 +253,7 @@ mod tests {
                 runtime_usage: None,
                 analysis_status: FileAnalysisStatus::default(),
                 analysis_warnings: Vec::new(),
+                api_routes: Vec::new(),
             }],
             ..Default::default()
         };

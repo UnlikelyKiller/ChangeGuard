@@ -138,6 +138,31 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules) -> Result<()> {
     }
     total_weight += structural_weight;
 
+    // 3c. Route Handler Risk
+    // Add 30 weight per file that has route handlers (max 30 total, not per-route).
+    // This stacks with but doesn't duplicate the entrypoint HANDLER weight.
+    let route_weight = 30;
+    let route_weight_cap = 30;
+    let mut route_total = 0;
+    for file in &packet.changes {
+        if !file.api_routes.is_empty() && route_total + route_weight <= route_weight_cap {
+            route_total += route_weight;
+            // Add a risk reason for the first route (summarize all routes for this file)
+            let first_route = &file.api_routes[0];
+            reasons.push(format!(
+                "Public API route: {} {}",
+                first_route.method, first_route.path_pattern
+            ));
+            debug!(
+                "Risk Factor: Route handler in {} ({} routes) +{}",
+                file.path.display(),
+                file.api_routes.len(),
+                route_weight
+            );
+        }
+    }
+    total_weight += route_total;
+
     // 4. Scoring
     packet.risk_level = if total_weight > 60 {
         RiskLevel::High
@@ -174,6 +199,7 @@ mod tests {
             runtime_usage: None,
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
         });
 
         let rules = Rules::default();
@@ -199,6 +225,7 @@ mod tests {
             runtime_usage: None,
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
         });
 
         let rules = Rules {
@@ -243,6 +270,7 @@ mod tests {
             runtime_usage: None,
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
         });
 
         let rules = Rules::default();
@@ -283,6 +311,7 @@ mod tests {
             runtime_usage: None,
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
         });
 
         let rules = Rules::default();
@@ -322,6 +351,7 @@ mod tests {
             runtime_usage: None,
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
         });
 
         let rules = Rules::default();
@@ -361,6 +391,7 @@ mod tests {
             runtime_usage: None,
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
         });
 
         let rules = Rules::default();
@@ -397,6 +428,7 @@ mod tests {
             runtime_usage: None,
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
         });
 
         let rules = Rules::default();
@@ -424,6 +456,7 @@ mod tests {
             runtime_usage: None,
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
         });
         packet.structural_couplings.push(StructuralCoupling {
             caller_symbol_name: "caller_fn".to_string(),
@@ -468,6 +501,7 @@ mod tests {
             runtime_usage: None,
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
         });
         // Add 3 callers — only first 2 should contribute weight (30 total)
         packet.structural_couplings.push(StructuralCoupling {
@@ -513,6 +547,7 @@ mod tests {
             runtime_usage: None,
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
         });
         // structural_couplings is empty by default
 
@@ -552,6 +587,7 @@ mod tests {
             runtime_usage: None,
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
         });
         // Add structural coupling: helper calls internal
         packet.structural_couplings.push(StructuralCoupling {
@@ -603,6 +639,7 @@ mod tests {
             runtime_usage: None,
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
         });
         // structural_couplings is empty by default (Vec::new())
 
@@ -623,6 +660,89 @@ mod tests {
         );
 
         // The default "Minimal changes detected" reason should still be present
+        assert!(
+            packet
+                .risk_reasons
+                .contains(&"Minimal changes detected".to_string()),
+            "expected 'Minimal changes detected' in risk reasons, got {:?}",
+            packet.risk_reasons
+        );
+    }
+
+    #[test]
+    fn test_analyze_risk_route_handler() {
+        use crate::impact::packet::ApiRoute;
+
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("src/routes.rs"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: vec![ApiRoute {
+                method: "GET".to_string(),
+                path_pattern: "/users".to_string(),
+                handler_symbol_name: Some("get_users".to_string()),
+                framework: "Axum".to_string(),
+                route_source: "DECORATOR".to_string(),
+                mount_prefix: None,
+                is_dynamic: false,
+                route_confidence: 1.0,
+                evidence: None,
+            }],
+        });
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        // Should have risk reason for the route
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Public API route")
+                    && r.contains("GET")
+                    && r.contains("/users")),
+            "expected 'Public API route: GET /users' in risk reasons, got {:?}",
+            packet.risk_reasons
+        );
+        // 30 weight from route handler -> Medium
+        assert_eq!(packet.risk_level, RiskLevel::Medium);
+    }
+
+    #[test]
+    fn test_analyze_risk_empty_api_routes_no_regression() {
+        // Empty api_routes should produce identical output to before route integration
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("README.md"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+        });
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        assert_eq!(packet.risk_level, RiskLevel::Low);
+        // No route risk reasons should appear
+        assert!(
+            !packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Public API route")),
+            "expected no route risk reasons, got {:?}",
+            packet.risk_reasons
+        );
         assert!(
             packet
                 .risk_reasons

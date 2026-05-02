@@ -295,7 +295,29 @@ pub fn get_migrations() -> Migrations<'static> {
             CREATE INDEX IF NOT EXISTS idx_structural_edges_caller
                 ON structural_edges(caller_symbol_id, caller_file_id);
             CREATE INDEX IF NOT EXISTS idx_structural_edges_callee
-                ON structural_edges(callee_symbol_id, callee_file_id);",
+                ON structural_edges(callee_symbol_id, callee_file_id);
+
+            CREATE TABLE IF NOT EXISTS api_routes (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                method              TEXT NOT NULL,
+                path_pattern        TEXT NOT NULL,
+                handler_symbol_id   INTEGER REFERENCES project_symbols(id),
+                handler_symbol_name TEXT,
+                handler_file_id     INTEGER NOT NULL REFERENCES project_files(id),
+                framework           TEXT NOT NULL,
+                route_source        TEXT NOT NULL DEFAULT 'DECORATOR',
+                mount_prefix        TEXT,
+                is_dynamic          INTEGER DEFAULT 0,
+                route_confidence    REAL NOT NULL DEFAULT 1.0,
+                evidence            TEXT,
+                last_indexed_at     TEXT NOT NULL,
+                FOREIGN KEY (handler_symbol_id) REFERENCES project_symbols(id),
+                FOREIGN KEY (handler_file_id) REFERENCES project_files(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_api_routes_handler
+                ON api_routes(handler_symbol_id, handler_file_id);
+            CREATE INDEX IF NOT EXISTS idx_api_routes_path
+                ON api_routes(path_pattern);",
         ),
     ])
 }
@@ -341,6 +363,7 @@ mod tests {
             "project_docs",
             "project_topology",
             "structural_edges",
+            "api_routes",
         ];
 
         for table in &expected_tables {
@@ -885,5 +908,151 @@ mod tests {
             "callee_symbol_id should be NULL for unresolved edge"
         );
         assert!((confidence - 0.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_insert_and_query_api_routes() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let migrations = get_migrations();
+        migrations.to_latest(&mut conn).unwrap();
+
+        // Insert project_files row (FK prerequisite)
+        conn.execute(
+            "INSERT INTO project_files (file_path, language, content_hash, file_size, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            ("src/routes.rs", "Rust", "hash_routes", 1024, "2026-05-01T00:00:00Z"),
+        ).unwrap();
+        let handler_file_id = conn.last_insert_rowid();
+
+        // Insert project_symbols row (FK prerequisite)
+        conn.execute(
+            "INSERT INTO project_symbols (file_id, qualified_name, symbol_name, symbol_kind, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            (handler_file_id, "crate::get_users", "get_users", "Function", "2026-05-01T00:00:00Z"),
+        ).unwrap();
+        let handler_symbol_id = conn.last_insert_rowid();
+
+        // Insert GET route with DECORATOR source, confidence 1.0
+        conn.execute(
+            "INSERT INTO api_routes
+                (method, path_pattern, handler_symbol_id, handler_symbol_name, handler_file_id,
+                 framework, route_source, mount_prefix, is_dynamic, route_confidence, evidence, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            rusqlite::params![
+                "GET",
+                "/api/users",
+                handler_symbol_id,
+                "get_users",
+                handler_file_id,
+                "Axum",
+                "DECORATOR",
+                None::<String>,
+                0,
+                1.0_f64,
+                Some("decorator attribute on function"),
+                "2026-05-01T00:00:00Z",
+            ],
+        ).unwrap();
+
+        // Insert POST route with APP_METHOD source
+        conn.execute(
+            "INSERT INTO api_routes
+                (method, path_pattern, handler_symbol_id, handler_symbol_name, handler_file_id,
+                 framework, route_source, mount_prefix, is_dynamic, route_confidence, evidence, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            rusqlite::params![
+                "POST",
+                "/api/users",
+                handler_symbol_id,
+                "create_user",
+                handler_file_id,
+                "Axum",
+                "APP_METHOD",
+                Some("/api"),
+                0,
+                1.0_f64,
+                None::<String>,
+                "2026-05-01T00:00:00Z",
+            ],
+        ).unwrap();
+
+        // Insert dynamic route with is_dynamic=1, path_pattern="DYNAMIC", confidence 0.5
+        conn.execute(
+            "INSERT INTO api_routes
+                (method, path_pattern, handler_symbol_id, handler_symbol_name, handler_file_id,
+                 framework, route_source, mount_prefix, is_dynamic, route_confidence, evidence, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            rusqlite::params![
+                "GET",
+                "DYNAMIC",
+                handler_symbol_id,
+                "dynamic_handler",
+                handler_file_id,
+                "Express",
+                "DECORATOR",
+                None::<String>,
+                1,
+                0.5_f64,
+                Some("inferred from framework convention"),
+                "2026-05-01T00:00:00Z",
+            ],
+        ).unwrap();
+
+        // Verify all three rows exist
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM api_routes", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 3, "Should have 3 api_routes rows");
+
+        // Verify GET DECORATOR route
+        let (method, path_pattern, route_source, confidence): (String, String, String, f64) = conn
+            .query_row(
+                "SELECT method, path_pattern, route_source, route_confidence FROM api_routes WHERE path_pattern = '/api/users' AND method = 'GET'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(method, "GET");
+        assert_eq!(path_pattern, "/api/users");
+        assert_eq!(route_source, "DECORATOR");
+        assert!((confidence - 1.0).abs() < f64::EPSILON);
+
+        // Verify POST APP_METHOD route
+        let (method, route_source, mount_prefix): (String, String, Option<String>) = conn
+            .query_row(
+                "SELECT method, route_source, mount_prefix FROM api_routes WHERE method = 'POST'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(method, "POST");
+        assert_eq!(route_source, "APP_METHOD");
+        assert_eq!(mount_prefix, Some("/api".to_string()));
+
+        // Verify dynamic route
+        let (path_pattern, is_dynamic, confidence, evidence): (String, i64, f64, Option<String>) = conn
+            .query_row(
+                "SELECT path_pattern, is_dynamic, route_confidence, evidence FROM api_routes WHERE is_dynamic = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(path_pattern, "DYNAMIC");
+        assert_eq!(is_dynamic, 1);
+        assert!((confidence - 0.5).abs() < f64::EPSILON);
+        assert_eq!(
+            evidence,
+            Some("inferred from framework convention".to_string())
+        );
+
+        // Verify FK join works - get handler file path through the relationship
+        let (file_path,): (String,) = conn
+            .query_row(
+                "SELECT pf.file_path FROM api_routes ar JOIN project_files pf ON ar.handler_file_id = pf.id WHERE ar.method = 'GET' AND ar.path_pattern = '/api/users'",
+                [],
+                |row| Ok((row.get(0)?,)),
+            )
+            .unwrap();
+        assert_eq!(file_path, "src/routes.rs");
     }
 }

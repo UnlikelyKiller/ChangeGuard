@@ -5,6 +5,7 @@ pub mod typescript;
 
 pub use self::types::Language;
 use crate::index::call_graph::CallEdge;
+use crate::index::routes::ExtractedRoute;
 use crate::index::symbols::Symbol;
 use miette::Result;
 use std::path::Path;
@@ -25,6 +26,19 @@ pub fn extract_calls(path: &Path, content: &str, symbols: &[Symbol]) -> Result<V
         Some("rs") => rust::extract_calls(content, symbols),
         Some("ts") | Some("tsx") => typescript::extract_calls(content, symbols),
         Some("py") => python::extract_calls(content, symbols),
+        _ => Ok(Vec::new()),
+    }
+}
+
+pub fn extract_routes(
+    path: &Path,
+    content: &str,
+    symbols: &[Symbol],
+) -> Result<Vec<ExtractedRoute>> {
+    match path.extension().and_then(|e| e.to_str()) {
+        Some("rs") => rust::extract_routes(content, symbols),
+        Some("ts") | Some("tsx") => typescript::extract_routes(content, symbols),
+        Some("py") => python::extract_routes(content, symbols),
         _ => Ok(Vec::new()),
     }
 }
