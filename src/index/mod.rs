@@ -1,5 +1,6 @@
 pub mod call_graph;
 pub mod centrality;
+pub mod ci_gates;
 pub mod data_models;
 pub mod docs;
 pub mod entrypoint;

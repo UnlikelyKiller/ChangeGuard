@@ -28,6 +28,7 @@ fn test_narrative_golden_prompt() {
                 analysis_warnings: vec![],
                 api_routes: vec![],
                 data_models: vec![],
+                ci_gates: vec![],
             },
             ChangedFile {
                 path: PathBuf::from("tests/integration.rs"),
@@ -40,6 +41,7 @@ fn test_narrative_golden_prompt() {
                 analysis_warnings: vec![],
                 api_routes: vec![],
                 data_models: vec![],
+                ci_gates: vec![],
             },
         ],
         temporal_couplings: vec![TemporalCoupling {

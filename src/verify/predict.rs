@@ -285,6 +285,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
 
         let mut call_data = StructuralCallData::default();
@@ -321,6 +322,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
 
         let mut call_data = StructuralCallData::default();
@@ -356,6 +358,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
 
         // Empty call data should produce identical output to no call data
@@ -396,6 +399,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
 
         // Create StructuralCallData: helper (in src/main.rs) calls internal
@@ -439,6 +443,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
 
         // Run prediction with default (empty) structural call data

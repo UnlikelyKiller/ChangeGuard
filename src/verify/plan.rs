@@ -164,6 +164,7 @@ mod tests {
                 analysis_warnings: Vec::new(),
                 api_routes: Vec::new(),
                 data_models: Vec::new(),
+                ci_gates: Vec::new(),
             }],
             ..ImpactPacket::default()
         }
@@ -365,6 +366,7 @@ mod tests {
                 analysis_warnings: Vec::new(),
                 api_routes: Vec::new(),
                 data_models: Vec::new(),
+                ci_gates: Vec::new(),
             }],
             ..ImpactPacket::default()
         };

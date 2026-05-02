@@ -2,7 +2,7 @@ use crate::git::repo::{get_head_info, open_repo};
 use crate::git::status::get_repo_status;
 use crate::git::{ChangeType, RepoSnapshot};
 use crate::impact::packet::{
-    AnalysisStatus, ChangedFile, CoveringTest, FileAnalysisStatus, ImpactPacket,
+    AnalysisStatus, CIGate, ChangedFile, CoveringTest, FileAnalysisStatus, ImpactPacket,
     StructuralCoupling, TestCoverage,
 };
 use crate::index::languages::{Language, parse_symbols};
@@ -203,6 +203,12 @@ pub fn execute_impact(all_parents: bool, summary: bool, telemetry_coverage: bool
                 // Graceful degradation: packet.test_coverage stays empty
             }
 
+            // Populate CI gates from ci_gates table
+            if let Err(e) = populate_ci_gates(&mut packet, &storage) {
+                tracing::warn!("CI gates population failed: {e}");
+                // Graceful degradation: changed_file.ci_gates stays empty
+            }
+
             if let Err(e) = storage.save_packet(&packet) {
                 tracing::warn!("SQLite save failed: {e}");
                 println!(
@@ -329,6 +335,7 @@ fn map_snapshot_to_packet(snapshot: RepoSnapshot, base_dir: &Path) -> Result<Imp
                 analysis_warnings: outcome.analysis_warnings,
                 api_routes: Vec::new(),
                 data_models: Vec::new(),
+                ci_gates: Vec::new(),
             }
         })
         .collect();
@@ -1385,6 +1392,74 @@ fn populate_test_coverage(
     }
 
     packet.test_coverage = test_coverages;
+    Ok(())
+}
+
+/// Populate each changed file's ci_gates by querying the ci_gates table for matching files.
+fn populate_ci_gates(packet: &mut ImpactPacket, storage: &StorageManager) -> miette::Result<()> {
+    use rusqlite::OptionalExtension;
+
+    let conn = storage.get_connection();
+
+    // Gracefully skip if ci_gates table doesn't exist or is empty
+    let has_gates: Option<i64> = match conn
+        .query_row("SELECT count(*) FROM ci_gates LIMIT 1", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .optional()
+    {
+        Ok(Some(count)) if count > 0 => Some(count),
+        Ok(_) => return Ok(()),  // Table exists but empty — graceful skip
+        Err(_) => return Ok(()), // Table doesn't exist — graceful skip
+    };
+
+    if has_gates.is_none() {
+        return Ok(());
+    }
+
+    // Build a path -> project_files.id lookup
+    let mut file_stmt = conn
+        .prepare("SELECT id, file_path FROM project_files WHERE parse_status != 'DELETED'")
+        .map_err(|e| miette::miette!("Failed to prepare project_files query: {e}"))?;
+
+    let file_rows: Vec<(i64, String)> = file_stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|e| miette::miette!("Failed to query project_files: {e}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| miette::miette!("Failed to collect project_files rows: {e}"))?;
+
+    drop(file_stmt);
+
+    let path_to_id: std::collections::HashMap<String, i64> =
+        file_rows.into_iter().map(|(id, path)| (path, id)).collect();
+
+    // For each changed file, query ci_gates matching its file_id
+    for change in &mut packet.changes {
+        let path_str = change.path.to_string_lossy().to_string();
+
+        if let Some(&file_id) = path_to_id.get(&path_str) {
+            let mut gate_stmt = conn
+                .prepare("SELECT platform, job_name, trigger FROM ci_gates WHERE ci_file_id = ?1")
+                .map_err(|e| miette::miette!("Failed to prepare ci_gates query: {e}"))?;
+
+            let gates: Vec<CIGate> = gate_stmt
+                .query_map([file_id], |row| {
+                    Ok(CIGate {
+                        platform: row.get::<_, String>(0)?,
+                        job_name: row.get::<_, String>(1)?,
+                        trigger: row.get::<_, Option<String>>(2)?,
+                    })
+                })
+                .map_err(|e| miette::miette!("Failed to query ci_gates: {e}"))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| miette::miette!("Failed to collect ci_gates rows: {e}"))?;
+
+            change.ci_gates = gates;
+        }
+    }
+
     Ok(())
 }
 

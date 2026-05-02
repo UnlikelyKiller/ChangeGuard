@@ -99,6 +99,31 @@ pub struct FileAnalysisStatus {
     pub runtime_usage: AnalysisStatus,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CIGate {
+    pub platform: String,
+    pub job_name: String,
+    pub trigger: Option<String>,
+}
+
+impl Eq for CIGate {}
+
+impl PartialOrd for CIGate {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for CIGate {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.platform
+            .cmp(&other.platform)
+            .then_with(|| self.job_name.cmp(&other.job_name))
+            .then_with(|| self.trigger.cmp(&other.trigger))
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "camelCase")]
 pub struct ChangedFile {
@@ -116,6 +141,8 @@ pub struct ChangedFile {
     pub api_routes: Vec<ApiRoute>,
     #[serde(default)]
     pub data_models: Vec<DataModel>,
+    #[serde(default)]
+    pub ci_gates: Vec<CIGate>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -510,6 +537,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
 
         let json = serde_json::to_string_pretty(&packet).unwrap();
@@ -566,6 +594,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
         packet.changes.push(ChangedFile {
             path: PathBuf::from("a.rs"),
@@ -578,6 +607,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
 
         packet.finalize();

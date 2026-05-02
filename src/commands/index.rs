@@ -87,6 +87,9 @@ pub fn execute_index(
     // Extract test-to-symbol mappings
     let tm_stats = indexer.extract_test_mappings()?;
 
+    // Extract CI/CD workflow gates
+    let ci_stats = indexer.extract_ci_gates()?;
+
     // Compute centrality if requested
     let cent_stats = if analyze_graph {
         indexer.compute_centrality()?
@@ -147,6 +150,12 @@ pub fn execute_index(
         if let (Some(map), Some(tm)) = (output.as_object_mut(), tm_obj.as_object()) {
             for (k, v) in tm {
                 map.insert(format!("tm_{}", k), v.clone());
+            }
+        }
+        let ci_obj = serde_json::to_value(&ci_stats).into_diagnostic()?;
+        if let (Some(map), Some(ci)) = (output.as_object_mut(), ci_obj.as_object()) {
+            for (k, v) in ci {
+                map.insert(format!("ci_{}", k), v.clone());
             }
         }
         if analyze_graph {
@@ -256,6 +265,14 @@ pub fn execute_index(
             tm_stats.naming_convention_mappings
         );
         println!("  Files processed: {}", tm_stats.files_processed);
+        println!();
+        println!("CI/CD Gates:");
+        println!("  Total gates: {}", ci_stats.total_gates);
+        println!("  GitHub Actions: {}", ci_stats.github_actions_gates);
+        println!("  GitLab CI: {}", ci_stats.gitlab_ci_gates);
+        println!("  CircleCI: {}", ci_stats.circleci_gates);
+        println!("  Makefile: {}", ci_stats.makefile_gates);
+        println!("  Files processed: {}", ci_stats.files_processed);
         if analyze_graph {
             println!();
             println!("Centrality:");
