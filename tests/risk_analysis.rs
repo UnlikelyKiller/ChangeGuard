@@ -19,6 +19,11 @@ fn test_risk_analysis_integration() {
             is_public: true,
             cognitive_complexity: None,
             cyclomatic_complexity: None,
+            line_start: None,
+            line_end: None,
+            qualified_name: None,
+            byte_start: None,
+            byte_end: None,
         }]),
 
         imports: None,
@@ -71,6 +76,11 @@ fn test_risk_analysis_high_volume() {
         is_public: true,
         cognitive_complexity: None,
         cyclomatic_complexity: None,
+        line_start: None,
+        line_end: None,
+        qualified_name: None,
+        byte_start: None,
+        byte_end: None,
     }]);
 
     analyze_risk(&mut packet, &rules).unwrap();
@@ -104,6 +114,11 @@ fn test_risk_analysis_protected_and_public() {
             is_public: true,
             cognitive_complexity: None,
             cyclomatic_complexity: None,
+            line_start: None,
+            line_end: None,
+            qualified_name: None,
+            byte_start: None,
+            byte_end: None,
         }]),
 
         imports: None,

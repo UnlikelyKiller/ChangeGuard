@@ -24,4 +24,14 @@ pub struct Symbol {
     pub is_public: bool,
     pub cognitive_complexity: Option<i32>,
     pub cyclomatic_complexity: Option<i32>,
+    #[serde(default)]
+    pub line_start: Option<i32>,
+    #[serde(default)]
+    pub line_end: Option<i32>,
+    #[serde(default)]
+    pub qualified_name: Option<String>,
+    #[serde(default)]
+    pub byte_start: Option<i32>,
+    #[serde(default)]
+    pub byte_end: Option<i32>,
 }

@@ -84,6 +84,18 @@ pub enum Commands {
         #[arg(long)]
         yes: bool,
     },
+    /// Index all supported source files in the repository
+    Index {
+        /// Only re-index files that have changed since the last index
+        #[arg(long)]
+        incremental: bool,
+        /// Show index status without re-indexing
+        #[arg(long)]
+        check: bool,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// Identify high-risk hotspots in the codebase
     Hotspots {
         /// Maximum number of hotspots to show
@@ -348,6 +360,11 @@ pub fn run() -> Result<()> {
             all,
             yes,
         ),
+        Commands::Index {
+            incremental,
+            check,
+            json,
+        } => crate::commands::index::execute_index(incremental, check, json),
         Commands::Hotspots {
             limit,
             commits,

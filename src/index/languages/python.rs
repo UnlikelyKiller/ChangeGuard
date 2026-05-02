@@ -55,6 +55,11 @@ pub fn extract_symbols(content: &str) -> Result<Option<Vec<Symbol>>> {
                 is_public,
                 cognitive_complexity: None,
                 cyclomatic_complexity: None,
+                line_start: None,
+                line_end: None,
+                qualified_name: None,
+                byte_start: None,
+                byte_end: None,
             });
         }
     }

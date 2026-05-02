@@ -47,11 +47,11 @@ pub fn calculate_hotspots(
     }
 
     // Primary: query the impact-time symbols table for complexity data.
-    // Fallback: if the symbols table is empty (no prior impact run), try
-    // project_symbols which is populated by `changeguard index`.
-    let mut file_complexities: HashMap<String, i32> = HashMap::new();
+    // Fallback: per-file gap-fill from project_symbols (populated by `changeguard index`)
+    // when the symbols table has no data for that file.
+    let mut file_complexities: HashMap<String, i32>;
 
-    // Primary query from the impact-time symbols table
+    // Load primary complexity data from the impact-time symbols table
     let primary_result: HashMap<String, i32> = {
         let mut stmt = storage.get_connection().prepare(
             "SELECT file_path, MAX(IFNULL(cognitive_complexity, 0), IFNULL(cyclomatic_complexity, 0)) as max_comp
@@ -67,33 +67,43 @@ pub fn calculate_hotspots(
         .into_diagnostic()?
     };
 
-    if !primary_result.is_empty() {
-        file_complexities = primary_result;
-    } else {
-        // Fallback: try project_symbols (populated by `changeguard index`)
-        let fallback_result = {
-            let mut stmt = storage.get_connection().prepare(
-                "SELECT pf.file_path, MAX(IFNULL(ps.cognitive_complexity, 0), IFNULL(ps.cyclomatic_complexity, 0)) as max_comp
-                 FROM project_symbols ps
-                 JOIN project_files pf ON ps.file_id = pf.id
-                 GROUP BY pf.file_path"
-            ).into_diagnostic()?;
+    file_complexities = primary_result;
 
-            stmt.query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i32>(1)?))
-            })
-            .into_diagnostic()?
-            .collect::<rusqlite::Result<HashMap<String, i32>>>()
+    // Per-file gap-fill: for files not in the primary result, try project_symbols
+    let needs_fallback: Vec<String> = frequency_map
+        .keys()
+        .map(|p| p.to_string())
+        .filter(|path| !file_complexities.contains_key(path) || file_complexities[path] == 0)
+        .collect();
+
+    if !needs_fallback.is_empty() {
+        let fallback_result = {
+            let conn = storage.get_connection();
+            let mut fallback = HashMap::new();
+            for path in &needs_fallback {
+                match conn.query_row(
+                    "SELECT IFNULL(AVG(IFNULL(ps.cognitive_complexity, 0)), 0) as avg_comp
+                     FROM project_symbols ps
+                     JOIN project_files pf ON ps.file_id = pf.id
+                     WHERE pf.file_path = ?1",
+                    [path],
+                    |row| row.get::<_, f64>(0),
+                ) {
+                    Ok(avg) => {
+                        fallback.insert(path.clone(), avg as i32);
+                    }
+                    Err(_) => {
+                        // Table doesn't exist or no data for this file
+                        tracing::debug!("No project_symbols data for file: {}", path);
+                    }
+                }
+            }
+            fallback
         };
 
-        match fallback_result {
-            Ok(fallback) => file_complexities = fallback,
-            Err(_) => {
-                // project_symbols table doesn't exist yet (pre-E1-1 database).
-                // All files will get complexity 0, which is the current behavior.
-                tracing::debug!(
-                    "project_symbols table not available, complexity will be 0 for all files"
-                );
+        for (path, complexity) in fallback_result {
+            if !file_complexities.contains_key(&path) || file_complexities[&path] == 0 {
+                file_complexities.insert(path, complexity);
             }
         }
     }

@@ -5,6 +5,7 @@ pub mod doctor;
 pub mod federate;
 pub mod hotspots;
 pub mod impact;
+pub mod index;
 pub mod init;
 pub mod ledger;
 pub mod ledger_adr;
