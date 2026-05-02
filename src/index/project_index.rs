@@ -3,11 +3,11 @@ use crate::index::centrality::{CentralityComputer, CentralityStats};
 use crate::index::ci_gates::CIGateExtractor;
 use crate::index::data_models::{DataModelExtractor, DataModelStats};
 use crate::index::docs::{DocIndexStats, parse_markdown};
-use crate::index::env_schema::{EnvSchemaIndexer, EnvSchemaStats};
 use crate::index::entrypoint::{
     EntrypointKind, EntrypointStats, detect_python_entrypoints, detect_rust_entrypoints,
     detect_typescript_entrypoints,
 };
+use crate::index::env_schema::{EnvSchemaIndexer, EnvSchemaStats};
 use crate::index::languages::{Language, parse_symbols};
 use crate::index::metrics::{ComplexityScorer, NativeComplexityScorer};
 use crate::index::observability::{ObservabilityExtractor, ObservabilityStats};

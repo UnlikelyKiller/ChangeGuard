@@ -133,6 +133,7 @@ pub struct ChangedFile {
     pub is_staged: bool,
     pub symbols: Option<Vec<Symbol>>,
     pub imports: Option<ImportExport>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_usage: Option<RuntimeUsage>,
     #[serde(default)]
     pub analysis_status: FileAnalysisStatus,
@@ -276,6 +277,30 @@ pub struct CoverageDelta {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct RuntimeUsageDelta {
+    pub file_path: String,
+    pub env_vars_previous_count: usize,
+    pub env_vars_current_count: usize,
+    pub config_keys_previous_count: usize,
+    pub config_keys_current_count: usize,
+}
+
+impl Eq for RuntimeUsageDelta {}
+
+impl PartialOrd for RuntimeUsageDelta {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for RuntimeUsageDelta {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.file_path.cmp(&other.file_path)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct CoveringTest {
     pub test_file: String,
     pub test_symbol: String,
@@ -370,6 +395,8 @@ pub struct ImpactPacket {
     pub env_var_deps: Vec<EnvVarDep>,
     #[serde(default)]
     pub test_coverage: Vec<TestCoverage>,
+    #[serde(default)]
+    pub runtime_usage_delta: Vec<RuntimeUsageDelta>,
     pub hotspots: Vec<Hotspot>,
     pub verification_results: Vec<VerificationResult>,
 }
@@ -393,6 +420,7 @@ impl Default for ImpactPacket {
             infrastructure_dirs: Vec::new(),
             env_var_deps: Vec::new(),
             test_coverage: Vec::new(),
+            runtime_usage_delta: Vec::new(),
             hotspots: Vec::new(),
             verification_results: Vec::new(),
         }
@@ -437,6 +465,7 @@ impl ImpactPacket {
         self.env_var_deps.sort_unstable();
         self.env_var_deps.dedup();
         self.test_coverage.sort_unstable();
+        self.runtime_usage_delta.sort_unstable();
         self.hotspots.sort_unstable_by(|a, b| {
             b.score
                 .partial_cmp(&a.score)
@@ -496,6 +525,7 @@ impl ImpactPacket {
         self.infrastructure_dirs.clear();
         self.env_var_deps.clear();
         self.test_coverage.clear();
+        self.runtime_usage_delta.clear();
 
         let current_json = serde_json::to_string(self).unwrap_or_default();
         if current_json.len() <= target_chars {

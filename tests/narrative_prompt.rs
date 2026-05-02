@@ -57,6 +57,7 @@ fn test_narrative_golden_prompt() {
         infrastructure_dirs: vec![],
         env_var_deps: vec![],
         test_coverage: vec![],
+        runtime_usage_delta: vec![],
         hotspots: vec![Hotspot {
             path: PathBuf::from("src/auth.rs"),
             score: 0.92,

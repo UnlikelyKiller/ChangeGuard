@@ -82,32 +82,18 @@ pub fn execute_impact(all_parents: bool, summary: bool, telemetry_coverage: bool
         }
     }
 
-    // Load rules and perform risk analysis
-    match crate::policy::load::load_rules(&layout) {
-        Ok(rules) => {
-            if let Err(e) = crate::impact::analysis::analyze_risk(&mut packet, &rules) {
-                tracing::warn!("Risk analysis failed: {e}");
-                println!(
-                    "{} Risk analysis failed. Impact report written without risk scoring.",
-                    warning_marker()
-                );
-            }
-        }
+    // Load rules early for later use
+    let rules_opt = match crate::policy::load::load_rules(&layout) {
+        Ok(rules) => Some(rules),
         Err(e) => {
             tracing::warn!("Failed to load rules: {e}");
             println!(
                 "{} Could not load rules. Impact report written without risk scoring.",
                 warning_marker()
             );
+            None
         }
-    }
-
-    // Finalize and redact BEFORE persisting anywhere
-    packet.finalize();
-    let redactions = crate::impact::redact::redact_secrets(&mut packet);
-    if !redactions.is_empty() {
-        tracing::info!("Redacted {} secret(s) from impact packet", redactions.len());
-    }
+    };
 
     // Persist to SQLite and run federated analysis
     let db_path = layout.state_subdir().join("ledger.db");
@@ -215,6 +201,30 @@ pub fn execute_impact(all_parents: bool, summary: bool, telemetry_coverage: bool
                 // Graceful degradation: packet.env_var_deps stays empty
             }
 
+            // Populate runtime usage deltas (compares current vs previous git HEAD)
+            if let Err(e) = populate_runtime_usage_delta(&mut packet, &current_dir) {
+                tracing::warn!("Runtime usage delta population failed: {e}");
+                // Graceful degradation: packet.runtime_usage_delta stays empty
+            }
+
+            // Perform risk analysis AFTER all population
+            if let Some(rules) = &rules_opt {
+                if let Err(e) = crate::impact::analysis::analyze_risk(&mut packet, rules) {
+                    tracing::warn!("Risk analysis failed: {e}");
+                    println!(
+                        "{} Risk analysis failed. Impact report written without risk scoring.",
+                        warning_marker()
+                    );
+                }
+            }
+
+            // Finalize and redact BEFORE persisting anywhere
+            packet.finalize();
+            let redactions = crate::impact::redact::redact_secrets(&mut packet);
+            if !redactions.is_empty() {
+                tracing::info!("Redacted {} secret(s) from impact packet", redactions.len());
+            }
+
             if let Err(e) = storage.save_packet(&packet) {
                 tracing::warn!("SQLite save failed: {e}");
                 println!(
@@ -224,6 +234,23 @@ pub fn execute_impact(all_parents: bool, summary: bool, telemetry_coverage: bool
             }
         }
         Err(e) => {
+            // Even if SQLite fails, we still want to analyze risk, finalize, and redact
+            if let Some(rules) = &rules_opt {
+                if let Err(e) = crate::impact::analysis::analyze_risk(&mut packet, rules) {
+                    tracing::warn!("Risk analysis failed: {e}");
+                    println!(
+                        "{} Risk analysis failed. Impact report written without risk scoring.",
+                        warning_marker()
+                    );
+                }
+            }
+
+            packet.finalize();
+            let redactions = crate::impact::redact::redact_secrets(&mut packet);
+            if !redactions.is_empty() {
+                tracing::info!("Redacted {} secret(s) from impact packet", redactions.len());
+            }
+
             tracing::warn!("SQLite init failed: {e}");
             println!(
                 "{} Could not initialize SQLite. Impact report saved to disk but not persisted to database.",
@@ -1570,6 +1597,57 @@ fn populate_env_var_deps(
     }
 
     packet.env_var_deps = undeclared;
+    Ok(())
+}
+
+fn populate_runtime_usage_delta(packet: &mut ImpactPacket, repo_dir: &Path) -> miette::Result<()> {
+    use crate::impact::packet::RuntimeUsageDelta;
+    use crate::index::runtime_usage::extract_runtime_usage;
+
+    let mut deltas = Vec::new();
+
+    for change in &packet.changes {
+        let current_env_vars = change
+            .runtime_usage
+            .as_ref()
+            .map(|u| u.env_vars.len())
+            .unwrap_or(0);
+        let current_config_keys = change
+            .runtime_usage
+            .as_ref()
+            .map(|u| u.config_keys.len())
+            .unwrap_or(0);
+
+        let path_str = change.path.to_string_lossy().replace('\\', "/");
+
+        let output = std::process::Command::new("git")
+            .args(["show", &format!("HEAD:{}", path_str)])
+            .current_dir(repo_dir)
+            .output();
+
+        let mut previous_env_vars = 0;
+        let mut previous_config_keys = 0;
+
+        if let Some(output) = output.ok().filter(|o| o.status.success()) {
+            let prev_content = String::from_utf8_lossy(&output.stdout);
+            if let Some(prev_usage) = extract_runtime_usage(&change.path, &prev_content) {
+                previous_env_vars = prev_usage.env_vars.len();
+                previous_config_keys = prev_usage.config_keys.len();
+            }
+        }
+
+        if current_env_vars != previous_env_vars || current_config_keys != previous_config_keys {
+            deltas.push(RuntimeUsageDelta {
+                file_path: change.path.to_string_lossy().to_string(),
+                env_vars_previous_count: previous_env_vars,
+                env_vars_current_count: current_env_vars,
+                config_keys_previous_count: previous_config_keys,
+                config_keys_current_count: current_config_keys,
+            });
+        }
+    }
+
+    packet.runtime_usage_delta = deltas;
     Ok(())
 }
 

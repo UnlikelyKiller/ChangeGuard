@@ -4,12 +4,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PredictionReason {
     Structural,
     CallGraph,
     Temporal,
     TestMapping,
+    RuntimeDependency(String),
 }
 
 impl std::fmt::Display for PredictionReason {
@@ -19,6 +20,7 @@ impl std::fmt::Display for PredictionReason {
             Self::CallGraph => write!(f, "CallGraph"),
             Self::Temporal => write!(f, "Temporal"),
             Self::TestMapping => write!(f, "TestMapping"),
+            Self::RuntimeDependency(msg) => write!(f, "{}", msg),
         }
     }
 }
@@ -122,6 +124,43 @@ impl Predictor {
         let mut files: Vec<_> = predicted.into_iter().collect();
         files.sort();
 
+        // -------------------------------------------------------------
+        // E4-4 Runtime/Config Dependency Prediction Integration
+        // -------------------------------------------------------------
+        let new_env_vars: std::collections::HashSet<&str> = packet
+            .env_var_deps
+            .iter()
+            .filter(|dep| !dep.declared)
+            .map(|dep| dep.var_name.as_str())
+            .collect();
+
+        // Predict files that introduce new env var dependencies
+        for file in &packet.changes {
+            if let Some(ref usage) = file.runtime_usage {
+                for var in &usage.env_vars {
+                    if new_env_vars.contains(var.as_str()) {
+                        files.push(PredictedFile {
+                            path: file.path.clone(),
+                            reason: PredictionReason::RuntimeDependency(format!(
+                                "New env var dependency: {}",
+                                var
+                            )),
+                        });
+                    }
+                }
+            }
+        }
+
+        // Add warnings for removed env var usage
+        for delta in &packet.runtime_usage_delta {
+            if delta.env_vars_current_count < delta.env_vars_previous_count {
+                warnings.push(format!("Removed env var usage: {}", delta.file_path));
+            }
+        }
+
+        files.sort();
+        files.dedup();
+
         PredictionResult { files, warnings }
     }
 
@@ -192,6 +231,43 @@ impl Predictor {
 
         let mut files: Vec<_> = predicted.into_iter().collect();
         files.sort();
+
+        // -------------------------------------------------------------
+        // E4-4 Runtime/Config Dependency Prediction Integration
+        // -------------------------------------------------------------
+        let new_env_vars: std::collections::HashSet<&str> = packet
+            .env_var_deps
+            .iter()
+            .filter(|dep| !dep.declared)
+            .map(|dep| dep.var_name.as_str())
+            .collect();
+
+        // Predict files that introduce new env var dependencies
+        for file in &packet.changes {
+            if let Some(ref usage) = file.runtime_usage {
+                for var in &usage.env_vars {
+                    if new_env_vars.contains(var.as_str()) {
+                        files.push(PredictedFile {
+                            path: file.path.clone(),
+                            reason: PredictionReason::RuntimeDependency(format!(
+                                "New env var dependency: {}",
+                                var
+                            )),
+                        });
+                    }
+                }
+            }
+        }
+
+        // Add warnings for removed env var usage
+        for delta in &packet.runtime_usage_delta {
+            if delta.env_vars_current_count < delta.env_vars_previous_count {
+                warnings.push(format!("Removed env var usage: {}", delta.file_path));
+            }
+        }
+
+        files.sort();
+        files.dedup();
 
         PredictionResult { files, warnings }
     }

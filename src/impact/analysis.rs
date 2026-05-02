@@ -2,7 +2,46 @@ use crate::impact::packet::{ImpactPacket, RiskLevel};
 use crate::policy::protected_paths::ProtectedPathChecker;
 use crate::policy::rules::Rules;
 use miette::Result;
+use std::sync::LazyLock;
 use tracing::debug;
+
+/// Common env vars that are too ubiquitous to be meaningful risk indicators.
+static COMMON_ENV_VARS: LazyLock<[&str; 17]> = LazyLock::new(|| {
+    [
+        "PATH",
+        "HOME",
+        "USER",
+        "LANG",
+        "SHELL",
+        "TERM",
+        "PWD",
+        "EDITOR",
+        "VISUAL",
+        "HOSTNAME",
+        "TMPDIR",
+        "TEMP",
+        "TMP",
+        "SYSTEMROOT",
+        "COMSPEC",
+        "PROCESSOR_ARCHITECTURE",
+        "OS",
+    ]
+});
+
+/// Framework convention config keys that receive reduced weight because they
+/// are standard boilerplate rather than meaningful runtime dependencies.
+static FRAMEWORK_CONVENTION_CONFIG_KEYS: LazyLock<[&str; 8]> = LazyLock::new(|| {
+    [
+        "server.port",
+        "server.host",
+        "logging.level",
+        "logging.level.*",
+        "log.level",
+        "debug",
+        "env",
+        "NODE_ENV",
+    ]
+});
 
 pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules) -> Result<()> {
     let mut total_weight = 0;
@@ -394,15 +433,74 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules) -> Result<()> {
     }
     total_weight += ci_total;
 
-    // 3l. Undeclared Environment Variable Dependencies
-    if !packet.env_var_deps.is_empty() {
-        let weight = 20;
-        total_weight += weight;
-        reasons.push(format!(
-            "Undeclared env var dependencies: {} new variable(s)",
-            packet.env_var_deps.len()
-        ));
+    // 3m. Runtime/Config Dependency Risk
+    // Category Cap: 25 points
+    let mut runtime_config_total = 0;
+    let runtime_config_cap = 25;
+
+    // 1. New env var dependencies (+20)
+    for dep in &packet.env_var_deps {
+        if !COMMON_ENV_VARS.contains(&dep.var_name.as_str()) {
+            reasons.push(format!(
+                "New environment variable dependency: {}",
+                dep.var_name
+            ));
+            if runtime_config_total + 20 <= runtime_config_cap {
+                runtime_config_total += 20;
+            } else if runtime_config_total < runtime_config_cap {
+                runtime_config_total = runtime_config_cap;
+            }
+        }
     }
+
+    // 2. Env var reference changes (+10) and Config key reference changes (+10 or +5)
+    for delta in &packet.runtime_usage_delta {
+        // Env var changes
+        if delta.env_vars_current_count != delta.env_vars_previous_count {
+            reasons.push(format!(
+                "Environment variable references changed in {}",
+                delta.file_path
+            ));
+            if runtime_config_total + 10 <= runtime_config_cap {
+                runtime_config_total += 10;
+            } else if runtime_config_total < runtime_config_cap {
+                runtime_config_total = runtime_config_cap;
+            }
+        }
+
+        // Config key changes
+        if delta.config_keys_current_count != delta.config_keys_previous_count {
+            let mut weight = 10;
+
+            if let Some(usage) = packet
+                .changes
+                .iter()
+                .find(|c| c.path.to_string_lossy() == delta.file_path)
+                .and_then(|c| c.runtime_usage.as_ref())
+                .filter(|u| !u.config_keys.is_empty())
+            {
+                let has_only_framework = usage
+                    .config_keys
+                    .iter()
+                    .all(|k| FRAMEWORK_CONVENTION_CONFIG_KEYS.contains(&k.as_str()));
+                if has_only_framework {
+                    weight = 5;
+                }
+            }
+
+            reasons.push(format!(
+                "Configuration key references changed in {}",
+                delta.file_path
+            ));
+            if runtime_config_total + weight <= runtime_config_cap {
+                runtime_config_total += weight;
+            } else if runtime_config_total < runtime_config_cap {
+                runtime_config_total = runtime_config_cap;
+            }
+        }
+    }
+
+    total_weight += runtime_config_total;
 
     // 4. Scoring
     packet.risk_level = if total_weight > 60 {
@@ -1846,5 +1944,217 @@ mod tests {
         // 30 weight cap means total weight is 30, not 60
         // 30 > 20 -> Medium
         assert_eq!(packet.risk_level, RiskLevel::Medium);
+    }
+
+    #[test]
+    fn test_analyze_risk_runtime_env_var_dependency() {
+        use crate::index::env_schema::EnvVarDep;
+
+        // File with a non-common env var like DATABASE_URL should get risk weight
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("src/config.rs"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+            ci_gates: Vec::new(),
+        });
+        packet.env_var_deps.push(EnvVarDep {
+            var_name: "DATABASE_URL".to_string(),
+            declared: false,
+            evidence: "".to_string(),
+        });
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        // Should have a runtime dependency risk reason
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("New environment variable dependency: DATABASE_URL")),
+            "expected 'New environment variable dependency: DATABASE_URL' in risk reasons, got {:?}",
+            packet.risk_reasons
+        );
+        assert!(
+            packet.risk_level == RiskLevel::Low || packet.risk_level == RiskLevel::Medium,
+            "expected Low or Medium risk for single env var dependency, got {:?}",
+            packet.risk_level
+        );
+    }
+
+    #[test]
+    fn test_analyze_risk_runtime_common_env_var_skipped() {
+        use crate::index::env_schema::EnvVarDep;
+
+        // File with only common env vars (like PATH) should NOT get runtime risk weight
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("src/main.rs"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+            ci_gates: Vec::new(),
+        });
+        packet.env_var_deps.push(EnvVarDep {
+            var_name: "PATH".to_string(),
+            declared: false,
+            evidence: "".to_string(),
+        });
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        // No runtime dependency risk reasons should appear for common env vars
+        assert!(
+            !packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("New environment variable dependency")),
+            "expected no runtime env var risk reasons for common vars, got {:?}",
+            packet.risk_reasons
+        );
+        assert_eq!(packet.risk_level, RiskLevel::Low);
+    }
+
+    #[test]
+    fn test_analyze_risk_runtime_config_key_dependency() {
+        use crate::impact::packet::RuntimeUsageDelta;
+
+        // File with config keys should get risk weight
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("src/settings.rs"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+            ci_gates: Vec::new(),
+        });
+        packet.runtime_usage_delta.push(RuntimeUsageDelta {
+            file_path: "src/settings.rs".to_string(),
+            env_vars_previous_count: 0,
+            env_vars_current_count: 0,
+            config_keys_previous_count: 1,
+            config_keys_current_count: 2,
+        });
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        // Should have config key risk reasons
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Configuration key references changed in src/settings.rs")),
+            "expected 'Configuration key references changed in src/settings.rs' in risk reasons, got {:?}",
+            packet.risk_reasons
+        );
+    }
+
+    #[test]
+    fn test_analyze_risk_runtime_framework_convention_reduced_weight() {
+        use crate::impact::packet::RuntimeUsageDelta;
+        use crate::index::runtime_usage::RuntimeUsage;
+
+        // File with only framework convention config keys should get reduced weight (5)
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("src/app.rs"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: Some(RuntimeUsage {
+                env_vars: vec![],
+                config_keys: vec!["server.port".to_string(), "logging.level".to_string()],
+            }),
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+            ci_gates: Vec::new(),
+        });
+        packet.runtime_usage_delta.push(RuntimeUsageDelta {
+            file_path: "src/app.rs".to_string(),
+            env_vars_previous_count: 0,
+            env_vars_current_count: 0,
+            config_keys_previous_count: 0,
+            config_keys_current_count: 2,
+        });
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Configuration key references changed in src/app.rs")),
+            "expected 'Configuration key references changed in src/app.rs' in risk reasons, got {:?}",
+            packet.risk_reasons
+        );
+        // With only framework conventions, weight is 5, which is <= 20, so Low
+        assert_eq!(packet.risk_level, RiskLevel::Low);
+    }
+
+    #[test]
+    fn test_analyze_risk_runtime_empty_no_regression() {
+        // File with no runtime_usage should produce no runtime risk reasons
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("README.md"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+            ci_gates: Vec::new(),
+        });
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        assert_eq!(packet.risk_level, RiskLevel::Low);
+        assert!(
+            !packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Runtime dependency on env var")
+                    || r.contains("Runtime dependency on config key")
+                    || r.contains("Framework config key")),
+            "expected no runtime dependency risk reasons when empty, got {:?}",
+            packet.risk_reasons
+        );
+        assert!(
+            packet
+                .risk_reasons
+                .contains(&"Minimal changes detected".to_string()),
+            "expected 'Minimal changes detected' in risk reasons, got {:?}",
+            packet.risk_reasons
+        );
     }
 }
