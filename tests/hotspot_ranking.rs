@@ -104,6 +104,52 @@ fn test_hotspots_propagate_malformed_sqlite_rows() {
     assert!(format!("{error:?}").contains("Invalid column type"));
 }
 
+#[test]
+fn test_hotspot_score_is_finite_when_all_complexity_is_zero() {
+    // Regression: max_comp=0 used to produce 0/0=NaN, breaking JSON serialization
+    // and causing verify to fail to load the impact packet.
+    let tmp = tempdir().unwrap();
+    let storage = StorageManager::init(&tmp.path().join("ledger.db")).unwrap();
+    insert_snapshot(&storage);
+    // No complexity rows inserted — all files get complexity=0 from the fallback
+
+    let history = MockHistoryProvider {
+        history: vec![commit(&["README.md", "docs/guide.md"])],
+    };
+
+    let hotspots = calculate_hotspots(&storage, &history, 10, 10, false, None, None).unwrap();
+    assert!(!hotspots.is_empty());
+    for h in &hotspots {
+        assert!(
+            h.score.is_finite(),
+            "score should be 0.0, not NaN: got {:?} for {}",
+            h.score,
+            h.path.display()
+        );
+        assert_eq!(h.score, 0.0);
+    }
+
+    // Must round-trip through JSON without null scores
+    let json = serde_json::to_string(&hotspots).unwrap();
+    assert!(!json.contains("null"), "JSON should not contain null scores");
+    let decoded: Vec<changeguard::impact::packet::Hotspot> =
+        serde_json::from_str(&json).unwrap();
+    for h in &decoded {
+        assert!(h.score.is_finite());
+    }
+}
+
+#[test]
+fn test_hotspot_score_null_deserializes_as_zero_for_backward_compat() {
+    // Regression: packets written before the NaN fix have "score":null.
+    // The custom deserializer should read null as 0.0 so verify doesn't crash.
+    let json = r#"[{"path":"src/lib.rs","score":null,"complexity":0,"frequency":3}]"#;
+    let hotspots: Vec<changeguard::impact::packet::Hotspot> =
+        serde_json::from_str(json).unwrap();
+    assert_eq!(hotspots[0].score, 0.0);
+    assert!(hotspots[0].score.is_finite());
+}
+
 fn insert_complexity(storage: &StorageManager, file_path: &str, complexity: i32) {
     storage
         .get_connection()

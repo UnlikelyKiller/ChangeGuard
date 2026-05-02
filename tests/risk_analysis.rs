@@ -1,5 +1,8 @@
 use changeguard::impact::analysis::analyze_risk;
-use changeguard::impact::packet::{ChangedFile, FileAnalysisStatus, ImpactPacket, RiskLevel};
+use changeguard::impact::packet::{
+    ChangedFile, FileAnalysisStatus, ImpactPacket, RiskLevel, RuntimeUsageDelta,
+};
+use changeguard::index::env_schema::EnvVarDep;
 use changeguard::index::symbols::{Symbol, SymbolKind};
 use changeguard::policy::rules::Rules;
 use std::path::PathBuf;
@@ -152,4 +155,127 @@ fn test_risk_analysis_protected_and_public() {
     // Weight: 70 (protected) + 30 (public) = 100 -> High
     assert_eq!(packet.risk_level, RiskLevel::High);
     assert!(packet.risk_reasons.len() >= 2);
+}
+
+// ── E4-3: Env-var risk signals ────────────────────────────────────────────────
+
+#[test]
+fn test_env_var_dep_triggers_risk_reason() {
+    let mut packet = ImpactPacket::default();
+    packet.env_var_deps.push(EnvVarDep {
+        var_name: "DATABASE_URL".to_string(),
+        declared: false,
+        evidence: "src/db.rs".to_string(),
+    });
+
+    let rules = Rules::default();
+    analyze_risk(&mut packet, &rules).unwrap();
+
+    assert!(
+        packet
+            .risk_reasons
+            .iter()
+            .any(|r| r.contains("DATABASE_URL")),
+        "Expected DATABASE_URL in risk reasons, got: {:?}",
+        packet.risk_reasons
+    );
+    assert!(packet.risk_level >= RiskLevel::Low);
+}
+
+#[test]
+fn test_common_env_var_dep_is_filtered_from_risk() {
+    let mut packet = ImpactPacket::default();
+    // PATH is in the common-vars filter and must not produce a risk reason
+    packet.env_var_deps.push(EnvVarDep {
+        var_name: "PATH".to_string(),
+        declared: true,
+        evidence: "src/lib.rs".to_string(),
+    });
+
+    let rules = Rules::default();
+    analyze_risk(&mut packet, &rules).unwrap();
+
+    assert!(
+        !packet.risk_reasons.iter().any(|r| r.contains("PATH")),
+        "Common env var PATH should not appear in risk reasons"
+    );
+    // With only a filtered var the risk stays Low / minimal
+    assert_eq!(packet.risk_level, RiskLevel::Low);
+}
+
+// ── E4-4: Runtime usage delta risk signals ────────────────────────────────────
+
+#[test]
+fn test_runtime_delta_env_count_change_triggers_risk_reason() {
+    let mut packet = ImpactPacket::default();
+    packet.runtime_usage_delta.push(RuntimeUsageDelta {
+        file_path: "src/server.rs".to_string(),
+        env_vars_previous_count: 1,
+        env_vars_current_count: 3,
+        config_keys_previous_count: 0,
+        config_keys_current_count: 0,
+    });
+
+    let rules = Rules::default();
+    analyze_risk(&mut packet, &rules).unwrap();
+
+    assert!(
+        packet
+            .risk_reasons
+            .iter()
+            .any(|r| r.contains("Environment variable references changed")),
+        "Expected env-var delta reason, got: {:?}",
+        packet.risk_reasons
+    );
+}
+
+#[test]
+fn test_runtime_delta_config_count_change_triggers_risk_reason() {
+    let mut packet = ImpactPacket::default();
+    packet.runtime_usage_delta.push(RuntimeUsageDelta {
+        file_path: "src/config.rs".to_string(),
+        env_vars_previous_count: 0,
+        env_vars_current_count: 0,
+        config_keys_previous_count: 2,
+        config_keys_current_count: 4,
+    });
+
+    let rules = Rules::default();
+    analyze_risk(&mut packet, &rules).unwrap();
+
+    assert!(
+        packet
+            .risk_reasons
+            .iter()
+            .any(|r| r.contains("Configuration key references changed")),
+        "Expected config-key delta reason, got: {:?}",
+        packet.risk_reasons
+    );
+}
+
+#[test]
+fn test_runtime_delta_same_cardinality_not_flagged() {
+    // Known limitation: the delta model tracks counts, not identities.
+    // Replacing DATABASE_URL→REDIS_URL (1→1) produces no signal.
+    // This test documents the behaviour so any future identity-aware fix
+    // will know to update it.
+    let mut packet = ImpactPacket::default();
+    packet.runtime_usage_delta.push(RuntimeUsageDelta {
+        file_path: "src/db.rs".to_string(),
+        env_vars_previous_count: 1,
+        env_vars_current_count: 1, // same count, different var — invisible to current model
+        config_keys_previous_count: 0,
+        config_keys_current_count: 0,
+    });
+
+    let rules = Rules::default();
+    analyze_risk(&mut packet, &rules).unwrap();
+
+    assert!(
+        !packet
+            .risk_reasons
+            .iter()
+            .any(|r| r.contains("Environment variable references changed")),
+        "Same-cardinality replacement is a known blind spot — not flagged"
+    );
 }
