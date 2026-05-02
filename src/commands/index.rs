@@ -60,12 +60,21 @@ pub fn execute_index(incremental: bool, check: bool, json: bool) -> Result<()> {
     // Index documentation files
     let doc_stats = indexer.index_docs()?;
 
+    // Index directory topology
+    let topo_stats = indexer.index_topology()?;
+
     if json {
         let mut output = serde_json::to_value(&stats).into_diagnostic()?;
         let doc_obj = serde_json::to_value(&doc_stats).into_diagnostic()?;
+        let topo_obj = serde_json::to_value(&topo_stats).into_diagnostic()?;
         if let (Some(map), Some(doc)) = (output.as_object_mut(), doc_obj.as_object()) {
             for (k, v) in doc {
                 map.insert(format!("doc_{}", k), v.clone());
+            }
+        }
+        if let (Some(map), Some(topo)) = (output.as_object_mut(), topo_obj.as_object()) {
+            for (k, v) in topo {
+                map.insert(format!("topo_{}", k), v.clone());
             }
         }
         println!(
@@ -96,6 +105,30 @@ pub fn execute_index(incremental: bool, check: bool, json: bool) -> Result<()> {
             println!("  README:          not found");
         } else {
             println!("  README:          found");
+        }
+        println!();
+        println!("Topology:");
+        println!(
+            "  Directories classified: {}",
+            topo_stats.directories_classified
+        );
+        if topo_stats.unclassified > 0 {
+            println!("  Unclassified:    {}", topo_stats.unclassified);
+        }
+        let role_order = [
+            crate::index::topology::DirectoryRole::Source,
+            crate::index::topology::DirectoryRole::Test,
+            crate::index::topology::DirectoryRole::Config,
+            crate::index::topology::DirectoryRole::Infrastructure,
+            crate::index::topology::DirectoryRole::Documentation,
+            crate::index::topology::DirectoryRole::Generated,
+            crate::index::topology::DirectoryRole::Vendor,
+            crate::index::topology::DirectoryRole::BuildArtifact,
+        ];
+        for role in &role_order {
+            if let Some(count) = topo_stats.role_counts.get(role) {
+                println!("  {}: {}", role.as_str(), count);
+            }
         }
     }
 

@@ -2,13 +2,14 @@ use crate::index::docs::{DocIndexStats, parse_markdown};
 use crate::index::languages::{Language, parse_symbols};
 use crate::index::metrics::{ComplexityScorer, NativeComplexityScorer};
 use crate::index::symbols::Symbol;
+use crate::index::topology::{classify_directory, DirectoryRole, TopologyIndexStats};
 use crate::state::storage::StorageManager;
 use camino::{Utf8Path, Utf8PathBuf};
 use indicatif::{ProgressBar, ProgressStyle};
 use miette::{IntoDiagnostic, Result};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::time::Instant;
 use tracing::{info, warn};
@@ -845,6 +846,85 @@ impl ProjectIndexer {
         .into_diagnostic()?;
 
         Ok(conn.last_insert_rowid())
+    }
+
+    /// Index directory topology by classifying all directories in the repo.
+    pub fn index_topology(&mut self) -> Result<TopologyIndexStats> {
+        let all_files = self.discover_files()?;
+        let now = chrono::Utc::now().to_rfc3339();
+
+        // Group files by directory
+        let mut dir_files: HashMap<String, Vec<String>> = HashMap::new();
+        for file_path in &all_files {
+            let relative = file_path
+                .strip_prefix(&self.repo_path)
+                .unwrap_or(file_path);
+            if let Some(parent) = relative.parent() {
+                let dir = parent.to_string().replace('\\', "/");
+                if !dir.is_empty() {
+                    dir_files.entry(dir).or_default().push(relative.to_string());
+                }
+            }
+        }
+
+        // Also add intermediate directories that may not have files directly
+        let mut all_dirs: HashSet<String> = dir_files.keys().cloned().collect();
+        for dir in dir_files.keys() {
+            let mut current = dir.as_str();
+            while let Some(parent) = std::path::Path::new(current)
+                .parent()
+                .and_then(|p| p.to_str())
+            {
+                if !parent.is_empty() && !all_dirs.contains(parent) {
+                    all_dirs.insert(parent.to_string());
+                }
+                current = parent;
+            }
+        }
+
+        let mut directories_classified = 0usize;
+        let mut unclassified = 0usize;
+        let mut role_counts: HashMap<DirectoryRole, usize> = HashMap::new();
+
+        let conn = self.storage.get_connection_mut();
+
+        for dir_path in &all_dirs {
+            let files: Vec<&str> = dir_files
+                .get(dir_path)
+                .map(|v| v.iter().map(|s| s.as_str()).collect())
+                .unwrap_or_default();
+
+            if let Some(classification) = classify_directory(dir_path, &files) {
+                let role_str = classification.role.as_str();
+                conn.execute(
+                    "INSERT OR REPLACE INTO project_topology (dir_path, role, confidence, evidence, last_indexed_at) \
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    rusqlite::params![
+                        dir_path,
+                        role_str,
+                        classification.confidence,
+                        classification.evidence,
+                        now,
+                    ],
+                ).into_diagnostic()?;
+
+                *role_counts.entry(classification.role).or_insert(0) += 1;
+                directories_classified += 1;
+            } else {
+                unclassified += 1;
+            }
+        }
+
+        info!(
+            "Topology index complete: {} directories classified, {} unclassified",
+            directories_classified, unclassified
+        );
+
+        Ok(TopologyIndexStats {
+            directories_classified,
+            unclassified,
+            role_counts,
+        })
     }
 }
 

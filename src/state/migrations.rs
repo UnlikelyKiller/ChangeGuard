@@ -262,14 +262,18 @@ pub fn get_migrations() -> Migrations<'static> {
             );
             CREATE INDEX IF NOT EXISTS idx_project_docs_file_id ON project_docs(file_id);
             CREATE TABLE IF NOT EXISTS project_topology (
-                id              INTEGER PRIMARY KEY,
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 dir_path        TEXT NOT NULL,
                 role            TEXT NOT NULL,
                 confidence      REAL NOT NULL DEFAULT 1.0,
                 evidence        TEXT,
                 last_indexed_at TEXT NOT NULL,
                 UNIQUE(dir_path)
-            );",
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_project_topology_dir_path
+                ON project_topology(dir_path);
+            CREATE INDEX IF NOT EXISTS idx_project_topology_role
+                ON project_topology(role);",
         ),
     ])
 }
@@ -600,5 +604,52 @@ mod tests {
             (1i64, "Duplicate", 0.5_f64, "2026-05-01T00:00:00Z"),
         );
         assert!(result.is_err(), "Should not allow duplicate file_id");
+    }
+
+    #[test]
+    fn test_insert_and_query_project_topology() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let migrations = get_migrations();
+        migrations.to_latest(&mut conn).unwrap();
+
+        // Insert topology rows
+        conn.execute(
+            "INSERT INTO project_topology (dir_path, role, confidence, evidence, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            ("src", "SOURCE", 1.0_f64, "Path pattern match: src", "2026-05-01T00:00:00Z"),
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO project_topology (dir_path, role, confidence, evidence, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            ("tests", "TEST", 1.0_f64, "Path pattern match: tests", "2026-05-01T00:00:00Z"),
+        ).unwrap();
+
+        // Query back
+        let (role, confidence): (String, f64) = conn
+            .query_row(
+                "SELECT role, confidence FROM project_topology WHERE dir_path = 'src'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(role, "SOURCE");
+        assert!((confidence - 1.0).abs() < f64::EPSILON);
+
+        // Verify unique constraint on dir_path
+        let result = conn.execute(
+            "INSERT INTO project_topology (dir_path, role, confidence, evidence, last_indexed_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            ("src", "SOURCE", 0.9_f64, "duplicate", "2026-05-01T00:00:00Z"),
+        );
+        assert!(result.is_err(), "Should not allow duplicate dir_path");
+
+        // Verify role index works
+        let test_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM project_topology WHERE role = 'TEST'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(test_count, 1);
     }
 }

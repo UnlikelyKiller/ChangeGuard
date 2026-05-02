@@ -7,3 +7,4 @@ pub mod references;
 pub mod runtime_usage;
 pub mod storage;
 pub mod symbols;
+pub mod topology;
