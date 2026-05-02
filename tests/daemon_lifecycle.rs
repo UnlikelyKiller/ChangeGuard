@@ -237,6 +237,7 @@ fn packet_for_file(file_path: &Path) -> ImpactPacket {
             qualified_name: None,
             byte_start: None,
             byte_end: None,
+            entrypoint_kind: None,
         }]),
         imports: None,
         runtime_usage: None,

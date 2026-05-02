@@ -32,6 +32,7 @@ fn test_persistence_integration() {
                 qualified_name: None,
                 byte_start: None,
                 byte_end: None,
+                entrypoint_kind: None,
             }]),
             imports: None,
             runtime_usage: None,

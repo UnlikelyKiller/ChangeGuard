@@ -34,4 +34,6 @@ pub struct Symbol {
     pub byte_start: Option<i32>,
     #[serde(default)]
     pub byte_end: Option<i32>,
+    #[serde(default)]
+    pub entrypoint_kind: Option<String>,
 }

@@ -308,6 +308,7 @@ mod tests {
                     qualified_name: None,
                     byte_start: None,
                     byte_end: None,
+                    entrypoint_kind: None,
                 },
                 Symbol {
                     name: "bar".into(),
@@ -320,6 +321,7 @@ mod tests {
                     qualified_name: None,
                     byte_start: None,
                     byte_end: None,
+                    entrypoint_kind: None,
                 },
             ]),
             imports: None,

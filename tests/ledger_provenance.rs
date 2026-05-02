@@ -42,6 +42,7 @@ fn test_ledger_token_provenance() {
             qualified_name: None,
             byte_start: None,
             byte_end: None,
+            entrypoint_kind: None,
         },
         ProvenanceAction::Added,
     )];
@@ -83,6 +84,7 @@ fn test_symbol_diff_logic() {
             qualified_name: None,
             byte_start: None,
             byte_end: None,
+            entrypoint_kind: None,
         },
         Symbol {
             name: "s2".to_string(),
@@ -95,6 +97,7 @@ fn test_symbol_diff_logic() {
             qualified_name: None,
             byte_start: None,
             byte_end: None,
+            entrypoint_kind: None,
         },
     ];
 
@@ -110,6 +113,7 @@ fn test_symbol_diff_logic() {
             qualified_name: None,
             byte_start: None,
             byte_end: None,
+            entrypoint_kind: None,
         },
         Symbol {
             name: "s3".to_string(),
@@ -122,6 +126,7 @@ fn test_symbol_diff_logic() {
             qualified_name: None,
             byte_start: None,
             byte_end: None,
+            entrypoint_kind: None,
         },
     ];
 

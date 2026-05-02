@@ -1,4 +1,5 @@
 pub mod docs;
+pub mod entrypoint;
 pub mod languages;
 pub mod metrics;
 pub mod normalize;

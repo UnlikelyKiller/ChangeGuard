@@ -63,10 +63,14 @@ pub fn execute_index(incremental: bool, check: bool, json: bool) -> Result<()> {
     // Index directory topology
     let topo_stats = indexer.index_topology()?;
 
+    // Classify entry points
+    let ep_stats = indexer.classify_entrypoints()?;
+
     if json {
         let mut output = serde_json::to_value(&stats).into_diagnostic()?;
         let doc_obj = serde_json::to_value(&doc_stats).into_diagnostic()?;
         let topo_obj = serde_json::to_value(&topo_stats).into_diagnostic()?;
+        let ep_obj = serde_json::to_value(&ep_stats).into_diagnostic()?;
         if let (Some(map), Some(doc)) = (output.as_object_mut(), doc_obj.as_object()) {
             for (k, v) in doc {
                 map.insert(format!("doc_{}", k), v.clone());
@@ -75,6 +79,11 @@ pub fn execute_index(incremental: bool, check: bool, json: bool) -> Result<()> {
         if let (Some(map), Some(topo)) = (output.as_object_mut(), topo_obj.as_object()) {
             for (k, v) in topo {
                 map.insert(format!("topo_{}", k), v.clone());
+            }
+        }
+        if let (Some(map), Some(ep)) = (output.as_object_mut(), ep_obj.as_object()) {
+            for (k, v) in ep {
+                map.insert(format!("ep_{}", k), v.clone());
             }
         }
         println!(
@@ -130,6 +139,13 @@ pub fn execute_index(incremental: bool, check: bool, json: bool) -> Result<()> {
                 println!("  {}: {}", role.as_str(), count);
             }
         }
+        println!();
+        println!("Entrypoints:");
+        println!("  Entrypoints:   {}", ep_stats.entrypoints);
+        println!("  Handlers:      {}", ep_stats.handlers);
+        println!("  Public APIs:   {}", ep_stats.public_apis);
+        println!("  Tests:         {}", ep_stats.tests);
+        println!("  Internal:     {}", ep_stats.internal);
     }
 
     Ok(())

@@ -44,7 +44,7 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules) -> Result<()> {
         debug!("Risk Factor: High symbol volume +{}", weight);
     }
 
-    // 3. Symbol Visibility
+    // 3. Symbol Visibility & Entrypoint Risk
     for file in &packet.changes {
         if let Some(symbols) = &file.symbols {
             for symbol in symbols {
@@ -60,6 +60,53 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules) -> Result<()> {
                         "Risk Factor: Public symbol modified ({}) +{}",
                         symbol.name, weight
                     );
+                }
+
+                // Entrypoint-based risk (API Surface category, max 35 points)
+                if let Some(ref kind) = symbol.entrypoint_kind {
+                    match kind.as_str() {
+                        "ENTRYPOINT" => {
+                            let weight = 35;
+                            total_weight += weight;
+                            reasons.push(format!(
+                                "Entry point changed: {} ({})",
+                                symbol.name,
+                                file.path.display()
+                            ));
+                            debug!(
+                                "Risk Factor: Entry point changed ({}) +{}",
+                                symbol.name, weight
+                            );
+                        }
+                        "HANDLER" => {
+                            let weight = 30;
+                            total_weight += weight;
+                            reasons.push(format!(
+                                "Handler changed: {} ({})",
+                                symbol.name,
+                                file.path.display()
+                            ));
+                            debug!(
+                                "Risk Factor: Handler changed ({}) +{}",
+                                symbol.name, weight
+                            );
+                        }
+                        "PUBLIC_API" => {
+                            let weight = 20;
+                            total_weight += weight;
+                            reasons.push(format!(
+                                "Public API changed: {} ({})",
+                                symbol.name,
+                                file.path.display()
+                            ));
+                            debug!(
+                                "Risk Factor: Public API changed ({}) +{}",
+                                symbol.name, weight
+                            );
+                        }
+                        // TEST — no additional weight for test entry points
+                        _ => {}
+                    }
                 }
             }
         }
@@ -141,6 +188,199 @@ mod tests {
                 .risk_reasons
                 .iter()
                 .any(|r| r.contains("Protected path hit"))
+        );
+    }
+
+    #[test]
+    fn test_analyze_risk_entrypoint() {
+        use crate::index::symbols::{Symbol, SymbolKind};
+
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("src/main.rs"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: Some(vec![Symbol {
+                name: "main".to_string(),
+                kind: SymbolKind::Function,
+                is_public: false,
+                cognitive_complexity: None,
+                cyclomatic_complexity: None,
+                line_start: None,
+                line_end: None,
+                qualified_name: None,
+                byte_start: None,
+                byte_end: None,
+                entrypoint_kind: Some("ENTRYPOINT".to_string()),
+            }]),
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+        });
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        assert_eq!(packet.risk_level, RiskLevel::Medium);
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Entry point changed"))
+        );
+    }
+
+    #[test]
+    fn test_analyze_risk_handler() {
+        use crate::index::symbols::{Symbol, SymbolKind};
+
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("src/handlers.rs"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: Some(vec![Symbol {
+                name: "get_users".to_string(),
+                kind: SymbolKind::Function,
+                is_public: true,
+                cognitive_complexity: None,
+                cyclomatic_complexity: None,
+                line_start: None,
+                line_end: None,
+                qualified_name: None,
+                byte_start: None,
+                byte_end: None,
+                entrypoint_kind: Some("HANDLER".to_string()),
+            }]),
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+        });
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Handler changed"))
+        );
+    }
+
+    #[test]
+    fn test_analyze_risk_public_api() {
+        use crate::index::symbols::{Symbol, SymbolKind};
+
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("src/lib.rs"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: Some(vec![Symbol {
+                name: "public_fn".to_string(),
+                kind: SymbolKind::Function,
+                is_public: true,
+                cognitive_complexity: None,
+                cyclomatic_complexity: None,
+                line_start: None,
+                line_end: None,
+                qualified_name: None,
+                byte_start: None,
+                byte_end: None,
+                entrypoint_kind: Some("PUBLIC_API".to_string()),
+            }]),
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+        });
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Public API changed"))
+        );
+    }
+
+    #[test]
+    fn test_analyze_risk_test_no_extra_weight() {
+        use crate::index::symbols::{Symbol, SymbolKind};
+
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("src/lib.rs"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: Some(vec![Symbol {
+                name: "test_foo".to_string(),
+                kind: SymbolKind::Function,
+                is_public: false,
+                cognitive_complexity: None,
+                cyclomatic_complexity: None,
+                line_start: None,
+                line_end: None,
+                qualified_name: None,
+                byte_start: None,
+                byte_end: None,
+                entrypoint_kind: Some("TEST".to_string()),
+            }]),
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+        });
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        // TEST entry points get no additional risk weight
+        assert_eq!(packet.risk_level, RiskLevel::Low);
+    }
+
+    #[test]
+    fn test_analyze_risk_no_entrypoint_graceful_degradation() {
+        use crate::index::symbols::{Symbol, SymbolKind};
+
+        // Symbols without entrypoint_kind (None) should still work
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("src/lib.rs"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: Some(vec![Symbol {
+                name: "some_fn".to_string(),
+                kind: SymbolKind::Function,
+                is_public: false,
+                cognitive_complexity: None,
+                cyclomatic_complexity: None,
+                line_start: None,
+                line_end: None,
+                qualified_name: None,
+                byte_start: None,
+                byte_end: None,
+                entrypoint_kind: None,
+            }]),
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+        });
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        assert_eq!(packet.risk_level, RiskLevel::Low);
+        assert!(
+            packet
+                .risk_reasons
+                .contains(&"Minimal changes detected".to_string())
         );
     }
 }

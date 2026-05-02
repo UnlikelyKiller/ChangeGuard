@@ -24,6 +24,7 @@ fn test_risk_analysis_integration() {
             qualified_name: None,
             byte_start: None,
             byte_end: None,
+            entrypoint_kind: None,
         }]),
 
         imports: None,
@@ -81,6 +82,7 @@ fn test_risk_analysis_high_volume() {
         qualified_name: None,
         byte_start: None,
         byte_end: None,
+        entrypoint_kind: None,
     }]);
 
     analyze_risk(&mut packet, &rules).unwrap();
@@ -119,6 +121,7 @@ fn test_risk_analysis_protected_and_public() {
             qualified_name: None,
             byte_start: None,
             byte_end: None,
+            entrypoint_kind: None,
         }]),
 
         imports: None,

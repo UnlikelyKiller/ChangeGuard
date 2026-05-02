@@ -56,7 +56,7 @@ impl DirectoryRole {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "SOURCE" => Some(DirectoryRole::Source),
             "TEST" => Some(DirectoryRole::Test),

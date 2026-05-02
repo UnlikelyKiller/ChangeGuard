@@ -652,4 +652,84 @@ mod tests {
             .unwrap();
         assert_eq!(test_count, 1);
     }
+
+    #[test]
+    fn test_project_symbols_entrypoint_kinds() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let migrations = get_migrations();
+        migrations.to_latest(&mut conn).unwrap();
+
+        // Insert a project_files row first (FK dependency)
+        conn.execute(
+            "INSERT INTO project_files (file_path, language, content_hash, file_size, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            ("src/main.rs", "Rust", "hash1", 100, "2026-05-01T00:00:00Z"),
+        ).unwrap();
+
+        let file_id = conn.last_insert_rowid();
+
+        // Insert symbols with various entrypoint_kind values
+        let kinds = ["ENTRYPOINT", "HANDLER", "PUBLIC_API", "TEST", "INTERNAL"];
+        for (i, kind) in kinds.iter().enumerate() {
+            conn.execute(
+                "INSERT INTO project_symbols (file_id, qualified_name, symbol_name, symbol_kind, visibility, \
+                 entrypoint_kind, is_public, cognitive_complexity, cyclomatic_complexity, \
+                 confidence, last_indexed_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                rusqlite::params![
+                    file_id,
+                    format!("fn{}", i),
+                    format!("symbol_{}", i),
+                    "Function",
+                    "public",
+                    kind,
+                    1,
+                    1,
+                    1,
+                    1.0,
+                    "2026-05-01T00:00:00Z",
+                ],
+            ).unwrap();
+        }
+
+        // Verify each kind is stored and retrievable
+        for kind in &kinds {
+            let count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM project_symbols WHERE entrypoint_kind = ?1",
+                    [kind],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 1, "Expected 1 symbol with entrypoint_kind = {}", kind);
+        }
+
+        // Verify default is INTERNAL
+        conn.execute(
+            "INSERT INTO project_symbols (file_id, qualified_name, symbol_name, symbol_kind, visibility, \
+             is_public, cognitive_complexity, cyclomatic_complexity, confidence, last_indexed_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            rusqlite::params![
+                file_id,
+                "fn_default",
+                "default_sym",
+                "Function",
+                "private",
+                0,
+                0,
+                0,
+                1.0,
+                "2026-05-01T00:00:00Z",
+            ],
+        ).unwrap();
+
+        let default_kind: String = conn
+            .query_row(
+                "SELECT entrypoint_kind FROM project_symbols WHERE symbol_name = 'default_sym'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(default_kind, "INTERNAL", "entrypoint_kind should default to INTERNAL");
+    }
 }

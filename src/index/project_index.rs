@@ -1,4 +1,5 @@
 use crate::index::docs::{DocIndexStats, parse_markdown};
+use crate::index::entrypoint::{detect_rust_entrypoints, detect_typescript_entrypoints, detect_python_entrypoints, EntrypointKind, EntrypointStats};
 use crate::index::languages::{Language, parse_symbols};
 use crate::index::metrics::{ComplexityScorer, NativeComplexityScorer};
 use crate::index::symbols::Symbol;
@@ -926,6 +927,167 @@ impl ProjectIndexer {
             role_counts,
         })
     }
+
+    /// Classify entry points for all indexed symbols.
+    pub fn classify_entrypoints(&mut self) -> Result<EntrypointStats> {
+        let conn = self.storage.get_connection();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, file_id, symbol_name, symbol_kind, is_public FROM project_symbols \
+                 ORDER BY file_id",
+            )
+            .into_diagnostic()?;
+
+        let rows: Vec<(i64, i64, String, String, bool)> = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i32>(4)? != 0,
+                ))
+            })
+            .into_diagnostic()?
+            .collect::<Result<Vec<_>, _>>()
+            .into_diagnostic()?;
+
+        drop(stmt);
+
+        // Group symbols by file_id
+        let mut file_symbols: HashMap<i64, Vec<(i64, String, String, bool)>> = HashMap::new();
+        for (id, file_id, name, kind, is_public) in &rows {
+            file_symbols
+                .entry(*file_id)
+                .or_default()
+                .push((*id, name.clone(), kind.clone(), *is_public));
+        }
+
+        // Get file paths for each file_id
+        let mut file_paths: HashMap<i64, String> = HashMap::new();
+        let conn2 = self.storage.get_connection();
+        let mut path_stmt = conn2
+            .prepare("SELECT id, file_path, language FROM project_files")
+            .into_diagnostic()?;
+        let path_rows: Vec<(i64, String, Option<String>)> = path_stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })
+            .into_diagnostic()?
+            .collect::<Result<Vec<_>, _>>()
+            .into_diagnostic()?;
+        drop(path_stmt);
+
+        for (id, path, _lang) in &path_rows {
+            file_paths.insert(*id, path.clone());
+        }
+
+        let mut stats = EntrypointStats::default();
+        let conn3 = self.storage.get_connection_mut();
+        let now = chrono::Utc::now().to_rfc3339();
+
+        for (file_id, symbols) in &file_symbols {
+            let file_path = match file_paths.get(file_id) {
+                Some(p) => p.clone(),
+                None => continue,
+            };
+            let file_lang = path_rows
+                .iter()
+                .find(|(id, _, _)| id == file_id)
+                .and_then(|(_, _, lang)| lang.clone());
+
+            // Read file content for detection
+            let full_path = self.repo_path.join(&file_path);
+            let content = match fs::read_to_string(&full_path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+
+            // Build Symbol structs for detection
+            let sym_vec: Vec<Symbol> = symbols
+                .iter()
+                .map(|(_, name, kind, is_public)| Symbol {
+                    name: name.clone(),
+                    kind: match kind.as_str() {
+                        "Function" => crate::index::symbols::SymbolKind::Function,
+                        "Method" => crate::index::symbols::SymbolKind::Method,
+                        "Class" => crate::index::symbols::SymbolKind::Class,
+                        "Struct" => crate::index::symbols::SymbolKind::Struct,
+                        "Enum" => crate::index::symbols::SymbolKind::Enum,
+                        "Trait" => crate::index::symbols::SymbolKind::Trait,
+                        "Interface" => crate::index::symbols::SymbolKind::Interface,
+                        "Type" => crate::index::symbols::SymbolKind::Type,
+                        "Variable" => crate::index::symbols::SymbolKind::Variable,
+                        "Constant" => crate::index::symbols::SymbolKind::Constant,
+                        "Module" => crate::index::symbols::SymbolKind::Module,
+                        _ => crate::index::symbols::SymbolKind::Function,
+                    },
+                    is_public: *is_public,
+                    cognitive_complexity: None,
+                    cyclomatic_complexity: None,
+                    line_start: None,
+                    line_end: None,
+                    qualified_name: None,
+                    byte_start: None,
+                    byte_end: None,
+                    entrypoint_kind: None,
+                })
+                .collect();
+
+            // Dispatch to language-specific detector
+            let classifications = match file_lang.as_deref() {
+                Some("Rust") => detect_rust_entrypoints(&content, &sym_vec),
+                Some("TypeScript") | Some("JavaScript") => {
+                    detect_typescript_entrypoints(&content, &sym_vec, &file_path)
+                }
+                Some("Python") => {
+                    detect_python_entrypoints(&content, &sym_vec, &file_path)
+                }
+                _ => continue,
+            };
+
+            // Update entrypoint_kind for each classified symbol
+            for class in &classifications {
+                // Find the corresponding DB row
+                let db_id = symbols
+                    .iter()
+                    .find(|(_, name, _, _)| name == &class.symbol_name)
+                    .map(|(id, _, _, _)| *id);
+
+                if let Some(id) = db_id {
+                    conn3.execute(
+                        "UPDATE project_symbols SET entrypoint_kind = ?1, confidence = ?2, evidence = ?3, last_indexed_at = ?4 WHERE id = ?5",
+                        rusqlite::params![
+                            class.kind.as_str(),
+                            class.confidence,
+                            class.evidence,
+                            now,
+                            id,
+                        ],
+                    ).into_diagnostic()?;
+
+                    match class.kind {
+                        EntrypointKind::Entrypoint => stats.entrypoints += 1,
+                        EntrypointKind::Handler => stats.handlers += 1,
+                        EntrypointKind::PublicApi => stats.public_apis += 1,
+                        EntrypointKind::Test => stats.tests += 1,
+                        EntrypointKind::Internal => stats.internal += 1,
+                    }
+                }
+            }
+        }
+
+        info!(
+            "Entrypoint classification complete: {} entrypoints, {} handlers, {} public APIs, {} tests, {} internal",
+            stats.entrypoints, stats.handlers, stats.public_apis, stats.tests, stats.internal
+        );
+
+        Ok(stats)
+    }
 }
 
 // --- Helper: walk tracked files from the working tree ---
@@ -1138,6 +1300,7 @@ mod tests {
             qualified_name: Some("MyModule::my_function".to_string()),
             byte_start: None,
             byte_end: None,
+            entrypoint_kind: None,
         };
 
         let ps = symbol_to_project_symbol(&symbol, 42, "2026-01-01T00:00:00Z");
