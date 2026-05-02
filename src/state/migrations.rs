@@ -317,7 +317,24 @@ pub fn get_migrations() -> Migrations<'static> {
             CREATE INDEX IF NOT EXISTS idx_api_routes_handler
                 ON api_routes(handler_symbol_id, handler_file_id);
             CREATE INDEX IF NOT EXISTS idx_api_routes_path
-                ON api_routes(path_pattern);",
+                ON api_routes(path_pattern);
+
+            CREATE TABLE IF NOT EXISTS data_models (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                model_name      TEXT NOT NULL,
+                model_file_id   INTEGER NOT NULL REFERENCES project_files(id),
+                language        TEXT NOT NULL,
+                model_kind      TEXT NOT NULL DEFAULT 'STRUCT',
+                confidence      REAL NOT NULL DEFAULT 1.0,
+                evidence        TEXT,
+                fields          TEXT,
+                last_indexed_at TEXT NOT NULL,
+                FOREIGN KEY (model_file_id) REFERENCES project_files(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_data_models_name
+                ON data_models(model_name);
+            CREATE INDEX IF NOT EXISTS idx_data_models_file
+                ON data_models(model_file_id);",
         ),
     ])
 }
@@ -364,6 +381,7 @@ mod tests {
             "project_topology",
             "structural_edges",
             "api_routes",
+            "data_models",
         ];
 
         for table in &expected_tables {
@@ -1054,5 +1072,110 @@ mod tests {
             )
             .unwrap();
         assert_eq!(file_path, "src/routes.rs");
+    }
+
+    #[test]
+    fn test_insert_and_query_data_models() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let migrations = get_migrations();
+        migrations.to_latest(&mut conn).unwrap();
+
+        // Insert project_files row (FK prerequisite)
+        conn.execute(
+            "INSERT INTO project_files (file_path, language, content_hash, file_size, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            ("src/models/user.rs", "Rust", "hash_models", 2048, "2026-05-01T00:00:00Z"),
+        ).unwrap();
+        let model_file_id = conn.last_insert_rowid();
+
+        // Insert a STRUCT model with confidence 1.0
+        conn.execute(
+            "INSERT INTO data_models
+                (model_name, model_file_id, language, model_kind, confidence, evidence, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            ("User", model_file_id, "Rust", "STRUCT", 1.0_f64, "derive: Serialize, Deserialize", "2026-05-01T00:00:00Z"),
+        ).unwrap();
+
+        // Insert an INTERFACE model with confidence 0.7
+        conn.execute(
+            "INSERT INTO data_models
+                (model_name, model_file_id, language, model_kind, confidence, evidence, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            ("UserRepository", model_file_id, "Rust", "INTERFACE", 0.7_f64, "dir: models/", "2026-05-01T00:00:00Z"),
+        ).unwrap();
+
+        // Insert a GENERATED model with confidence 0.6 (no evidence)
+        conn.execute(
+            "INSERT INTO data_models
+                (model_name, model_file_id, language, model_kind, confidence, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            (
+                "UserProto",
+                model_file_id,
+                "Rust",
+                "GENERATED",
+                0.6_f64,
+                "2026-05-01T00:00:00Z",
+            ),
+        )
+        .unwrap();
+
+        // Verify all three rows exist
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM data_models", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 3, "Should have 3 data_models rows");
+
+        // Verify STRUCT model
+        let (model_name, model_kind, confidence, evidence): (String, String, f64, Option<String>) = conn
+            .query_row(
+                "SELECT model_name, model_kind, confidence, evidence FROM data_models WHERE model_kind = 'STRUCT'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(model_name, "User");
+        assert_eq!(model_kind, "STRUCT");
+        assert!((confidence - 1.0).abs() < f64::EPSILON);
+        assert_eq!(evidence, Some("derive: Serialize, Deserialize".to_string()));
+
+        // Verify INTERFACE model
+        let (model_name, model_kind, confidence, evidence): (String, String, f64, Option<String>) = conn
+            .query_row(
+                "SELECT model_name, model_kind, confidence, evidence FROM data_models WHERE model_kind = 'INTERFACE'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(model_name, "UserRepository");
+        assert_eq!(model_kind, "INTERFACE");
+        assert!((confidence - 0.7).abs() < f64::EPSILON);
+        assert_eq!(evidence, Some("dir: models/".to_string()));
+
+        // Verify GENERATED model (no evidence)
+        let (model_name, model_kind, confidence, evidence): (String, String, f64, Option<String>) = conn
+            .query_row(
+                "SELECT model_name, model_kind, confidence, evidence FROM data_models WHERE model_kind = 'GENERATED'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(model_name, "UserProto");
+        assert_eq!(model_kind, "GENERATED");
+        assert!((confidence - 0.6).abs() < f64::EPSILON);
+        assert!(
+            evidence.is_none(),
+            "GENERATED model should have no evidence"
+        );
+
+        // Verify FK join works
+        let (file_path,): (String,) = conn
+            .query_row(
+                "SELECT pf.file_path FROM data_models dm JOIN project_files pf ON dm.model_file_id = pf.id WHERE dm.model_name = 'User'",
+                [],
+                |row| Ok((row.get(0)?,)),
+            )
+            .unwrap();
+        assert_eq!(file_path, "src/models/user.rs");
     }
 }

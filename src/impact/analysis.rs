@@ -163,6 +163,39 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules) -> Result<()> {
     }
     total_weight += route_total;
 
+    // 3d. Data Contract Risk
+    // Add 35 weight per file that contains data models (cap at 35 total for this category).
+    // If any model has model_kind = "GENERATED", use reduced weight of 20 instead.
+    let data_model_weight_full = 35;
+    let data_model_weight_generated = 20;
+    let mut data_model_total = 0;
+    for file in &packet.changes {
+        if !file.data_models.is_empty() && data_model_total == 0 {
+            let has_generated = file.data_models.iter().any(|m| m.model_kind == "GENERATED");
+            let weight = if has_generated {
+                data_model_weight_generated
+            } else {
+                data_model_weight_full
+            };
+            data_model_total += weight;
+
+            // Add a risk reason for each model
+            for model in &file.data_models {
+                reasons.push(format!(
+                    "Data model: {} ({})",
+                    model.model_name, model.model_kind
+                ));
+                debug!(
+                    "Risk Factor: Data model {} ({}) in {}",
+                    model.model_name,
+                    model.model_kind,
+                    file.path.display()
+                );
+            }
+        }
+    }
+    total_weight += data_model_total;
+
     // 4. Scoring
     packet.risk_level = if total_weight > 60 {
         RiskLevel::High
@@ -200,6 +233,7 @@ mod tests {
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
+            data_models: Vec::new(),
         });
 
         let rules = Rules::default();
@@ -226,6 +260,7 @@ mod tests {
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
+            data_models: Vec::new(),
         });
 
         let rules = Rules {
@@ -271,6 +306,7 @@ mod tests {
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
+            data_models: Vec::new(),
         });
 
         let rules = Rules::default();
@@ -312,6 +348,7 @@ mod tests {
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
+            data_models: Vec::new(),
         });
 
         let rules = Rules::default();
@@ -352,6 +389,7 @@ mod tests {
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
+            data_models: Vec::new(),
         });
 
         let rules = Rules::default();
@@ -392,6 +430,7 @@ mod tests {
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
+            data_models: Vec::new(),
         });
 
         let rules = Rules::default();
@@ -429,6 +468,7 @@ mod tests {
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
+            data_models: Vec::new(),
         });
 
         let rules = Rules::default();
@@ -457,6 +497,7 @@ mod tests {
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
+            data_models: Vec::new(),
         });
         packet.structural_couplings.push(StructuralCoupling {
             caller_symbol_name: "caller_fn".to_string(),
@@ -502,6 +543,7 @@ mod tests {
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
+            data_models: Vec::new(),
         });
         // Add 3 callers — only first 2 should contribute weight (30 total)
         packet.structural_couplings.push(StructuralCoupling {
@@ -548,6 +590,7 @@ mod tests {
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
+            data_models: Vec::new(),
         });
         // structural_couplings is empty by default
 
@@ -588,6 +631,7 @@ mod tests {
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
+            data_models: Vec::new(),
         });
         // Add structural coupling: helper calls internal
         packet.structural_couplings.push(StructuralCoupling {
@@ -640,6 +684,7 @@ mod tests {
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
+            data_models: Vec::new(),
         });
         // structural_couplings is empty by default (Vec::new())
 
@@ -694,6 +739,7 @@ mod tests {
                 route_confidence: 1.0,
                 evidence: None,
             }],
+            data_models: Vec::new(),
         });
 
         let rules = Rules::default();
@@ -728,6 +774,7 @@ mod tests {
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
+            data_models: Vec::new(),
         });
 
         let rules = Rules::default();
@@ -741,6 +788,120 @@ mod tests {
                 .iter()
                 .any(|r| r.contains("Public API route")),
             "expected no route risk reasons, got {:?}",
+            packet.risk_reasons
+        );
+        assert!(
+            packet
+                .risk_reasons
+                .contains(&"Minimal changes detected".to_string()),
+            "expected 'Minimal changes detected' in risk reasons, got {:?}",
+            packet.risk_reasons
+        );
+    }
+
+    #[test]
+    fn test_analyze_risk_data_model() {
+        use crate::impact::packet::DataModel;
+
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("src/models/user.rs"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: vec![DataModel {
+                model_name: "UserModel".to_string(),
+                model_kind: "STRUCT".to_string(),
+                confidence: 1.0,
+                evidence: None,
+            }],
+        });
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        // Should have risk reason for the data model
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r == "Data model: UserModel (STRUCT)"),
+            "expected 'Data model: UserModel (STRUCT)' in risk reasons, got {:?}",
+            packet.risk_reasons
+        );
+        // 35 weight from data contract risk -> Medium (>20)
+        assert_eq!(packet.risk_level, RiskLevel::Medium);
+    }
+
+    #[test]
+    fn test_analyze_risk_generated_data_model() {
+        use crate::impact::packet::DataModel;
+
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("src/generated/proto.rs"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: vec![DataModel {
+                model_name: "UserProto".to_string(),
+                model_kind: "GENERATED".to_string(),
+                confidence: 0.6,
+                evidence: None,
+            }],
+        });
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        // Should have risk reason for the data model
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r == "Data model: UserProto (GENERATED)"),
+            "expected 'Data model: UserProto (GENERATED)' in risk reasons, got {:?}",
+            packet.risk_reasons
+        );
+        // 20 weight from data contract risk (reduced for GENERATED) -> Low (<=20)
+        assert_eq!(packet.risk_level, RiskLevel::Low);
+    }
+
+    #[test]
+    fn test_analyze_risk_empty_data_models_no_regression() {
+        // Empty data_models should produce identical output to before data model integration
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("README.md"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+        });
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        assert_eq!(packet.risk_level, RiskLevel::Low);
+        // No data contract risk reasons should appear
+        assert!(
+            !packet.risk_reasons.iter().any(|r| r.contains("Data model")),
+            "expected no data contract risk reasons, got {:?}",
             packet.risk_reasons
         );
         assert!(

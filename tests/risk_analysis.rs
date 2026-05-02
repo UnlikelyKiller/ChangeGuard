@@ -32,6 +32,7 @@ fn test_risk_analysis_integration() {
         analysis_status: FileAnalysisStatus::default(),
         analysis_warnings: Vec::new(),
         api_routes: Vec::new(),
+        data_models: Vec::new(),
     });
 
     let rules = Rules::default();
@@ -63,6 +64,7 @@ fn test_risk_analysis_high_volume() {
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
+            data_models: Vec::new(),
         });
     }
 
@@ -107,6 +109,7 @@ fn test_risk_analysis_protected_and_public() {
         analysis_status: FileAnalysisStatus::default(),
         analysis_warnings: Vec::new(),
         api_routes: Vec::new(),
+        data_models: Vec::new(),
     });
 
     packet.changes.push(ChangedFile {
@@ -132,6 +135,7 @@ fn test_risk_analysis_protected_and_public() {
         analysis_status: FileAnalysisStatus::default(),
         analysis_warnings: Vec::new(),
         api_routes: Vec::new(),
+        data_models: Vec::new(),
     });
 
     let rules = Rules {

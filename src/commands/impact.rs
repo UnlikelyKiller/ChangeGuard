@@ -152,6 +152,12 @@ pub fn execute_impact(all_parents: bool, summary: bool) -> Result<()> {
                 // Graceful degradation: changed_file.api_routes stays empty
             }
 
+            // Populate data models from the index
+            if let Err(e) = populate_data_models(&mut packet, &storage) {
+                tracing::warn!("Data model population failed: {e}");
+                // Graceful degradation: changed_file.data_models stays empty
+            }
+
             if let Err(e) = storage.save_packet(&packet) {
                 tracing::warn!("SQLite save failed: {e}");
                 println!(
@@ -277,6 +283,7 @@ fn map_snapshot_to_packet(snapshot: RepoSnapshot, base_dir: &Path) -> Result<Imp
                 analysis_status: outcome.analysis_status,
                 analysis_warnings: outcome.analysis_warnings,
                 api_routes: Vec::new(),
+                data_models: Vec::new(),
             }
         })
         .collect();
@@ -613,6 +620,83 @@ fn populate_api_routes(
                 .map_err(|e| miette::miette!("Failed to collect api_routes rows: {e}"))?;
 
             change.api_routes = routes;
+        }
+    }
+
+    Ok(())
+}
+
+/// Populate each changed file's data_models by querying the index for models
+/// where the model belongs to that file.
+fn populate_data_models(
+    packet: &mut ImpactPacket,
+    storage: &crate::state::storage::StorageManager,
+) -> miette::Result<()> {
+    use crate::impact::packet::DataModel;
+    use rusqlite::OptionalExtension;
+
+    let conn = storage.get_connection();
+
+    // Gracefully skip if data_models table doesn't exist or is empty
+    let has_models: Option<i64> = match conn
+        .query_row("SELECT count(*) FROM data_models LIMIT 1", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .optional()
+    {
+        Ok(Some(count)) if count > 0 => Some(count),
+        Ok(_) => None,
+        Err(_) => return Ok(()), // Table doesn't exist — graceful skip
+    };
+
+    if has_models.is_none() {
+        return Ok(());
+    }
+
+    // Build a path -> project_files.id lookup
+    let mut file_stmt = conn
+        .prepare("SELECT id, file_path FROM project_files WHERE parse_status != 'DELETED'")
+        .map_err(|e| miette::miette!("Failed to prepare project_files query: {e}"))?;
+
+    let file_rows: Vec<(i64, String)> = file_stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|e| miette::miette!("Failed to query project_files: {e}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| miette::miette!("Failed to collect project_files rows: {e}"))?;
+
+    drop(file_stmt);
+
+    let path_to_id: std::collections::HashMap<String, i64> =
+        file_rows.into_iter().map(|(id, path)| (path, id)).collect();
+
+    // For each changed file, query data_models where model_file_id matches
+    for change in &mut packet.changes {
+        let path_str = change.path.to_string_lossy().to_string();
+
+        if let Some(&file_id) = path_to_id.get(&path_str) {
+            let mut model_stmt = conn
+                .prepare(
+                    "SELECT model_name, model_kind, confidence, evidence
+                     FROM data_models WHERE model_file_id = ?1",
+                )
+                .map_err(|e| miette::miette!("Failed to prepare data_models query: {e}"))?;
+
+            let models: Vec<DataModel> = model_stmt
+                .query_map([file_id], |row| {
+                    Ok(DataModel {
+                        model_name: row.get::<_, String>(0)?,
+                        model_kind: row.get::<_, String>(1)?,
+                        confidence: row.get::<_, f64>(2)?,
+                        evidence: row.get::<_, Option<String>>(3)?,
+                    })
+                })
+                .map_err(|e| miette::miette!("Failed to query data_models: {e}"))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| miette::miette!("Failed to collect data_models rows: {e}"))?;
+
+            change.data_models = models;
         }
     }
 

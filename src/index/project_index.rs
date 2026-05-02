@@ -1,4 +1,5 @@
 use crate::index::call_graph::{CallGraphBuilder, CallGraphStats};
+use crate::index::data_models::{DataModelExtractor, DataModelStats};
 use crate::index::docs::{DocIndexStats, parse_markdown};
 use crate::index::entrypoint::{
     EntrypointKind, EntrypointStats, detect_python_entrypoints, detect_rust_entrypoints,
@@ -1131,6 +1132,20 @@ impl ProjectIndexer {
             .into_diagnostic()?;
         }
         Ok(())
+    }
+
+    /// Extract data models from source files and store them in the data_models table.
+    pub fn extract_data_models(&self) -> Result<DataModelStats> {
+        let extractor =
+            DataModelExtractor::new(&self.storage, self.repo_path.as_std_path().to_path_buf());
+        extractor.extract()
+    }
+
+    /// Delete data models belonging to specific file IDs, for incremental re-indexing.
+    pub fn clear_data_models(&self, file_ids: &[i64]) -> Result<()> {
+        let extractor =
+            DataModelExtractor::new(&self.storage, self.repo_path.as_std_path().to_path_buf());
+        extractor.clear_data_models(file_ids)
     }
 }
 

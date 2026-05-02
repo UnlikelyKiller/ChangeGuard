@@ -8,6 +8,36 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct DataModel {
+    pub model_name: String,
+    pub model_kind: String,
+    pub confidence: f64,
+    pub evidence: Option<String>,
+}
+
+impl Eq for DataModel {}
+
+impl PartialOrd for DataModel {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for DataModel {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.model_name
+            .cmp(&other.model_name)
+            .then_with(|| self.model_kind.cmp(&other.model_kind))
+            .then_with(|| {
+                self.confidence
+                    .partial_cmp(&other.confidence)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct ApiRoute {
     pub method: String,
     pub path_pattern: String,
@@ -84,6 +114,8 @@ pub struct ChangedFile {
     pub analysis_warnings: Vec<String>,
     #[serde(default)]
     pub api_routes: Vec<ApiRoute>,
+    #[serde(default)]
+    pub data_models: Vec<DataModel>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -342,6 +374,7 @@ mod tests {
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
+            data_models: Vec::new(),
         });
 
         let json = serde_json::to_string_pretty(&packet).unwrap();
@@ -397,6 +430,7 @@ mod tests {
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
+            data_models: Vec::new(),
         });
         packet.changes.push(ChangedFile {
             path: PathBuf::from("a.rs"),
@@ -408,6 +442,7 @@ mod tests {
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
+            data_models: Vec::new(),
         });
 
         packet.finalize();

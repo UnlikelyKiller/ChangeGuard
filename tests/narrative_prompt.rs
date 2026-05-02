@@ -27,6 +27,7 @@ fn test_narrative_golden_prompt() {
                 analysis_status: FileAnalysisStatus::default(),
                 analysis_warnings: Vec::new(),
                 api_routes: Vec::new(),
+                data_models: Vec::new(),
             },
             ChangedFile {
                 path: PathBuf::from("src/main.rs"),
@@ -38,6 +39,7 @@ fn test_narrative_golden_prompt() {
                 analysis_status: FileAnalysisStatus::default(),
                 analysis_warnings: Vec::new(),
                 api_routes: Vec::new(),
+                data_models: Vec::new(),
             },
         ],
         temporal_couplings: vec![TemporalCoupling {
