@@ -6,7 +6,7 @@ pub mod typescript;
 pub use self::types::Language;
 use crate::index::call_graph::CallEdge;
 use crate::index::data_models::ExtractedModel;
-use crate::index::observability::{ErrorHandlingPattern, LoggingPattern};
+use crate::index::observability::{ErrorHandlingPattern, LoggingPattern, TelemetryPattern};
 use crate::index::routes::ExtractedRoute;
 use crate::index::symbols::Symbol;
 use miette::Result;
@@ -74,6 +74,15 @@ pub fn extract_error_handling(path: &Path, content: &str) -> Result<Vec<ErrorHan
         Some("rs") => rust::extract_error_handling(content),
         Some("ts") | Some("tsx") => typescript::extract_error_handling(content),
         Some("py") => python::extract_error_handling(content),
+        _ => Ok(Vec::new()),
+    }
+}
+
+pub fn extract_telemetry_patterns(path: &Path, content: &str) -> Result<Vec<TelemetryPattern>> {
+    match path.extension().and_then(|e| e.to_str()) {
+        Some("rs") => rust::extract_telemetry_patterns(content),
+        Some("ts") | Some("tsx") => typescript::extract_telemetry_patterns(content),
+        Some("py") => python::extract_telemetry_patterns(content),
         _ => Ok(Vec::new()),
     }
 }

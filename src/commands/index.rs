@@ -236,6 +236,7 @@ pub fn execute_index(
             "  Error handling patterns: {}",
             obs_stats.error_handling_patterns
         );
+        println!("  Telemetry patterns: {}", obs_stats.telemetry_patterns);
         println!("  Files processed: {}", obs_stats.files_processed);
         if analyze_graph {
             println!();

@@ -1,6 +1,8 @@
 use crate::index::call_graph::{CallEdge, CallKind, ResolutionStatus};
 use crate::index::data_models::{ExtractedModel, ModelKind};
-use crate::index::observability::{ErrorHandlingPattern, LogLevel, LoggingPattern};
+use crate::index::observability::{
+    ErrorHandlingPattern, LogLevel, LoggingPattern, TelemetryPattern,
+};
 use crate::index::routes::ExtractedRoute;
 use crate::index::symbols::{Symbol, SymbolKind};
 use miette::{IntoDiagnostic, Result};
@@ -779,6 +781,143 @@ fn collect_ts_error_handling(
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         collect_ts_error_handling(child, content, patterns);
+    }
+}
+
+pub fn extract_telemetry_patterns(content: &str) -> Result<Vec<TelemetryPattern>> {
+    let mut parser = Parser::new();
+    let language = tree_sitter_typescript::LANGUAGE_TYPESCRIPT;
+    parser.set_language(&language.into()).into_diagnostic()?;
+
+    let tree = parser
+        .parse(content, None)
+        .ok_or_else(|| miette::miette!("Failed to parse TypeScript content"))?;
+
+    let mut patterns = Vec::new();
+    collect_ts_telemetry_patterns(tree.root_node(), content, &mut patterns);
+
+    // Also do line-based heuristic matching for telemetry.* patterns
+    for (line_idx, line) in content.lines().enumerate() {
+        let line_lower = line.to_ascii_lowercase();
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("//") || trimmed.starts_with("/*") || trimmed.starts_with("*") {
+            continue;
+        }
+        if line_lower.contains("telemetry") || line_lower.contains("monitoring") {
+            let line_start = (line_idx + 1) as i32;
+            let already_matched = patterns.iter().any(|p| p.line_start == line_start);
+            if !already_matched {
+                patterns.push(TelemetryPattern {
+                    line_start,
+                    level: Some(LogLevel::Trace),
+                    framework: "custom".to_string(),
+                    in_test: is_in_ts_test_from_line(line),
+                    confidence: 0.7,
+                    evidence: "heuristic: telemetry.* pattern match".to_string(),
+                });
+            }
+        }
+    }
+
+    // Cap at 1000 patterns per file
+    patterns.truncate(1000);
+    Ok(patterns)
+}
+
+/// Simple line-level heuristic to detect if a line is inside a test block.
+fn is_in_ts_test_from_line(line: &str) -> bool {
+    let lower = line.trim().to_ascii_lowercase();
+    lower.contains("describe(")
+        || lower.contains("it(")
+        || lower.contains("test(")
+        || lower.contains("describe.skip(")
+        || lower.contains("it.skip(")
+}
+
+fn collect_ts_telemetry_patterns(
+    node: tree_sitter::Node,
+    content: &str,
+    patterns: &mut Vec<TelemetryPattern>,
+) {
+    let kind = node.kind();
+
+    // Check for @Trace() decorator
+    if kind == "decorator" {
+        let decorator_text = node.utf8_text(content.as_bytes()).unwrap_or("");
+        if decorator_text.contains("@Trace") || decorator_text.contains("@trace") {
+            let line_start = node.start_position().row as i32 + 1;
+            let in_test = is_in_ts_test(node, content);
+            patterns.push(TelemetryPattern {
+                line_start,
+                level: Some(LogLevel::Trace),
+                framework: "opentelemetry".to_string(),
+                in_test,
+                confidence: if in_test { 0.7 } else { 1.0 },
+                evidence: "decorator: @Trace()".to_string(),
+            });
+        }
+    }
+
+    // Check call expressions for opentelemetry imports and prom-client usage
+    if kind == "call_expression" {
+        let callee_node = node.child(0);
+        if let Some(callee) = callee_node {
+            let call_text = callee.utf8_text(content.as_bytes()).unwrap_or("");
+
+            // Check for new Counter/Histogram/Gauge from prom-client
+            if call_text.contains("Counter")
+                || call_text.contains("Histogram")
+                || call_text.contains("Gauge")
+                || call_text.contains("Summary")
+            {
+                // Only match if it looks like prom-client usage (new expression or member access)
+                let full_text = node.utf8_text(content.as_bytes()).unwrap_or("");
+                if full_text.contains("prom") || full_text.contains("Prom") {
+                    let line_start = node.start_position().row as i32 + 1;
+                    let in_test = is_in_ts_test(node, content);
+                    patterns.push(TelemetryPattern {
+                        line_start,
+                        level: Some(LogLevel::Trace),
+                        framework: "prom-client".to_string(),
+                        in_test,
+                        confidence: if in_test { 0.7 } else { 1.0 },
+                        evidence: format!("call: {}", truncate_str(full_text, 200)),
+                    });
+                }
+            }
+        }
+    }
+
+    // Check import statements for opentelemetry
+    if kind == "import_statement" {
+        let import_text = node.utf8_text(content.as_bytes()).unwrap_or("");
+        if import_text.contains("opentelemetry") || import_text.contains("@opentelemetry") {
+            let line_start = node.start_position().row as i32 + 1;
+            let in_test = is_in_ts_test(node, content);
+            patterns.push(TelemetryPattern {
+                line_start,
+                level: Some(LogLevel::Trace),
+                framework: "opentelemetry".to_string(),
+                in_test,
+                confidence: if in_test { 0.7 } else { 1.0 },
+                evidence: "import: opentelemetry".to_string(),
+            });
+        }
+    }
+
+    // Recurse into children
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_ts_telemetry_patterns(child, content, patterns);
+    }
+}
+
+/// Truncate a string to a maximum length, adding "..." if truncated.
+fn truncate_str(s: &str, max_len: usize) -> &str {
+    if s.len() <= max_len {
+        s
+    } else {
+        &s[..max_len.saturating_sub(3)]
     }
 }
 

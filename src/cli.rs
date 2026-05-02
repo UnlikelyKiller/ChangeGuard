@@ -42,6 +42,9 @@ pub enum Commands {
         /// Show condensed one-line summary instead of full analysis
         #[arg(long)]
         summary: bool,
+        /// Warn about files with API routes/handlers but no telemetry instrumentation
+        #[arg(long)]
+        telemetry_coverage: bool,
     },
     /// Plan and run targeted verification
     Verify {
@@ -342,7 +345,8 @@ pub fn run() -> Result<()> {
         Commands::Impact {
             all_parents,
             summary,
-        } => crate::commands::impact::execute_impact(all_parents, summary),
+            telemetry_coverage,
+        } => crate::commands::impact::execute_impact(all_parents, summary, telemetry_coverage),
         Commands::Verify {
             command,
             timeout,

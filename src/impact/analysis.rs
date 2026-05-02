@@ -327,6 +327,29 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules) -> Result<()> {
     }
     total_weight += infra_total;
 
+    // 3i. Telemetry Reduction Risk
+    // Each file with reduced telemetry coverage contributes 25 points, capped at 25 total.
+    let telemetry_weight_per_file = 25;
+    let telemetry_weight_cap = 25;
+    let mut telemetry_total = 0;
+    for delta in &packet.telemetry_coverage_delta {
+        if delta.current_count < delta.previous_count
+            && telemetry_total + telemetry_weight_per_file <= telemetry_weight_cap
+        {
+            telemetry_total += telemetry_weight_per_file;
+            let reduction = delta.previous_count - delta.current_count;
+            reasons.push(format!(
+                "Telemetry coverage reduced in {}: {} instrumentation points removed",
+                delta.file_path, reduction
+            ));
+            debug!(
+                "Risk Factor: Telemetry coverage reduced ({}) +{}",
+                delta.file_path, telemetry_weight_per_file
+            );
+        }
+    }
+    total_weight += telemetry_total;
+
     // 4. Scoring
     packet.risk_level = if total_weight > 60 {
         RiskLevel::High
@@ -1392,6 +1415,88 @@ mod tests {
                 .any(|r| r.contains("Error handling change in infrastructure")
                     && r.contains("deploy/config.yaml")),
             "expected infrastructure error handling risk reason via heuristic, got {:?}",
+            packet.risk_reasons
+        );
+    }
+
+    #[test]
+    fn test_analyze_risk_telemetry_coverage_reduced() {
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("src/api/handler.rs"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+        });
+        packet.telemetry_coverage_delta.push(CoverageDelta {
+            file_path: "src/api/handler.rs".to_string(),
+            pattern_kind: "TRACE".to_string(),
+            previous_count: 5,
+            current_count: 2,
+            message:
+                "Telemetry coverage reduced in src/api/handler.rs: 3 instrumentation points removed"
+                    .to_string(),
+        });
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        // Should have a risk reason about telemetry coverage reduction
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Telemetry coverage reduced")
+                    && r.contains("src/api/handler.rs")
+                    && r.contains("3 instrumentation points removed")),
+            "expected telemetry coverage risk reason, got {:?}",
+            packet.risk_reasons
+        );
+        // 25 weight from telemetry reduction -> Medium (>20)
+        assert_eq!(packet.risk_level, RiskLevel::Medium);
+    }
+
+    #[test]
+    fn test_analyze_risk_telemetry_coverage_no_regression() {
+        // Empty telemetry_coverage_delta should produce no telemetry risk reasons
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("README.md"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+        });
+        // telemetry_coverage_delta is empty by default
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        assert_eq!(packet.risk_level, RiskLevel::Low);
+        assert!(
+            !packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Telemetry coverage reduced")),
+            "expected no telemetry coverage risk reasons when empty, got {:?}",
+            packet.risk_reasons
+        );
+        assert!(
+            packet
+                .risk_reasons
+                .contains(&"Minimal changes detected".to_string()),
+            "expected 'Minimal changes detected' in risk reasons, got {:?}",
             packet.risk_reasons
         );
     }

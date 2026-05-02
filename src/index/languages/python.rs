@@ -1,6 +1,8 @@
 use crate::index::call_graph::{CallEdge, CallKind, ResolutionStatus};
 use crate::index::data_models::{ExtractedModel, ModelKind};
-use crate::index::observability::{ErrorHandlingPattern, LogLevel, LoggingPattern};
+use crate::index::observability::{
+    ErrorHandlingPattern, LogLevel, LoggingPattern, TelemetryPattern,
+};
 use crate::index::routes::ExtractedRoute;
 use crate::index::symbols::{Symbol, SymbolKind};
 use miette::{IntoDiagnostic, Result};
@@ -845,6 +847,140 @@ fn collect_py_error_handling(
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         collect_py_error_handling(child, content, patterns);
+    }
+}
+
+pub fn extract_telemetry_patterns(content: &str) -> Result<Vec<TelemetryPattern>> {
+    let mut parser = Parser::new();
+    let language = tree_sitter_python::LANGUAGE;
+    parser.set_language(&language.into()).into_diagnostic()?;
+
+    let tree = parser
+        .parse(content, None)
+        .ok_or_else(|| miette::miette!("Failed to parse Python content"))?;
+
+    let mut patterns = Vec::new();
+    collect_py_telemetry_patterns(tree.root_node(), content, &mut patterns);
+
+    // Also do line-based heuristic matching for telemetry.* patterns
+    for (line_idx, line) in content.lines().enumerate() {
+        let line_lower = line.to_ascii_lowercase();
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("#") {
+            continue;
+        }
+        if line_lower.contains("telemetry") || line_lower.contains("monitoring") {
+            let line_start = (line_idx + 1) as i32;
+            let already_matched = patterns.iter().any(|p| p.line_start == line_start);
+            if !already_matched {
+                patterns.push(TelemetryPattern {
+                    line_start,
+                    level: Some(LogLevel::Trace),
+                    framework: "custom".to_string(),
+                    in_test: line.trim().starts_with("def test_"),
+                    confidence: 0.7,
+                    evidence: "heuristic: telemetry.* pattern match".to_string(),
+                });
+            }
+        }
+    }
+
+    // Cap at 1000 patterns per file
+    patterns.truncate(1000);
+    Ok(patterns)
+}
+
+fn collect_py_telemetry_patterns(
+    node: tree_sitter::Node,
+    content: &str,
+    patterns: &mut Vec<TelemetryPattern>,
+) {
+    let kind = node.kind();
+
+    // Check for @tracer.start_as_current_span / @tracer.start_span decorators
+    if kind == "decorator" {
+        let decorator_text = node.utf8_text(content.as_bytes()).unwrap_or("");
+        if decorator_text.contains("start_as_current_span") || decorator_text.contains("start_span")
+        {
+            let line_start = node.start_position().row as i32 + 1;
+            let in_test = is_in_py_test(node, content);
+            patterns.push(TelemetryPattern {
+                line_start,
+                level: Some(LogLevel::Trace),
+                framework: "opentelemetry".to_string(),
+                in_test,
+                confidence: if in_test { 0.7 } else { 1.0 },
+                evidence: "decorator: tracer span".to_string(),
+            });
+        }
+    }
+
+    // Check for import statements with opentelemetry
+    if kind == "import_statement" || kind == "import_from_statement" {
+        let import_text = node.utf8_text(content.as_bytes()).unwrap_or("");
+        if import_text.contains("opentelemetry") {
+            let line_start = node.start_position().row as i32 + 1;
+            let in_test = is_in_py_test(node, content);
+            patterns.push(TelemetryPattern {
+                line_start,
+                level: Some(LogLevel::Trace),
+                framework: "opentelemetry".to_string(),
+                in_test,
+                confidence: if in_test { 0.7 } else { 1.0 },
+                evidence: "import: opentelemetry".to_string(),
+            });
+        }
+    }
+
+    // Check for prometheus_client.Counter/Gauge/Histogram/Summary usage
+    if kind == "call" {
+        let callee_node = node.child(0);
+        if let Some(callee) = callee_node
+            && callee.kind() == "attribute"
+        {
+            let obj_name = extract_py_attribute_object(callee, content);
+            let method_name = extract_py_attribute_name(callee, content);
+
+            // prometheus_client.Counter/Gauge/Histogram/Summary
+            if obj_name == "Counter"
+                || obj_name == "Gauge"
+                || obj_name == "Histogram"
+                || obj_name == "Summary"
+            {
+                let line_start = node.start_position().row as i32 + 1;
+                let in_test = is_in_py_test(node, content);
+                patterns.push(TelemetryPattern {
+                    line_start,
+                    level: Some(LogLevel::Trace),
+                    framework: "prometheus_client".to_string(),
+                    in_test,
+                    confidence: if in_test { 0.7 } else { 1.0 },
+                    evidence: format!("call: {}()", obj_name),
+                });
+            }
+
+            // tracer.start_as_current_span / tracer.start_span calls
+            if (obj_name == "tracer" || obj_name.starts_with("tracer."))
+                && (method_name == "start_as_current_span" || method_name == "start_span")
+            {
+                let line_start = node.start_position().row as i32 + 1;
+                let in_test = is_in_py_test(node, content);
+                patterns.push(TelemetryPattern {
+                    line_start,
+                    level: Some(LogLevel::Trace),
+                    framework: "opentelemetry".to_string(),
+                    in_test,
+                    confidence: if in_test { 0.7 } else { 1.0 },
+                    evidence: format!("call: {}.{}()", obj_name, method_name),
+                });
+            }
+        }
+    }
+
+    // Recurse into children
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_py_telemetry_patterns(child, content, patterns);
     }
 }
 
