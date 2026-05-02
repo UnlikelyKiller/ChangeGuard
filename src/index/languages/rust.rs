@@ -1,6 +1,8 @@
 use crate::index::call_graph::{CallEdge, CallKind, ResolutionStatus};
 use crate::index::data_models::{ExtractedModel, ModelKind};
-use crate::index::observability::{ErrorHandlingPattern, LogLevel, LoggingPattern};
+use crate::index::observability::{
+    ErrorHandlingPattern, LogLevel, LoggingPattern, TelemetryPattern,
+};
 use crate::index::routes::ExtractedRoute;
 use crate::index::symbols::{Symbol, SymbolKind};
 use miette::{IntoDiagnostic, Result};
@@ -909,6 +911,211 @@ fn has_test_attribute(func_node: tree_sitter::Node, content: &str) -> bool {
         }
     }
     false
+}
+
+/// Prometheus metric macros that indicate telemetry instrumentation.
+const PROMETHEUS_MACROS: &[&str] = &[
+    "histogram_observe",
+    "histogram_observed",
+    "gauge",
+    "counter",
+    "inc",
+    "observe",
+];
+
+/// Metrics crate macros that indicate telemetry instrumentation.
+const METRICS_MACROS: &[&str] = &["counter", "gauge", "histogram"];
+
+pub fn extract_telemetry_patterns(content: &str) -> Result<Vec<TelemetryPattern>> {
+    let mut parser = Parser::new();
+    let language = tree_sitter_rust::LANGUAGE;
+    parser.set_language(&language.into()).into_diagnostic()?;
+
+    let tree = parser
+        .parse(content, None)
+        .ok_or_else(|| miette::miette!("Failed to parse Rust content"))?;
+
+    let mut patterns = Vec::new();
+    collect_rust_telemetry_patterns(tree.root_node(), content, &mut patterns);
+
+    // Also do line-based heuristic matching for telemetry.* patterns
+    for (line_idx, line) in content.lines().enumerate() {
+        let line_lower = line.to_ascii_lowercase();
+        // Match telemetry.* or monitoring.* identifiers (but not in comments)
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("//") || trimmed.starts_with("/*") || trimmed.starts_with("///") {
+            continue;
+        }
+        if line_lower.contains("telemetry") || line_lower.contains("monitoring") {
+            // Check it's not already matched by tree-sitter (avoid duplicates for same line)
+            let line_start = (line_idx + 1) as i32;
+            let already_matched = patterns.iter().any(|p| p.line_start == line_start);
+            if !already_matched {
+                patterns.push(TelemetryPattern {
+                    line_start,
+                    level: Some(LogLevel::Trace),
+                    framework: "custom".to_string(),
+                    in_test: false,
+                    confidence: 0.7,
+                    evidence: "heuristic: telemetry.* pattern match".to_string(),
+                });
+            }
+        }
+    }
+
+    // Cap at 1000 patterns per file
+    patterns.truncate(1000);
+    Ok(patterns)
+}
+
+fn collect_rust_telemetry_patterns(
+    node: tree_sitter::Node,
+    content: &str,
+    patterns: &mut Vec<TelemetryPattern>,
+) {
+    let kind = node.kind();
+
+    // Check for #[instrument] or #[tracing::instrument] attributes
+    if kind == "attribute_item" {
+        let attr_text = node.utf8_text(content.as_bytes()).unwrap_or("");
+        if attr_text.contains("#[instrument]") || attr_text.contains("#[tracing::instrument]") {
+            let line_start = node.start_position().row as i32 + 1;
+            let in_test = is_in_rust_test(node, content);
+            patterns.push(TelemetryPattern {
+                line_start,
+                level: Some(LogLevel::Trace),
+                framework: "tracing".to_string(),
+                in_test,
+                confidence: if in_test { 0.7 } else { 1.0 },
+                evidence: "attribute: #[instrument]".to_string(),
+            });
+        } else if attr_text.contains("#[otel::instrument]") {
+            let line_start = node.start_position().row as i32 + 1;
+            let in_test = is_in_rust_test(node, content);
+            patterns.push(TelemetryPattern {
+                line_start,
+                level: Some(LogLevel::Trace),
+                framework: "opentelemetry".to_string(),
+                in_test,
+                confidence: if in_test { 0.7 } else { 1.0 },
+                evidence: "attribute: #[otel::instrument]".to_string(),
+            });
+        }
+    }
+
+    // Check macro invocations for telemetry-related macros
+    if kind == "macro_invocation" {
+        let mut cursor = node.walk();
+        let children: Vec<tree_sitter::Node> = node.children(&mut cursor).collect();
+
+        if let Some(name_node) = children.first() {
+            let full_name = name_node
+                .utf8_text(content.as_bytes())
+                .unwrap_or("")
+                .to_string();
+
+            let simple_name = full_name
+                .rsplit("::")
+                .next()
+                .unwrap_or(&full_name)
+                .to_string();
+
+            // Check for opentelemetry:: references
+            if full_name.starts_with("opentelemetry::") {
+                let line_start = node.start_position().row as i32 + 1;
+                let in_test = is_in_rust_test(node, content);
+                patterns.push(TelemetryPattern {
+                    line_start,
+                    level: Some(LogLevel::Trace),
+                    framework: "opentelemetry".to_string(),
+                    in_test,
+                    confidence: if in_test { 0.7 } else { 1.0 },
+                    evidence: "call: opentelemetry::*".to_string(),
+                });
+            }
+
+            // Check for prometheus:: macros
+            if full_name.starts_with("prometheus::") {
+                for &macro_name in PROMETHEUS_MACROS {
+                    if simple_name == macro_name {
+                        let line_start = node.start_position().row as i32 + 1;
+                        let in_test = is_in_rust_test(node, content);
+                        patterns.push(TelemetryPattern {
+                            line_start,
+                            level: Some(LogLevel::Trace),
+                            framework: "prometheus".to_string(),
+                            in_test,
+                            confidence: if in_test { 0.7 } else { 1.0 },
+                            evidence: format!("macro: prometheus::{}", macro_name),
+                        });
+                        break;
+                    }
+                }
+            }
+
+            // Check for metrics:: macros
+            if full_name.starts_with("metrics::") {
+                for &macro_name in METRICS_MACROS {
+                    if simple_name == macro_name {
+                        let line_start = node.start_position().row as i32 + 1;
+                        let in_test = is_in_rust_test(node, content);
+                        patterns.push(TelemetryPattern {
+                            line_start,
+                            level: Some(LogLevel::Trace),
+                            framework: "metrics".to_string(),
+                            in_test,
+                            confidence: if in_test { 0.7 } else { 1.0 },
+                            evidence: format!("macro: metrics::{}", macro_name),
+                        });
+                        break;
+                    }
+                }
+            }
+
+            // Check for unqualified prometheus macros
+            if !full_name.contains("::") {
+                for &macro_name in PROMETHEUS_MACROS {
+                    if simple_name == macro_name {
+                        let line_start = node.start_position().row as i32 + 1;
+                        let in_test = is_in_rust_test(node, content);
+                        patterns.push(TelemetryPattern {
+                            line_start,
+                            level: Some(LogLevel::Trace),
+                            framework: "prometheus".to_string(),
+                            in_test,
+                            confidence: if in_test { 0.7 } else { 0.8 },
+                            evidence: format!("macro: {}", macro_name),
+                        });
+                        break;
+                    }
+                }
+                for &macro_name in METRICS_MACROS {
+                    if simple_name == macro_name {
+                        let line_start = node.start_position().row as i32 + 1;
+                        let in_test = is_in_rust_test(node, content);
+                        // Only add metrics macro if not already detected as logging
+                        if !RUST_LOG_MACROS.iter().any(|(lm, _, _)| *lm == simple_name) {
+                            patterns.push(TelemetryPattern {
+                                line_start,
+                                level: Some(LogLevel::Trace),
+                                framework: "metrics".to_string(),
+                                in_test,
+                                confidence: if in_test { 0.7 } else { 0.8 },
+                                evidence: format!("macro: {}", macro_name),
+                            });
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // Recurse into children
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_rust_telemetry_patterns(child, content, patterns);
+    }
 }
 
 #[cfg(test)]

@@ -280,6 +280,8 @@ pub struct ImpactPacket {
     #[serde(default)]
     pub error_handling_delta: Vec<CoverageDelta>,
     #[serde(default)]
+    pub telemetry_coverage_delta: Vec<CoverageDelta>,
+    #[serde(default)]
     pub infrastructure_dirs: Vec<String>,
     pub hotspots: Vec<Hotspot>,
     pub verification_results: Vec<VerificationResult>,
@@ -300,6 +302,7 @@ impl Default for ImpactPacket {
             centrality_risks: Vec::new(),
             logging_coverage_delta: Vec::new(),
             error_handling_delta: Vec::new(),
+            telemetry_coverage_delta: Vec::new(),
             infrastructure_dirs: Vec::new(),
             hotspots: Vec::new(),
             verification_results: Vec::new(),
@@ -340,6 +343,7 @@ impl ImpactPacket {
         self.centrality_risks.sort_unstable();
         self.logging_coverage_delta.sort_unstable();
         self.error_handling_delta.sort_unstable();
+        self.telemetry_coverage_delta.sort_unstable();
         self.infrastructure_dirs.sort_unstable();
         self.hotspots.sort_unstable_by(|a, b| {
             b.score
@@ -396,6 +400,7 @@ impl ImpactPacket {
         self.centrality_risks.clear();
         self.logging_coverage_delta.clear();
         self.error_handling_delta.clear();
+        self.telemetry_coverage_delta.clear();
         self.infrastructure_dirs.clear();
 
         let current_json = serde_json::to_string(self).unwrap_or_default();

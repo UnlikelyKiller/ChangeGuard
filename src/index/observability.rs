@@ -47,9 +47,20 @@ pub struct ErrorHandlingPattern {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TelemetryPattern {
+    pub line_start: i32,
+    pub level: Option<LogLevel>,
+    pub framework: String,
+    pub in_test: bool,
+    pub confidence: f64,
+    pub evidence: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObservabilityStats {
     pub total_patterns: usize,
     pub error_handling_patterns: usize,
+    pub telemetry_patterns: usize,
     pub files_processed: usize,
 }
 
@@ -89,9 +100,10 @@ impl<'a> ObservabilityExtractor<'a> {
 
         drop(file_stmt);
 
-        // 2. Iterate over source files, extract logging and error handling patterns
+        // 2. Iterate over source files, extract logging, error handling, and telemetry patterns
         let mut total_patterns = 0usize;
         let mut error_handling_patterns = 0usize;
+        let mut telemetry_patterns = 0usize;
         let mut files_processed = 0usize;
         let mut pattern_batch: Vec<ObservabilityRow> = Vec::new();
 
@@ -187,6 +199,47 @@ impl<'a> ObservabilityExtractor<'a> {
             }
 
             error_handling_patterns += eh_cap;
+
+            // Extract telemetry patterns
+            let tel_patterns =
+                languages::extract_telemetry_patterns(&path, &content).unwrap_or_default();
+
+            // Cap telemetry at remaining budget (up to 1000 total per file)
+            let tel_cap = tel_patterns
+                .len()
+                .min(1000usize.saturating_sub(log_cap).saturating_sub(eh_cap));
+
+            // Delete existing TRACE patterns for this file before inserting
+            {
+                let conn = self.storage.get_connection();
+                conn.execute(
+                    "DELETE FROM observability_patterns WHERE file_id = ?1 AND pattern_kind = 'TRACE'",
+                    [file_id],
+                )
+                .into_diagnostic()?;
+            }
+
+            for pattern in tel_patterns.into_iter().take(tel_cap) {
+                pattern_batch.push(ObservabilityRow {
+                    file_id: *file_id,
+                    line_start: pattern.line_start,
+                    level: pattern.level.as_ref().map(|l| l.as_str().to_string()),
+                    framework: pattern.framework.clone(),
+                    confidence: pattern.confidence,
+                    evidence: Some(pattern.evidence.clone()),
+                    in_test: pattern.in_test,
+                    pattern_kind: "TRACE".to_string(),
+                });
+
+                // Batch inserts
+                if pattern_batch.len() >= OBSERVABILITY_BATCH_SIZE {
+                    total_patterns += pattern_batch.len();
+                    self.insert_pattern_batch(&pattern_batch)?;
+                    pattern_batch.clear();
+                }
+            }
+
+            telemetry_patterns += tel_cap;
             files_processed += 1;
         }
 
@@ -197,13 +250,14 @@ impl<'a> ObservabilityExtractor<'a> {
         }
 
         info!(
-            "Observability extraction complete: {} patterns ({} error handling) from {} files",
-            total_patterns, error_handling_patterns, files_processed
+            "Observability extraction complete: {} patterns ({} error handling, {} telemetry) from {} files",
+            total_patterns, error_handling_patterns, telemetry_patterns, files_processed
         );
 
         Ok(ObservabilityStats {
             total_patterns,
             error_handling_patterns,
+            telemetry_patterns,
             files_processed,
         })
     }
@@ -276,11 +330,13 @@ mod tests {
         let stats = ObservabilityStats {
             total_patterns: 42,
             error_handling_patterns: 15,
+            telemetry_patterns: 8,
             files_processed: 10,
         };
         let json = serde_json::to_string(&stats).unwrap();
         assert!(json.contains("total_patterns"));
         assert!(json.contains("error_handling_patterns"));
+        assert!(json.contains("telemetry_patterns"));
         assert!(json.contains("files_processed"));
     }
 

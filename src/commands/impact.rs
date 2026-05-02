@@ -30,7 +30,7 @@ struct AnalysisOutcome {
     analysis_warnings: Vec<String>,
 }
 
-pub fn execute_impact(all_parents: bool, summary: bool) -> Result<()> {
+pub fn execute_impact(all_parents: bool, summary: bool, telemetry_coverage: bool) -> Result<()> {
     let current_dir = env::current_dir()
         .map_err(|e| miette::miette!("Failed to get current directory: {}", e))?;
 
@@ -176,6 +176,18 @@ pub fn execute_impact(all_parents: bool, summary: bool) -> Result<()> {
             if let Err(e) = populate_error_handling_delta(&mut packet, &storage, &current_dir) {
                 tracing::warn!("Error handling delta population failed: {e}");
                 // Graceful degradation: packet.error_handling_delta stays empty
+            }
+
+            // Populate telemetry coverage delta from observability_patterns
+            if let Err(e) = populate_telemetry_coverage_delta(&mut packet, &storage, &current_dir) {
+                tracing::warn!("Telemetry coverage delta population failed: {e}");
+                // Graceful degradation: packet.telemetry_coverage_delta stays empty
+            }
+
+            // --telemetry-coverage advisory check: warn about files with handlers but no telemetry
+            if telemetry_coverage && let Err(e) = check_telemetry_coverage(&mut packet, &storage) {
+                tracing::warn!("Telemetry coverage check failed: {e}");
+                // Graceful degradation: just skip the advisory warnings
             }
 
             // Populate infrastructure directories from project_topology
@@ -1040,6 +1052,229 @@ fn populate_logging_coverage_delta(
     }
 
     packet.logging_coverage_delta = deltas;
+    Ok(())
+}
+
+/// Populate telemetry coverage delta by comparing observability_patterns stored in
+/// the index (previous count) against the current file content (current count).
+/// For each changed file where telemetry patterns have decreased, a CoverageDelta
+/// entry is added to the packet.
+fn populate_telemetry_coverage_delta(
+    packet: &mut ImpactPacket,
+    storage: &StorageManager,
+    base_dir: &Path,
+) -> Result<()> {
+    use crate::impact::packet::CoverageDelta;
+    use rusqlite::OptionalExtension;
+
+    let conn = storage.get_connection();
+
+    // Gracefully skip if observability_patterns table doesn't exist or is empty
+    let has_patterns: Option<i64> = match conn
+        .query_row(
+            "SELECT count(*) FROM observability_patterns LIMIT 1",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+    {
+        Ok(Some(count)) if count > 0 => Some(count),
+        Ok(_) => return Ok(()),  // Table exists but empty — graceful skip
+        Err(_) => return Ok(()), // Table doesn't exist — graceful skip
+    };
+
+    if has_patterns.is_none() {
+        return Ok(());
+    }
+
+    // Build a path -> project_files.id lookup
+    let mut file_stmt = conn
+        .prepare("SELECT id, file_path FROM project_files WHERE parse_status != 'DELETED'")
+        .map_err(|e| miette::miette!("Failed to prepare project_files query: {e}"))?;
+
+    let file_rows: Vec<(i64, String)> = file_stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|e| miette::miette!("Failed to query project_files: {e}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| miette::miette!("Failed to collect project_files rows: {e}"))?;
+
+    drop(file_stmt);
+
+    let path_to_id: std::collections::HashMap<String, i64> =
+        file_rows.into_iter().map(|(id, path)| (path, id)).collect();
+
+    let mut deltas = Vec::new();
+
+    for change in &packet.changes {
+        let path_str = change.path.to_string_lossy().to_string();
+
+        if let Some(&file_id) = path_to_id.get(&path_str) {
+            // Count previous (stored) TRACE patterns for this file, excluding test patterns
+            let previous_count: i64 = conn
+                .query_row(
+                    "SELECT count(*) FROM observability_patterns WHERE file_id = ?1 AND pattern_kind = 'TRACE' AND in_test = 0",
+                    [file_id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap_or(0);
+
+            // Count current telemetry patterns by reading the file content
+            let full_path = base_dir.join(&change.path);
+            let current_count = match fs::read_to_string(&full_path) {
+                Ok(content) => {
+                    match crate::index::languages::extract_telemetry_patterns(
+                        &change.path,
+                        &content,
+                    ) {
+                        Ok(patterns) => patterns.iter().filter(|p| !p.in_test).count() as i64,
+                        Err(_) => previous_count, // If extraction fails, assume no reduction
+                    }
+                }
+                Err(_) => previous_count, // If file can't be read, assume no reduction
+            };
+
+            if current_count < previous_count {
+                let delta = (previous_count - current_count) as usize;
+                deltas.push(CoverageDelta {
+                    file_path: path_str,
+                    pattern_kind: "TRACE".to_string(),
+                    previous_count: previous_count as usize,
+                    current_count: current_count as usize,
+                    message: format!(
+                        "Telemetry coverage reduced in {}: {} instrumentation points removed",
+                        change.path.display(),
+                        delta
+                    ),
+                });
+            }
+        }
+    }
+
+    packet.telemetry_coverage_delta = deltas;
+    Ok(())
+}
+
+/// Check for files that have API routes or handler functions but zero telemetry instrumentation.
+/// This is advisory only — prints warnings but does not affect risk scoring.
+fn check_telemetry_coverage(_packet: &mut ImpactPacket, storage: &StorageManager) -> Result<()> {
+    use rusqlite::OptionalExtension;
+
+    let conn = storage.get_connection();
+
+    // Gracefully skip if observability_patterns table doesn't exist
+    let has_obs: Option<i64> = match conn
+        .query_row(
+            "SELECT count(*) FROM observability_patterns LIMIT 1",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+    {
+        Ok(Some(_)) => Some(1),
+        Ok(None) => return Ok(()), // Table empty
+        Err(_) => return Ok(()),   // Table doesn't exist
+    };
+
+    if has_obs.is_none() {
+        return Ok(());
+    }
+
+    // Gracefully skip if project_symbols table doesn't exist
+    let has_symbols: Option<i64> = match conn
+        .query_row("SELECT count(*) FROM project_symbols LIMIT 1", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .optional()
+    {
+        Ok(_) => Some(1),
+        Err(_) => return Ok(()), // Table doesn't exist
+    };
+
+    if has_symbols.is_none() {
+        return Ok(());
+    }
+
+    // Collect files with HANDLER entrypoints
+    let mut handler_stmt = conn
+        .prepare(
+            "SELECT DISTINCT pf.file_path
+             FROM project_symbols ps
+             JOIN project_files pf ON ps.file_id = pf.id
+             WHERE ps.entrypoint_kind = 'HANDLER'
+             AND pf.parse_status != 'DELETED'",
+        )
+        .map_err(|e| miette::miette!("Failed to prepare handler symbols query: {e}"))?;
+
+    let handler_files: Vec<String> = handler_stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|e| miette::miette!("Failed to query handler symbols: {e}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| miette::miette!("Failed to collect handler files: {e}"))?;
+
+    drop(handler_stmt);
+
+    // Also collect files with api_routes
+    let mut route_stmt = conn
+        .prepare(
+            "SELECT DISTINCT pf.file_path
+             FROM api_routes ar
+             JOIN project_files pf ON ar.handler_file_id = pf.id
+             WHERE pf.parse_status != 'DELETED'",
+        )
+        .map_err(|e| miette::miette!("Failed to prepare api_routes query: {e}"))?;
+
+    let route_files: Vec<String> = route_stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|e| miette::miette!("Failed to query api_routes: {e}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| miette::miette!("Failed to collect route files: {e}"))?;
+
+    drop(route_stmt);
+
+    // Merge handler and route files (deduped)
+    let mut files_with_handlers: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+    for f in handler_files {
+        files_with_handlers.insert(f);
+    }
+    for f in route_files {
+        files_with_handlers.insert(f);
+    }
+
+    // For each file with handlers, check if it has TRACE patterns in observability_patterns
+    for file_path in &files_with_handlers {
+        // Find file_id
+        let file_id: Option<i64> = conn
+            .query_row(
+                "SELECT id FROM project_files WHERE file_path = ?1 AND parse_status != 'DELETED'",
+                [file_path],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
+            .map_err(|e| miette::miette!("Failed to query project_files: {e}"))?;
+
+        if let Some(id) = file_id {
+            // Count TRACE patterns for this file
+            let trace_count: i64 = conn
+                .query_row(
+                    "SELECT count(*) FROM observability_patterns WHERE file_id = ?1 AND pattern_kind = 'TRACE'",
+                    [id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap_or(0);
+
+            if trace_count == 0 {
+                println!(
+                    "{} File {} has API routes but no telemetry instrumentation",
+                    warning_marker(),
+                    file_path
+                );
+            }
+        }
+    }
+
     Ok(())
 }
 

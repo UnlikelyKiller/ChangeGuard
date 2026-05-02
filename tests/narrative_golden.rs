@@ -51,6 +51,7 @@ fn test_narrative_golden_prompt() {
         centrality_risks: vec![],
         logging_coverage_delta: vec![],
         error_handling_delta: vec![],
+        telemetry_coverage_delta: vec![],
         infrastructure_dirs: vec![],
         hotspots: vec![Hotspot {
             path: PathBuf::from("src/core/logic.rs"),
