@@ -236,6 +236,13 @@
 
 ## Milestone E: Historical Intelligence Tracks (Completed)
 
+*   **Track E4-4: Runtime Usage in Risk Scoring**
+    *   Status: Completed
+    *   Spec: `conductor/trackE4-4/spec.md`
+    *   Plan: `conductor/trackE4-4/plan.md`
+    *   Goal: Wire the extracted `runtime_usage` data into the risk scoring engine and verification predictor.
+    *   Key additions: `runtime_usage_delta` to `ImpactPacket`, env-var new dependency risk weight, config-key changes risk weight, runtime predictions.
+
 ## Milestone F: Predictive Verification Tracks (Completed)
 
 ## Milestone G: IDE Integration Tracks (Completed)
