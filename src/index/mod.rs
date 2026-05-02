@@ -4,6 +4,7 @@ pub mod ci_gates;
 pub mod data_models;
 pub mod docs;
 pub mod entrypoint;
+pub mod env_schema;
 pub mod languages;
 pub mod metrics;
 pub mod normalize;

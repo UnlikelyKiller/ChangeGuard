@@ -1,3 +1,4 @@
+use crate::index::env_schema::EnvVarDep;
 use crate::index::references::ImportExport;
 use crate::index::runtime_usage::RuntimeUsage;
 use crate::index::symbols::Symbol;
@@ -366,6 +367,8 @@ pub struct ImpactPacket {
     #[serde(default)]
     pub infrastructure_dirs: Vec<String>,
     #[serde(default)]
+    pub env_var_deps: Vec<EnvVarDep>,
+    #[serde(default)]
     pub test_coverage: Vec<TestCoverage>,
     pub hotspots: Vec<Hotspot>,
     pub verification_results: Vec<VerificationResult>,
@@ -388,6 +391,7 @@ impl Default for ImpactPacket {
             error_handling_delta: Vec::new(),
             telemetry_coverage_delta: Vec::new(),
             infrastructure_dirs: Vec::new(),
+            env_var_deps: Vec::new(),
             test_coverage: Vec::new(),
             hotspots: Vec::new(),
             verification_results: Vec::new(),
@@ -430,6 +434,8 @@ impl ImpactPacket {
         self.error_handling_delta.sort_unstable();
         self.telemetry_coverage_delta.sort_unstable();
         self.infrastructure_dirs.sort_unstable();
+        self.env_var_deps.sort_unstable();
+        self.env_var_deps.dedup();
         self.test_coverage.sort_unstable();
         self.hotspots.sort_unstable_by(|a, b| {
             b.score
@@ -488,6 +494,7 @@ impl ImpactPacket {
         self.error_handling_delta.clear();
         self.telemetry_coverage_delta.clear();
         self.infrastructure_dirs.clear();
+        self.env_var_deps.clear();
         self.test_coverage.clear();
 
         let current_json = serde_json::to_string(self).unwrap_or_default();

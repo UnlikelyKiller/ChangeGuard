@@ -394,6 +394,16 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules) -> Result<()> {
     }
     total_weight += ci_total;
 
+    // 3l. Undeclared Environment Variable Dependencies
+    if !packet.env_var_deps.is_empty() {
+        let weight = 20;
+        total_weight += weight;
+        reasons.push(format!(
+            "Undeclared env var dependencies: {} new variable(s)",
+            packet.env_var_deps.len()
+        ));
+    }
+
     // 4. Scoring
     packet.risk_level = if total_weight > 60 {
         RiskLevel::High

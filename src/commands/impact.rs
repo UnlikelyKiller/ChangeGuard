@@ -209,6 +209,12 @@ pub fn execute_impact(all_parents: bool, summary: bool, telemetry_coverage: bool
                 // Graceful degradation: changed_file.ci_gates stays empty
             }
 
+            // Populate undeclared env var dependencies
+            if let Err(e) = populate_env_var_deps(&mut packet, &storage) {
+                tracing::warn!("Env var dependency population failed: {e}");
+                // Graceful degradation: packet.env_var_deps stays empty
+            }
+
             if let Err(e) = storage.save_packet(&packet) {
                 tracing::warn!("SQLite save failed: {e}");
                 println!(
@@ -1460,6 +1466,110 @@ fn populate_ci_gates(packet: &mut ImpactPacket, storage: &StorageManager) -> mie
         }
     }
 
+    Ok(())
+}
+
+/// Populate undeclared environment variable dependencies by querying
+/// env_declarations and env_references from the database, then finding
+/// referenced env vars that aren't declared anywhere.
+fn populate_env_var_deps(
+    packet: &mut ImpactPacket,
+    storage: &crate::state::storage::StorageManager,
+) -> miette::Result<()> {
+    use rusqlite::OptionalExtension;
+
+    let conn = storage.get_connection();
+
+    // Gracefully skip if env_references table doesn't exist or is empty
+    let has_refs: Option<i64> = match conn
+        .query_row("SELECT count(*) FROM env_references LIMIT 1", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .optional()
+    {
+        Ok(Some(count)) if count > 0 => Some(count),
+        Ok(_) => return Ok(()),  // Table exists but empty — graceful skip
+        Err(_) => return Ok(()), // Table doesn't exist — graceful skip
+    };
+
+    if has_refs.is_none() {
+        return Ok(());
+    }
+
+    // Collect all declared var names
+    let declared_names: std::collections::HashSet<String> = {
+        let mut decl_stmt = conn
+            .prepare("SELECT var_name FROM env_declarations")
+            .map_err(|e| miette::miette!("Failed to prepare env_declarations query: {e}"))?;
+
+        let names: Vec<String> = decl_stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|e| miette::miette!("Failed to query env_declarations: {e}"))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| miette::miette!("Failed to collect env_declarations rows: {e}"))?;
+
+        names.into_iter().collect()
+    };
+
+    // Build a path -> project_files.id lookup for changed files
+    let mut file_stmt = conn
+        .prepare("SELECT id, file_path FROM project_files WHERE parse_status != 'DELETED'")
+        .map_err(|e| miette::miette!("Failed to prepare project_files query: {e}"))?;
+
+    let file_rows: Vec<(i64, String)> = file_stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|e| miette::miette!("Failed to query project_files: {e}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| miette::miette!("Failed to collect project_files rows: {e}"))?;
+
+    drop(file_stmt);
+
+    let path_to_id: std::collections::HashMap<String, i64> =
+        file_rows.into_iter().map(|(id, path)| (path, id)).collect();
+
+    // For each changed file, find env var references and check if declared
+    let mut undeclared = Vec::new();
+
+    for change in &packet.changes {
+        let path_str = change.path.to_string_lossy().to_string();
+
+        if let Some(&file_id) = path_to_id.get(&path_str) {
+            // Query env_references for this file
+            let mut ref_stmt = conn
+                .prepare("SELECT var_name, reference_kind FROM env_references WHERE file_id = ?1")
+                .map_err(|e| miette::miette!("Failed to prepare env_references query: {e}"))?;
+
+            let refs: Vec<(String, String)> = ref_stmt
+                .query_map([file_id], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(|e| miette::miette!("Failed to query env_references: {e}"))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| miette::miette!("Failed to collect env_references rows: {e}"))?;
+
+            for (var_name, reference_kind) in refs {
+                // Skip dynamic/wildcard references
+                if var_name == "*" {
+                    continue;
+                }
+
+                if !declared_names.contains(&var_name) {
+                    undeclared.push(crate::index::env_schema::EnvVarDep {
+                        var_name: var_name.clone(),
+                        declared: false,
+                        evidence: format!(
+                            "Referenced as {} in {} but not declared in any env config",
+                            reference_kind, path_str
+                        ),
+                    });
+                }
+            }
+        }
+    }
+
+    packet.env_var_deps = undeclared;
     Ok(())
 }
 

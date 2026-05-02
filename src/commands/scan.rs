@@ -44,7 +44,7 @@ pub fn execute_scan(run_impact: bool) -> Result<()> {
     print_scan_summary(&snapshot);
 
     if run_impact {
-        crate::commands::impact::execute_impact(false, false)?;
+        crate::commands::impact::execute_impact(false, false, false)?;
     }
 
     Ok(())

@@ -3,6 +3,7 @@ use crate::index::centrality::{CentralityComputer, CentralityStats};
 use crate::index::ci_gates::CIGateExtractor;
 use crate::index::data_models::{DataModelExtractor, DataModelStats};
 use crate::index::docs::{DocIndexStats, parse_markdown};
+use crate::index::env_schema::{EnvSchemaIndexer, EnvSchemaStats};
 use crate::index::entrypoint::{
     EntrypointKind, EntrypointStats, detect_python_entrypoints, detect_rust_entrypoints,
     detect_typescript_entrypoints,
@@ -1175,6 +1176,13 @@ impl ProjectIndexer {
     pub fn extract_ci_gates(&self) -> Result<crate::index::ci_gates::CIGateStats> {
         let extractor =
             CIGateExtractor::new(&self.storage, self.repo_path.as_std_path().to_path_buf());
+        extractor.extract()
+    }
+
+    /// Extract env schema (declarations and references) from env config files and source code.
+    pub fn extract_env_schema(&self) -> Result<EnvSchemaStats> {
+        let extractor =
+            EnvSchemaIndexer::new(&self.storage, self.repo_path.as_std_path().to_path_buf());
         extractor.extract()
     }
 }

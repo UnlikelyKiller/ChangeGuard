@@ -404,6 +404,37 @@ pub fn get_migrations() -> Migrations<'static> {
             CREATE INDEX IF NOT EXISTS idx_ci_gates_file ON ci_gates(ci_file_id);
             CREATE INDEX IF NOT EXISTS idx_ci_gates_platform ON ci_gates(platform);",
         ),
+        M::up(
+            "CREATE TABLE IF NOT EXISTS env_declarations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                var_name TEXT NOT NULL,
+                source_file_id INTEGER NOT NULL REFERENCES project_files(id),
+                source_kind TEXT NOT NULL,
+                required INTEGER DEFAULT 0,
+                default_value_redacted TEXT,
+                description TEXT,
+                confidence REAL NOT NULL DEFAULT 1.0,
+                last_indexed_at TEXT NOT NULL,
+                UNIQUE(var_name, source_file_id, source_kind)
+            );
+            CREATE INDEX IF NOT EXISTS idx_env_declarations_var ON env_declarations(var_name);
+            CREATE INDEX IF NOT EXISTS idx_env_declarations_file ON env_declarations(source_file_id);",
+        ),
+        M::up(
+            "CREATE TABLE IF NOT EXISTS env_references (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_id INTEGER NOT NULL REFERENCES project_files(id),
+                symbol_id INTEGER REFERENCES project_symbols(id),
+                var_name TEXT NOT NULL,
+                reference_kind TEXT NOT NULL,
+                confidence REAL NOT NULL DEFAULT 1.0,
+                line_start INTEGER,
+                last_indexed_at TEXT NOT NULL,
+                UNIQUE(file_id, symbol_id, var_name, reference_kind)
+            );
+            CREATE INDEX IF NOT EXISTS idx_env_references_file ON env_references(file_id);
+            CREATE INDEX IF NOT EXISTS idx_env_references_var ON env_references(var_name);",
+        ),
     ])
 }
 
@@ -454,6 +485,8 @@ mod tests {
             "observability_patterns",
             "test_mapping",
             "ci_gates",
+            "env_declarations",
+            "env_references",
         ];
 
         for table in &expected_tables {
@@ -1658,5 +1691,235 @@ mod tests {
             )
             .unwrap();
         assert_eq!(platform_count, 1);
+    }
+
+    #[test]
+    fn test_insert_and_query_env_declarations() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let migrations = get_migrations();
+        migrations.to_latest(&mut conn).unwrap();
+
+        // Insert a project_files row first (FK prerequisite)
+        conn.execute(
+            "INSERT INTO project_files (file_path, language, content_hash, file_size, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            (".env.example", "Dotenv", "hash_env", 256, "2026-05-01T00:00:00Z"),
+        ).unwrap();
+        let env_file_id = conn.last_insert_rowid();
+
+        // Insert a DOTENV_EXAMPLE declaration with HAS_DEFAULT
+        conn.execute(
+            "INSERT INTO env_declarations (var_name, source_file_id, source_kind, required, default_value_redacted, description, confidence, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![
+                "DATABASE_URL",
+                env_file_id,
+                "DOTENV_EXAMPLE",
+                0,
+                "HAS_DEFAULT",
+                Some("Database connection string"),
+                1.0_f64,
+                "2026-05-01T00:00:00Z",
+            ],
+        ).unwrap();
+
+        // Insert a declaration with EMPTY_DEFAULT and required=1
+        conn.execute(
+            "INSERT INTO env_declarations (var_name, source_file_id, source_kind, required, default_value_redacted, confidence, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![
+                "API_KEY",
+                env_file_id,
+                "DOTENV_EXAMPLE",
+                1,
+                "EMPTY_DEFAULT",
+                1.0_f64,
+                "2026-05-01T00:00:00Z",
+            ],
+        ).unwrap();
+
+        // Verify both rows exist
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM env_declarations", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 2, "Should have 2 env_declarations rows");
+
+        // Verify DOTENV_EXAMPLE declaration
+        let (var_name, source_kind, required, default_value_redacted, confidence): (String, String, i64, String, f64) = conn
+            .query_row(
+                "SELECT var_name, source_kind, required, default_value_redacted, confidence FROM env_declarations WHERE var_name = 'DATABASE_URL'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            )
+            .unwrap();
+        assert_eq!(var_name, "DATABASE_URL");
+        assert_eq!(source_kind, "DOTENV_EXAMPLE");
+        assert_eq!(required, 0);
+        assert_eq!(default_value_redacted, "HAS_DEFAULT");
+        assert!((confidence - 1.0).abs() < f64::EPSILON);
+
+        // Verify required declaration
+        let (var_name, required, default_value_redacted): (String, i64, String) = conn
+            .query_row(
+                "SELECT var_name, required, default_value_redacted FROM env_declarations WHERE var_name = 'API_KEY'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(var_name, "API_KEY");
+        assert_eq!(required, 1);
+        assert_eq!(default_value_redacted, "EMPTY_DEFAULT");
+
+        // Verify FK join works — get file_path through the relationship
+        let (file_path,): (String,) = conn
+            .query_row(
+                "SELECT pf.file_path FROM env_declarations ed JOIN project_files pf ON ed.source_file_id = pf.id WHERE ed.var_name = 'DATABASE_URL'",
+                [],
+                |row| Ok((row.get(0)?,)),
+            )
+            .unwrap();
+        assert_eq!(file_path, ".env.example");
+
+        // Verify index on var_name works
+        let var_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM env_declarations WHERE var_name = 'DATABASE_URL'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(var_count, 1);
+
+        // Verify UNIQUE constraint on (var_name, source_file_id, source_kind)
+        let result = conn.execute(
+            "INSERT INTO env_declarations (var_name, source_file_id, source_kind, required, confidence, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params!["DATABASE_URL", env_file_id, "DOTENV_EXAMPLE", 0, 1.0_f64, "2026-05-01T00:00:00Z"],
+        );
+        assert!(
+            result.is_err(),
+            "Should not allow duplicate (var_name, source_file_id, source_kind)"
+        );
+    }
+
+    #[test]
+    fn test_insert_and_query_env_references() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let migrations = get_migrations();
+        migrations.to_latest(&mut conn).unwrap();
+
+        // Insert project_files row (FK prerequisite)
+        conn.execute(
+            "INSERT INTO project_files (file_path, language, content_hash, file_size, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            ("src/main.rs", "Rust", "hash_main", 1024, "2026-05-01T00:00:00Z"),
+        ).unwrap();
+        let file_id = conn.last_insert_rowid();
+
+        // Insert project_symbols row (FK prerequisite)
+        conn.execute(
+            "INSERT INTO project_symbols (file_id, qualified_name, symbol_name, symbol_kind, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            (file_id, "crate::main", "main", "Function", "2026-05-01T00:00:00Z"),
+        ).unwrap();
+        let symbol_id = conn.last_insert_rowid();
+
+        // Insert a READ reference
+        conn.execute(
+            "INSERT INTO env_references (file_id, symbol_id, var_name, reference_kind, confidence, line_start, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![file_id, symbol_id, "DATABASE_URL", "READ", 1.0_f64, 42i64, "2026-05-01T00:00:00Z"],
+        ).unwrap();
+
+        // Insert a DEFAULTED reference
+        conn.execute(
+            "INSERT INTO env_references (file_id, symbol_id, var_name, reference_kind, confidence, line_start, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![file_id, symbol_id, "DEBUG_MODE", "DEFAULTED", 0.9_f64, 55i64, "2026-05-01T00:00:00Z"],
+        ).unwrap();
+
+        // Insert a reference with NULL symbol_id
+        conn.execute(
+            "INSERT INTO env_references (file_id, symbol_id, var_name, reference_kind, confidence, line_start, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![file_id, None::<i64>, "API_TOKEN", "READ", 1.0_f64, 60i64, "2026-05-01T00:00:00Z"],
+        ).unwrap();
+
+        // Verify all three rows exist
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM env_references", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 3, "Should have 3 env_references rows");
+
+        // Verify READ reference
+        let (var_name, reference_kind, confidence, line_start): (String, String, f64, Option<i64>) = conn
+            .query_row(
+                "SELECT var_name, reference_kind, confidence, line_start FROM env_references WHERE var_name = 'DATABASE_URL'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(var_name, "DATABASE_URL");
+        assert_eq!(reference_kind, "READ");
+        assert!((confidence - 1.0).abs() < f64::EPSILON);
+        assert_eq!(line_start, Some(42));
+
+        // Verify DEFAULTED reference
+        let (var_name, reference_kind, confidence): (String, String, f64) = conn
+            .query_row(
+                "SELECT var_name, reference_kind, confidence FROM env_references WHERE var_name = 'DEBUG_MODE'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(var_name, "DEBUG_MODE");
+        assert_eq!(reference_kind, "DEFAULTED");
+        assert!((confidence - 0.9).abs() < f64::EPSILON);
+
+        // Verify reference with NULL symbol_id
+        let (symbol_id_val,): (Option<i64>,) = conn
+            .query_row(
+                "SELECT symbol_id FROM env_references WHERE var_name = 'API_TOKEN'",
+                [],
+                |row| Ok((row.get(0)?,)),
+            )
+            .unwrap();
+        assert!(
+            symbol_id_val.is_none(),
+            "symbol_id should be NULL for reference without a symbol"
+        );
+
+        // Verify FK join works — get file_path through the relationship
+        let (file_path,): (String,) = conn
+            .query_row(
+                "SELECT pf.file_path FROM env_references er JOIN project_files pf ON er.file_id = pf.id WHERE er.var_name = 'DATABASE_URL'",
+                [],
+                |row| Ok((row.get(0)?,)),
+            )
+            .unwrap();
+        assert_eq!(file_path, "src/main.rs");
+
+        // Verify index on var_name works
+        let var_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM env_references WHERE var_name = 'DATABASE_URL'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(var_count, 1);
+
+        // Verify UNIQUE constraint on (file_id, symbol_id, var_name, reference_kind)
+        let result = conn.execute(
+            "INSERT INTO env_references (file_id, symbol_id, var_name, reference_kind, confidence, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![file_id, symbol_id, "DATABASE_URL", "READ", 1.0_f64, "2026-05-01T00:00:00Z"],
+        );
+        assert!(
+            result.is_err(),
+            "Should not allow duplicate (file_id, symbol_id, var_name, reference_kind)"
+        );
     }
 }

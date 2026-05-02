@@ -90,6 +90,9 @@ pub fn execute_index(
     // Extract CI/CD workflow gates
     let ci_stats = indexer.extract_ci_gates()?;
 
+    // Extract env schema (declarations and references)
+    let env_stats = indexer.extract_env_schema()?;
+
     // Compute centrality if requested
     let cent_stats = if analyze_graph {
         indexer.compute_centrality()?
@@ -156,6 +159,12 @@ pub fn execute_index(
         if let (Some(map), Some(ci)) = (output.as_object_mut(), ci_obj.as_object()) {
             for (k, v) in ci {
                 map.insert(format!("ci_{}", k), v.clone());
+            }
+        }
+        let env_obj = serde_json::to_value(&env_stats).into_diagnostic()?;
+        if let (Some(map), Some(env)) = (output.as_object_mut(), env_obj.as_object()) {
+            for (k, v) in env {
+                map.insert(format!("env_{}", k), v.clone());
             }
         }
         if analyze_graph {
@@ -273,6 +282,13 @@ pub fn execute_index(
         println!("  CircleCI: {}", ci_stats.circleci_gates);
         println!("  Makefile: {}", ci_stats.makefile_gates);
         println!("  Files processed: {}", ci_stats.files_processed);
+        println!();
+        println!("Env Schema:");
+        println!("  Total declarations: {}", env_stats.total_declarations);
+        println!("  Total references: {}", env_stats.total_references);
+        println!("  Dotenv declarations: {}", env_stats.dotenv_declarations);
+        println!("  Config declarations: {}", env_stats.config_declarations);
+        println!("  Files processed: {}", env_stats.files_processed);
         if analyze_graph {
             println!();
             println!("Centrality:");
