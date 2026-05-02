@@ -186,11 +186,36 @@ impl Ord for StructuralCoupling {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct CentralityRisk {
+    pub symbol_name: String,
+    pub entrypoints_reachable: usize,
+}
+
+impl Eq for CentralityRisk {}
+
+impl PartialOrd for CentralityRisk {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for CentralityRisk {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.symbol_name
+            .cmp(&other.symbol_name)
+            .then_with(|| self.entrypoints_reachable.cmp(&other.entrypoints_reachable))
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct Hotspot {
     pub path: PathBuf,
     pub score: f32,
     pub complexity: i32,
     pub frequency: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub centrality: Option<usize>,
 }
 
 impl Eq for Hotspot {}
@@ -223,6 +248,7 @@ pub struct ImpactPacket {
     pub changes: Vec<ChangedFile>,
     pub temporal_couplings: Vec<TemporalCoupling>,
     pub structural_couplings: Vec<StructuralCoupling>,
+    pub centrality_risks: Vec<CentralityRisk>,
     pub hotspots: Vec<Hotspot>,
     pub verification_results: Vec<VerificationResult>,
 }
@@ -239,6 +265,7 @@ impl Default for ImpactPacket {
             changes: Vec::new(),
             temporal_couplings: Vec::new(),
             structural_couplings: Vec::new(),
+            centrality_risks: Vec::new(),
             hotspots: Vec::new(),
             verification_results: Vec::new(),
         }
@@ -275,6 +302,7 @@ impl ImpactPacket {
         self.changes.sort_unstable();
         self.temporal_couplings.sort_unstable();
         self.structural_couplings.sort_unstable();
+        self.centrality_risks.sort_unstable();
         self.hotspots.sort_unstable_by(|a, b| {
             b.score
                 .partial_cmp(&a.score)
@@ -327,6 +355,7 @@ impl ImpactPacket {
         // Phase 3: Strip temporal and structural couplings
         self.temporal_couplings.clear();
         self.structural_couplings.clear();
+        self.centrality_risks.clear();
 
         let current_json = serde_json::to_string(self).unwrap_or_default();
         if current_json.len() <= target_chars {

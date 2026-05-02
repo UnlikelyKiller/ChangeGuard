@@ -1,4 +1,5 @@
 use crate::index::call_graph::{CallGraphBuilder, CallGraphStats};
+use crate::index::centrality::{CentralityComputer, CentralityStats};
 use crate::index::data_models::{DataModelExtractor, DataModelStats};
 use crate::index::docs::{DocIndexStats, parse_markdown};
 use crate::index::entrypoint::{
@@ -1146,6 +1147,12 @@ impl ProjectIndexer {
         let extractor =
             DataModelExtractor::new(&self.storage, self.repo_path.as_std_path().to_path_buf());
         extractor.clear_data_models(file_ids)
+    }
+
+    /// Compute symbol centrality (entrypoints_reachable) from the call graph.
+    pub fn compute_centrality(&self) -> Result<CentralityStats> {
+        let computer = CentralityComputer::new(&self.storage);
+        computer.compute()
     }
 }
 

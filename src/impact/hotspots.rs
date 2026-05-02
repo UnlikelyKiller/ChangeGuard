@@ -132,6 +132,7 @@ pub fn calculate_hotspots(
             score,
             complexity,
             frequency: freq,
+            centrality: None,
         });
     }
 

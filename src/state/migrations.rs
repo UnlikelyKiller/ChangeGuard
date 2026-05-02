@@ -334,7 +334,24 @@ pub fn get_migrations() -> Migrations<'static> {
             CREATE INDEX IF NOT EXISTS idx_data_models_name
                 ON data_models(model_name);
             CREATE INDEX IF NOT EXISTS idx_data_models_file
-                ON data_models(model_file_id);",
+                ON data_models(model_file_id);
+
+            CREATE TABLE IF NOT EXISTS symbol_centrality (
+                id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol_id               INTEGER NOT NULL REFERENCES project_symbols(id),
+                file_id                 INTEGER NOT NULL REFERENCES project_files(id),
+                entrypoints_reachable   INTEGER NOT NULL DEFAULT 0,
+                betweenness             REAL DEFAULT 0.0,
+                last_computed_at        TEXT NOT NULL,
+                FOREIGN KEY (symbol_id) REFERENCES project_symbols(id),
+                FOREIGN KEY (file_id) REFERENCES project_files(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_symbol_centrality_symbol
+                ON symbol_centrality(symbol_id);
+            CREATE INDEX IF NOT EXISTS idx_symbol_centrality_file
+                ON symbol_centrality(file_id);
+            CREATE INDEX IF NOT EXISTS idx_symbol_centrality_reachable
+                ON symbol_centrality(entrypoints_reachable);",
         ),
     ])
 }
@@ -382,6 +399,7 @@ mod tests {
             "structural_edges",
             "api_routes",
             "data_models",
+            "symbol_centrality",
         ];
 
         for table in &expected_tables {
@@ -1177,5 +1195,83 @@ mod tests {
             )
             .unwrap();
         assert_eq!(file_path, "src/models/user.rs");
+    }
+
+    #[test]
+    fn test_insert_and_query_symbol_centrality() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let migrations = get_migrations();
+        migrations.to_latest(&mut conn).unwrap();
+
+        // Insert a project_files row (FK prerequisite)
+        conn.execute(
+            "INSERT INTO project_files (file_path, language, content_hash, file_size, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            ("src/lib.rs", "Rust", "hash_sc", 512, "2026-05-01T00:00:00Z"),
+        ).unwrap();
+        let file_id = conn.last_insert_rowid();
+
+        // Insert a project_symbols row (FK prerequisite)
+        conn.execute(
+            "INSERT INTO project_symbols (file_id, qualified_name, symbol_name, symbol_kind, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            (file_id, "crate::my_func", "my_func", "Function", "2026-05-01T00:00:00Z"),
+        ).unwrap();
+        let symbol_id = conn.last_insert_rowid();
+
+        // Insert a symbol_centrality row
+        conn.execute(
+            "INSERT INTO symbol_centrality (symbol_id, file_id, entrypoints_reachable, betweenness, last_computed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            (symbol_id, file_id, 3i64, 0.42_f64, "2026-05-01T12:00:00Z"),
+        ).unwrap();
+
+        // Query back and verify
+        let (entrypoints_reachable, betweenness, last_computed_at): (i64, f64, String) = conn
+            .query_row(
+                "SELECT entrypoints_reachable, betweenness, last_computed_at FROM symbol_centrality WHERE symbol_id = ?1",
+                [symbol_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(entrypoints_reachable, 3);
+        assert!((betweenness - 0.42).abs() < f64::EPSILON);
+        assert_eq!(last_computed_at, "2026-05-01T12:00:00Z");
+
+        // Verify FK join works — get file_path through the relationship
+        let (file_path,): (String,) = conn
+            .query_row(
+                "SELECT pf.file_path FROM symbol_centrality sc JOIN project_files pf ON sc.file_id = pf.id WHERE sc.symbol_id = ?1",
+                [symbol_id],
+                |row| Ok((row.get(0)?,)),
+            )
+            .unwrap();
+        assert_eq!(file_path, "src/lib.rs");
+
+        // Verify default value for betweenness
+        conn.execute(
+            "INSERT INTO project_symbols (file_id, qualified_name, symbol_name, symbol_kind, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            (file_id, "crate::other_func", "other_func", "Function", "2026-05-01T00:00:00Z"),
+        ).unwrap();
+        let other_symbol_id = conn.last_insert_rowid();
+
+        conn.execute(
+            "INSERT INTO symbol_centrality (symbol_id, file_id, entrypoints_reachable, last_computed_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            (other_symbol_id, file_id, 1i64, "2026-05-01T12:00:00Z"),
+        ).unwrap();
+
+        let betweenness_default: f64 = conn
+            .query_row(
+                "SELECT betweenness FROM symbol_centrality WHERE symbol_id = ?1",
+                [other_symbol_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(
+            (betweenness_default - 0.0).abs() < f64::EPSILON,
+            "betweenness should default to 0.0"
+        );
     }
 }

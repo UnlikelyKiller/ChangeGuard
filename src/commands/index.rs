@@ -5,6 +5,7 @@ use std::env;
 use crate::index::project_index::ProjectIndexer;
 use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
+use tracing::info;
 
 fn get_repo_root() -> Result<Utf8PathBuf> {
     let current_dir = env::current_dir().into_diagnostic()?;
@@ -22,7 +23,12 @@ fn get_layout() -> Result<Layout> {
     Ok(Layout::new(root))
 }
 
-pub fn execute_index(incremental: bool, check: bool, json: bool) -> Result<()> {
+pub fn execute_index(
+    incremental: bool,
+    check: bool,
+    json: bool,
+    analyze_graph: bool,
+) -> Result<()> {
     let layout = get_layout()?;
     let storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
     let repo_path = layout.root.clone();
@@ -75,6 +81,18 @@ pub fn execute_index(incremental: bool, check: bool, json: bool) -> Result<()> {
     // Extract data models
     let dm_stats = indexer.extract_data_models()?;
 
+    // Compute centrality if requested
+    let cent_stats = if analyze_graph {
+        indexer.compute_centrality()?
+    } else {
+        info!("Centrality computation skipped (use --analyze-graph to enable).");
+        crate::index::centrality::CentralityStats {
+            entry_points_count: 0,
+            symbols_computed: 0,
+            max_reachable: 0,
+        }
+    };
+
     if json {
         let mut output = serde_json::to_value(&stats).into_diagnostic()?;
         let doc_obj = serde_json::to_value(&doc_stats).into_diagnostic()?;
@@ -111,6 +129,14 @@ pub fn execute_index(incremental: bool, check: bool, json: bool) -> Result<()> {
         if let (Some(map), Some(dm)) = (output.as_object_mut(), dm_obj.as_object()) {
             for (k, v) in dm {
                 map.insert(format!("dm_{}", k), v.clone());
+            }
+        }
+        if analyze_graph {
+            let cent_obj = serde_json::to_value(&cent_stats).into_diagnostic()?;
+            if let (Some(map), Some(cent)) = (output.as_object_mut(), cent_obj.as_object()) {
+                for (k, v) in cent {
+                    map.insert(format!("cent_{}", k), v.clone());
+                }
             }
         }
         println!(
@@ -194,6 +220,13 @@ pub fn execute_index(incremental: bool, check: bool, json: bool) -> Result<()> {
         println!("Data Models:");
         println!("  Total models:   {}", dm_stats.total_models);
         println!("  Files processed: {}", dm_stats.files_processed);
+        if analyze_graph {
+            println!();
+            println!("Centrality:");
+            println!("  Entry points:   {}", cent_stats.entry_points_count);
+            println!("  Symbols computed: {}", cent_stats.symbols_computed);
+            println!("  Max reachable:  {}", cent_stats.max_reachable);
+        }
     }
 
     Ok(())

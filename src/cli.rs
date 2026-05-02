@@ -95,6 +95,9 @@ pub enum Commands {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+        /// Compute symbol centrality from the call graph (entrypoints_reachable)
+        #[arg(long)]
+        analyze_graph: bool,
     },
     /// Identify high-risk hotspots in the codebase
     Hotspots {
@@ -116,6 +119,9 @@ pub enum Commands {
         /// Enable full history traversal (default is first-parent only)
         #[arg(long)]
         all_parents: bool,
+        /// Include centrality data (requires prior `index --analyze-graph`)
+        #[arg(long)]
+        centrality: bool,
     },
     /// Manage federated intelligence across multiple repositories
     Federate {
@@ -364,7 +370,8 @@ pub fn run() -> Result<()> {
             incremental,
             check,
             json,
-        } => crate::commands::index::execute_index(incremental, check, json),
+            analyze_graph,
+        } => crate::commands::index::execute_index(incremental, check, json, analyze_graph),
         Commands::Hotspots {
             limit,
             commits,
@@ -372,6 +379,7 @@ pub fn run() -> Result<()> {
             dir,
             lang,
             all_parents,
+            centrality,
         } => crate::commands::hotspots::execute_hotspots(
             limit,
             commits,
@@ -379,6 +387,7 @@ pub fn run() -> Result<()> {
             dir,
             lang,
             all_parents,
+            centrality,
         ),
         Commands::Federate { command } => match command {
             FederateCommands::Export => crate::commands::federate::execute_federate_export(),
