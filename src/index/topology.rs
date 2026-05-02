@@ -19,10 +19,22 @@ const INFRA_PATTERNS: &[&str] = &[
     "docker",
 ];
 const DOC_PATTERNS: &[&str] = &["docs", "doc", "documentation"];
-const GENERATED_PATTERNS: &[&str] = &["dist", "build", "out", "output", ".generated", "__generated__"];
+const GENERATED_PATTERNS: &[&str] = &[
+    "dist",
+    "build",
+    "out",
+    "output",
+    ".generated",
+    "__generated__",
+];
 const VENDOR_PATTERNS: &[&str] = &["vendor", "third_party", "thirdparty", "external", "deps"];
-const BUILD_ARTIFACT_PATTERNS: &[&str] =
-    &["target", "node_modules", ".gradle", ".cache", ".cargo/registry"];
+const BUILD_ARTIFACT_PATTERNS: &[&str] = &[
+    "target",
+    "node_modules",
+    ".gradle",
+    ".cache",
+    ".cargo/registry",
+];
 
 const SOURCE_EXTENSIONS: &[&str] = &["rs", "ts", "tsx", "js", "jsx", "py", "go", "java"];
 const TEST_PATTERNS_FILE: &[&str] = &["_test.", "_spec.", "test_", "spec_", "_test_", "_spec_"];
@@ -166,13 +178,19 @@ pub fn classify_by_content(files: &[&str]) -> Option<(DirectoryRole, f64)> {
     let total = files.len() as f64;
     let test_count = files.iter().filter(|f| is_test_file(f)).count() as f64;
     // Source files exclude test files to avoid misclassifying test dirs as Source
-    let source_count = files.iter().filter(|f| is_source_file(f) && !is_test_file(f)).count() as f64;
+    let source_count = files
+        .iter()
+        .filter(|f| is_source_file(f) && !is_test_file(f))
+        .count() as f64;
     let config_count = files.iter().filter(|f| is_config_file(f)).count() as f64;
     let doc_count = files.iter().filter(|f| is_doc_file(f)).count() as f64;
 
-    let has_infra = files
-        .iter()
-        .any(|f| f.ends_with("Dockerfile") || f.contains(".github/") || f.ends_with(".yml") && f.contains("workflow") || f.contains("ci.yml"));
+    let has_infra = files.iter().any(|f| {
+        f.ends_with("Dockerfile")
+            || f.contains(".github/")
+            || f.ends_with(".yml") && f.contains("workflow")
+            || f.contains("ci.yml")
+    });
 
     // Check infrastructure indicators first
     if has_infra {
@@ -280,10 +298,7 @@ mod tests {
 
     #[test]
     fn test_classify_source_path() {
-        assert_eq!(
-            classify_by_path("src").unwrap().0,
-            DirectoryRole::Source
-        );
+        assert_eq!(classify_by_path("src").unwrap().0, DirectoryRole::Source);
         assert_eq!(
             classify_by_path("src/utils").unwrap().0,
             DirectoryRole::Source
@@ -295,10 +310,7 @@ mod tests {
     fn test_classify_test_path() {
         assert_eq!(classify_by_path("tests").unwrap().0, DirectoryRole::Test);
         assert_eq!(classify_by_path("test").unwrap().0, DirectoryRole::Test);
-        assert_eq!(
-            classify_by_path("spec").unwrap().0,
-            DirectoryRole::Test
-        );
+        assert_eq!(classify_by_path("spec").unwrap().0, DirectoryRole::Test);
     }
 
     #[test]
@@ -316,10 +328,7 @@ mod tests {
     #[test]
     fn test_classify_special_cases() {
         // src/test is Test, not Source
-        assert_eq!(
-            classify_by_path("src/test").unwrap().0,
-            DirectoryRole::Test
-        );
+        assert_eq!(classify_by_path("src/test").unwrap().0, DirectoryRole::Test);
         assert_eq!(
             classify_by_path("src/tests").unwrap().0,
             DirectoryRole::Test

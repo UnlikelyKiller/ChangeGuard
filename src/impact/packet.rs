@@ -91,6 +91,31 @@ impl Ord for TemporalCoupling {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct StructuralCoupling {
+    pub caller_symbol_name: String,
+    pub callee_symbol_name: String,
+    pub caller_file_path: PathBuf,
+}
+
+impl Eq for StructuralCoupling {}
+
+impl PartialOrd for StructuralCoupling {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for StructuralCoupling {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.caller_symbol_name
+            .cmp(&other.caller_symbol_name)
+            .then_with(|| self.callee_symbol_name.cmp(&other.callee_symbol_name))
+            .then_with(|| self.caller_file_path.cmp(&other.caller_file_path))
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct Hotspot {
     pub path: PathBuf,
     pub score: f32,
@@ -127,6 +152,7 @@ pub struct ImpactPacket {
     pub risk_reasons: Vec<String>,
     pub changes: Vec<ChangedFile>,
     pub temporal_couplings: Vec<TemporalCoupling>,
+    pub structural_couplings: Vec<StructuralCoupling>,
     pub hotspots: Vec<Hotspot>,
     pub verification_results: Vec<VerificationResult>,
 }
@@ -142,6 +168,7 @@ impl Default for ImpactPacket {
             risk_reasons: vec!["Provisional baseline risk".to_string()],
             changes: Vec::new(),
             temporal_couplings: Vec::new(),
+            structural_couplings: Vec::new(),
             hotspots: Vec::new(),
             verification_results: Vec::new(),
         }
@@ -177,6 +204,7 @@ impl ImpactPacket {
         }
         self.changes.sort_unstable();
         self.temporal_couplings.sort_unstable();
+        self.structural_couplings.sort_unstable();
         self.hotspots.sort_unstable_by(|a, b| {
             b.score
                 .partial_cmp(&a.score)
@@ -226,8 +254,9 @@ impl ImpactPacket {
             return true;
         }
 
-        // Phase 3: Strip temporal couplings
+        // Phase 3: Strip temporal and structural couplings
         self.temporal_couplings.clear();
+        self.structural_couplings.clear();
 
         let current_json = serde_json::to_string(self).unwrap_or_default();
         if current_json.len() <= target_chars {

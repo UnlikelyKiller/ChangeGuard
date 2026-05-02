@@ -1,7 +1,9 @@
 use crate::git::repo::{get_head_info, open_repo};
 use crate::git::status::get_repo_status;
 use crate::git::{ChangeType, RepoSnapshot};
-use crate::impact::packet::{AnalysisStatus, ChangedFile, FileAnalysisStatus, ImpactPacket};
+use crate::impact::packet::{
+    AnalysisStatus, ChangedFile, FileAnalysisStatus, ImpactPacket, StructuralCoupling,
+};
 use crate::index::languages::{Language, parse_symbols};
 use crate::index::metrics::ComplexityScorer;
 use crate::index::references::extract_import_export;
@@ -136,6 +138,12 @@ pub fn execute_impact(all_parents: bool, summary: bool) -> Result<()> {
                     tracing::warn!("Hotspot analysis failed: {e}");
                     println!("{} Hotspot analysis skipped: {e}", warning_marker());
                 }
+            }
+
+            // Structural Coupling Analysis (from call graph)
+            if let Err(e) = populate_structural_couplings(&mut packet, &storage) {
+                tracing::warn!("Structural coupling analysis failed: {e}");
+                // Graceful degradation: packet.structural_couplings stays empty
             }
 
             if let Err(e) = storage.save_packet(&packet) {
@@ -405,6 +413,120 @@ fn analyze_changed_file(relative_path: &Path, base_dir: &Path) -> AnalysisOutcom
         analysis_status: status,
         analysis_warnings: warnings,
     }
+}
+
+fn populate_structural_couplings(
+    packet: &mut ImpactPacket,
+    storage: &crate::state::storage::StorageManager,
+) -> miette::Result<()> {
+    use rusqlite::OptionalExtension;
+
+    let conn = storage.get_connection();
+
+    // Check if structural_edges table exists and has data
+    let has_edges: Option<i64> = match conn
+        .query_row("SELECT count(*) FROM structural_edges LIMIT 1", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .optional()
+    {
+        Ok(Some(count)) if count > 0 => Some(count),
+        Ok(_) => None,           // Table exists but is empty
+        Err(_) => return Ok(()), // Table doesn't exist — graceful skip
+    };
+
+    if has_edges.is_none() {
+        return Ok(()); // Table empty or doesn't exist — graceful skip
+    }
+
+    // Collect changed symbol names
+    let changed_symbols: Vec<String> = packet
+        .changes
+        .iter()
+        .filter_map(|f| f.symbols.as_ref())
+        .flat_map(|symbols| symbols.iter().map(|s| s.name.clone()))
+        .collect();
+
+    if changed_symbols.is_empty() {
+        return Ok(());
+    }
+
+    // For each changed symbol, query structural_edges for callers
+    for callee_name in &changed_symbols {
+        // Query resolved edges: callee_symbol_id matches a project_symbols row
+        let mut stmt = conn
+            .prepare(
+                "SELECT se.caller_symbol_id, ps_caller.symbol_name, pf_caller.file_path
+                 FROM structural_edges se
+                 JOIN project_symbols ps_caller ON se.caller_symbol_id = ps_caller.id
+                 JOIN project_files pf_caller ON se.caller_file_id = pf_caller.id
+                 JOIN project_symbols ps_callee ON se.callee_symbol_id = ps_callee.id
+                 WHERE ps_callee.symbol_name = ?1
+                 AND se.callee_symbol_id IS NOT NULL",
+            )
+            .map_err(|e| miette::miette!("Failed to prepare structural edges query: {e}"))?;
+
+        let rows: Vec<(String, String)> = stmt
+            .query_map([callee_name], |row| {
+                Ok((
+                    row.get::<_, String>(1)?, // caller symbol name
+                    row.get::<_, String>(2)?, // caller file path
+                ))
+            })
+            .map_err(|e| miette::miette!("Failed to query structural edges: {e}"))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| miette::miette!("Failed to collect structural edges rows: {e}"))?;
+
+        for (caller_name, caller_file) in rows {
+            packet.structural_couplings.push(StructuralCoupling {
+                caller_symbol_name: caller_name,
+                callee_symbol_name: callee_name.clone(),
+                caller_file_path: std::path::PathBuf::from(caller_file),
+            });
+        }
+
+        drop(stmt);
+
+        // Query unresolved edges: unresolved_callee matches the symbol name
+        let mut unresolved_stmt = conn
+            .prepare(
+                "SELECT se.caller_symbol_id, ps_caller.symbol_name, pf_caller.file_path
+                 FROM structural_edges se
+                 JOIN project_symbols ps_caller ON se.caller_symbol_id = ps_caller.id
+                 JOIN project_files pf_caller ON se.caller_file_id = pf_caller.id
+                 WHERE se.unresolved_callee = ?1",
+            )
+            .map_err(|e| miette::miette!("Failed to prepare unresolved edges query: {e}"))?;
+
+        let unresolved_rows: Vec<(String, String)> = unresolved_stmt
+            .query_map([callee_name], |row| {
+                Ok((
+                    row.get::<_, String>(1)?, // caller symbol name
+                    row.get::<_, String>(2)?, // caller file path
+                ))
+            })
+            .map_err(|e| miette::miette!("Failed to query unresolved edges: {e}"))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| miette::miette!("Failed to collect unresolved edges rows: {e}"))?;
+
+        for (caller_name, caller_file) in unresolved_rows {
+            // Avoid duplicates with resolved edges
+            let already_exists = packet.structural_couplings.iter().any(|c| {
+                c.caller_symbol_name == caller_name
+                    && c.callee_symbol_name == *callee_name
+                    && c.caller_file_path == caller_file
+            });
+            if !already_exists {
+                packet.structural_couplings.push(StructuralCoupling {
+                    caller_symbol_name: caller_name,
+                    callee_symbol_name: callee_name.clone(),
+                    caller_file_path: std::path::PathBuf::from(caller_file),
+                });
+            }
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

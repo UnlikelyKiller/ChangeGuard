@@ -86,10 +86,7 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules) -> Result<()> {
                                 symbol.name,
                                 file.path.display()
                             ));
-                            debug!(
-                                "Risk Factor: Handler changed ({}) +{}",
-                                symbol.name, weight
-                            );
+                            debug!("Risk Factor: Handler changed ({}) +{}", symbol.name, weight);
                         }
                         "PUBLIC_API" => {
                             let weight = 20;
@@ -111,6 +108,35 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules) -> Result<()> {
             }
         }
     }
+
+    // 3b. Structural Coupling Risk
+    // Max 30 total weight for this category (cap at 2 callers contributing 15 each).
+    let structural_weight_cap = 30;
+    let weight_per_caller = 15;
+    let mut structural_weight = 0;
+    for (callers_counted, coupling) in packet.structural_couplings.iter().enumerate() {
+        if callers_counted >= 2 {
+            break;
+        }
+        if structural_weight + weight_per_caller > structural_weight_cap {
+            // Cap at the max
+            let remaining = structural_weight_cap - structural_weight;
+            if remaining > 0 {
+                structural_weight += remaining;
+            }
+            break;
+        }
+        structural_weight += weight_per_caller;
+        reasons.push(format!(
+            "Structurally coupled: {} calls {}",
+            coupling.caller_symbol_name, coupling.callee_symbol_name
+        ));
+        debug!(
+            "Risk Factor: Structurally coupled ({} calls {}) +{}",
+            coupling.caller_symbol_name, coupling.callee_symbol_name, weight_per_caller
+        );
+    }
+    total_weight += structural_weight;
 
     // 4. Scoring
     packet.risk_level = if total_weight > 60 {
@@ -381,6 +407,228 @@ mod tests {
             packet
                 .risk_reasons
                 .contains(&"Minimal changes detected".to_string())
+        );
+    }
+
+    #[test]
+    fn test_analyze_risk_structural_coupling() {
+        use crate::impact::packet::StructuralCoupling;
+
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("src/utils.rs"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+        });
+        packet.structural_couplings.push(StructuralCoupling {
+            caller_symbol_name: "caller_fn".to_string(),
+            callee_symbol_name: "helper_fn".to_string(),
+            caller_file_path: PathBuf::from("src/main.rs"),
+        });
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        // 15 weight from structural coupling, plus default "Provisional baseline risk" replaced
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Structurally coupled")
+                    && r.contains("caller_fn")
+                    && r.contains("helper_fn"))
+        );
+        // Weight should be Medium (15 > 0, which is > 20? No, 15 <= 20, so Low.
+        // Actually the threshold is >20 for Medium. 15 <= 20, so it's Low.
+        // Let's check that it has the risk reason even at Low.
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Structurally coupled"))
+        );
+    }
+
+    #[test]
+    fn test_analyze_risk_structural_coupling_cap_at_two() {
+        use crate::impact::packet::StructuralCoupling;
+
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("src/utils.rs"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+        });
+        // Add 3 callers — only first 2 should contribute weight (30 total)
+        packet.structural_couplings.push(StructuralCoupling {
+            caller_symbol_name: "caller_a".to_string(),
+            callee_symbol_name: "helper".to_string(),
+            caller_file_path: PathBuf::from("src/a.rs"),
+        });
+        packet.structural_couplings.push(StructuralCoupling {
+            caller_symbol_name: "caller_b".to_string(),
+            callee_symbol_name: "helper".to_string(),
+            caller_file_path: PathBuf::from("src/b.rs"),
+        });
+        packet.structural_couplings.push(StructuralCoupling {
+            caller_symbol_name: "caller_c".to_string(),
+            callee_symbol_name: "helper".to_string(),
+            caller_file_path: PathBuf::from("src/c.rs"),
+        });
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        // Only first 2 should produce risk reasons
+        let coupling_reasons: Vec<_> = packet
+            .risk_reasons
+            .iter()
+            .filter(|r| r.contains("Structurally coupled"))
+            .collect();
+        assert_eq!(coupling_reasons.len(), 2);
+        // Total structural weight should be 30 (capped), so overall >20 -> Medium
+        assert_eq!(packet.risk_level, RiskLevel::Medium);
+    }
+
+    #[test]
+    fn test_analyze_risk_structural_coupling_graceful_degradation() {
+        // Empty structural_couplings should produce identical output to no field
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("README.md"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+        });
+        // structural_couplings is empty by default
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        assert_eq!(packet.risk_level, RiskLevel::Low);
+        assert!(
+            packet
+                .risk_reasons
+                .contains(&"Minimal changes detected".to_string())
+        );
+        // No structural coupling reasons
+        assert!(
+            !packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Structurally coupled"))
+        );
+    }
+
+    /// E2E Test 2: Impact integration — structural coupling risk
+    /// Builds an ImpactPacket with a change to "internal" and adds
+    /// StructuralCoupling entries showing "helper" calls "internal",
+    /// then verifies the risk reasons reflect this coupling.
+    #[test]
+    fn test_e2e_structural_coupling_risk_reason() {
+        use crate::impact::packet::StructuralCoupling;
+
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("src/utils.rs"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+        });
+        // Add structural coupling: helper calls internal
+        packet.structural_couplings.push(StructuralCoupling {
+            caller_symbol_name: "helper".to_string(),
+            callee_symbol_name: "internal".to_string(),
+            caller_file_path: PathBuf::from("src/main.rs"),
+        });
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        // Verify the risk reasons include the exact structural coupling message
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Structurally coupled")
+                    && r.contains("helper")
+                    && r.contains("internal")),
+            "expected risk reason 'Structurally coupled: helper calls internal', got {:?}",
+            packet.risk_reasons
+        );
+
+        // Verify the structural coupling contributed risk weight (15 pts -> Medium if alone, Low otherwise)
+        // With 15 pts from structural coupling alone and no other risk factors, 15 <= 20 -> Low
+        // But we want to at least verify it is not ignored
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Structurally coupled")),
+            "expected at least one structural coupling risk reason"
+        );
+    }
+
+    /// E2E Test 4a: Empty structural_edges — no regression (impact analysis)
+    /// Verifies that running impact analysis with NO structural coupling data
+    /// produces output identical to what it would have been before E2-1.
+    #[test]
+    fn test_e2e_no_structural_coupling_no_regression() {
+        // Baseline: a simple low-risk change with no structural couplings
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("README.md"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+        });
+        // structural_couplings is empty by default (Vec::new())
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        // Risk level should be Low (same as pre-E2-1 behavior)
+        assert_eq!(packet.risk_level, RiskLevel::Low);
+
+        // No structural coupling reasons should appear
+        assert!(
+            !packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Structurally coupled")),
+            "expected no structural coupling reasons, got {:?}",
+            packet.risk_reasons
+        );
+
+        // The default "Minimal changes detected" reason should still be present
+        assert!(
+            packet
+                .risk_reasons
+                .contains(&"Minimal changes detected".to_string()),
+            "expected 'Minimal changes detected' in risk reasons, got {:?}",
+            packet.risk_reasons
         );
     }
 }

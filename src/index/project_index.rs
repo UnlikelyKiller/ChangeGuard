@@ -1,9 +1,13 @@
+use crate::index::call_graph::{CallGraphBuilder, CallGraphStats};
 use crate::index::docs::{DocIndexStats, parse_markdown};
-use crate::index::entrypoint::{detect_rust_entrypoints, detect_typescript_entrypoints, detect_python_entrypoints, EntrypointKind, EntrypointStats};
+use crate::index::entrypoint::{
+    EntrypointKind, EntrypointStats, detect_python_entrypoints, detect_rust_entrypoints,
+    detect_typescript_entrypoints,
+};
 use crate::index::languages::{Language, parse_symbols};
 use crate::index::metrics::{ComplexityScorer, NativeComplexityScorer};
 use crate::index::symbols::Symbol;
-use crate::index::topology::{classify_directory, DirectoryRole, TopologyIndexStats};
+use crate::index::topology::{DirectoryRole, TopologyIndexStats, classify_directory};
 use crate::state::storage::StorageManager;
 use camino::{Utf8Path, Utf8PathBuf};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -857,9 +861,7 @@ impl ProjectIndexer {
         // Group files by directory
         let mut dir_files: HashMap<String, Vec<String>> = HashMap::new();
         for file_path in &all_files {
-            let relative = file_path
-                .strip_prefix(&self.repo_path)
-                .unwrap_or(file_path);
+            let relative = file_path.strip_prefix(&self.repo_path).unwrap_or(file_path);
             if let Some(parent) = relative.parent() {
                 let dir = parent.to_string().replace('\\', "/");
                 if !dir.is_empty() {
@@ -957,10 +959,12 @@ impl ProjectIndexer {
         // Group symbols by file_id
         let mut file_symbols: HashMap<i64, Vec<(i64, String, String, bool)>> = HashMap::new();
         for (id, file_id, name, kind, is_public) in &rows {
-            file_symbols
-                .entry(*file_id)
-                .or_default()
-                .push((*id, name.clone(), kind.clone(), *is_public));
+            file_symbols.entry(*file_id).or_default().push((
+                *id,
+                name.clone(),
+                kind.clone(),
+                *is_public,
+            ));
         }
 
         // Get file paths for each file_id
@@ -1044,9 +1048,7 @@ impl ProjectIndexer {
                 Some("TypeScript") | Some("JavaScript") => {
                     detect_typescript_entrypoints(&content, &sym_vec, &file_path)
                 }
-                Some("Python") => {
-                    detect_python_entrypoints(&content, &sym_vec, &file_path)
-                }
+                Some("Python") => detect_python_entrypoints(&content, &sym_vec, &file_path),
                 _ => continue,
             };
 
@@ -1087,6 +1089,32 @@ impl ProjectIndexer {
         );
 
         Ok(stats)
+    }
+
+    /// Build the call graph: extract call edges from source files and resolve callees.
+    pub fn build_call_graph(&self) -> Result<CallGraphStats> {
+        let builder =
+            CallGraphBuilder::new(&self.storage, self.repo_path.as_std_path().to_path_buf());
+        builder.build()
+    }
+
+    /// Delete structural edges where the caller belongs to any of the given file IDs.
+    /// Used for incremental re-indexing of specific files.
+    pub fn clear_structural_edges(&self, file_ids: &[i64]) -> Result<()> {
+        if file_ids.is_empty() {
+            return Ok(());
+        }
+
+        let conn = self.storage.get_connection();
+        // Delete one by one to avoid dynamic Params trait issues with rusqlite
+        for &fid in file_ids {
+            conn.execute(
+                "DELETE FROM structural_edges WHERE caller_file_id = ?1",
+                [fid],
+            )
+            .into_diagnostic()?;
+        }
+        Ok(())
     }
 }
 

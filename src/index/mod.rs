@@ -1,3 +1,4 @@
+pub mod call_graph;
 pub mod docs;
 pub mod entrypoint;
 pub mod languages;

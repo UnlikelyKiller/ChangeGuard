@@ -275,6 +275,28 @@ pub fn get_migrations() -> Migrations<'static> {
             CREATE INDEX IF NOT EXISTS idx_project_topology_role
                 ON project_topology(role);",
         ),
+        M::up(
+            "CREATE TABLE IF NOT EXISTS structural_edges (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                caller_symbol_id    INTEGER NOT NULL REFERENCES project_symbols(id),
+                caller_file_id      INTEGER NOT NULL REFERENCES project_files(id),
+                callee_symbol_id    INTEGER REFERENCES project_symbols(id),
+                callee_file_id      INTEGER REFERENCES project_files(id),
+                unresolved_callee   TEXT,
+                call_kind           TEXT NOT NULL DEFAULT 'DIRECT',
+                resolution_status   TEXT NOT NULL DEFAULT 'RESOLVED',
+                confidence          REAL NOT NULL DEFAULT 1.0,
+                evidence            TEXT,
+                FOREIGN KEY (caller_symbol_id) REFERENCES project_symbols(id),
+                FOREIGN KEY (caller_file_id) REFERENCES project_files(id),
+                FOREIGN KEY (callee_symbol_id) REFERENCES project_symbols(id),
+                FOREIGN KEY (callee_file_id) REFERENCES project_files(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_structural_edges_caller
+                ON structural_edges(caller_symbol_id, caller_file_id);
+            CREATE INDEX IF NOT EXISTS idx_structural_edges_callee
+                ON structural_edges(callee_symbol_id, callee_file_id);",
+        ),
     ])
 }
 
@@ -318,6 +340,7 @@ mod tests {
             "project_symbols",
             "project_docs",
             "project_topology",
+            "structural_edges",
         ];
 
         for table in &expected_tables {
@@ -616,13 +639,27 @@ mod tests {
         conn.execute(
             "INSERT INTO project_topology (dir_path, role, confidence, evidence, last_indexed_at)
              VALUES (?1, ?2, ?3, ?4, ?5)",
-            ("src", "SOURCE", 1.0_f64, "Path pattern match: src", "2026-05-01T00:00:00Z"),
-        ).unwrap();
+            (
+                "src",
+                "SOURCE",
+                1.0_f64,
+                "Path pattern match: src",
+                "2026-05-01T00:00:00Z",
+            ),
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO project_topology (dir_path, role, confidence, evidence, last_indexed_at)
              VALUES (?1, ?2, ?3, ?4, ?5)",
-            ("tests", "TEST", 1.0_f64, "Path pattern match: tests", "2026-05-01T00:00:00Z"),
-        ).unwrap();
+            (
+                "tests",
+                "TEST",
+                1.0_f64,
+                "Path pattern match: tests",
+                "2026-05-01T00:00:00Z",
+            ),
+        )
+        .unwrap();
 
         // Query back
         let (role, confidence): (String, f64) = conn
@@ -701,7 +738,11 @@ mod tests {
                     |row| row.get(0),
                 )
                 .unwrap();
-            assert_eq!(count, 1, "Expected 1 symbol with entrypoint_kind = {}", kind);
+            assert_eq!(
+                count, 1,
+                "Expected 1 symbol with entrypoint_kind = {}",
+                kind
+            );
         }
 
         // Verify default is INTERNAL
@@ -730,6 +771,119 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(default_kind, "INTERNAL", "entrypoint_kind should default to INTERNAL");
+        assert_eq!(
+            default_kind, "INTERNAL",
+            "entrypoint_kind should default to INTERNAL"
+        );
+    }
+
+    #[test]
+    fn test_insert_and_query_structural_edges() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let migrations = get_migrations();
+        migrations.to_latest(&mut conn).unwrap();
+
+        // Insert two project_files rows (caller and callee files)
+        conn.execute(
+            "INSERT INTO project_files (file_path, language, content_hash, file_size, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            ("src/caller.rs", "Rust", "hash_caller", 512, "2026-05-01T00:00:00Z"),
+        ).unwrap();
+        let caller_file_id = conn.last_insert_rowid();
+
+        conn.execute(
+            "INSERT INTO project_files (file_path, language, content_hash, file_size, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            ("src/callee.rs", "Rust", "hash_callee", 256, "2026-05-01T00:00:00Z"),
+        ).unwrap();
+        let callee_file_id = conn.last_insert_rowid();
+
+        // Insert two project_symbols rows (caller and callee)
+        conn.execute(
+            "INSERT INTO project_symbols (file_id, qualified_name, symbol_name, symbol_kind, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            (caller_file_id, "crate::caller_fn", "caller_fn", "Function", "2026-05-01T00:00:00Z"),
+        ).unwrap();
+        let caller_symbol_id = conn.last_insert_rowid();
+
+        conn.execute(
+            "INSERT INTO project_symbols (file_id, qualified_name, symbol_name, symbol_kind, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            (callee_file_id, "crate::callee_fn", "callee_fn", "Function", "2026-05-01T00:00:00Z"),
+        ).unwrap();
+        let callee_symbol_id = conn.last_insert_rowid();
+
+        // Insert DIRECT edge (resolution_status='RESOLVED', confidence=1.0)
+        conn.execute(
+            "INSERT INTO structural_edges
+                (caller_symbol_id, caller_file_id, callee_symbol_id, callee_file_id, call_kind, resolution_status, confidence)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            (caller_symbol_id, caller_file_id, callee_symbol_id, callee_file_id, "DIRECT", "RESOLVED", 1.0_f64),
+        ).unwrap();
+
+        // Insert METHOD_CALL edge (resolution_status='RESOLVED', confidence=1.0)
+        conn.execute(
+            "INSERT INTO structural_edges
+                (caller_symbol_id, caller_file_id, callee_symbol_id, callee_file_id, call_kind, resolution_status, confidence)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            (caller_symbol_id, caller_file_id, callee_symbol_id, callee_file_id, "METHOD_CALL", "RESOLVED", 1.0_f64),
+        ).unwrap();
+
+        // Insert DYNAMIC edge (resolution_status='UNRESOLVED', callee_symbol_id=NULL, unresolved_callee='some_func', confidence=0.5)
+        conn.execute(
+            "INSERT INTO structural_edges
+                (caller_symbol_id, caller_file_id, callee_symbol_id, callee_file_id, unresolved_callee, call_kind, resolution_status, confidence)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            (caller_symbol_id, caller_file_id, None::<i64>, None::<i64>, "some_func", "DYNAMIC", "UNRESOLVED", 0.5_f64),
+        ).unwrap();
+
+        // Verify all three rows can be queried back
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM structural_edges", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 3, "Should have 3 structural edges");
+
+        // Verify DIRECT edge
+        let (call_kind, resolution_status, confidence): (String, String, f64) = conn
+            .query_row(
+                "SELECT call_kind, resolution_status, confidence FROM structural_edges WHERE call_kind = 'DIRECT'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(call_kind, "DIRECT");
+        assert_eq!(resolution_status, "RESOLVED");
+        assert!((confidence - 1.0).abs() < f64::EPSILON);
+
+        // Verify METHOD_CALL edge
+        let (call_kind, resolution_status, confidence): (String, String, f64) = conn
+            .query_row(
+                "SELECT call_kind, resolution_status, confidence FROM structural_edges WHERE call_kind = 'METHOD_CALL'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(call_kind, "METHOD_CALL");
+        assert_eq!(resolution_status, "RESOLVED");
+        assert!((confidence - 1.0).abs() < f64::EPSILON);
+
+        // Verify DYNAMIC edge with unresolved callee
+        let (call_kind, resolution_status, unresolved_callee, callee_sym_id, confidence): (String, String, String, Option<i64>, f64) = conn
+            .query_row(
+                "SELECT call_kind, resolution_status, unresolved_callee, callee_symbol_id, confidence FROM structural_edges WHERE call_kind = 'DYNAMIC'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            )
+            .unwrap();
+        assert_eq!(call_kind, "DYNAMIC");
+        assert_eq!(resolution_status, "UNRESOLVED");
+        assert_eq!(unresolved_callee, "some_func");
+        assert!(
+            callee_sym_id.is_none(),
+            "callee_symbol_id should be NULL for unresolved edge"
+        );
+        assert!((confidence - 0.5).abs() < f64::EPSILON);
     }
 }
