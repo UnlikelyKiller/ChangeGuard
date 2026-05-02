@@ -416,7 +416,7 @@ mod tests {
                     qualified_name: None,
                     byte_start: None,
                     byte_end: None,
-                entrypoint_kind: None,
+                    entrypoint_kind: None,
                 },
                 Symbol {
                     name: "Config".to_string(),
@@ -429,7 +429,7 @@ mod tests {
                     qualified_name: None,
                     byte_start: None,
                     byte_end: None,
-                entrypoint_kind: None,
+                    entrypoint_kind: None,
                 },
             ]),
             imports: None,

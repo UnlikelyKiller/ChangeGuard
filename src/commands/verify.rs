@@ -112,10 +112,18 @@ pub fn execute_verify(
                                 }
                             };
 
-                            crate::verify::predict::Predictor::predict_with_current_imports(
+                            let call_data = match storage.as_ref() {
+                                Some(storage) => {
+                                    fetch_structural_call_data(p, storage, &mut current_warnings)
+                                }
+                                None => crate::verify::predict::StructuralCallData::default(),
+                            };
+
+                            crate::verify::predict::Predictor::predict_with_structural_calls(
                                 p,
                                 &history,
                                 &current_imports,
+                                &call_data,
                             )
                         }
                         None => crate::verify::predict::PredictionResult::default(),
@@ -281,6 +289,95 @@ fn recompute_temporal_if_missing(
             warnings.push(warning);
         }
     }
+}
+
+fn fetch_structural_call_data(
+    packet: &crate::impact::packet::ImpactPacket,
+    storage: &StorageManager,
+    _warnings: &mut Vec<String>,
+) -> crate::verify::predict::StructuralCallData {
+    use rusqlite::OptionalExtension;
+
+    let conn = storage.get_connection();
+
+    // Check if structural_edges table exists and has data
+    let has_edges: Option<i64> = match conn
+        .query_row("SELECT count(*) FROM structural_edges LIMIT 1", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .optional()
+    {
+        Ok(Some(count)) if count > 0 => Some(count),
+        Ok(_) => None, // Table exists but is empty
+        Err(_) => {
+            // Table doesn't exist — graceful degradation
+            return crate::verify::predict::StructuralCallData::default();
+        }
+    };
+
+    if has_edges.is_none() {
+        return crate::verify::predict::StructuralCallData::default();
+    }
+
+    // Collect changed symbol names
+    let changed_symbols: Vec<String> = packet
+        .changes
+        .iter()
+        .filter_map(|f| f.symbols.as_ref())
+        .flat_map(|symbols| symbols.iter().map(|s| s.name.clone()))
+        .collect();
+
+    if changed_symbols.is_empty() {
+        return crate::verify::predict::StructuralCallData::default();
+    }
+
+    let mut callers = Vec::new();
+
+    for callee_name in &changed_symbols {
+        // Resolved edges
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT pf_caller.file_path, ps_caller.symbol_name
+             FROM structural_edges se
+             JOIN project_symbols ps_caller ON se.caller_symbol_id = ps_caller.id
+             JOIN project_files pf_caller ON se.caller_file_id = pf_caller.id
+             JOIN project_symbols ps_callee ON se.callee_symbol_id = ps_callee.id
+             WHERE ps_callee.symbol_name = ?1
+             AND se.callee_symbol_id IS NOT NULL",
+        ) && let Ok(rows) = stmt.query_map([callee_name], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        }) {
+            for row in rows.flatten() {
+                callers.push((PathBuf::from(row.0), row.1, callee_name.clone()));
+            }
+        }
+
+        // Unresolved edges
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT pf_caller.file_path, ps_caller.symbol_name
+             FROM structural_edges se
+             JOIN project_symbols ps_caller ON se.caller_symbol_id = ps_caller.id
+             JOIN project_files pf_caller ON se.caller_file_id = pf_caller.id
+             WHERE se.unresolved_callee = ?1",
+        ) && let Ok(rows) = stmt.query_map([callee_name], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        }) {
+            for row in rows.flatten() {
+                // Deduplicate with resolved edges
+                let already_exists = callers.iter().any(|(path, sym, callee)| {
+                    path == row.0.as_str() && sym == &row.1 && callee == callee_name
+                });
+                if !already_exists {
+                    callers.push((PathBuf::from(&row.0), row.1, callee_name.clone()));
+                }
+            }
+        }
+    }
+
+    if callers.is_empty() {
+        return crate::verify::predict::StructuralCallData::default();
+    }
+
+    crate::verify::predict::StructuralCallData { callers }
 }
 
 fn scan_current_imports(

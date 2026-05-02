@@ -15,7 +15,6 @@ pub enum EntrypointKind {
     Internal,
 }
 
-
 impl EntrypointKind {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -71,9 +70,10 @@ pub fn detect_rust_entrypoints(content: &str, symbols: &[Symbol]) -> Vec<SymbolC
         }
 
         // Check for #[test] or #[tokio::test]
-        if attr_map.get(&symbol.name).is_some_and(|attrs| {
-            attrs.iter().any(|a| a == "test" || a == "tokio::test")
-        }) {
+        if attr_map
+            .get(&symbol.name)
+            .is_some_and(|attrs| attrs.iter().any(|a| a == "test" || a == "tokio::test"))
+        {
             results.push(SymbolClassification {
                 symbol_name: symbol.name.clone(),
                 kind: EntrypointKind::Test,
@@ -85,7 +85,9 @@ pub fn detect_rust_entrypoints(content: &str, symbols: &[Symbol]) -> Vec<SymbolC
 
         // Check for #[tokio::main] or #[actix_web::main] — these are ENTRYPOINT
         if attr_map.get(&symbol.name).is_some_and(|attrs| {
-            attrs.iter().any(|a| a == "tokio::main" || a == "actix_web::main")
+            attrs
+                .iter()
+                .any(|a| a == "tokio::main" || a == "actix_web::main")
         }) {
             results.push(SymbolClassification {
                 symbol_name: symbol.name.clone(),
@@ -98,9 +100,10 @@ pub fn detect_rust_entrypoints(content: &str, symbols: &[Symbol]) -> Vec<SymbolC
         }
 
         // Check for HTTP handler attributes
-        if attr_map.get(&symbol.name).is_some_and(|attrs| {
-            attrs.iter().any(|a| is_rust_handler_attr(a))
-        }) {
+        if attr_map
+            .get(&symbol.name)
+            .is_some_and(|attrs| attrs.iter().any(|a| is_rust_handler_attr(a)))
+        {
             results.push(SymbolClassification {
                 symbol_name: symbol.name.clone(),
                 kind: EntrypointKind::Handler,
@@ -150,8 +153,8 @@ pub fn detect_rust_entrypoints(content: &str, symbols: &[Symbol]) -> Vec<SymbolC
     if !has_entrypoint && !has_handler {
         for r in &mut results {
             if r.kind == EntrypointKind::PublicApi {
-                r.evidence = "no entry point found; all public symbols labeled as public API"
-                    .to_string();
+                r.evidence =
+                    "no entry point found; all public symbols labeled as public API".to_string();
             }
         }
     }
@@ -238,9 +241,10 @@ fn parse_rust_attributes(content: &str) -> HashMap<String, Vec<String>> {
                     for j in 0..child.child_count() {
                         let fc = child.child(j as u32).unwrap();
                         if fc.kind() == "identifier"
-                            && let Ok(name) = fc.utf8_text(content.as_bytes()) {
-                                attr_map.insert(name.to_string(), pending_attrs.clone());
-                            }
+                            && let Ok(name) = fc.utf8_text(content.as_bytes())
+                        {
+                            attr_map.insert(name.to_string(), pending_attrs.clone());
+                        }
                     }
                     pending_attrs.clear();
                     // Also recurse into function body for nested functions
@@ -272,7 +276,10 @@ fn parse_rust_attributes(content: &str) -> HashMap<String, Vec<String>> {
 fn extract_rust_attr_path(attr_text: &str) -> String {
     // #[attr_path(args)] or #[attr::path(args)]
     // Strip #[ and trailing ] and any parenthesized arguments
-    let trimmed = attr_text.trim().trim_start_matches("#[").trim_end_matches(']');
+    let trimmed = attr_text
+        .trim()
+        .trim_start_matches("#[")
+        .trim_end_matches(']');
 
     // Find the ( and take everything before it
     if let Some(paren_pos) = trimmed.find('(') {
@@ -295,10 +302,24 @@ pub fn detect_typescript_entrypoints(
         .unwrap_or(file_path)
         .to_string();
 
-    let entry_file_names = ["main.ts", "main.tsx", "main.js", "main.jsx",
-                           "index.ts", "index.tsx", "index.js", "index.jsx",
-                           "server.ts", "server.tsx", "server.js", "server.jsx",
-                           "app.ts", "app.tsx", "app.js", "app.jsx"];
+    let entry_file_names = [
+        "main.ts",
+        "main.tsx",
+        "main.js",
+        "main.jsx",
+        "index.ts",
+        "index.tsx",
+        "index.js",
+        "index.jsx",
+        "server.ts",
+        "server.tsx",
+        "server.js",
+        "server.jsx",
+        "app.ts",
+        "app.tsx",
+        "app.js",
+        "app.jsx",
+    ];
     let is_entry_file = entry_file_names.contains(&file_name.as_str());
 
     // Parse route handlers and test blocks via tree-sitter
@@ -416,13 +437,25 @@ fn parse_typescript_handlers(content: &str) -> HashMap<String, String> {
             let name = query.capture_names()[capture.index as usize];
             match name {
                 "obj" => {
-                    obj_name = capture.node.utf8_text(content.as_bytes()).unwrap_or("").to_string();
+                    obj_name = capture
+                        .node
+                        .utf8_text(content.as_bytes())
+                        .unwrap_or("")
+                        .to_string();
                 }
                 "method" => {
-                    method_name = capture.node.utf8_text(content.as_bytes()).unwrap_or("").to_string();
+                    method_name = capture
+                        .node
+                        .utf8_text(content.as_bytes())
+                        .unwrap_or("")
+                        .to_string();
                 }
                 "route" => {
-                    route = capture.node.utf8_text(content.as_bytes()).unwrap_or("").to_string();
+                    route = capture
+                        .node
+                        .utf8_text(content.as_bytes())
+                        .unwrap_or("")
+                        .to_string();
                 }
                 _ => {}
             }
@@ -499,8 +532,7 @@ pub fn detect_python_entrypoints(
         .unwrap_or(file_path)
         .to_string();
 
-    let has_main_block = content.contains("__name__")
-        && content.contains("__main__");
+    let has_main_block = content.contains("__name__") && content.contains("__main__");
     let has_fastapi = content.contains("FastAPI(") || content.contains("FastAPI (");
     let has_flask = content.contains("Flask(") || content.contains("Flask (");
 
@@ -521,15 +553,16 @@ pub fn detect_python_entrypoints(
 
         // Check for handler decorators
         if let Some(decorators) = decorator_map.get(&symbol.name)
-            && decorators.iter().any(|d| is_python_handler_decorator(d)) {
-                results.push(SymbolClassification {
-                    symbol_name: symbol.name.clone(),
-                    kind: EntrypointKind::Handler,
-                    confidence: 0.9,
-                    evidence: "HTTP handler decorator".to_string(),
-                });
-                continue;
-            }
+            && decorators.iter().any(|d| is_python_handler_decorator(d))
+        {
+            results.push(SymbolClassification {
+                symbol_name: symbol.name.clone(),
+                kind: EntrypointKind::Handler,
+                confidence: 0.9,
+                evidence: "HTTP handler decorator".to_string(),
+            });
+            continue;
+        }
 
         // Check for entrypoint indicators
         if has_main_block && symbol.name == "main" {
@@ -599,9 +632,7 @@ pub fn detect_python_entrypoints(
     }
 
     // If FastAPI/Flask app exists but no handlers found, mark public functions as public API
-    if (has_fastapi || has_flask)
-        && !results.iter().any(|r| r.kind == EntrypointKind::Handler)
-    {
+    if (has_fastapi || has_flask) && !results.iter().any(|r| r.kind == EntrypointKind::Handler) {
         for r in &mut results {
             if r.kind == EntrypointKind::PublicApi {
                 r.evidence = if has_fastapi {
@@ -689,10 +720,7 @@ fn parse_python_decorators(content: &str) -> HashMap<String, Vec<String>> {
         }
 
         if !func_name.is_empty() && !decorator.is_empty() {
-            dec_map
-                .entry(func_name)
-                .or_default()
-                .push(decorator);
+            dec_map.entry(func_name).or_default().push(decorator);
         }
     }
 
@@ -714,8 +742,7 @@ mod tests {
             serde_json::to_string(&EntrypointKind::PublicApi).unwrap(),
             "\"PUBLIC_API\""
         );
-        let deserialized: EntrypointKind =
-            serde_json::from_str("\"HANDLER\"").unwrap();
+        let deserialized: EntrypointKind = serde_json::from_str("\"HANDLER\"").unwrap();
         assert_eq!(deserialized, EntrypointKind::Handler);
     }
 
@@ -742,10 +769,14 @@ fn main() {
             qualified_name: None,
             byte_start: None,
             byte_end: None,
-        entrypoint_kind: None,
+            entrypoint_kind: None,
         }];
         let results = detect_rust_entrypoints(content, &symbols);
-        assert!(results.iter().any(|r| r.kind == EntrypointKind::Entrypoint && r.symbol_name == "main"));
+        assert!(
+            results
+                .iter()
+                .any(|r| r.kind == EntrypointKind::Entrypoint && r.symbol_name == "main")
+        );
     }
 
     #[test]
@@ -767,10 +798,14 @@ fn test_foo() {
             qualified_name: None,
             byte_start: None,
             byte_end: None,
-        entrypoint_kind: None,
+            entrypoint_kind: None,
         }];
         let results = detect_rust_entrypoints(content, &symbols);
-        assert!(results.iter().any(|r| r.kind == EntrypointKind::Test && r.symbol_name == "test_foo"));
+        assert!(
+            results
+                .iter()
+                .any(|r| r.kind == EntrypointKind::Test && r.symbol_name == "test_foo")
+        );
     }
 
     #[test]
@@ -791,7 +826,7 @@ pub fn another_pub() -> bool { true }
                 qualified_name: None,
                 byte_start: None,
                 byte_end: None,
-        entrypoint_kind: None,
+                entrypoint_kind: None,
             },
             Symbol {
                 name: "another_pub".to_string(),
@@ -804,7 +839,7 @@ pub fn another_pub() -> bool { true }
                 qualified_name: None,
                 byte_start: None,
                 byte_end: None,
-        entrypoint_kind: None,
+                entrypoint_kind: None,
             },
         ];
         let results = detect_rust_entrypoints(content, &symbols);
@@ -813,7 +848,11 @@ pub fn another_pub() -> bool { true }
             .filter(|r| r.kind == EntrypointKind::PublicApi)
             .collect();
         assert_eq!(pub_apis.len(), 2);
-        assert!(pub_apis.iter().any(|r| r.evidence.contains("no entry point found")));
+        assert!(
+            pub_apis
+                .iter()
+                .any(|r| r.evidence.contains("no entry point found"))
+        );
     }
 
     #[test]
@@ -835,10 +874,14 @@ async fn get_users() -> HttpResponse {
             qualified_name: None,
             byte_start: None,
             byte_end: None,
-        entrypoint_kind: None,
+            entrypoint_kind: None,
         }];
         let results = detect_rust_entrypoints(content, &symbols);
-        assert!(results.iter().any(|r| r.kind == EntrypointKind::Handler && r.symbol_name == "get_users"));
+        assert!(
+            results
+                .iter()
+                .any(|r| r.kind == EntrypointKind::Handler && r.symbol_name == "get_users")
+        );
     }
 
     #[test]
@@ -857,7 +900,7 @@ export function handler() { }
             qualified_name: None,
             byte_start: None,
             byte_end: None,
-        entrypoint_kind: None,
+            entrypoint_kind: None,
         }];
         let results = detect_typescript_entrypoints(content, &symbols, "server.ts");
         assert!(results.iter().any(|r| r.kind == EntrypointKind::Entrypoint));
@@ -883,7 +926,7 @@ if __name__ == "__main__":
             qualified_name: None,
             byte_start: None,
             byte_end: None,
-        entrypoint_kind: None,
+            entrypoint_kind: None,
         }];
         let results = detect_python_entrypoints(content, &symbols, "main.py");
         assert!(results.iter().any(|r| r.kind == EntrypointKind::Entrypoint));
@@ -902,17 +945,24 @@ if __name__ == "__main__":
             qualified_name: None,
             byte_start: None,
             byte_end: None,
-        entrypoint_kind: None,
+            entrypoint_kind: None,
         }];
         let results = detect_python_entrypoints("", &symbols, "test_module.py");
-        assert!(results.iter().any(|r| r.kind == EntrypointKind::Test && r.symbol_name == "test_something"));
+        assert!(
+            results
+                .iter()
+                .any(|r| r.kind == EntrypointKind::Test && r.symbol_name == "test_something")
+        );
     }
 
     #[test]
     fn test_extract_rust_attr_path() {
         assert_eq!(extract_rust_attr_path("#[test]"), "test");
         assert_eq!(extract_rust_attr_path("#[tokio::test]"), "tokio::test");
-        assert_eq!(extract_rust_attr_path("#[actix_web::get(\"/users\")]"), "actix_web::get");
+        assert_eq!(
+            extract_rust_attr_path("#[actix_web::get(\"/users\")]"),
+            "actix_web::get"
+        );
         assert_eq!(extract_rust_attr_path("#[derive(Debug)]"), "derive");
     }
 }

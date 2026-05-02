@@ -43,6 +43,7 @@ fn test_narrative_golden_prompt() {
             file_b: PathBuf::from("src/auth/session.rs"),
             score: 0.85,
         }],
+        structural_couplings: vec![],
         hotspots: vec![Hotspot {
             path: PathBuf::from("src/core/logic.rs"),
             score: 12.5,
