@@ -1,5 +1,6 @@
 use crate::index::call_graph::{CallGraphBuilder, CallGraphStats};
 use crate::index::centrality::{CentralityComputer, CentralityStats};
+use crate::index::ci_gates::CIGateExtractor;
 use crate::index::data_models::{DataModelExtractor, DataModelStats};
 use crate::index::docs::{DocIndexStats, parse_markdown};
 use crate::index::entrypoint::{
@@ -1168,6 +1169,13 @@ impl ProjectIndexer {
     pub fn extract_test_mappings(&self) -> Result<TestMappingStats> {
         let mapper = TestMapper::new(&self.storage, self.repo_path.as_std_path().to_path_buf());
         mapper.extract()
+    }
+
+    /// Extract CI/CD workflow gates from CI config files.
+    pub fn extract_ci_gates(&self) -> Result<crate::index::ci_gates::CIGateStats> {
+        let extractor =
+            CIGateExtractor::new(&self.storage, self.repo_path.as_std_path().to_path_buf());
+        extractor.extract()
     }
 }
 

@@ -33,6 +33,7 @@ fn test_risk_analysis_integration() {
         analysis_warnings: Vec::new(),
         api_routes: Vec::new(),
         data_models: Vec::new(),
+        ci_gates: Vec::new(),
     });
 
     let rules = Rules::default();
@@ -65,6 +66,7 @@ fn test_risk_analysis_high_volume() {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
     }
 
@@ -110,6 +112,7 @@ fn test_risk_analysis_protected_and_public() {
         analysis_warnings: Vec::new(),
         api_routes: Vec::new(),
         data_models: Vec::new(),
+        ci_gates: Vec::new(),
     });
 
     packet.changes.push(ChangedFile {
@@ -136,6 +139,7 @@ fn test_risk_analysis_protected_and_public() {
         analysis_warnings: Vec::new(),
         api_routes: Vec::new(),
         data_models: Vec::new(),
+        ci_gates: Vec::new(),
     });
 
     let rules = Rules {

@@ -245,6 +245,7 @@ fn packet_for_file(file_path: &Path) -> ImpactPacket {
         analysis_warnings: vec!["analysis warning".to_string()],
         api_routes: vec![],
         data_models: vec![],
+        ci_gates: vec![],
     });
     packet.temporal_couplings.push(TemporalCoupling {
         file_a: PathBuf::from(file_path),

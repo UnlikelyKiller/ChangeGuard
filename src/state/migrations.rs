@@ -390,6 +390,20 @@ pub fn get_migrations() -> Migrations<'static> {
             CREATE INDEX IF NOT EXISTS idx_test_mapping_tested ON test_mapping(tested_symbol_id);
             CREATE INDEX IF NOT EXISTS idx_test_mapping_test ON test_mapping(test_symbol_id);",
         ),
+        M::up(
+            "CREATE TABLE IF NOT EXISTS ci_gates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ci_file_id INTEGER NOT NULL REFERENCES project_files(id),
+                platform TEXT NOT NULL,
+                job_name TEXT NOT NULL,
+                trigger TEXT,
+                steps TEXT,
+                last_indexed_at TEXT NOT NULL,
+                FOREIGN KEY (ci_file_id) REFERENCES project_files(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_ci_gates_file ON ci_gates(ci_file_id);
+            CREATE INDEX IF NOT EXISTS idx_ci_gates_platform ON ci_gates(platform);",
+        ),
     ])
 }
 
@@ -439,6 +453,7 @@ mod tests {
             "symbol_centrality",
             "observability_patterns",
             "test_mapping",
+            "ci_gates",
         ];
 
         for table in &expected_tables {
@@ -1548,5 +1563,100 @@ mod tests {
             .unwrap();
         assert_eq!(test_file, "tests/test_foo.rs");
         assert_eq!(tested_name, "foo");
+    }
+
+    #[test]
+    fn test_insert_and_query_ci_gates() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let migrations = get_migrations();
+        migrations.to_latest(&mut conn).unwrap();
+
+        // Insert a project_files row first (FK prerequisite)
+        conn.execute(
+            "INSERT INTO project_files (file_path, language, content_hash, file_size, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            (".github/workflows/ci.yml", "YAML", "hash_ci", 512, "2026-05-01T00:00:00Z"),
+        ).unwrap();
+        let ci_file_id = conn.last_insert_rowid();
+
+        // Insert a GitHub Actions CI gate
+        conn.execute(
+            "INSERT INTO ci_gates (ci_file_id, platform, job_name, trigger, steps, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            (
+                ci_file_id,
+                "github_actions",
+                "build",
+                "push",
+                "checkout, build, test",
+                "2026-05-01T00:00:00Z",
+            ),
+        )
+        .unwrap();
+
+        // Insert a GitLab CI gate
+        conn.execute(
+            "INSERT INTO ci_gates (ci_file_id, platform, job_name, trigger, steps, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            (
+                ci_file_id,
+                "gitlab_ci",
+                "deploy",
+                "merge_request",
+                "build, deploy",
+                "2026-05-01T00:00:00Z",
+            ),
+        )
+        .unwrap();
+
+        // Verify both rows exist
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM ci_gates", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 2, "Should have 2 ci_gates rows");
+
+        // Verify GitHub Actions gate
+        let (platform, job_name, trigger): (String, String, Option<String>) = conn
+            .query_row(
+                "SELECT platform, job_name, trigger FROM ci_gates WHERE platform = 'github_actions'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(platform, "github_actions");
+        assert_eq!(job_name, "build");
+        assert_eq!(trigger, Some("push".to_string()));
+
+        // Verify GitLab CI gate
+        let (platform, job_name, trigger): (String, String, Option<String>) = conn
+            .query_row(
+                "SELECT platform, job_name, trigger FROM ci_gates WHERE platform = 'gitlab_ci'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(platform, "gitlab_ci");
+        assert_eq!(job_name, "deploy");
+        assert_eq!(trigger, Some("merge_request".to_string()));
+
+        // Verify FK join works — get file_path through the relationship
+        let (file_path,): (String,) = conn
+            .query_row(
+                "SELECT pf.file_path FROM ci_gates cg JOIN project_files pf ON cg.ci_file_id = pf.id WHERE cg.platform = 'github_actions'",
+                [],
+                |row| Ok((row.get(0)?,)),
+            )
+            .unwrap();
+        assert_eq!(file_path, ".github/workflows/ci.yml");
+
+        // Verify index on platform works
+        let platform_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM ci_gates WHERE platform = 'github_actions'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(platform_count, 1);
     }
 }

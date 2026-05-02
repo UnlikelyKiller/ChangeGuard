@@ -170,6 +170,7 @@ mod tests {
             analysis_warnings: vec!["Old API used".to_string()],
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
 
         packet.temporal_couplings.push(TemporalCoupling {

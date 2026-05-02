@@ -365,6 +365,35 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules) -> Result<()> {
     }
     total_weight += telemetry_total;
 
+    // 3k. CI/CD Change Risk
+    // Each changed file with CI gates generates a risk reason.
+    // Weight: +30 per file, capped at 30 total for this category.
+    let ci_weight_per_file = 30;
+    let ci_weight_cap = 30;
+    let mut ci_total = 0;
+    for file in &packet.changes {
+        if !file.ci_gates.is_empty() {
+            let gate = &file.ci_gates[0];
+            let trigger_info = gate
+                .trigger
+                .as_ref()
+                .map(|t| format!(" (trigger: {})", t))
+                .unwrap_or_default();
+            reasons.push(format!(
+                "CI/CD change: {} ({}){}",
+                gate.job_name, gate.platform, trigger_info
+            ));
+            debug!(
+                "Risk Factor: CI/CD change ({} in {}) +{}",
+                gate.job_name, gate.platform, ci_weight_per_file
+            );
+            if ci_total + ci_weight_per_file <= ci_weight_cap {
+                ci_total += ci_weight_per_file;
+            }
+        }
+    }
+    total_weight += ci_total;
+
     // 4. Scoring
     packet.risk_level = if total_weight > 60 {
         RiskLevel::High
@@ -403,6 +432,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
 
         let rules = Rules::default();
@@ -430,6 +460,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
 
         let rules = Rules {
@@ -476,6 +507,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
 
         let rules = Rules::default();
@@ -518,6 +550,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
 
         let rules = Rules::default();
@@ -559,6 +592,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
 
         let rules = Rules::default();
@@ -600,6 +634,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
 
         let rules = Rules::default();
@@ -638,6 +673,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
 
         let rules = Rules::default();
@@ -667,6 +703,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
         packet.structural_couplings.push(StructuralCoupling {
             caller_symbol_name: "caller_fn".to_string(),
@@ -713,6 +750,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
         // Add 3 callers — only first 2 should contribute weight (30 total)
         packet.structural_couplings.push(StructuralCoupling {
@@ -760,6 +798,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
         // structural_couplings is empty by default
 
@@ -801,6 +840,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
         // Add structural coupling: helper calls internal
         packet.structural_couplings.push(StructuralCoupling {
@@ -854,6 +894,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
         // structural_couplings is empty by default (Vec::new())
 
@@ -909,6 +950,7 @@ mod tests {
                 evidence: None,
             }],
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
 
         let rules = Rules::default();
@@ -944,6 +986,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
 
         let rules = Rules::default();
@@ -989,6 +1032,7 @@ mod tests {
                 confidence: 1.0,
                 evidence: None,
             }],
+            ci_gates: Vec::new(),
         });
 
         let rules = Rules::default();
@@ -1028,6 +1072,7 @@ mod tests {
                 confidence: 0.6,
                 evidence: None,
             }],
+            ci_gates: Vec::new(),
         });
 
         let rules = Rules::default();
@@ -1061,6 +1106,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
 
         let rules = Rules::default();
@@ -1096,6 +1142,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
         packet.centrality_risks.push(CentralityRisk {
             symbol_name: "process_request".to_string(),
@@ -1143,6 +1190,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
         packet.centrality_risks.push(CentralityRisk {
             symbol_name: "helper".to_string(),
@@ -1176,6 +1224,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
         // No centrality_risks — default empty
 
@@ -1207,6 +1256,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
         packet.logging_coverage_delta.push(CoverageDelta {
             file_path: "src/service.rs".to_string(),
@@ -1249,6 +1299,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
         // logging_coverage_delta is empty by default
 
@@ -1287,6 +1338,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
         packet.error_handling_delta.push(CoverageDelta {
             file_path: "src/handler.rs".to_string(),
@@ -1329,6 +1381,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
         // error_handling_delta is empty by default
 
@@ -1367,6 +1420,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
         packet.error_handling_delta.push(CoverageDelta {
             file_path: "deploy/config.yaml".to_string(),
@@ -1409,6 +1463,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
         packet.error_handling_delta.push(CoverageDelta {
             file_path: "deploy/config.yaml".to_string(),
@@ -1448,6 +1503,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
         packet.telemetry_coverage_delta.push(CoverageDelta {
             file_path: "src/api/handler.rs".to_string(),
@@ -1492,6 +1548,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
         // telemetry_coverage_delta is empty by default
 
@@ -1532,6 +1589,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
         // Symbol with test coverage
         packet.test_coverage.push(TestCoverage {
@@ -1575,6 +1633,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
         // Symbol without test coverage
         packet.test_coverage.push(TestCoverage {
@@ -1613,6 +1672,7 @@ mod tests {
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
             data_models: Vec::new(),
+            ci_gates: Vec::new(),
         });
         // test_coverage is empty by default
 
@@ -1634,5 +1694,147 @@ mod tests {
             "expected 'Minimal changes detected' in risk reasons, got {:?}",
             packet.risk_reasons
         );
+    }
+
+    #[test]
+    fn test_analyze_risk_ci_gates() {
+        use crate::impact::packet::CIGate;
+
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from(".github/workflows/ci.yml"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+            ci_gates: vec![CIGate {
+                platform: "github_actions".to_string(),
+                job_name: "build".to_string(),
+                trigger: Some("push".to_string()),
+            }],
+        });
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        // Should have a CI/CD change risk reason
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("CI/CD change")
+                    && r.contains("build")
+                    && r.contains("github_actions")),
+            "expected 'CI/CD change: build (github_actions)' in risk reasons, got {:?}",
+            packet.risk_reasons
+        );
+        // 30 weight from CI/CD change -> Medium (>20)
+        assert_eq!(packet.risk_level, RiskLevel::Medium);
+    }
+
+    #[test]
+    fn test_analyze_risk_ci_gates_empty_no_regression() {
+        // Empty ci_gates should produce no CI/CD risk reasons
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("README.md"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+            ci_gates: Vec::new(),
+        });
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        assert_eq!(packet.risk_level, RiskLevel::Low);
+        assert!(
+            !packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("CI/CD change")),
+            "expected no CI/CD change risk reasons when empty, got {:?}",
+            packet.risk_reasons
+        );
+        assert!(
+            packet
+                .risk_reasons
+                .contains(&"Minimal changes detected".to_string()),
+            "expected 'Minimal changes detected' in risk reasons, got {:?}",
+            packet.risk_reasons
+        );
+    }
+
+    #[test]
+    fn test_analyze_risk_ci_gates_weight_cap() {
+        use crate::impact::packet::CIGate;
+
+        // Two files with CI gates should still only contribute 30 weight total (cap)
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from(".github/workflows/ci.yml"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+            ci_gates: vec![CIGate {
+                platform: "github_actions".to_string(),
+                job_name: "build".to_string(),
+                trigger: Some("push".to_string()),
+            }],
+        });
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from(".gitlab-ci.yml"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+            ci_gates: vec![CIGate {
+                platform: "gitlab_ci".to_string(),
+                job_name: "test".to_string(),
+                trigger: Some("merge_request".to_string()),
+            }],
+        });
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        // Both files should have CI/CD change reasons
+        let ci_reasons: Vec<_> = packet
+            .risk_reasons
+            .iter()
+            .filter(|r| r.contains("CI/CD change"))
+            .collect();
+        assert_eq!(
+            ci_reasons.len(),
+            2,
+            "expected 2 CI/CD change reasons, got {:?}",
+            ci_reasons
+        );
+
+        // 30 weight cap means total weight is 30, not 60
+        // 30 > 20 -> Medium
+        assert_eq!(packet.risk_level, RiskLevel::Medium);
     }
 }
