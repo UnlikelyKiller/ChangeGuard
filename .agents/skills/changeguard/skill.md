@@ -17,7 +17,9 @@ Avoid triggering ChangeGuard for:
 
 ## Availability & Fallback
 
-Check if ChangeGuard is initialized in the current repository:
+ChangeGuard is a **native binary** — invoke it as `changeguard <command>`. Do **not** use `npx changeguard`, `cargo run --`, `./changeguard`, or any other wrapper.
+
+Check if it is available and initialized in the current repository:
 
 ```bash
 changeguard doctor

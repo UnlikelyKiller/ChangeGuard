@@ -210,6 +210,11 @@ pub fn print_doctor_report(
         );
     }
 
+    println!(
+        "\n{}",
+        "Invocation: use `changeguard <command>` — not npx, cargo run, or any wrapper."
+            .dimmed()
+    );
     println!("\n{}", "Doctor check complete.".bright_cyan());
 }
 
