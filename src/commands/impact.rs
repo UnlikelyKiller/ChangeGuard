@@ -172,6 +172,18 @@ pub fn execute_impact(all_parents: bool, summary: bool) -> Result<()> {
                 // Graceful degradation: packet.logging_coverage_delta stays empty
             }
 
+            // Populate error handling coverage delta from observability_patterns
+            if let Err(e) = populate_error_handling_delta(&mut packet, &storage, &current_dir) {
+                tracing::warn!("Error handling delta population failed: {e}");
+                // Graceful degradation: packet.error_handling_delta stays empty
+            }
+
+            // Populate infrastructure directories from project_topology
+            if let Err(e) = populate_infrastructure_dirs(&mut packet, &storage) {
+                tracing::warn!("Infrastructure dirs population failed: {e}");
+                // Graceful degradation: packet.infrastructure_dirs stays empty
+            }
+
             if let Err(e) = storage.save_packet(&packet) {
                 tracing::warn!("SQLite save failed: {e}");
                 println!(
@@ -792,6 +804,143 @@ fn populate_centrality_risks(packet: &mut ImpactPacket, storage: &StorageManager
     }
 
     packet.centrality_risks = risks;
+    Ok(())
+}
+
+/// Populate infrastructure_dirs from the project_topology table.
+/// Queries directories with role = 'INFRASTRUCTURE' and stores them in the packet
+/// for use during risk analysis.
+fn populate_infrastructure_dirs(packet: &mut ImpactPacket, storage: &StorageManager) -> Result<()> {
+    use rusqlite::OptionalExtension;
+
+    let conn = storage.get_connection();
+
+    // Gracefully skip if project_topology table doesn't exist or is empty
+    let has_topology: Option<i64> = match conn
+        .query_row("SELECT count(*) FROM project_topology LIMIT 1", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .optional()
+    {
+        Ok(Some(count)) if count > 0 => Some(count),
+        Ok(_) => return Ok(()),  // Table exists but empty — graceful skip
+        Err(_) => return Ok(()), // Table doesn't exist — graceful skip
+    };
+
+    if has_topology.is_none() {
+        return Ok(());
+    }
+
+    // Query directories with role = 'INFRASTRUCTURE'
+    let mut stmt = conn
+        .prepare("SELECT dir_path FROM project_topology WHERE role = 'INFRASTRUCTURE'")
+        .map_err(|e| miette::miette!("Failed to prepare project_topology query: {e}"))?;
+
+    let dirs: Vec<String> = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|e| miette::miette!("Failed to query project_topology: {e}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| miette::miette!("Failed to collect project_topology rows: {e}"))?;
+
+    packet.infrastructure_dirs = dirs;
+    Ok(())
+}
+
+/// Populate error handling coverage delta by comparing observability_patterns stored in
+/// the index (previous count) against the current file content (current count).
+/// For each changed file where error handling patterns have decreased, a CoverageDelta
+/// entry is added to the packet.
+fn populate_error_handling_delta(
+    packet: &mut ImpactPacket,
+    storage: &StorageManager,
+    base_dir: &Path,
+) -> Result<()> {
+    use crate::impact::packet::CoverageDelta;
+    use rusqlite::OptionalExtension;
+
+    let conn = storage.get_connection();
+
+    // Gracefully skip if observability_patterns table doesn't exist or is empty
+    let has_patterns: Option<i64> = match conn
+        .query_row(
+            "SELECT count(*) FROM observability_patterns LIMIT 1",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+    {
+        Ok(Some(count)) if count > 0 => Some(count),
+        Ok(_) => return Ok(()),  // Table exists but empty — graceful skip
+        Err(_) => return Ok(()), // Table doesn't exist — graceful skip
+    };
+
+    if has_patterns.is_none() {
+        return Ok(());
+    }
+
+    // Build a path -> project_files.id lookup
+    let mut file_stmt = conn
+        .prepare("SELECT id, file_path FROM project_files WHERE parse_status != 'DELETED'")
+        .map_err(|e| miette::miette!("Failed to prepare project_files query: {e}"))?;
+
+    let file_rows: Vec<(i64, String)> = file_stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|e| miette::miette!("Failed to query project_files: {e}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| miette::miette!("Failed to collect project_files rows: {e}"))?;
+
+    drop(file_stmt);
+
+    let path_to_id: std::collections::HashMap<String, i64> =
+        file_rows.into_iter().map(|(id, path)| (path, id)).collect();
+
+    let mut deltas = Vec::new();
+
+    for change in &packet.changes {
+        let path_str = change.path.to_string_lossy().to_string();
+
+        if let Some(&file_id) = path_to_id.get(&path_str) {
+            // Count previous (stored) ERROR_HANDLE patterns for this file, excluding test patterns
+            let previous_count: i64 = conn
+                .query_row(
+                    "SELECT count(*) FROM observability_patterns WHERE file_id = ?1 AND pattern_kind = 'ERROR_HANDLE' AND in_test = 0",
+                    [file_id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap_or(0);
+
+            // Count current error handling patterns by reading the file content
+            let full_path = base_dir.join(&change.path);
+            let current_count = match fs::read_to_string(&full_path) {
+                Ok(content) => {
+                    match crate::index::languages::extract_error_handling(&change.path, &content) {
+                        Ok(patterns) => patterns.iter().filter(|p| !p.in_test).count() as i64,
+                        Err(_) => previous_count, // If extraction fails, assume no reduction
+                    }
+                }
+                Err(_) => previous_count, // If file can't be read, assume no reduction
+            };
+
+            if current_count < previous_count {
+                let delta = (previous_count - current_count) as usize;
+                deltas.push(CoverageDelta {
+                    file_path: path_str,
+                    pattern_kind: "ERROR_HANDLE".to_string(),
+                    previous_count: previous_count as usize,
+                    current_count: current_count as usize,
+                    message: format!(
+                        "Error handling reduced in {}: {} patterns removed",
+                        change.path.display(),
+                        delta
+                    ),
+                });
+            }
+        }
+    }
+
+    packet.error_handling_delta = deltas;
     Ok(())
 }
 

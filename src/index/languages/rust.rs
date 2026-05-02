@@ -1,6 +1,6 @@
 use crate::index::call_graph::{CallEdge, CallKind, ResolutionStatus};
 use crate::index::data_models::{ExtractedModel, ModelKind};
-use crate::index::observability::{LogLevel, LoggingPattern};
+use crate::index::observability::{ErrorHandlingPattern, LogLevel, LoggingPattern};
 use crate::index::routes::ExtractedRoute;
 use crate::index::symbols::{Symbol, SymbolKind};
 use miette::{IntoDiagnostic, Result};
@@ -750,6 +750,141 @@ fn is_in_rust_test(node: tree_sitter::Node, content: &str) -> bool {
     false
 }
 
+pub fn extract_error_handling(content: &str) -> Result<Vec<ErrorHandlingPattern>> {
+    let mut parser = Parser::new();
+    let language = tree_sitter_rust::LANGUAGE;
+    parser.set_language(&language.into()).into_diagnostic()?;
+
+    let tree = parser
+        .parse(content, None)
+        .ok_or_else(|| miette::miette!("Failed to parse Rust content"))?;
+
+    let mut patterns = Vec::new();
+    collect_rust_error_handling(tree.root_node(), content, &mut patterns);
+
+    // Cap at 1000 patterns per file
+    patterns.truncate(1000);
+    Ok(patterns)
+}
+
+fn collect_rust_error_handling(
+    node: tree_sitter::Node,
+    content: &str,
+    patterns: &mut Vec<ErrorHandlingPattern>,
+) {
+    let kind = node.kind();
+
+    match kind {
+        "match_expression" => {
+            // match expressions on Result/Option
+            let line_start = node.start_position().row as i32 + 1;
+            let in_test = is_in_rust_test(node, content);
+            patterns.push(ErrorHandlingPattern {
+                line_start,
+                level: Some(LogLevel::Info),
+                framework: "match_result".to_string(),
+                in_test,
+                confidence: if in_test { 0.7 } else { 1.0 },
+                evidence: "syntactic: match expression".to_string(),
+            });
+        }
+        "call_expression" => {
+            // Check for .unwrap() or .expect() calls
+            // In tree-sitter-rust, `x.unwrap()` is a call_expression where the callee
+            // is a method_call_expression or field_expression.
+            if let Some(callee) = node.child(0)
+                && (callee.kind() == "method_call_expression"
+                    || callee.kind() == "field_expression")
+            {
+                let method_name = extract_method_call_name_simple(callee, content);
+                if method_name == "unwrap" {
+                    let line_start = node.start_position().row as i32 + 1;
+                    let in_test = is_in_rust_test(node, content);
+                    patterns.push(ErrorHandlingPattern {
+                        line_start,
+                        level: Some(LogLevel::Error),
+                        framework: "unwrap".to_string(),
+                        in_test,
+                        confidence: if in_test { 0.7 } else { 1.0 },
+                        evidence: "syntactic: unwrap call".to_string(),
+                    });
+                } else if method_name == "expect" {
+                    let line_start = node.start_position().row as i32 + 1;
+                    let in_test = is_in_rust_test(node, content);
+                    patterns.push(ErrorHandlingPattern {
+                        line_start,
+                        level: Some(LogLevel::Warn),
+                        framework: "expect".to_string(),
+                        in_test,
+                        confidence: if in_test { 0.7 } else { 1.0 },
+                        evidence: "syntactic: expect call".to_string(),
+                    });
+                }
+            }
+        }
+        "try_expression" => {
+            // ? operator
+            let line_start = node.start_position().row as i32 + 1;
+            let in_test = is_in_rust_test(node, content);
+            patterns.push(ErrorHandlingPattern {
+                line_start,
+                level: Some(LogLevel::Info),
+                framework: "try_operator".to_string(),
+                in_test,
+                confidence: if in_test { 0.7 } else { 1.0 },
+                evidence: "syntactic: try operator".to_string(),
+            });
+        }
+        "macro_invocation" => {
+            // Check for anyhow! macro
+            let mut cursor = node.walk();
+            let children: Vec<tree_sitter::Node> = node.children(&mut cursor).collect();
+            if let Some(name_node) = children.first() {
+                let full_name = name_node
+                    .utf8_text(content.as_bytes())
+                    .unwrap_or("")
+                    .to_string();
+                let simple_name = full_name.rsplit("::").next().unwrap_or(&full_name);
+                if simple_name == "anyhow" {
+                    let line_start = node.start_position().row as i32 + 1;
+                    let in_test = is_in_rust_test(node, content);
+                    patterns.push(ErrorHandlingPattern {
+                        line_start,
+                        level: Some(LogLevel::Error),
+                        framework: "anyhow".to_string(),
+                        in_test,
+                        confidence: if in_test { 0.7 } else { 1.0 },
+                        evidence: "syntactic: anyhow macro".to_string(),
+                    });
+                }
+            }
+        }
+        "attribute_item" => {
+            // Check for #[derive(Error)] (thiserror)
+            let attr_text = node.utf8_text(content.as_bytes()).unwrap_or("");
+            if attr_text.contains("Error") && attr_text.contains("derive") {
+                let line_start = node.start_position().row as i32 + 1;
+                let in_test = is_in_rust_test(node, content);
+                patterns.push(ErrorHandlingPattern {
+                    line_start,
+                    level: Some(LogLevel::Info),
+                    framework: "thiserror".to_string(),
+                    in_test,
+                    confidence: if in_test { 0.7 } else { 1.0 },
+                    evidence: "syntactic: derive Error".to_string(),
+                });
+            }
+        }
+        _ => {}
+    }
+
+    // Recurse into children
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_rust_error_handling(child, content, patterns);
+    }
+}
+
 /// Check if a function_item node has a #[test] or #[tokio::test] attribute.
 fn has_test_attribute(func_node: tree_sitter::Node, content: &str) -> bool {
     if let Some(parent) = func_node.parent() {
@@ -1178,5 +1313,73 @@ mod tests {
             .find(|p| !p.in_test)
             .expect("should find a pattern not in test");
         assert!((normal_pattern.confidence - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_extract_error_handling_match_and_unwrap() {
+        let content = r#"
+fn handle_result() -> Result<i32, String> {
+    let val = some_operation()?;
+    match val {
+        Ok(x) => x,
+        Err(e) => 0,
+    }
+}
+
+fn risky() -> i32 {
+    some_operation().unwrap()
+}
+        "#;
+
+        let patterns = extract_error_handling(content).unwrap();
+        let match_pattern = patterns
+            .iter()
+            .find(|p| p.framework == "match_result")
+            .expect("should find match_result pattern");
+        assert_eq!(match_pattern.level, Some(LogLevel::Info));
+        assert!(!match_pattern.in_test);
+        assert_eq!(match_pattern.evidence, "syntactic: match expression");
+
+        let unwrap_pattern = patterns
+            .iter()
+            .find(|p| p.framework == "unwrap")
+            .expect("should find unwrap pattern");
+        assert_eq!(unwrap_pattern.level, Some(LogLevel::Error));
+        assert_eq!(unwrap_pattern.evidence, "syntactic: unwrap call");
+
+        let try_pattern = patterns
+            .iter()
+            .find(|p| p.framework == "try_operator")
+            .expect("should find try_operator pattern");
+        assert_eq!(try_pattern.level, Some(LogLevel::Info));
+        assert_eq!(try_pattern.evidence, "syntactic: try operator");
+    }
+
+    #[test]
+    fn test_extract_error_handling_in_test() {
+        let content = r#"
+            #[test]
+            fn test_error_handling() {
+                let result = some_fn().unwrap();
+                assert_eq!(result, 42);
+            }
+
+            fn normal_fn() -> Result<i32, Error> {
+                some_op()?;
+            }
+        "#;
+
+        let patterns = extract_error_handling(content).unwrap();
+        let test_unwrap = patterns
+            .iter()
+            .find(|p| p.framework == "unwrap" && p.in_test)
+            .expect("should find unwrap in test");
+        assert!((test_unwrap.confidence - 0.7).abs() < f64::EPSILON);
+
+        let normal_try = patterns
+            .iter()
+            .find(|p| p.framework == "try_operator" && !p.in_test)
+            .expect("should find try_operator not in test");
+        assert!((normal_try.confidence - 1.0).abs() < f64::EPSILON);
     }
 }

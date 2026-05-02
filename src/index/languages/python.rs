@@ -1,6 +1,6 @@
 use crate::index::call_graph::{CallEdge, CallKind, ResolutionStatus};
 use crate::index::data_models::{ExtractedModel, ModelKind};
-use crate::index::observability::{LogLevel, LoggingPattern};
+use crate::index::observability::{ErrorHandlingPattern, LogLevel, LoggingPattern};
 use crate::index::routes::ExtractedRoute;
 use crate::index::symbols::{Symbol, SymbolKind};
 use miette::{IntoDiagnostic, Result};
@@ -776,6 +776,78 @@ fn is_in_py_test(node: tree_sitter::Node, content: &str) -> bool {
     false
 }
 
+pub fn extract_error_handling(content: &str) -> Result<Vec<ErrorHandlingPattern>> {
+    let mut parser = Parser::new();
+    let language = tree_sitter_python::LANGUAGE;
+    parser.set_language(&language.into()).into_diagnostic()?;
+
+    let tree = parser
+        .parse(content, None)
+        .ok_or_else(|| miette::miette!("Failed to parse Python content"))?;
+
+    let mut patterns = Vec::new();
+    collect_py_error_handling(tree.root_node(), content, &mut patterns);
+
+    // Cap at 1000 patterns per file
+    patterns.truncate(1000);
+    Ok(patterns)
+}
+
+fn collect_py_error_handling(
+    node: tree_sitter::Node,
+    content: &str,
+    patterns: &mut Vec<ErrorHandlingPattern>,
+) {
+    let kind = node.kind();
+
+    match kind {
+        "try_statement" => {
+            // try/except/finally blocks
+            let line_start = node.start_position().row as i32 + 1;
+            let in_test = is_in_py_test(node, content);
+            patterns.push(ErrorHandlingPattern {
+                line_start,
+                level: Some(LogLevel::Info),
+                framework: "try_except".to_string(),
+                in_test,
+                confidence: if in_test { 0.7 } else { 1.0 },
+                evidence: "syntactic: try/except block".to_string(),
+            });
+        }
+        "raise_statement" => {
+            let line_start = node.start_position().row as i32 + 1;
+            let in_test = is_in_py_test(node, content);
+            patterns.push(ErrorHandlingPattern {
+                line_start,
+                level: Some(LogLevel::Warn),
+                framework: "raise".to_string(),
+                in_test,
+                confidence: if in_test { 0.7 } else { 1.0 },
+                evidence: "syntactic: raise statement".to_string(),
+            });
+        }
+        "assert_statement" => {
+            let line_start = node.start_position().row as i32 + 1;
+            let in_test = is_in_py_test(node, content);
+            patterns.push(ErrorHandlingPattern {
+                line_start,
+                level: Some(LogLevel::Info),
+                framework: "assert".to_string(),
+                in_test,
+                confidence: if in_test { 0.7 } else { 1.0 },
+                evidence: "syntactic: assert statement".to_string(),
+            });
+        }
+        _ => {}
+    }
+
+    // Recurse into children
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_py_error_handling(child, content, patterns);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1173,5 +1245,70 @@ def test_something():
                 "patterns inside test_ functions should be in_test"
             );
         }
+    }
+
+    #[test]
+    fn test_extract_error_handling_try_except_and_raise() {
+        let content = r#"
+def handle_data():
+    try:
+        result = fetch_data()
+        return result
+    except ValueError as e:
+        raise RuntimeError("bad data")
+"#;
+
+        let patterns = extract_error_handling(content).unwrap();
+        let try_except = patterns
+            .iter()
+            .find(|p| p.framework == "try_except")
+            .expect("should find try_except pattern");
+        assert_eq!(try_except.level, Some(LogLevel::Info));
+        assert!(!try_except.in_test);
+        assert_eq!(try_except.evidence, "syntactic: try/except block");
+
+        let raise_pattern = patterns
+            .iter()
+            .find(|p| p.framework == "raise")
+            .expect("should find raise pattern");
+        assert_eq!(raise_pattern.level, Some(LogLevel::Warn));
+        assert_eq!(raise_pattern.evidence, "syntactic: raise statement");
+    }
+
+    #[test]
+    fn test_extract_error_handling_in_test() {
+        let content = r#"
+def test_error_handling():
+    try:
+        do_something()
+    except Exception:
+        pass
+    assert result == 42
+
+def normal_fn():
+    try:
+        do_work()
+    except ValueError:
+        raise
+"#;
+
+        let patterns = extract_error_handling(content).unwrap();
+        let test_try = patterns
+            .iter()
+            .find(|p| p.framework == "try_except" && p.in_test)
+            .expect("should find try_except in test");
+        assert!((test_try.confidence - 0.7).abs() < f64::EPSILON);
+
+        let test_assert = patterns
+            .iter()
+            .find(|p| p.framework == "assert" && p.in_test)
+            .expect("should find assert in test");
+        assert!((test_assert.confidence - 0.7).abs() < f64::EPSILON);
+
+        let normal_try = patterns
+            .iter()
+            .find(|p| p.framework == "try_except" && !p.in_test)
+            .expect("should find try_except not in test");
+        assert!((normal_try.confidence - 1.0).abs() < f64::EPSILON);
     }
 }

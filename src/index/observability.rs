@@ -37,8 +37,19 @@ pub struct LoggingPattern {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ErrorHandlingPattern {
+    pub line_start: i32,
+    pub level: Option<LogLevel>,
+    pub framework: String,
+    pub in_test: bool,
+    pub confidence: f64,
+    pub evidence: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObservabilityStats {
     pub total_patterns: usize,
+    pub error_handling_patterns: usize,
     pub files_processed: usize,
 }
 
@@ -78,8 +89,9 @@ impl<'a> ObservabilityExtractor<'a> {
 
         drop(file_stmt);
 
-        // 2. Iterate over source files, extract logging patterns
+        // 2. Iterate over source files, extract logging and error handling patterns
         let mut total_patterns = 0usize;
+        let mut error_handling_patterns = 0usize;
         let mut files_processed = 0usize;
         let mut pattern_batch: Vec<ObservabilityRow> = Vec::new();
 
@@ -99,14 +111,20 @@ impl<'a> ObservabilityExtractor<'a> {
             };
 
             let path = PathBuf::from(file_path);
-            let patterns = match languages::extract_logging_patterns(&path, &content) {
+
+            // Extract logging patterns
+            let log_patterns = match languages::extract_logging_patterns(&path, &content) {
                 Ok(p) => p,
                 Err(_) => continue,
             };
 
-            // Cap at 1000 patterns per file
-            let patterns: Vec<_> = patterns.into_iter().take(1000).collect();
-            files_processed += 1;
+            // Extract error handling patterns
+            let eh_patterns =
+                languages::extract_error_handling(&path, &content).unwrap_or_default();
+
+            // Cap at 1000 total patterns per file (LOG + ERROR_HANDLE combined)
+            let log_cap = log_patterns.len().min(1000);
+            let eh_cap = eh_patterns.len().min(1000usize.saturating_sub(log_cap));
 
             // Delete existing LOG patterns for this file before inserting
             {
@@ -118,7 +136,17 @@ impl<'a> ObservabilityExtractor<'a> {
                 .into_diagnostic()?;
             }
 
-            for pattern in &patterns {
+            // Delete existing ERROR_HANDLE patterns for this file before inserting
+            {
+                let conn = self.storage.get_connection();
+                conn.execute(
+                    "DELETE FROM observability_patterns WHERE file_id = ?1 AND pattern_kind = 'ERROR_HANDLE'",
+                    [file_id],
+                )
+                .into_diagnostic()?;
+            }
+
+            for pattern in log_patterns.into_iter().take(log_cap) {
                 pattern_batch.push(ObservabilityRow {
                     file_id: *file_id,
                     line_start: pattern.line_start,
@@ -127,6 +155,7 @@ impl<'a> ObservabilityExtractor<'a> {
                     confidence: pattern.confidence,
                     evidence: Some(pattern.evidence.clone()),
                     in_test: pattern.in_test,
+                    pattern_kind: "LOG".to_string(),
                 });
 
                 // Batch inserts
@@ -136,6 +165,29 @@ impl<'a> ObservabilityExtractor<'a> {
                     pattern_batch.clear();
                 }
             }
+
+            for pattern in eh_patterns.into_iter().take(eh_cap) {
+                pattern_batch.push(ObservabilityRow {
+                    file_id: *file_id,
+                    line_start: pattern.line_start,
+                    level: pattern.level.as_ref().map(|l| l.as_str().to_string()),
+                    framework: pattern.framework.clone(),
+                    confidence: pattern.confidence,
+                    evidence: Some(pattern.evidence.clone()),
+                    in_test: pattern.in_test,
+                    pattern_kind: "ERROR_HANDLE".to_string(),
+                });
+
+                // Batch inserts
+                if pattern_batch.len() >= OBSERVABILITY_BATCH_SIZE {
+                    total_patterns += pattern_batch.len();
+                    self.insert_pattern_batch(&pattern_batch)?;
+                    pattern_batch.clear();
+                }
+            }
+
+            error_handling_patterns += eh_cap;
+            files_processed += 1;
         }
 
         // Flush remaining patterns
@@ -145,12 +197,13 @@ impl<'a> ObservabilityExtractor<'a> {
         }
 
         info!(
-            "Observability extraction complete: {} patterns from {} files",
-            total_patterns, files_processed
+            "Observability extraction complete: {} patterns ({} error handling) from {} files",
+            total_patterns, error_handling_patterns, files_processed
         );
 
         Ok(ObservabilityStats {
             total_patterns,
+            error_handling_patterns,
             files_processed,
         })
     }
@@ -168,7 +221,7 @@ impl<'a> ObservabilityExtractor<'a> {
                 rusqlite::params![
                     pattern.file_id,
                     pattern.line_start,
-                    "LOG",
+                    pattern.pattern_kind,
                     pattern.level,
                     pattern.framework,
                     pattern.confidence,
@@ -193,6 +246,7 @@ struct ObservabilityRow {
     confidence: f64,
     evidence: Option<String>,
     in_test: bool,
+    pattern_kind: String,
 }
 
 #[cfg(test)]
@@ -221,10 +275,12 @@ mod tests {
     fn test_observability_stats_serialization() {
         let stats = ObservabilityStats {
             total_patterns: 42,
+            error_handling_patterns: 15,
             files_processed: 10,
         };
         let json = serde_json::to_string(&stats).unwrap();
         assert!(json.contains("total_patterns"));
+        assert!(json.contains("error_handling_patterns"));
         assert!(json.contains("files_processed"));
     }
 
@@ -275,6 +331,66 @@ mod tests {
         // Delete pattern for this file
         conn.execute(
             "DELETE FROM observability_patterns WHERE file_id = ?1 AND pattern_kind = 'LOG'",
+            [file_id],
+        )
+        .unwrap();
+
+        // Verify pattern was deleted
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM observability_patterns", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_error_handling_pattern_fields() {
+        let pattern = ErrorHandlingPattern {
+            line_start: 15,
+            level: Some(LogLevel::Error),
+            framework: "unwrap".to_string(),
+            in_test: false,
+            confidence: 1.0,
+            evidence: "syntactic: unwrap call".to_string(),
+        };
+        assert_eq!(pattern.line_start, 15);
+        assert_eq!(pattern.level.as_ref().unwrap().as_str(), "error");
+        assert_eq!(pattern.framework, "unwrap");
+        assert!(!pattern.in_test);
+    }
+
+    #[test]
+    fn test_clear_and_insert_error_handle_patterns() {
+        let storage = in_memory_storage();
+        let conn = storage.get_connection();
+
+        // Insert a project_files row
+        conn.execute(
+            "INSERT INTO project_files (file_path, language, content_hash, file_size, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            ("src/lib.rs", "Rust", "hash_eh", 1024, "2026-05-01T00:00:00Z"),
+        ).unwrap();
+        let file_id = conn.last_insert_rowid();
+
+        // Insert an ERROR_HANDLE pattern
+        conn.execute(
+            "INSERT INTO observability_patterns (file_id, line_start, pattern_kind, level, framework, confidence, evidence, in_test, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            rusqlite::params![file_id, 10i64, "ERROR_HANDLE", "error", "unwrap", 1.0_f64, Some("syntactic: unwrap call"), 0i64, "2026-05-01T00:00:00Z"],
+        ).unwrap();
+
+        // Verify pattern exists
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM observability_patterns", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 1);
+
+        // Delete ERROR_HANDLE patterns for this file
+        conn.execute(
+            "DELETE FROM observability_patterns WHERE file_id = ?1 AND pattern_kind = 'ERROR_HANDLE'",
             [file_id],
         )
         .unwrap();
