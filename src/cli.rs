@@ -152,6 +152,11 @@ pub enum Commands {
         #[arg(long)]
         include_unaudited: bool,
     },
+    /// Manage configuration
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -162,6 +167,12 @@ pub enum FederateCommands {
     Scan,
     /// Show status of federated links
     Status,
+}
+
+#[derive(Subcommand)]
+pub enum ConfigCommands {
+    /// Verify the configuration files
+    Verify,
 }
 
 #[derive(Subcommand)]
@@ -481,6 +492,9 @@ pub fn run() -> Result<()> {
             } => crate::commands::ledger_search::execute_ledger_search(
                 query, category, days, breaking, limit,
             ),
+        },
+        Commands::Config { command } => match command {
+            ConfigCommands::Verify => crate::commands::config::execute_config_verify(),
         },
         #[cfg(feature = "daemon")]
         Commands::Daemon { interval } => crate::commands::daemon::execute_daemon(interval),

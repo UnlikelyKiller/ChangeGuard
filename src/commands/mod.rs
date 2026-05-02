@@ -1,4 +1,5 @@
 pub mod ask;
+pub mod config;
 #[cfg(feature = "daemon")]
 pub mod daemon;
 pub mod doctor;
