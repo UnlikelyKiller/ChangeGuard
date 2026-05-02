@@ -1,4 +1,5 @@
 use crate::index::call_graph::{CallEdge, CallKind, ResolutionStatus};
+use crate::index::routes::ExtractedRoute;
 use crate::index::symbols::{Symbol, SymbolKind};
 use miette::{IntoDiagnostic, Result};
 use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator};
@@ -85,6 +86,229 @@ pub fn extract_symbols(content: &str) -> Result<Option<Vec<Symbol>>> {
     }
 
     Ok(Some(symbols))
+}
+
+pub fn extract_routes(content: &str, _symbols: &[Symbol]) -> Result<Vec<ExtractedRoute>> {
+    let mut parser = Parser::new();
+    let language = tree_sitter_rust::LANGUAGE;
+    parser.set_language(&language.into()).into_diagnostic()?;
+
+    let tree = parser
+        .parse(content, None)
+        .ok_or_else(|| miette::miette!("Failed to parse Rust content"))?;
+
+    let mut routes = Vec::new();
+    collect_rust_routes(tree.root_node(), content, &mut routes);
+    Ok(routes)
+}
+
+/// HTTP methods recognized in Actix/Rocket route attributes and Axum method calls.
+const HTTP_METHODS: &[&str] = &["get", "post", "put", "delete", "patch", "head", "options"];
+
+/// Convert a lowercase method string to uppercase (e.g. "get" -> "GET").
+fn method_upper(m: &str) -> String {
+    m.to_ascii_uppercase()
+}
+
+fn collect_rust_routes(node: tree_sitter::Node, content: &str, routes: &mut Vec<ExtractedRoute>) {
+    let kind = node.kind();
+
+    // --- Attribute-based routes: Actix and Rocket ---
+    if kind == "attribute_item" {
+        let attr_text = node.utf8_text(content.as_bytes()).unwrap_or("");
+
+        // Check for Actix-style: #[get("/path")] or #[actix_web::get("/path")]
+        // Check for Rocket-style: #[rocket::get("/path")]
+        for &method_str in HTTP_METHODS {
+            // Actix: #[method("...")] or #[actix_web::method("...")]
+            let actix_short = format!("#[{method_str}(");
+            let actix_fq = format!("#[actix_web::{method_str}(");
+            // Rocket: #[rocket::method("...")]
+            let rocket_attr = format!("#[rocket::{method_str}(");
+
+            if (attr_text.contains(&actix_short) || attr_text.contains(&actix_fq))
+                && let Some(path) = extract_path_from_attr(attr_text)
+            {
+                let handler_name = find_next_function_name(node, content);
+                let framework = "actix";
+                let evidence = format!("#[{method_str}(\"{path}\")] on {handler_name}");
+                routes.push(ExtractedRoute {
+                    method: method_upper(method_str),
+                    path_pattern: path,
+                    handler_name,
+                    framework: framework.to_string(),
+                    route_source: "DECORATOR".to_string(),
+                    mount_prefix: None,
+                    is_dynamic: false,
+                    route_confidence: 1.0,
+                    evidence,
+                });
+            } else if attr_text.contains(&rocket_attr)
+                && let Some(path) = extract_path_from_attr(attr_text)
+            {
+                let handler_name = find_next_function_name(node, content);
+                let evidence = format!("#[rocket::{method_str}(\"{path}\")] on {handler_name}");
+                routes.push(ExtractedRoute {
+                    method: method_upper(method_str),
+                    path_pattern: path,
+                    handler_name,
+                    framework: "rocket".to_string(),
+                    route_source: "DECORATOR".to_string(),
+                    mount_prefix: None,
+                    is_dynamic: false,
+                    route_confidence: 1.0,
+                    evidence,
+                });
+            }
+        }
+    }
+
+    // --- Method-chain routes: Axum .route("/path", get(handler)) ---
+    if kind == "call_expression" {
+        // Look for .route("path", method(handler))
+        // In Rust tree-sitter, method calls like `obj.route(...)` produce a
+        // `field_expression` callee, not `method_call_expression`.
+        let func_node = node.child(0);
+        if let Some(func) = func_node
+            && (func.kind() == "method_call_expression" || func.kind() == "field_expression")
+        {
+            // Check if the method/field name is "route"
+            let method_name = extract_method_call_name_simple(func, content);
+            if method_name == "route" {
+                // Arguments are in the arguments node
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    if child.kind() == "arguments" {
+                        extract_axum_route(&child, content, routes);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // Recurse into children
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_rust_routes(child, content, routes);
+    }
+}
+
+/// Extract the path string from an attribute text like `#[get("/path")]`.
+/// Looks for the content between the first `("` and `")`.
+fn extract_path_from_attr(attr_text: &str) -> Option<String> {
+    // Find the opening quote after the parenthesis
+    let start = attr_text.find("(\"")? + 2;
+    let end = attr_text[start..].find("\")")? + start;
+    Some(attr_text[start..end].to_string())
+}
+
+/// Given an attribute_item node, find the next sibling that is a function_item
+/// and return its name. Returns "<unknown>" if not found.
+fn find_next_function_name(node: tree_sitter::Node, content: &str) -> String {
+    // attribute_item is typically a child of the source_file or a block.
+    // The next sibling after the attribute_item should be the decorated item.
+    if let Some(parent) = node.parent() {
+        let mut cursor = parent.walk();
+        let mut found_self = false;
+        for child in parent.children(&mut cursor) {
+            if child == node {
+                found_self = true;
+                continue;
+            }
+            if found_self && child.kind() == "function_item" {
+                // Extract the function name (first identifier child)
+                let mut fc = child.walk();
+                for fchild in child.children(&mut fc) {
+                    if fchild.kind() == "identifier" {
+                        return fchild
+                            .utf8_text(content.as_bytes())
+                            .unwrap_or("<unknown>")
+                            .to_string();
+                    }
+                }
+            }
+        }
+    }
+    "<unknown>".to_string()
+}
+
+/// Extract the method name from a method_call_expression node (simplified version
+/// that returns the identifier text of the method field).
+fn extract_method_call_name_simple(node: tree_sitter::Node, content: &str) -> String {
+    let mut cursor = node.walk();
+    let mut last_ident = String::new();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "field_identifier" || child.kind() == "identifier" {
+            last_ident = child
+                .utf8_text(content.as_bytes())
+                .unwrap_or("")
+                .to_string();
+        }
+    }
+    last_ident
+}
+
+/// Given an Axum `.route("/path", get(handler))` arguments node, extract the route.
+fn extract_axum_route(
+    args_node: &tree_sitter::Node,
+    content: &str,
+    routes: &mut Vec<ExtractedRoute>,
+) {
+    // Arguments node children: comma-separated expressions.
+    // First arg: string literal (the path)
+    // Second arg: method call like get(handler), post(handler), etc.
+    let mut args = Vec::new();
+    let mut cursor = args_node.walk();
+    for child in args_node.children(&mut cursor) {
+        if child.kind() != "," && child.kind() != "(" && child.kind() != ")" {
+            args.push(child);
+        }
+    }
+
+    if args.len() < 2 {
+        return;
+    }
+
+    // Extract path from first argument (string literal)
+    let path_node = args[0];
+    let path_text = path_node.utf8_text(content.as_bytes()).unwrap_or("");
+    let path = path_text
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .unwrap_or(path_text)
+        .to_string();
+
+    if path.is_empty() {
+        return;
+    }
+
+    // Extract method and handler from second argument: e.g. get(handler)
+    let method_arg = args[1];
+    let method_arg_text = method_arg.utf8_text(content.as_bytes()).unwrap_or("");
+
+    for &method_str in HTTP_METHODS {
+        let prefix = format!("{method_str}(");
+        if method_arg_text.starts_with(&prefix) {
+            // Extract handler name from inside: get(handler) -> handler
+            let inner = &method_arg_text[prefix.len()..];
+            let handler_name = inner.trim_end_matches(')').to_string();
+
+            let evidence = format!(".route(\"{path}\", {method_arg_text})");
+            routes.push(ExtractedRoute {
+                method: method_upper(method_str),
+                path_pattern: path,
+                handler_name,
+                framework: "axum".to_string(),
+                route_source: "ROUTER_CHAIN".to_string(),
+                mount_prefix: None,
+                is_dynamic: false,
+                route_confidence: 1.0,
+                evidence,
+            });
+            return;
+        }
+    }
 }
 
 pub fn extract_calls(content: &str, _symbols: &[Symbol]) -> Result<Vec<CallEdge>> {
@@ -371,5 +595,75 @@ mod tests {
         // f() should be detected; its callee pattern may be an identifier but
         // since it's a variable call we expect at least one edge.
         assert!(!edges.is_empty(), "should find at least one call edge");
+    }
+
+    #[test]
+    fn test_extract_routes_actix() {
+        let content = r#"
+            use actix_web::get;
+
+            #[get("/users")]
+            async fn get_users() -> impl Responder {
+                "users"
+            }
+        "#;
+
+        let routes = extract_routes(content, &[]).unwrap();
+        let route = routes
+            .iter()
+            .find(|r| r.path_pattern == "/users" && r.framework == "actix")
+            .expect("should find actix GET /users route");
+        assert_eq!(route.method, "GET");
+        assert_eq!(route.handler_name, "get_users");
+        assert_eq!(route.route_source, "DECORATOR");
+        assert!(!route.is_dynamic);
+        assert_eq!(route.route_confidence, 1.0);
+        assert!(route.evidence.contains("#[get(\"/users\")]"));
+    }
+
+    #[test]
+    fn test_extract_routes_axum() {
+        let content = r#"
+            use axum::{Router, routing::get};
+
+            fn app() -> Router {
+                Router::new()
+                    .route("/api/users", get(list_users))
+            }
+        "#;
+
+        let routes = extract_routes(content, &[]).unwrap();
+        let route = routes
+            .iter()
+            .find(|r| r.path_pattern == "/api/users" && r.framework == "axum")
+            .expect("should find axum GET /api/users route");
+        assert_eq!(route.method, "GET");
+        assert_eq!(route.handler_name, "list_users");
+        assert_eq!(route.route_source, "ROUTER_CHAIN");
+        assert!(!route.is_dynamic);
+        assert_eq!(route.route_confidence, 1.0);
+        assert!(route.evidence.contains(".route(\"/api/users\""));
+    }
+
+    #[test]
+    fn test_extract_routes_rocket() {
+        let content = r#"
+            #[rocket::post("/items")]
+            fn create_item() -> &'static str {
+                "created"
+            }
+        "#;
+
+        let routes = extract_routes(content, &[]).unwrap();
+        let route = routes
+            .iter()
+            .find(|r| r.path_pattern == "/items" && r.framework == "rocket")
+            .expect("should find rocket POST /items route");
+        assert_eq!(route.method, "POST");
+        assert_eq!(route.handler_name, "create_item");
+        assert_eq!(route.route_source, "DECORATOR");
+        assert!(!route.is_dynamic);
+        assert_eq!(route.route_confidence, 1.0);
+        assert!(route.evidence.contains("#[rocket::post(\"/items\")]"));
     }
 }

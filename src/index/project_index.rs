@@ -6,6 +6,7 @@ use crate::index::entrypoint::{
 };
 use crate::index::languages::{Language, parse_symbols};
 use crate::index::metrics::{ComplexityScorer, NativeComplexityScorer};
+use crate::index::routes::{RouteExtractor, RouteStats};
 use crate::index::symbols::Symbol;
 use crate::index::topology::{DirectoryRole, TopologyIndexStats, classify_directory};
 use crate::state::storage::StorageManager;
@@ -1096,6 +1097,21 @@ impl ProjectIndexer {
         let builder =
             CallGraphBuilder::new(&self.storage, self.repo_path.as_std_path().to_path_buf());
         builder.build()
+    }
+
+    /// Extract API routes from source files and store them in the api_routes table.
+    pub fn extract_routes(&self) -> Result<RouteStats> {
+        let extractor =
+            RouteExtractor::new(&self.storage, self.repo_path.as_std_path().to_path_buf());
+        extractor.extract()
+    }
+
+    /// Delete API routes where the handler belongs to any of the given file IDs.
+    /// Used for incremental re-indexing of specific files.
+    pub fn clear_routes(&self, file_ids: &[i64]) -> Result<()> {
+        let extractor =
+            RouteExtractor::new(&self.storage, self.repo_path.as_std_path().to_path_buf());
+        extractor.clear_routes(file_ids)
     }
 
     /// Delete structural edges where the caller belongs to any of the given file IDs.

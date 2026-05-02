@@ -168,6 +168,7 @@ mod tests {
             runtime_usage: None,
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: vec!["Old API used".to_string()],
+            api_routes: Vec::new(),
         });
 
         packet.temporal_couplings.push(TemporalCoupling {

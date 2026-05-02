@@ -8,6 +8,42 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct ApiRoute {
+    pub method: String,
+    pub path_pattern: String,
+    pub handler_symbol_name: Option<String>,
+    pub framework: String,
+    pub route_source: String,
+    pub mount_prefix: Option<String>,
+    pub is_dynamic: bool,
+    pub route_confidence: f64,
+    pub evidence: Option<String>,
+}
+
+impl Eq for ApiRoute {}
+
+impl PartialOrd for ApiRoute {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ApiRoute {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.method
+            .cmp(&other.method)
+            .then_with(|| self.path_pattern.cmp(&other.path_pattern))
+            .then_with(|| self.framework.cmp(&other.framework))
+            .then_with(|| {
+                self.route_confidence
+                    .partial_cmp(&other.route_confidence)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "camelCase")]
 pub enum RiskLevel {
     Low,
     Medium,
@@ -46,6 +82,8 @@ pub struct ChangedFile {
     pub analysis_status: FileAnalysisStatus,
     #[serde(default)]
     pub analysis_warnings: Vec<String>,
+    #[serde(default)]
+    pub api_routes: Vec<ApiRoute>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -303,6 +341,7 @@ mod tests {
             runtime_usage: None,
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
         });
 
         let json = serde_json::to_string_pretty(&packet).unwrap();
@@ -357,6 +396,7 @@ mod tests {
             runtime_usage: None,
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
         });
         packet.changes.push(ChangedFile {
             path: PathBuf::from("a.rs"),
@@ -367,6 +407,7 @@ mod tests {
             runtime_usage: None,
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
         });
 
         packet.finalize();

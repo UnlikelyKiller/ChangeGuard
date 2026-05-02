@@ -201,6 +201,7 @@ mod tests {
             runtime_usage: None,
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
         });
 
         let mut call_data = StructuralCallData::default();
@@ -235,6 +236,7 @@ mod tests {
             runtime_usage: None,
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
         });
 
         let mut call_data = StructuralCallData::default();
@@ -268,6 +270,7 @@ mod tests {
             runtime_usage: None,
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
         });
 
         // Empty call data should produce identical output to no call data
@@ -306,6 +309,7 @@ mod tests {
             runtime_usage: None,
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
         });
 
         // Create StructuralCallData: helper (in src/main.rs) calls internal
@@ -347,6 +351,7 @@ mod tests {
             runtime_usage: None,
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
         });
 
         // Run prediction with default (empty) structural call data

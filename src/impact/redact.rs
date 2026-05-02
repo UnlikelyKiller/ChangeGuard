@@ -253,6 +253,7 @@ mod tests {
             runtime_usage: None,
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
         });
 
         let redactions = redact_secrets(&mut packet);
@@ -289,6 +290,7 @@ mod tests {
             runtime_usage: None,
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
         });
 
         let redactions = redact_secrets(&mut packet);
@@ -323,6 +325,7 @@ mod tests {
             runtime_usage: None,
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
         });
 
         // First verify the regex itself matches
@@ -360,6 +363,7 @@ mod tests {
             runtime_usage: None,
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
         });
 
         let redactions = redact_secrets(&mut packet);
@@ -436,6 +440,7 @@ mod tests {
             runtime_usage: None,
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
         });
 
         let redactions = redact_secrets(&mut packet);
