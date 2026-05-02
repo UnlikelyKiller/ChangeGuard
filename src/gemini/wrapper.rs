@@ -1,14 +1,13 @@
-use crate::platform::env::{ExecutableStatus, find_executable};
 use indicatif::{ProgressBar, ProgressStyle};
-use miette::{IntoDiagnostic, Result};
+use miette::Result;
 use owo_colors::OwoColorize;
-use std::io::Write;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::thread;
 use std::time::Duration;
-use wait_timeout::ChildExt;
 
 const DEFAULT_GEMINI_TIMEOUT_SECS: u64 = 120;
+const GEMINI_API_BASE: &str = "https://generativelanguage.googleapis.com/v1beta/models";
+const MAX_RETRIES: u32 = 3;
 
 pub fn run_query(
     system_prompt: &str,
@@ -17,7 +16,8 @@ pub fn run_query(
     model: &str,
     api_key: Option<&str>,
 ) -> Result<()> {
-    let timeout = Duration::from_secs(timeout_secs.unwrap_or(DEFAULT_GEMINI_TIMEOUT_SECS));
+    let key = resolve_api_key(api_key)?;
+    let timeout = timeout_secs.unwrap_or(DEFAULT_GEMINI_TIMEOUT_SECS);
 
     let pb = ProgressBar::new_spinner();
     pb.set_style(
@@ -26,105 +26,141 @@ pub fn run_query(
             .unwrap_or_else(|_| ProgressStyle::default_spinner()),
     );
     pb.set_message(format!("Consulting Gemini ({model})..."));
-    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+    pb.enable_steady_tick(Duration::from_millis(100));
 
-    let mut cmd = gemini_command()?;
-    cmd.args(["--model", model, "--prompt", ""]);
-    let full_input = format!("{}\n\n{}", system_prompt, user_prompt);
+    let response = call_with_retry(system_prompt, user_prompt, model, &key, timeout, &pb)?;
 
-    cmd.stdin(Stdio::piped());
-    cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::piped());
-    configure_api_key(&mut cmd, api_key);
-
-    let mut child = match cmd.spawn() {
-        Ok(child) => child,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            pb.finish_and_clear();
-            return Err(miette::miette!(
-                "Gemini CLI not found. Install Gemini CLI to enable narrative summaries."
-            ));
-        }
-        Err(e) => {
-            pb.finish_and_clear();
-            return Err(miette::miette!("Failed to spawn gemini: {}", e));
-        }
-    };
-
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(full_input.as_bytes()).into_diagnostic()?;
-    }
-
-    let exit_status = match child.wait_timeout(timeout).into_diagnostic()? {
-        Some(status) => status,
-        None => {
-            let _ = child.kill();
-            let _ = child.wait();
-            pb.finish_and_clear();
-            return Err(miette::miette!(
-                "Gemini command timed out after {}s",
-                timeout.as_secs()
-            ));
-        }
-    };
-
-    let output = child.wait_with_output().into_diagnostic()?;
     pb.finish_and_clear();
+    println!("\n{}", "Gemini Response:".bold().green());
+    println!("{response}");
 
-    if exit_status.success() {
-        println!("\n{}", "Gemini Response:".bold().green());
-        println!("{}", String::from_utf8_lossy(&output.stdout));
-        Ok(())
-    } else {
-        let err = String::from_utf8_lossy(&output.stderr);
-        println!("\n{}", "Gemini Error:".bold().red());
-        println!("{}", err);
-        let code = exit_status
-            .code()
-            .map(|c| c.to_string())
-            .unwrap_or_else(|| "signal".to_string());
-        Err(miette::miette!("Gemini failed with exit code {}", code))
-    }
+    Ok(())
 }
 
-fn gemini_command() -> Result<Command> {
-    match find_executable("gemini") {
-        ExecutableStatus::Found(path) => Ok(command_for_executable(&path)),
-        ExecutableStatus::NotFound => Err(miette::miette!(
-            "Gemini CLI not found. Install Gemini CLI to enable narrative summaries."
-        )),
+fn call_with_retry(
+    system_prompt: &str,
+    user_prompt: &str,
+    model: &str,
+    api_key: &str,
+    timeout_secs: u64,
+    pb: &ProgressBar,
+) -> Result<String> {
+    let url = format!("{GEMINI_API_BASE}/{model}:generateContent");
+
+    let body = serde_json::json!({
+        "system_instruction": {
+            "parts": [{ "text": system_prompt }]
+        },
+        "contents": [{
+            "role": "user",
+            "parts": [{ "text": user_prompt }]
+        }]
+    });
+
+    let agent = ureq::AgentBuilder::new()
+        .timeout_read(Duration::from_secs(timeout_secs))
+        .timeout_write(Duration::from_secs(30))
+        .build();
+
+    let mut delay = Duration::from_secs(2);
+
+    for attempt in 0..MAX_RETRIES {
+        if attempt > 0 {
+            pb.set_message(format!(
+                "Gemini overloaded, retrying in {}s… (attempt {}/{})",
+                delay.as_secs(),
+                attempt + 1,
+                MAX_RETRIES
+            ));
+            thread::sleep(delay);
+            delay *= 2;
+        }
+
+        match agent
+            .post(&url)
+            .set("x-goog-api-key", api_key)
+            .send_json(&body)
+        {
+            Ok(response) => {
+                let value: serde_json::Value = response
+                    .into_json()
+                    .map_err(|e| miette::miette!("Failed to parse Gemini response: {e}"))?;
+                return extract_text(&value);
+            }
+            Err(ureq::Error::Status(503, response)) => {
+                if attempt + 1 < MAX_RETRIES {
+                    let body_hint = response.into_string().unwrap_or_default();
+                    tracing::warn!(
+                        "Gemini 503 on attempt {} — model overloaded: {}",
+                        attempt + 1,
+                        body_hint.chars().take(120).collect::<String>()
+                    );
+                    continue;
+                }
+                return Err(miette::miette!(
+                    "Gemini service unavailable after {MAX_RETRIES} retries (503)"
+                ));
+            }
+            Err(ureq::Error::Status(429, response)) => {
+                let msg = response.into_string().unwrap_or_default();
+                return Err(miette::miette!(
+                    "Gemini API quota exhausted (429). Check your API key limits.\n{}",
+                    msg.chars().take(200).collect::<String>()
+                ));
+            }
+            Err(ureq::Error::Status(code, response)) => {
+                let msg = response.into_string().unwrap_or_default();
+                return Err(miette::miette!(
+                    "Gemini API error {code}: {}",
+                    msg.chars().take(200).collect::<String>()
+                ));
+            }
+            Err(e) => {
+                return Err(miette::miette!("Gemini HTTP error: {e}"));
+            }
+        }
     }
+
+    Err(miette::miette!(
+        "Gemini service unavailable after {MAX_RETRIES} retries"
+    ))
 }
 
-fn command_for_executable(path: &Path) -> Command {
-    if cfg!(target_os = "windows")
-        && path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("ps1"))
-    {
-        let mut cmd = Command::new("powershell");
-        cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]);
-        cmd.arg(path);
-        return cmd;
+fn extract_text(value: &serde_json::Value) -> Result<String> {
+    if let Some(error) = value.get("error") {
+        let code = error.get("code").and_then(|c| c.as_u64()).unwrap_or(0);
+        let msg = error
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("Unknown Gemini error");
+        return Err(miette::miette!("Gemini API error {code}: {msg}"));
     }
 
-    Command::new(path)
+    value["candidates"][0]["content"]["parts"][0]["text"]
+        .as_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| miette::miette!("No text in Gemini response: {value}"))
 }
 
-fn configure_api_key(cmd: &mut Command, configured_key: Option<&str>) {
+fn resolve_api_key(configured_key: Option<&str>) -> Result<String> {
     if let Some(key) = configured_key.and_then(non_empty) {
-        cmd.env("GEMINI_API_KEY", key);
-        return;
+        return Ok(key.to_string());
     }
 
-    if std::env::var_os("GEMINI_API_KEY").is_some() {
-        return;
+    if let Ok(key) = std::env::var("GEMINI_API_KEY") {
+        if !key.trim().is_empty() {
+            return Ok(key.trim().to_string());
+        }
     }
 
     if let Some(key) = read_env_key(Path::new(".env")) {
-        cmd.env("GEMINI_API_KEY", key);
+        return Ok(key);
     }
+
+    Err(miette::miette!(
+        "No Gemini API key found. Set GEMINI_API_KEY environment variable, \
+         add it to .env, or set [gemini] api_key in .changeguard/config.toml"
+    ))
 }
 
 fn read_env_key(path: &Path) -> Option<String> {
@@ -167,10 +203,33 @@ fn non_empty(value: &str) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{command_for_executable, read_env_key};
+    use super::{extract_text, read_env_key};
     use std::fs;
-    use std::path::Path;
     use tempfile::tempdir;
+
+    #[test]
+    fn extract_text_returns_candidate_text() {
+        let json = serde_json::json!({
+            "candidates": [{ "content": { "parts": [{ "text": "Hello world" }] } }]
+        });
+        assert_eq!(extract_text(&json).unwrap(), "Hello world");
+    }
+
+    #[test]
+    fn extract_text_surfaces_api_error_object() {
+        let json = serde_json::json!({
+            "error": { "code": 429, "message": "Quota exceeded" }
+        });
+        let err = extract_text(&json).unwrap_err();
+        assert!(format!("{err:?}").contains("429"));
+        assert!(format!("{err:?}").contains("Quota exceeded"));
+    }
+
+    #[test]
+    fn extract_text_fails_gracefully_on_missing_parts() {
+        let json = serde_json::json!({ "candidates": [] });
+        assert!(extract_text(&json).is_err());
+    }
 
     #[test]
     fn reads_gemini_key_from_env_file() {
@@ -192,21 +251,5 @@ mod tests {
         fs::write(&env_path, "GEMINI_API_KEY=\n").unwrap();
 
         assert_eq!(read_env_key(&env_path), None);
-    }
-
-    #[test]
-    fn wraps_windows_powershell_shims() {
-        let cmd = command_for_executable(Path::new("gemini.ps1"));
-        if cfg!(target_os = "windows") {
-            assert_eq!(cmd.get_program().to_string_lossy(), "powershell");
-            let args: Vec<_> = cmd
-                .get_args()
-                .map(|arg| arg.to_string_lossy().to_string())
-                .collect();
-            assert!(args.iter().any(|arg| arg == "-File"));
-            assert!(args.iter().any(|arg| arg == "gemini.ps1"));
-        } else {
-            assert_eq!(cmd.get_program().to_string_lossy(), "gemini.ps1");
-        }
     }
 }

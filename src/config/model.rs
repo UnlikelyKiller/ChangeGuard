@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 pub type TomlError = toml::de::Error;
-pub const DEFAULT_GEMINI_FAST_MODEL: &str = "gemini-3.1-flash-lite-preview";
+pub const DEFAULT_GEMINI_FAST_MODEL: &str = "gemini-3-flash-preview";
 pub const DEFAULT_GEMINI_DEEP_MODEL: &str = "gemini-3.1-pro-preview";
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
