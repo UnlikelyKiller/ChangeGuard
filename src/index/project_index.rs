@@ -8,6 +8,7 @@ use crate::index::entrypoint::{
 };
 use crate::index::languages::{Language, parse_symbols};
 use crate::index::metrics::{ComplexityScorer, NativeComplexityScorer};
+use crate::index::observability::{ObservabilityExtractor, ObservabilityStats};
 use crate::index::routes::{RouteExtractor, RouteStats};
 use crate::index::symbols::Symbol;
 use crate::index::topology::{DirectoryRole, TopologyIndexStats, classify_directory};
@@ -1147,6 +1148,13 @@ impl ProjectIndexer {
         let extractor =
             DataModelExtractor::new(&self.storage, self.repo_path.as_std_path().to_path_buf());
         extractor.clear_data_models(file_ids)
+    }
+
+    /// Extract observability patterns (logging, etc.) from source files.
+    pub fn extract_observability(&self) -> Result<ObservabilityStats> {
+        let extractor =
+            ObservabilityExtractor::new(&self.storage, self.repo_path.as_std_path().to_path_buf());
+        extractor.extract()
     }
 
     /// Compute symbol centrality (entrypoints_reachable) from the call graph.

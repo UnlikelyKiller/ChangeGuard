@@ -353,6 +353,23 @@ pub fn get_migrations() -> Migrations<'static> {
             CREATE INDEX IF NOT EXISTS idx_symbol_centrality_reachable
                 ON symbol_centrality(entrypoints_reachable);",
         ),
+        M::up(
+            "CREATE TABLE IF NOT EXISTS observability_patterns (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_id INTEGER NOT NULL REFERENCES project_files(id),
+                line_start INTEGER,
+                pattern_kind TEXT NOT NULL DEFAULT 'LOG',
+                level TEXT,
+                framework TEXT,
+                confidence REAL NOT NULL DEFAULT 1.0,
+                evidence TEXT,
+                in_test INTEGER DEFAULT 0,
+                last_indexed_at TEXT NOT NULL,
+                FOREIGN KEY (file_id) REFERENCES project_files(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_obs_patterns_file ON observability_patterns(file_id);
+            CREATE INDEX IF NOT EXISTS idx_obs_patterns_kind ON observability_patterns(pattern_kind);",
+        ),
     ])
 }
 
@@ -400,6 +417,7 @@ mod tests {
             "api_routes",
             "data_models",
             "symbol_centrality",
+            "observability_patterns",
         ];
 
         for table in &expected_tables {
@@ -1273,5 +1291,108 @@ mod tests {
             (betweenness_default - 0.0).abs() < f64::EPSILON,
             "betweenness should default to 0.0"
         );
+    }
+
+    #[test]
+    fn test_insert_and_query_observability_patterns() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let migrations = get_migrations();
+        migrations.to_latest(&mut conn).unwrap();
+
+        // Insert two project_files rows (FK prerequisites)
+        conn.execute(
+            "INSERT INTO project_files (file_path, language, content_hash, file_size, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            ("src/lib.rs", "Rust", "hash_obs1", 2048, "2026-05-01T00:00:00Z"),
+        ).unwrap();
+        let file_id_1 = conn.last_insert_rowid();
+
+        conn.execute(
+            "INSERT INTO project_files (file_path, language, content_hash, file_size, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            ("src/errors.rs", "Rust", "hash_obs2", 1024, "2026-05-01T00:00:00Z"),
+        ).unwrap();
+        let file_id_2 = conn.last_insert_rowid();
+
+        // Insert a LOG pattern with level='info', framework='tracing', in_test=0
+        conn.execute(
+            "INSERT INTO observability_patterns (file_id, line_start, pattern_kind, level, framework, confidence, evidence, in_test, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            (file_id_1, 42i64, "LOG", "info", "tracing", 1.0_f64, Some("tracing::info! macro call"), 0i64, "2026-05-01T00:00:00Z"),
+        ).unwrap();
+
+        // Insert a LOG pattern with level='error', framework='logging', in_test=1
+        conn.execute(
+            "INSERT INTO observability_patterns (file_id, line_start, pattern_kind, level, framework, confidence, evidence, in_test, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            (file_id_2, 100i64, "LOG", "error", "logging", 0.9_f64, Some("log::error! macro call"), 1i64, "2026-05-01T00:00:00Z"),
+        ).unwrap();
+
+        // Insert an ERROR_HANDLE pattern with level=None
+        conn.execute(
+            "INSERT INTO observability_patterns (file_id, line_start, pattern_kind, confidence, in_test, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            (file_id_2, 150i64, "ERROR_HANDLE", 0.8_f64, 0i64, "2026-05-01T00:00:00Z"),
+        ).unwrap();
+
+        // Verify all three rows exist
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM observability_patterns", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 3, "Should have 3 observability_patterns rows");
+
+        // Verify LOG pattern with level='info', framework='tracing', in_test=0
+        let (pattern_kind, level, framework, in_test, confidence): (String, String, String, i64, f64) = conn
+            .query_row(
+                "SELECT pattern_kind, level, framework, in_test, confidence FROM observability_patterns WHERE level = 'info'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            )
+            .unwrap();
+        assert_eq!(pattern_kind, "LOG");
+        assert_eq!(level, "info");
+        assert_eq!(framework, "tracing");
+        assert_eq!(in_test, 0);
+        assert!((confidence - 1.0).abs() < f64::EPSILON);
+
+        // Verify LOG pattern with level='error', framework='logging', in_test=1
+        let (pattern_kind, level, framework, in_test): (String, String, String, i64) = conn
+            .query_row(
+                "SELECT pattern_kind, level, framework, in_test FROM observability_patterns WHERE level = 'error'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(pattern_kind, "LOG");
+        assert_eq!(level, "error");
+        assert_eq!(framework, "logging");
+        assert_eq!(in_test, 1);
+
+        // Verify ERROR_HANDLE pattern with level=None
+        let (pattern_kind, level, confidence): (String, Option<String>, f64) = conn
+            .query_row(
+                "SELECT pattern_kind, level, confidence FROM observability_patterns WHERE pattern_kind = 'ERROR_HANDLE'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(pattern_kind, "ERROR_HANDLE");
+        assert!(
+            level.is_none(),
+            "ERROR_HANDLE pattern should have level=NULL"
+        );
+        assert!((confidence - 0.8).abs() < f64::EPSILON);
+
+        // Verify FK join works — get file_path through the relationship
+        let (file_path,): (String,) = conn
+            .query_row(
+                "SELECT pf.file_path FROM observability_patterns op JOIN project_files pf ON op.file_id = pf.id WHERE op.level = 'info'",
+                [],
+                |row| Ok((row.get(0)?,)),
+            )
+            .unwrap();
+        assert_eq!(file_path, "src/lib.rs");
     }
 }

@@ -222,6 +222,29 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules) -> Result<()> {
     }
     total_weight += centrality_total;
 
+    // 3f. Observability Reduction Risk
+    // Each file with reduced logging coverage contributes 25 points, capped at 25 total.
+    let observability_weight_per_file = 25;
+    let observability_weight_cap = 25;
+    let mut observability_total = 0;
+    for delta in &packet.logging_coverage_delta {
+        if delta.current_count < delta.previous_count
+            && observability_total + observability_weight_per_file <= observability_weight_cap
+        {
+            observability_total += observability_weight_per_file;
+            let reduction = delta.previous_count - delta.current_count;
+            reasons.push(format!(
+                "Logging coverage reduced in {}: {} statements removed",
+                delta.file_path, reduction
+            ));
+            debug!(
+                "Risk Factor: Logging coverage reduced ({}) +{}",
+                delta.file_path, observability_weight_per_file
+            );
+        }
+    }
+    total_weight += observability_total;
+
     // 4. Scoring
     packet.risk_level = if total_weight > 60 {
         RiskLevel::High
@@ -243,7 +266,7 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::impact::packet::{CentralityRisk, ChangedFile, FileAnalysisStatus};
+    use crate::impact::packet::{CentralityRisk, ChangedFile, CoverageDelta, FileAnalysisStatus};
     use std::path::PathBuf;
 
     #[test]
@@ -971,7 +994,10 @@ mod tests {
             packet.risk_reasons
         );
         assert!(
-            packet.risk_reasons.iter().any(|r| r.contains("High centrality")),
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("High centrality")),
             "expected centrality risk reason, got {:?}",
             packet.risk_reasons
         );
@@ -1043,6 +1069,86 @@ mod tests {
                 .iter()
                 .any(|r| r.contains("High centrality")),
             "expected no centrality risk reasons when empty, got {:?}",
+            packet.risk_reasons
+        );
+    }
+
+    #[test]
+    fn test_analyze_risk_logging_coverage_reduced() {
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("src/service.rs"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+        });
+        packet.logging_coverage_delta.push(CoverageDelta {
+            file_path: "src/service.rs".to_string(),
+            pattern_kind: "LOG".to_string(),
+            previous_count: 10,
+            current_count: 7,
+            message: "Logging coverage reduced in src/service.rs: 3 statements removed".to_string(),
+        });
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        // Should have a risk reason about logging coverage reduction
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Logging coverage reduced")
+                    && r.contains("src/service.rs")
+                    && r.contains("3 statements removed")),
+            "expected logging coverage risk reason, got {:?}",
+            packet.risk_reasons
+        );
+        // 25 weight from observability reduction -> Medium (>20)
+        assert_eq!(packet.risk_level, RiskLevel::Medium);
+    }
+
+    #[test]
+    fn test_analyze_risk_logging_coverage_no_regression() {
+        // Empty logging_coverage_delta should produce no observability risk reasons
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("README.md"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+        });
+        // logging_coverage_delta is empty by default
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        assert_eq!(packet.risk_level, RiskLevel::Low);
+        assert!(
+            !packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Logging coverage reduced")),
+            "expected no logging coverage risk reasons when empty, got {:?}",
+            packet.risk_reasons
+        );
+        assert!(
+            packet
+                .risk_reasons
+                .contains(&"Minimal changes detected".to_string()),
+            "expected 'Minimal changes detected' in risk reasons, got {:?}",
             packet.risk_reasons
         );
     }

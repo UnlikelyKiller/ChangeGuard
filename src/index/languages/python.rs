@@ -1,5 +1,6 @@
 use crate::index::call_graph::{CallEdge, CallKind, ResolutionStatus};
 use crate::index::data_models::{ExtractedModel, ModelKind};
+use crate::index::observability::{LogLevel, LoggingPattern};
 use crate::index::routes::ExtractedRoute;
 use crate::index::symbols::{Symbol, SymbolKind};
 use miette::{IntoDiagnostic, Result};
@@ -608,6 +609,173 @@ fn collect_py_data_models(
     }
 }
 
+/// Python logging method names and their level mappings.
+const PY_LOGGING_METHODS: &[(&str, LogLevel)] = &[
+    ("info", LogLevel::Info),
+    ("warning", LogLevel::Warn),
+    ("error", LogLevel::Error),
+    ("debug", LogLevel::Debug),
+    ("critical", LogLevel::Error),
+];
+
+pub fn extract_logging_patterns(content: &str) -> Result<Vec<LoggingPattern>> {
+    let mut parser = Parser::new();
+    let language = tree_sitter_python::LANGUAGE;
+    parser.set_language(&language.into()).into_diagnostic()?;
+
+    let tree = parser
+        .parse(content, None)
+        .ok_or_else(|| miette::miette!("Failed to parse Python content"))?;
+
+    let mut patterns = Vec::new();
+    collect_py_logging_patterns(tree.root_node(), content, &mut patterns);
+
+    // Cap at 1000 patterns per file
+    patterns.truncate(1000);
+    Ok(patterns)
+}
+
+fn collect_py_logging_patterns(
+    node: tree_sitter::Node,
+    content: &str,
+    patterns: &mut Vec<LoggingPattern>,
+) {
+    if node.kind() == "call" {
+        let callee_node = node.child(0);
+        if let Some(callee) = callee_node {
+            match callee.kind() {
+                "attribute" => {
+                    // Handle logging.info(...), logger.warning(...), etc.
+                    let obj_name = extract_py_attribute_object(callee, content);
+                    let method_name = extract_py_attribute_name(callee, content);
+
+                    // logging.* and logger.* methods
+                    if obj_name == "logging" {
+                        for &(method, level) in PY_LOGGING_METHODS {
+                            if method_name == method {
+                                let line_start = node.start_position().row as i32 + 1;
+                                let in_test = is_in_py_test(node, content);
+                                let evidence =
+                                    node.utf8_text(content.as_bytes()).unwrap_or("").to_string();
+                                let evidence = if evidence.len() > 200 {
+                                    format!("{}...", &evidence[..197])
+                                } else {
+                                    evidence
+                                };
+
+                                patterns.push(LoggingPattern {
+                                    line_start,
+                                    level: Some(level),
+                                    framework: "logging".to_string(),
+                                    in_test,
+                                    confidence: if in_test { 0.7 } else { 1.0 },
+                                    evidence,
+                                });
+                                break;
+                            }
+                        }
+                    } else if obj_name == "logger" {
+                        for &(method, level) in PY_LOGGING_METHODS {
+                            if method_name == method {
+                                let line_start = node.start_position().row as i32 + 1;
+                                let in_test = is_in_py_test(node, content);
+                                let evidence =
+                                    node.utf8_text(content.as_bytes()).unwrap_or("").to_string();
+                                let evidence = if evidence.len() > 200 {
+                                    format!("{}...", &evidence[..197])
+                                } else {
+                                    evidence
+                                };
+
+                                patterns.push(LoggingPattern {
+                                    line_start,
+                                    level: Some(level),
+                                    framework: "logger".to_string(),
+                                    in_test,
+                                    confidence: if in_test { 0.7 } else { 1.0 },
+                                    evidence,
+                                });
+                                break;
+                            }
+                        }
+                    }
+                }
+                "identifier" => {
+                    // Handle print() calls
+                    let name = callee
+                        .utf8_text(content.as_bytes())
+                        .unwrap_or("")
+                        .to_string();
+                    if name == "print" {
+                        let line_start = node.start_position().row as i32 + 1;
+                        let in_test = is_in_py_test(node, content);
+                        let evidence = node.utf8_text(content.as_bytes()).unwrap_or("").to_string();
+                        let evidence = if evidence.len() > 200 {
+                            format!("{}...", &evidence[..197])
+                        } else {
+                            evidence
+                        };
+
+                        patterns.push(LoggingPattern {
+                            line_start,
+                            level: Some(LogLevel::Info),
+                            framework: "print".to_string(),
+                            in_test,
+                            confidence: if in_test { 0.5 } else { 0.8 },
+                            evidence,
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // Recurse into children
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_py_logging_patterns(child, content, patterns);
+    }
+}
+
+/// Extract the object name from a Python attribute node (e.g. logging.info -> "logging").
+fn extract_py_attribute_object(node: tree_sitter::Node, content: &str) -> String {
+    let mut cursor = node.walk();
+    let children: Vec<tree_sitter::Node> = node.children(&mut cursor).collect();
+    // The first child is the object (identifier or nested attribute)
+    if let Some(first) = children.first() {
+        if first.kind() == "identifier" {
+            return first
+                .utf8_text(content.as_bytes())
+                .unwrap_or("")
+                .to_string();
+        }
+        if first.kind() == "attribute" {
+            // Nested attribute like self.logger - take the last identifier
+            return extract_py_attribute_object(*first, content);
+        }
+    }
+    String::new()
+}
+
+/// Walk up the tree to check if the node is inside a function starting with test_.
+fn is_in_py_test(node: tree_sitter::Node, content: &str) -> bool {
+    let mut current = node.parent();
+    while let Some(parent) = current {
+        if parent.kind() == "function_definition" {
+            // Check if the function name starts with "test_"
+            if let Some(name_node) = parent.child_by_field_name("name") {
+                let name = name_node.utf8_text(content.as_bytes()).unwrap_or("");
+                if name.starts_with("test_") {
+                    return true;
+                }
+            }
+        }
+        current = parent.parent();
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -903,5 +1071,107 @@ class Helper:
             models.iter().all(|m| m.model_name != "Helper"),
             "plain class in non-model dir should NOT be a data model"
         );
+    }
+
+    #[test]
+    fn test_extract_logging_patterns_logging() {
+        let content = r#"
+import logging
+
+def handle_request():
+    logging.info("request received")
+    logging.warning("slow request")
+    logging.error("request failed")
+    logging.debug("debug details")
+    logging.critical("critical failure")
+"#;
+
+        let patterns = extract_logging_patterns(content).unwrap();
+        assert!(
+            patterns
+                .iter()
+                .any(|p| p.framework == "logging" && p.level == Some(LogLevel::Info))
+        );
+        assert!(
+            patterns
+                .iter()
+                .any(|p| p.framework == "logging" && p.level == Some(LogLevel::Warn))
+        );
+        assert!(
+            patterns
+                .iter()
+                .any(|p| p.framework == "logging" && p.level == Some(LogLevel::Error))
+        );
+        assert!(
+            patterns
+                .iter()
+                .any(|p| p.framework == "logging" && p.level == Some(LogLevel::Debug))
+        );
+        // critical maps to Error
+        assert!(patterns.iter().any(|p| p.framework == "logging"
+            && p.level == Some(LogLevel::Error)
+            && p.evidence.contains("critical")));
+    }
+
+    #[test]
+    fn test_extract_logging_patterns_logger() {
+        let content = r#"
+import logging
+
+logger = logging.getLogger(__name__)
+
+def process():
+    logger.info("processing")
+    logger.error("processing failed")
+"#;
+
+        let patterns = extract_logging_patterns(content).unwrap();
+        assert!(
+            patterns
+                .iter()
+                .any(|p| p.framework == "logger" && p.level == Some(LogLevel::Info))
+        );
+        assert!(
+            patterns
+                .iter()
+                .any(|p| p.framework == "logger" && p.level == Some(LogLevel::Error))
+        );
+    }
+
+    #[test]
+    fn test_extract_logging_patterns_print() {
+        let content = r#"
+def main():
+    print("hello world")
+"#;
+
+        let patterns = extract_logging_patterns(content).unwrap();
+        let print_pat = patterns
+            .iter()
+            .find(|p| p.framework == "print")
+            .expect("should find print pattern");
+        assert_eq!(print_pat.level, Some(LogLevel::Info));
+        assert!(!print_pat.in_test);
+    }
+
+    #[test]
+    fn test_extract_logging_patterns_in_test() {
+        let content = r#"
+import logging
+
+logger = logging.getLogger(__name__)
+
+def test_something():
+    logging.info("test log")
+    logger.warning("test warning")
+"#;
+
+        let patterns = extract_logging_patterns(content).unwrap();
+        for p in &patterns {
+            assert!(
+                p.in_test,
+                "patterns inside test_ functions should be in_test"
+            );
+        }
     }
 }

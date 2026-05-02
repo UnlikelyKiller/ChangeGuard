@@ -1,5 +1,6 @@
 use crate::index::call_graph::{CallEdge, CallKind, ResolutionStatus};
 use crate::index::data_models::{ExtractedModel, ModelKind};
+use crate::index::observability::{LogLevel, LoggingPattern};
 use crate::index::routes::ExtractedRoute;
 use crate::index::symbols::{Symbol, SymbolKind};
 use miette::{IntoDiagnostic, Result};
@@ -513,6 +514,179 @@ fn collect_ts_data_models(
     }
 }
 
+/// Console method names and their log level mappings.
+const CONSOLE_METHODS: &[(&str, LogLevel)] = &[
+    ("log", LogLevel::Info),
+    ("warn", LogLevel::Warn),
+    ("error", LogLevel::Error),
+    ("info", LogLevel::Info),
+    ("debug", LogLevel::Debug),
+];
+
+/// Logger/winston method names and their log level mappings.
+const LOGGER_METHODS: &[(&str, LogLevel)] = &[
+    ("info", LogLevel::Info),
+    ("warn", LogLevel::Warn),
+    ("error", LogLevel::Error),
+    ("debug", LogLevel::Debug),
+];
+
+/// Winston log method mapping (includes "log" -> Info).
+const WINSTON_METHODS: &[(&str, LogLevel)] = &[
+    ("info", LogLevel::Info),
+    ("warn", LogLevel::Warn),
+    ("error", LogLevel::Error),
+    ("debug", LogLevel::Debug),
+    ("log", LogLevel::Info),
+];
+
+pub fn extract_logging_patterns(content: &str) -> Result<Vec<LoggingPattern>> {
+    let mut parser = Parser::new();
+    let language = tree_sitter_typescript::LANGUAGE_TYPESCRIPT;
+    parser.set_language(&language.into()).into_diagnostic()?;
+
+    let tree = parser
+        .parse(content, None)
+        .ok_or_else(|| miette::miette!("Failed to parse TypeScript content"))?;
+
+    let mut patterns = Vec::new();
+    collect_ts_logging_patterns(tree.root_node(), content, &mut patterns);
+
+    // Cap at 1000 patterns per file
+    patterns.truncate(1000);
+    Ok(patterns)
+}
+
+fn collect_ts_logging_patterns(
+    node: tree_sitter::Node,
+    content: &str,
+    patterns: &mut Vec<LoggingPattern>,
+) {
+    if node.kind() == "call_expression" {
+        let callee_node = node.child(0);
+        if let Some(callee) = callee_node
+            && callee.kind() == "member_expression"
+        {
+            let obj_name = extract_ts_object_name(callee, content);
+            let method_name = extract_ts_member_name(callee, content);
+
+            // Check console.* methods
+            if obj_name == "console" {
+                for &(method, level) in CONSOLE_METHODS {
+                    if method_name == method {
+                        let line_start = node.start_position().row as i32 + 1;
+                        let in_test = is_in_ts_test(node, content);
+                        let evidence = node.utf8_text(content.as_bytes()).unwrap_or("").to_string();
+                        let evidence = if evidence.len() > 200 {
+                            format!("{}...", &evidence[..197])
+                        } else {
+                            evidence
+                        };
+
+                        patterns.push(LoggingPattern {
+                            line_start,
+                            level: Some(level),
+                            framework: "console".to_string(),
+                            in_test,
+                            confidence: if in_test { 0.7 } else { 1.0 },
+                            evidence,
+                        });
+                        break;
+                    }
+                }
+            }
+            // Check logger.* methods
+            else if obj_name == "logger" || obj_name == "Logger" {
+                for &(method, level) in LOGGER_METHODS {
+                    if method_name == method {
+                        let line_start = node.start_position().row as i32 + 1;
+                        let in_test = is_in_ts_test(node, content);
+                        let evidence = node.utf8_text(content.as_bytes()).unwrap_or("").to_string();
+                        let evidence = if evidence.len() > 200 {
+                            format!("{}...", &evidence[..197])
+                        } else {
+                            evidence
+                        };
+
+                        patterns.push(LoggingPattern {
+                            line_start,
+                            level: Some(level),
+                            framework: "logger".to_string(),
+                            in_test,
+                            confidence: if in_test { 0.7 } else { 1.0 },
+                            evidence,
+                        });
+                        break;
+                    }
+                }
+            }
+            // Check winston.* methods
+            else if obj_name == "winston" {
+                for &(method, level) in WINSTON_METHODS {
+                    if method_name == method {
+                        let line_start = node.start_position().row as i32 + 1;
+                        let in_test = is_in_ts_test(node, content);
+                        let evidence = node.utf8_text(content.as_bytes()).unwrap_or("").to_string();
+                        let evidence = if evidence.len() > 200 {
+                            format!("{}...", &evidence[..197])
+                        } else {
+                            evidence
+                        };
+
+                        patterns.push(LoggingPattern {
+                            line_start,
+                            level: Some(level),
+                            framework: "winston".to_string(),
+                            in_test,
+                            confidence: if in_test { 0.7 } else { 1.0 },
+                            evidence,
+                        });
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // Recurse into children
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_ts_logging_patterns(child, content, patterns);
+    }
+}
+
+/// Walk up the tree to check if the node is inside a test block
+/// (describe, it, or test call).
+fn is_in_ts_test(node: tree_sitter::Node, content: &str) -> bool {
+    let mut current = node.parent();
+    while let Some(parent) = current {
+        if parent.kind() == "call_expression" {
+            // Check if the callee is describe, it, or test
+            if let Some(callee) = parent.child(0) {
+                let callee_text = callee.utf8_text(content.as_bytes()).unwrap_or("");
+                if callee_text.starts_with("describe")
+                    || callee_text.starts_with("it(")
+                    || callee_text.starts_with("test(")
+                    || callee_text == "describe"
+                    || callee_text == "it"
+                    || callee_text == "test"
+                {
+                    return true;
+                }
+                // Also handle member expressions like describe.skip, it.only
+                if callee.kind() == "member_expression" {
+                    let obj = extract_ts_object_name(callee, content);
+                    if obj == "describe" || obj == "it" || obj == "test" {
+                        return true;
+                    }
+                }
+            }
+        }
+        current = parent.parent();
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -776,5 +950,95 @@ mod tests {
             models.iter().all(|m| m.model_name != "ConfigOptions"),
             "interface in non-model dir should NOT be a data model"
         );
+    }
+
+    #[test]
+    fn test_extract_logging_patterns_console() {
+        let content = r#"
+            function main() {
+                console.log("hello");
+                console.warn("warning");
+                console.error("error");
+                console.info("info");
+                console.debug("debug");
+            }
+        "#;
+
+        let patterns = extract_logging_patterns(content).unwrap();
+        assert!(
+            patterns
+                .iter()
+                .any(|p| p.framework == "console" && p.level == Some(LogLevel::Info))
+        );
+        assert!(
+            patterns
+                .iter()
+                .any(|p| p.framework == "console" && p.level == Some(LogLevel::Warn))
+        );
+        assert!(
+            patterns
+                .iter()
+                .any(|p| p.framework == "console" && p.level == Some(LogLevel::Error))
+        );
+    }
+
+    #[test]
+    fn test_extract_logging_patterns_logger() {
+        let content = r#"
+            function handleRequest() {
+                logger.info("request received");
+                logger.error("request failed");
+            }
+        "#;
+
+        let patterns = extract_logging_patterns(content).unwrap();
+        assert!(
+            patterns
+                .iter()
+                .any(|p| p.framework == "logger" && p.level == Some(LogLevel::Info))
+        );
+        assert!(
+            patterns
+                .iter()
+                .any(|p| p.framework == "logger" && p.level == Some(LogLevel::Error))
+        );
+    }
+
+    #[test]
+    fn test_extract_logging_patterns_winston() {
+        let content = r#"
+            function processItem() {
+                winston.info("processing");
+                winston.log("general log");
+            }
+        "#;
+
+        let patterns = extract_logging_patterns(content).unwrap();
+        assert!(
+            patterns
+                .iter()
+                .any(|p| p.framework == "winston" && p.level == Some(LogLevel::Info))
+        );
+        assert!(patterns.iter().any(|p| p.framework == "winston"
+            && p.level == Some(LogLevel::Info)
+            && p.evidence.contains("winston.log")));
+    }
+
+    #[test]
+    fn test_extract_logging_patterns_in_test() {
+        let content = r#"
+            describe("my suite", () => {
+                it("should work", () => {
+                    console.log("test output");
+                });
+            });
+        "#;
+
+        let patterns = extract_logging_patterns(content).unwrap();
+        let test_pattern = patterns
+            .iter()
+            .find(|p| p.framework == "console")
+            .expect("should find console pattern");
+        assert!(test_pattern.in_test);
     }
 }
