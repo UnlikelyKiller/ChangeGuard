@@ -163,6 +163,7 @@ mod tests {
                 analysis_status: FileAnalysisStatus::default(),
                 analysis_warnings: Vec::new(),
                 api_routes: Vec::new(),
+                data_models: Vec::new(),
             }],
             ..ImpactPacket::default()
         }
@@ -363,6 +364,7 @@ mod tests {
                 analysis_status: FileAnalysisStatus::default(),
                 analysis_warnings: Vec::new(),
                 api_routes: Vec::new(),
+                data_models: Vec::new(),
             }],
             ..ImpactPacket::default()
         };

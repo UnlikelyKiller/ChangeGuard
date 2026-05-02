@@ -19,6 +19,7 @@ fn test_structural_prediction() {
         analysis_status: FileAnalysisStatus::default(),
         analysis_warnings: Vec::new(),
         api_routes: Vec::new(),
+        data_models: Vec::new(),
     });
 
     let mut history = ImpactPacket::default();
@@ -35,6 +36,7 @@ fn test_structural_prediction() {
         analysis_status: FileAnalysisStatus::default(),
         analysis_warnings: Vec::new(),
         api_routes: Vec::new(),
+        data_models: Vec::new(),
     });
 
     let result = Predictor::predict(&current, &[history]);
@@ -57,6 +59,7 @@ fn test_temporal_prediction() {
         analysis_status: FileAnalysisStatus::default(),
         analysis_warnings: Vec::new(),
         api_routes: Vec::new(),
+        data_models: Vec::new(),
     });
     current.temporal_couplings.push(TemporalCoupling {
         file_a: PathBuf::from("src/a.rs"),
@@ -84,6 +87,7 @@ fn test_deduplication_and_sorting() {
         analysis_status: FileAnalysisStatus::default(),
         analysis_warnings: Vec::new(),
         api_routes: Vec::new(),
+        data_models: Vec::new(),
     });
     // Temporal predicts B
     current.temporal_couplings.push(TemporalCoupling {
@@ -107,6 +111,7 @@ fn test_deduplication_and_sorting() {
         analysis_status: FileAnalysisStatus::default(),
         analysis_warnings: Vec::new(),
         api_routes: Vec::new(),
+        data_models: Vec::new(),
     });
 
     let result = Predictor::predict(&current, &[history]);
@@ -129,6 +134,7 @@ fn test_current_imports_take_part_in_structural_prediction() {
         analysis_status: FileAnalysisStatus::default(),
         analysis_warnings: Vec::new(),
         api_routes: Vec::new(),
+        data_models: Vec::new(),
     });
 
     let mut imports = BTreeMap::new();

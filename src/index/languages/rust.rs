@@ -1,4 +1,5 @@
 use crate::index::call_graph::{CallEdge, CallKind, ResolutionStatus};
+use crate::index::data_models::{ExtractedModel, ModelKind};
 use crate::index::routes::ExtractedRoute;
 use crate::index::symbols::{Symbol, SymbolKind};
 use miette::{IntoDiagnostic, Result};
@@ -476,6 +477,161 @@ fn find_enclosing_function(node: tree_sitter::Node, content: &str) -> String {
     "<module>".to_string()
 }
 
+/// Directories that conventionally indicate data model definitions in Rust projects.
+const RUST_MODEL_DIRS: &[&str] = &["models/", "entities/", "schema/", "domain/"];
+
+/// Serde derive traits that indicate a data model.
+const SERDE_TRAITS: &[&str] = &[
+    "Serialize",
+    "Deserialize",
+    "serde::Serialize",
+    "serde::Deserialize",
+];
+
+/// ORM derive traits that indicate a data model.
+const ORM_TRAITS: &[&str] = &[
+    "sqlx::FromRow",
+    "FromRow",
+    "diesel::Queryable",
+    "Queryable",
+    "diesel::Insertable",
+    "Insertable",
+    "diesel::Identifiable",
+    "Identifiable",
+    "diesel::Associations",
+    "Associations",
+];
+
+pub fn extract_data_models(
+    content: &str,
+    file_path: &str,
+    _symbols: &[Symbol],
+) -> Result<Vec<ExtractedModel>> {
+    let mut parser = Parser::new();
+    let language = tree_sitter_rust::LANGUAGE;
+    parser.set_language(&language.into()).into_diagnostic()?;
+
+    let tree = parser
+        .parse(content, None)
+        .ok_or_else(|| miette::miette!("Failed to parse Rust content"))?;
+
+    let mut models = Vec::new();
+
+    // Walk the AST for struct_item nodes
+    let mut stack = vec![tree.root_node()];
+    while let Some(node) = stack.pop() {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
+
+        if node.kind() != "struct_item" {
+            continue;
+        }
+
+        // Extract struct name
+        let struct_name = node
+            .child_by_field_name("name")
+            .and_then(|n| n.utf8_text(content.as_bytes()).ok())
+            .unwrap_or("")
+            .to_string();
+
+        if struct_name.is_empty() {
+            continue;
+        }
+
+        // Check preceding sibling for attribute_item nodes
+        let mut serde_traits_found: Vec<&str> = Vec::new();
+        let mut orm_traits_found: Vec<&str> = Vec::new();
+        let mut has_serde_attr = false;
+
+        if let Some(parent) = node.parent() {
+            let mut pcursor = parent.walk();
+            let siblings: Vec<tree_sitter::Node> = parent.children(&mut pcursor).collect();
+
+            // Find the index of our struct_item
+            if let Some(idx) = siblings.iter().position(|s| *s == node) {
+                // Check siblings before this node for attribute_item
+                for i in (0..idx).rev() {
+                    let sibling = siblings[i];
+                    if sibling.kind() != "attribute_item" {
+                        break;
+                    }
+                    let attr_text = sibling
+                        .utf8_text(content.as_bytes())
+                        .unwrap_or("")
+                        .to_string();
+
+                    // Check for serde derives
+                    for &trait_name in SERDE_TRAITS {
+                        if attr_text.contains(trait_name)
+                            && !serde_traits_found.contains(&trait_name)
+                        {
+                            serde_traits_found.push(trait_name);
+                        }
+                    }
+
+                    // Check for ORM derives
+                    for &trait_name in ORM_TRAITS {
+                        if attr_text.contains(trait_name) && !orm_traits_found.contains(&trait_name)
+                        {
+                            orm_traits_found.push(trait_name);
+                        }
+                    }
+
+                    // Check for #[serde(rename_all = "...")] attribute
+                    if attr_text.contains("#[serde(") && attr_text.contains("rename_all") {
+                        has_serde_attr = true;
+                    }
+                }
+            }
+        }
+
+        // Determine model classification based on detected evidence
+        if !orm_traits_found.is_empty() {
+            let traits_str = orm_traits_found.join(", ");
+            models.push(ExtractedModel {
+                model_name: struct_name,
+                language: "Rust".to_string(),
+                model_kind: ModelKind::Struct,
+                confidence: 1.0,
+                evidence: format!("derive: {traits_str}"),
+            });
+        } else if !serde_traits_found.is_empty() {
+            let traits_str = serde_traits_found.join(", ");
+            models.push(ExtractedModel {
+                model_name: struct_name,
+                language: "Rust".to_string(),
+                model_kind: ModelKind::Struct,
+                confidence: 1.0,
+                evidence: format!("derive: {traits_str}"),
+            });
+        } else if has_serde_attr {
+            models.push(ExtractedModel {
+                model_name: struct_name,
+                language: "Rust".to_string(),
+                model_kind: ModelKind::Struct,
+                confidence: 0.9,
+                evidence: "attr: serde(rename_all)".to_string(),
+            });
+        } else {
+            // Directory convention check: only if no serialization derives
+            let dir_match = RUST_MODEL_DIRS.iter().find(|dir| file_path.contains(*dir));
+            if let Some(dir) = dir_match {
+                models.push(ExtractedModel {
+                    model_name: struct_name,
+                    language: "Rust".to_string(),
+                    model_kind: ModelKind::Struct,
+                    confidence: 0.7,
+                    evidence: format!("dir: {dir}"),
+                });
+            }
+        }
+    }
+
+    Ok(models)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -665,5 +821,103 @@ mod tests {
         assert!(!route.is_dynamic);
         assert_eq!(route.route_confidence, 1.0);
         assert!(route.evidence.contains("#[rocket::post(\"/items\")]"));
+    }
+
+    #[test]
+    fn test_extract_data_models_serde() {
+        let content = r#"
+            use serde::{Serialize, Deserialize};
+
+            #[derive(Serialize, Deserialize)]
+            pub struct User {
+                pub id: i64,
+                pub name: String,
+            }
+        "#;
+
+        let models = extract_data_models(content, "src/models/user.rs", &[]).unwrap();
+        let user_model = models
+            .iter()
+            .find(|m| m.model_name == "User")
+            .expect("should find User data model");
+        assert_eq!(user_model.model_kind, ModelKind::Struct);
+        assert!((user_model.confidence - 1.0).abs() < f64::EPSILON);
+        assert!(user_model.evidence.contains("Serialize"));
+        assert!(user_model.evidence.contains("Deserialize"));
+    }
+
+    #[test]
+    fn test_extract_data_models_sqlx() {
+        let content = r#"
+            #[derive(sqlx::FromRow)]
+            pub struct UserRow {
+                pub id: i64,
+                pub email: String,
+            }
+        "#;
+
+        let models = extract_data_models(content, "src/db/user.rs", &[]).unwrap();
+        let model = models
+            .iter()
+            .find(|m| m.model_name == "UserRow")
+            .expect("should find UserRow data model");
+        assert_eq!(model.model_kind, ModelKind::Struct);
+        assert!((model.confidence - 1.0).abs() < f64::EPSILON);
+        assert!(model.evidence.contains("sqlx::FromRow"));
+    }
+
+    #[test]
+    fn test_extract_data_models_directory_convention() {
+        let content = r#"
+            pub struct Config {
+                pub key: String,
+                pub value: String,
+            }
+        "#;
+
+        let models = extract_data_models(content, "src/models/config.rs", &[]).unwrap();
+        let model = models
+            .iter()
+            .find(|m| m.model_name == "Config")
+            .expect("should find Config data model via directory convention");
+        assert_eq!(model.model_kind, ModelKind::Struct);
+        assert!((model.confidence - 0.7).abs() < f64::EPSILON);
+        assert!(model.evidence.contains("dir: models/"));
+    }
+
+    #[test]
+    fn test_extract_data_models_plain_struct_not_model() {
+        let content = r#"
+            pub struct Helper {
+                pub x: i32,
+                pub y: i32,
+            }
+        "#;
+
+        let models = extract_data_models(content, "src/utils/helper.rs", &[]).unwrap();
+        assert!(
+            models.iter().all(|m| m.model_name != "Helper"),
+            "plain struct in non-model dir should NOT be a data model"
+        );
+    }
+
+    #[test]
+    fn test_extract_data_models_serde_rename_all() {
+        let content = r#"
+            #[serde(rename_all = "camelCase")]
+            pub struct ApiResponse {
+                pub status: String,
+                pub data: serde_json::Value,
+            }
+        "#;
+
+        let models = extract_data_models(content, "src/api/response.rs", &[]).unwrap();
+        let model = models
+            .iter()
+            .find(|m| m.model_name == "ApiResponse")
+            .expect("should find ApiResponse data model via serde attribute");
+        assert_eq!(model.model_kind, ModelKind::Struct);
+        assert!((model.confidence - 0.9).abs() < f64::EPSILON);
+        assert!(model.evidence.contains("serde(rename_all)"));
     }
 }

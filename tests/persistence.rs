@@ -39,6 +39,7 @@ fn test_persistence_integration() {
             analysis_status: FileAnalysisStatus::default(),
             analysis_warnings: Vec::new(),
             api_routes: Vec::new(),
+            data_models: Vec::new(),
         });
 
         storage.save_packet(&packet).unwrap();

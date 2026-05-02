@@ -72,6 +72,9 @@ pub fn execute_index(incremental: bool, check: bool, json: bool) -> Result<()> {
     // Extract API routes
     let route_stats = indexer.extract_routes()?;
 
+    // Extract data models
+    let dm_stats = indexer.extract_data_models()?;
+
     if json {
         let mut output = serde_json::to_value(&stats).into_diagnostic()?;
         let doc_obj = serde_json::to_value(&doc_stats).into_diagnostic()?;
@@ -102,6 +105,12 @@ pub fn execute_index(incremental: bool, check: bool, json: bool) -> Result<()> {
         if let (Some(map), Some(route)) = (output.as_object_mut(), route_obj.as_object()) {
             for (k, v) in route {
                 map.insert(format!("route_{}", k), v.clone());
+            }
+        }
+        let dm_obj = serde_json::to_value(&dm_stats).into_diagnostic()?;
+        if let (Some(map), Some(dm)) = (output.as_object_mut(), dm_obj.as_object()) {
+            for (k, v) in dm {
+                map.insert(format!("dm_{}", k), v.clone());
             }
         }
         println!(
@@ -181,6 +190,10 @@ pub fn execute_index(incremental: bool, check: bool, json: bool) -> Result<()> {
             );
         }
         println!("  Files processed: {}", route_stats.files_processed);
+        println!();
+        println!("Data Models:");
+        println!("  Total models:   {}", dm_stats.total_models);
+        println!("  Files processed: {}", dm_stats.files_processed);
     }
 
     Ok(())
