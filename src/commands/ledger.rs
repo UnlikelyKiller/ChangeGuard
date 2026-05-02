@@ -235,7 +235,11 @@ pub fn execute_ledger_note(entity: String, note: String) -> Result<()> {
     Ok(())
 }
 
-pub fn execute_ledger_status(entity_filter: Option<String>, compact: bool) -> Result<()> {
+pub fn execute_ledger_status(
+    entity_filter: Option<String>,
+    compact: bool,
+    exit_code: bool,
+) -> Result<()> {
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
     let config = load_ledger_config(&layout);
@@ -306,12 +310,18 @@ pub fn execute_ledger_status(entity_filter: Option<String>, compact: bool) -> Re
             .get_all_unaudited()
             .map_err(|e| miette::miette!("{}", e))?;
 
+        let pending_count = pending.len();
+        let unaudited_count = unaudited.len();
+
         if compact {
             println!(
                 "Ledger: {} pending, {} unaudited drift.",
-                pending.len().yellow(),
-                unaudited.len().red()
+                pending_count.yellow(),
+                unaudited_count.red()
             );
+            if exit_code && (pending_count > 0 || unaudited_count > 0) {
+                std::process::exit(1);
+            }
             return Ok(());
         }
 
@@ -374,6 +384,10 @@ pub fn execute_ledger_status(entity_filter: Option<String>, compact: bool) -> Re
                 ]);
             }
             println!("{}", table);
+        }
+
+        if exit_code && (pending_count > 0 || unaudited_count > 0) {
+            std::process::exit(1);
         }
     }
 

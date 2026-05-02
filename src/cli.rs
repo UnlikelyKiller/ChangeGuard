@@ -284,6 +284,9 @@ pub enum LedgerCommands {
         /// Show condensed counts only
         #[arg(long)]
         compact: bool,
+        /// Exit with code 1 if there are pending or unaudited entries (useful in git hooks)
+        #[arg(long)]
+        exit_code: bool,
     },
     /// Resume a PENDING transaction (set as active in session)
     Resume {
@@ -459,9 +462,11 @@ pub fn run() -> Result<()> {
             LedgerCommands::Note { entity, note } => {
                 crate::commands::ledger::execute_ledger_note(entity, note)
             }
-            LedgerCommands::Status { entity, compact } => {
-                crate::commands::ledger::execute_ledger_status(entity, compact)
-            }
+            LedgerCommands::Status {
+                entity,
+                compact,
+                exit_code,
+            } => crate::commands::ledger::execute_ledger_status(entity, compact, exit_code),
             LedgerCommands::Resume { tx_id } => {
                 crate::commands::ledger::execute_ledger_resume(tx_id)
             }
