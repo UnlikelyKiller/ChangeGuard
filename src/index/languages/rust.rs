@@ -1,5 +1,6 @@
 use crate::index::call_graph::{CallEdge, CallKind, ResolutionStatus};
 use crate::index::data_models::{ExtractedModel, ModelKind};
+use crate::index::observability::{LogLevel, LoggingPattern};
 use crate::index::routes::ExtractedRoute;
 use crate::index::symbols::{Symbol, SymbolKind};
 use miette::{IntoDiagnostic, Result};
@@ -632,6 +633,149 @@ pub fn extract_data_models(
     Ok(models)
 }
 
+/// Logging macros and their level/framework mappings for Rust.
+/// Note: macro names here do NOT include the `!` suffix; tree-sitter gives us
+/// just the identifier part (e.g. "info" not "info!").
+const RUST_LOG_MACROS: &[(&str, Option<LogLevel>, &str)] = &[
+    ("info", Some(LogLevel::Info), "log"),
+    ("warn", Some(LogLevel::Warn), "log"),
+    ("error", Some(LogLevel::Error), "log"),
+    ("debug", Some(LogLevel::Debug), "log"),
+    ("trace", Some(LogLevel::Trace), "log"),
+    ("println", Some(LogLevel::Info), "println"),
+    ("eprintln", Some(LogLevel::Error), "println"),
+];
+
+pub fn extract_logging_patterns(content: &str) -> Result<Vec<LoggingPattern>> {
+    let mut parser = Parser::new();
+    let language = tree_sitter_rust::LANGUAGE;
+    parser.set_language(&language.into()).into_diagnostic()?;
+
+    let tree = parser
+        .parse(content, None)
+        .ok_or_else(|| miette::miette!("Failed to parse Rust content"))?;
+
+    let mut patterns = Vec::new();
+    collect_rust_logging_patterns(tree.root_node(), content, &mut patterns);
+
+    // Cap at 1000 patterns per file
+    patterns.truncate(1000);
+    Ok(patterns)
+}
+
+fn collect_rust_logging_patterns(
+    node: tree_sitter::Node,
+    content: &str,
+    patterns: &mut Vec<LoggingPattern>,
+) {
+    if node.kind() == "macro_invocation" {
+        // A macro_invocation has children: the macro name (identifier or scoped_identifier)
+        // and the macro body (token_tree or similar).
+        let mut cursor = node.walk();
+        let children: Vec<tree_sitter::Node> = node.children(&mut cursor).collect();
+
+        // The first child should be the macro name
+        if let Some(name_node) = children.first() {
+            let full_name = name_node
+                .utf8_text(content.as_bytes())
+                .unwrap_or("")
+                .to_string();
+
+            // Extract the simple macro name (last segment for scoped identifiers)
+            let simple_name = full_name
+                .rsplit("::")
+                .next()
+                .unwrap_or(&full_name)
+                .to_string();
+
+            // Determine framework: check for qualified names
+            let framework = if full_name.starts_with("tracing::") {
+                "tracing".to_string()
+            } else if full_name.starts_with("log::") {
+                "log".to_string()
+            } else if simple_name == "println" || simple_name == "eprintln" {
+                "println".to_string()
+            } else {
+                // Default to "log" for unqualified logging macros
+                "log".to_string()
+            };
+
+            // Find matching log level
+            for &(macro_name, level, _framework) in RUST_LOG_MACROS {
+                if simple_name == macro_name {
+                    let line_start = node.start_position().row as i32 + 1;
+                    let in_test = is_in_rust_test(node, content);
+                    let evidence = node.utf8_text(content.as_bytes()).unwrap_or("").to_string();
+                    // Truncate evidence to a reasonable length
+                    let evidence = if evidence.len() > 200 {
+                        format!("{}...", &evidence[..197])
+                    } else {
+                        evidence
+                    };
+
+                    patterns.push(LoggingPattern {
+                        line_start,
+                        level,
+                        framework: framework.clone(),
+                        in_test,
+                        confidence: if in_test { 0.7 } else { 1.0 },
+                        evidence,
+                    });
+                    break;
+                }
+            }
+        }
+    }
+
+    // Recurse into children
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_rust_logging_patterns(child, content, patterns);
+    }
+}
+
+/// Walk up the tree to check if the node is inside a function annotated with
+/// `#[test]` or `#[tokio::test]`.
+fn is_in_rust_test(node: tree_sitter::Node, content: &str) -> bool {
+    let mut current = node.parent();
+    while let Some(parent) = current {
+        if parent.kind() == "function_item" {
+            // Check if this function has a #[test] or #[tokio::test] attribute
+            if has_test_attribute(parent, content) {
+                return true;
+            }
+        }
+        current = parent.parent();
+    }
+    false
+}
+
+/// Check if a function_item node has a #[test] or #[tokio::test] attribute.
+fn has_test_attribute(func_node: tree_sitter::Node, content: &str) -> bool {
+    if let Some(parent) = func_node.parent() {
+        // In tree-sitter-rust, attributes may appear as preceding siblings
+        // or as part of an attribute_item
+        let mut cursor = parent.walk();
+        let siblings: Vec<tree_sitter::Node> = parent.children(&mut cursor).collect();
+
+        if let Some(idx) = siblings.iter().position(|s| *s == func_node) {
+            for i in (0..idx).rev() {
+                let sibling = siblings[i];
+                if sibling.kind() == "attribute_item" {
+                    let attr_text = sibling.utf8_text(content.as_bytes()).unwrap_or("");
+                    if attr_text.contains("#[test]") || attr_text.contains("#[tokio::test]") {
+                        return true;
+                    }
+                } else {
+                    // Attributes must be immediately before the function
+                    break;
+                }
+            }
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -919,5 +1063,120 @@ mod tests {
         assert_eq!(model.model_kind, ModelKind::Struct);
         assert!((model.confidence - 0.9).abs() < f64::EPSILON);
         assert!(model.evidence.contains("serde(rename_all)"));
+    }
+
+    #[test]
+    fn test_extract_logging_patterns_info() {
+        let content = r#"
+            fn handle_request() {
+                info!("processing request");
+            }
+        "#;
+
+        let patterns = extract_logging_patterns(content).unwrap();
+        let p = patterns
+            .iter()
+            .find(|p| p.level == Some(LogLevel::Info) && p.framework == "log")
+            .expect("should find info! logging pattern");
+        assert!(!p.in_test);
+        assert!(p.evidence.contains("info!"));
+    }
+
+    #[test]
+    fn test_extract_logging_patterns_tracing() {
+        let content = r#"
+            fn handle_request() {
+                tracing::info!("processing request");
+                tracing::warn!("something odd");
+                tracing::error!("something broke");
+            }
+        "#;
+
+        let patterns = extract_logging_patterns(content).unwrap();
+        assert!(
+            patterns
+                .iter()
+                .any(|p| p.framework == "tracing" && p.level == Some(LogLevel::Info))
+        );
+        assert!(
+            patterns
+                .iter()
+                .any(|p| p.framework == "tracing" && p.level == Some(LogLevel::Warn))
+        );
+        assert!(
+            patterns
+                .iter()
+                .any(|p| p.framework == "tracing" && p.level == Some(LogLevel::Error))
+        );
+    }
+
+    #[test]
+    fn test_extract_logging_patterns_log_crate() {
+        let content = r#"
+            fn handle_request() {
+                log::debug!("debug info");
+                log::trace!("trace info");
+            }
+        "#;
+
+        let patterns = extract_logging_patterns(content).unwrap();
+        assert!(
+            patterns
+                .iter()
+                .any(|p| p.framework == "log" && p.level == Some(LogLevel::Debug))
+        );
+        assert!(
+            patterns
+                .iter()
+                .any(|p| p.framework == "log" && p.level == Some(LogLevel::Trace))
+        );
+    }
+
+    #[test]
+    fn test_extract_logging_patterns_println() {
+        let content = r#"
+            fn main() {
+                println!("hello world");
+                eprintln!("error output");
+            }
+        "#;
+
+        let patterns = extract_logging_patterns(content).unwrap();
+        let println_pat = patterns
+            .iter()
+            .find(|p| p.level == Some(LogLevel::Info) && p.framework == "println")
+            .expect("should find println! pattern");
+        assert!(!println_pat.in_test);
+        let eprintln_pat = patterns
+            .iter()
+            .find(|p| p.level == Some(LogLevel::Error) && p.framework == "println")
+            .expect("should find eprintln! pattern");
+        assert!(!eprintln_pat.in_test);
+    }
+
+    #[test]
+    fn test_extract_logging_patterns_in_test() {
+        let content = r#"
+            #[test]
+            fn test_something() {
+                info!("test log");
+            }
+
+            fn normal_fn() {
+                info!("normal log");
+            }
+        "#;
+
+        let patterns = extract_logging_patterns(content).unwrap();
+        let test_pattern = patterns
+            .iter()
+            .find(|p| p.in_test)
+            .expect("should find a pattern in test");
+        assert!((test_pattern.confidence - 0.7).abs() < f64::EPSILON);
+        let normal_pattern = patterns
+            .iter()
+            .find(|p| !p.in_test)
+            .expect("should find a pattern not in test");
+        assert!((normal_pattern.confidence - 1.0).abs() < f64::EPSILON);
     }
 }

@@ -238,6 +238,32 @@ impl Ord for Hotspot {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct CoverageDelta {
+    pub file_path: String,
+    pub pattern_kind: String,
+    pub previous_count: usize,
+    pub current_count: usize,
+    pub message: String,
+}
+
+impl Eq for CoverageDelta {}
+
+impl PartialOrd for CoverageDelta {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for CoverageDelta {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.file_path
+            .cmp(&other.file_path)
+            .then_with(|| self.pattern_kind.cmp(&other.pattern_kind))
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct ImpactPacket {
     pub schema_version: String,
     pub timestamp_utc: String, // ISO 8601 string
@@ -249,6 +275,8 @@ pub struct ImpactPacket {
     pub temporal_couplings: Vec<TemporalCoupling>,
     pub structural_couplings: Vec<StructuralCoupling>,
     pub centrality_risks: Vec<CentralityRisk>,
+    #[serde(default)]
+    pub logging_coverage_delta: Vec<CoverageDelta>,
     pub hotspots: Vec<Hotspot>,
     pub verification_results: Vec<VerificationResult>,
 }
@@ -266,6 +294,7 @@ impl Default for ImpactPacket {
             temporal_couplings: Vec::new(),
             structural_couplings: Vec::new(),
             centrality_risks: Vec::new(),
+            logging_coverage_delta: Vec::new(),
             hotspots: Vec::new(),
             verification_results: Vec::new(),
         }
@@ -303,6 +332,7 @@ impl ImpactPacket {
         self.temporal_couplings.sort_unstable();
         self.structural_couplings.sort_unstable();
         self.centrality_risks.sort_unstable();
+        self.logging_coverage_delta.sort_unstable();
         self.hotspots.sort_unstable_by(|a, b| {
             b.score
                 .partial_cmp(&a.score)
@@ -356,6 +386,7 @@ impl ImpactPacket {
         self.temporal_couplings.clear();
         self.structural_couplings.clear();
         self.centrality_risks.clear();
+        self.logging_coverage_delta.clear();
 
         let current_json = serde_json::to_string(self).unwrap_or_default();
         if current_json.len() <= target_chars {

@@ -81,6 +81,9 @@ pub fn execute_index(
     // Extract data models
     let dm_stats = indexer.extract_data_models()?;
 
+    // Extract observability patterns
+    let obs_stats = indexer.extract_observability()?;
+
     // Compute centrality if requested
     let cent_stats = if analyze_graph {
         indexer.compute_centrality()?
@@ -129,6 +132,12 @@ pub fn execute_index(
         if let (Some(map), Some(dm)) = (output.as_object_mut(), dm_obj.as_object()) {
             for (k, v) in dm {
                 map.insert(format!("dm_{}", k), v.clone());
+            }
+        }
+        let obs_obj = serde_json::to_value(&obs_stats).into_diagnostic()?;
+        if let (Some(map), Some(obs)) = (output.as_object_mut(), obs_obj.as_object()) {
+            for (k, v) in obs {
+                map.insert(format!("obs_{}", k), v.clone());
             }
         }
         if analyze_graph {
@@ -220,6 +229,10 @@ pub fn execute_index(
         println!("Data Models:");
         println!("  Total models:   {}", dm_stats.total_models);
         println!("  Files processed: {}", dm_stats.files_processed);
+        println!();
+        println!("Observability:");
+        println!("  Total patterns: {}", obs_stats.total_patterns);
+        println!("  Files processed: {}", obs_stats.files_processed);
         if analyze_graph {
             println!();
             println!("Centrality:");

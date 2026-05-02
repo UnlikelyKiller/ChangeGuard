@@ -6,6 +6,7 @@ pub mod entrypoint;
 pub mod languages;
 pub mod metrics;
 pub mod normalize;
+pub mod observability;
 pub mod project_index;
 pub mod references;
 pub mod routes;
