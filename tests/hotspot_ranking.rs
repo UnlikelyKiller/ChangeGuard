@@ -131,9 +131,11 @@ fn test_hotspot_score_is_finite_when_all_complexity_is_zero() {
 
     // Must round-trip through JSON without null scores
     let json = serde_json::to_string(&hotspots).unwrap();
-    assert!(!json.contains("null"), "JSON should not contain null scores");
-    let decoded: Vec<changeguard::impact::packet::Hotspot> =
-        serde_json::from_str(&json).unwrap();
+    assert!(
+        !json.contains("null"),
+        "JSON should not contain null scores"
+    );
+    let decoded: Vec<changeguard::impact::packet::Hotspot> = serde_json::from_str(&json).unwrap();
     for h in &decoded {
         assert!(h.score.is_finite());
     }
@@ -144,8 +146,7 @@ fn test_hotspot_score_null_deserializes_as_zero_for_backward_compat() {
     // Regression: packets written before the NaN fix have "score":null.
     // The custom deserializer should read null as 0.0 so verify doesn't crash.
     let json = r#"[{"path":"src/lib.rs","score":null,"complexity":0,"frequency":3}]"#;
-    let hotspots: Vec<changeguard::impact::packet::Hotspot> =
-        serde_json::from_str(json).unwrap();
+    let hotspots: Vec<changeguard::impact::packet::Hotspot> = serde_json::from_str(json).unwrap();
     assert_eq!(hotspots[0].score, 0.0);
     assert!(hotspots[0].score.is_finite());
 }

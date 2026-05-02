@@ -24,11 +24,19 @@ fn test_impact_packet_is_loadable_by_verify_after_scan() {
 
     setup_git_repo(dir);
     fs::create_dir_all(dir.join("src")).unwrap();
-    fs::write(dir.join("src/lib.rs"), "pub fn add(a: i32, b: i32) -> i32 { a + b }").unwrap();
+    fs::write(
+        dir.join("src/lib.rs"),
+        "pub fn add(a: i32, b: i32) -> i32 { a + b }",
+    )
+    .unwrap();
     git_add_and_commit(dir, "initial");
 
     // Dirty the working tree so impact has something to analyse
-    fs::write(dir.join("src/lib.rs"), "pub fn add(a: i32, b: i32) -> i32 { a + b + 0 }").unwrap();
+    fs::write(
+        dir.join("src/lib.rs"),
+        "pub fn add(a: i32, b: i32) -> i32 { a + b + 0 }",
+    )
+    .unwrap();
 
     let _guard = DirGuard::new(dir);
     let layout = Layout::new(dir.to_string_lossy().as_ref());
