@@ -305,6 +305,47 @@ pub fn print_hotspots_table(hotspots: &[crate::impact::packet::Hotspot]) {
     );
 }
 
+pub fn print_hotspots_table_with_centrality(hotspots: &[crate::impact::packet::Hotspot]) {
+    print_header("Codebase Hotspots (Risk Density)");
+
+    if hotspots.is_empty() {
+        println!("No hotspots identified.");
+        return;
+    }
+
+    let mut table = build_table(["Rank", "Score", "Freq", "Comp", "Centrality", "File Path"]);
+
+    for (i, hotspot) in hotspots.iter().enumerate() {
+        let score_color = if hotspot.score > 0.7 {
+            hotspot.score.to_string().red().bold().to_string()
+        } else if hotspot.score > 0.4 {
+            hotspot.score.to_string().yellow().to_string()
+        } else {
+            hotspot.score.to_string().green().to_string()
+        };
+
+        let centrality_str = hotspot
+            .centrality
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "N/A".to_string());
+
+        table.add_row(vec![
+            (i + 1).to_string(),
+            score_color,
+            hotspot.frequency.to_string(),
+            hotspot.complexity.to_string(),
+            centrality_str,
+            hotspot.path.display().to_string().cyan().to_string(),
+        ]);
+    }
+
+    println!("{table}");
+    println!(
+        "\n{} High frequency + high complexity = high risk density. Centrality = entry points reachable.",
+        "Note:".bold().dimmed()
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

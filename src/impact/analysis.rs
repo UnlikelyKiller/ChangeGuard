@@ -196,6 +196,32 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules) -> Result<()> {
     }
     total_weight += data_model_total;
 
+    // 3e. Centrality Risk
+    // Symbols reachable from >5 entry points contribute up to 15 points within
+    // the Historical Hotspot category (max 30 points).
+    let centrality_threshold = 5;
+    let centrality_weight = 15;
+    let centrality_weight_cap = 15;
+    let mut centrality_total = 0;
+    // Centrality risk is applied via pre-populated data on symbols.
+    // See populate_centrality_risks in commands/impact.rs.
+    for risk in &packet.centrality_risks {
+        if centrality_total + centrality_weight <= centrality_weight_cap
+            && risk.entrypoints_reachable > centrality_threshold
+        {
+            centrality_total += centrality_weight;
+            reasons.push(format!(
+                "High centrality: {} reachable from {} entry points",
+                risk.symbol_name, risk.entrypoints_reachable
+            ));
+            debug!(
+                "Risk Factor: High centrality ({} reachable from {} entry points) +{}",
+                risk.symbol_name, risk.entrypoints_reachable, centrality_weight
+            );
+        }
+    }
+    total_weight += centrality_total;
+
     // 4. Scoring
     packet.risk_level = if total_weight > 60 {
         RiskLevel::High
@@ -217,7 +243,7 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::impact::packet::{ChangedFile, FileAnalysisStatus};
+    use crate::impact::packet::{CentralityRisk, ChangedFile, FileAnalysisStatus};
     use std::path::PathBuf;
 
     #[test]
@@ -909,6 +935,114 @@ mod tests {
                 .risk_reasons
                 .contains(&"Minimal changes detected".to_string()),
             "expected 'Minimal changes detected' in risk reasons, got {:?}",
+            packet.risk_reasons
+        );
+    }
+
+    #[test]
+    fn test_analyze_risk_centrality_high() {
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("src/core.rs"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+        });
+        packet.centrality_risks.push(CentralityRisk {
+            symbol_name: "process_request".to_string(),
+            entrypoints_reachable: 8,
+        });
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("High centrality") && r.contains("8 entry points")),
+            "expected centrality risk reason, got {:?}",
+            packet.risk_reasons
+        );
+        assert!(
+            packet.risk_reasons.iter().any(|r| r.contains("High centrality")),
+            "expected centrality risk reason, got {:?}",
+            packet.risk_reasons
+        );
+        // Centrality alone contributes 15 weight — may be Low or Medium depending on other factors
+        assert!(
+            packet.risk_level == RiskLevel::Low || packet.risk_level == RiskLevel::Medium,
+            "expected Low or Medium risk for centrality-only change, got {:?}",
+            packet.risk_level
+        );
+    }
+
+    #[test]
+    fn test_analyze_risk_centrality_low_threshold() {
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("src/util.rs"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+        });
+        packet.centrality_risks.push(CentralityRisk {
+            symbol_name: "helper".to_string(),
+            entrypoints_reachable: 3, // Below threshold of 5
+        });
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        assert!(
+            !packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("High centrality")),
+            "expected no centrality risk reason for below-threshold symbol, got {:?}",
+            packet.risk_reasons
+        );
+    }
+
+    #[test]
+    fn test_analyze_risk_centrality_empty_no_regression() {
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("README.md"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+        });
+        // No centrality_risks — default empty
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        assert_eq!(packet.risk_level, RiskLevel::Low);
+        assert!(
+            !packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("High centrality")),
+            "expected no centrality risk reasons when empty, got {:?}",
             packet.risk_reasons
         );
     }

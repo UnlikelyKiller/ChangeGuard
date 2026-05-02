@@ -48,11 +48,13 @@ fn test_narrative_golden_prompt() {
             score: 0.85,
         }],
         structural_couplings: vec![],
+        centrality_risks: vec![],
         hotspots: vec![Hotspot {
             path: PathBuf::from("src/auth.rs"),
             score: 0.92,
             complexity: 45,
             frequency: 150,
+            centrality: None,
         }],
         verification_results: Vec::new(),
     };
