@@ -249,7 +249,7 @@ pub fn get_migrations() -> Migrations<'static> {
             CREATE INDEX IF NOT EXISTS idx_project_symbols_kind ON project_symbols(symbol_kind);
             CREATE INDEX IF NOT EXISTS idx_project_symbols_entrypoint ON project_symbols(entrypoint_kind);
             CREATE TABLE IF NOT EXISTS project_docs (
-                id              INTEGER PRIMARY KEY,
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 file_id         INTEGER NOT NULL REFERENCES project_files(id),
                 title           TEXT,
                 summary         TEXT,
@@ -260,6 +260,7 @@ pub fn get_migrations() -> Migrations<'static> {
                 last_indexed_at TEXT NOT NULL,
                 UNIQUE(file_id)
             );
+            CREATE INDEX IF NOT EXISTS idx_project_docs_file_id ON project_docs(file_id);
             CREATE TABLE IF NOT EXISTS project_topology (
                 id              INTEGER PRIMARY KEY,
                 dir_path        TEXT NOT NULL,
@@ -559,5 +560,45 @@ mod tests {
             )
             .unwrap();
         assert_eq!(file_path_from_sym, "src/lib.rs");
+    }
+
+    #[test]
+    fn test_insert_and_query_project_docs() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let migrations = get_migrations();
+        migrations.to_latest(&mut conn).unwrap();
+
+        // Insert a project_files row first (FK dependency)
+        conn.execute(
+            "INSERT INTO project_files (file_path, language, content_hash, file_size, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            ("README.md", "Markdown", "md5hash", 1024, "2026-05-01T00:00:00Z"),
+        ).unwrap();
+
+        // Insert a project_docs row
+        conn.execute(
+            "INSERT INTO project_docs (file_id, title, summary, sections, code_blocks, internal_links, confidence, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            (1i64, "My Project", "A test project summary", "[]", "[]", "[]", 1.0_f64, "2026-05-01T00:00:00Z"),
+        ).unwrap();
+
+        // Query back
+        let (title, summary, confidence): (String, String, f64) = conn
+            .query_row(
+                "SELECT title, summary, confidence FROM project_docs WHERE file_id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(title, "My Project");
+        assert_eq!(summary, "A test project summary");
+        assert!((confidence - 1.0).abs() < f64::EPSILON);
+
+        // Verify UNIQUE constraint on file_id
+        let result = conn.execute(
+            "INSERT INTO project_docs (file_id, title, confidence, last_indexed_at) VALUES (?1, ?2, ?3, ?4)",
+            (1i64, "Duplicate", 0.5_f64, "2026-05-01T00:00:00Z"),
+        );
+        assert!(result.is_err(), "Should not allow duplicate file_id");
     }
 }

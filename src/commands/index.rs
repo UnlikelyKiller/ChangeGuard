@@ -57,9 +57,21 @@ pub fn execute_index(incremental: bool, check: bool, json: bool) -> Result<()> {
         indexer.full_index()?
     };
 
+    // Index documentation files
+    let doc_stats = indexer.index_docs()?;
+
     if json {
-        let output = serde_json::to_string_pretty(&stats).into_diagnostic()?;
-        println!("{}", output);
+        let mut output = serde_json::to_value(&stats).into_diagnostic()?;
+        let doc_obj = serde_json::to_value(&doc_stats).into_diagnostic()?;
+        if let (Some(map), Some(doc)) = (output.as_object_mut(), doc_obj.as_object()) {
+            for (k, v) in doc {
+                map.insert(format!("doc_{}", k), v.clone());
+            }
+        }
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&output).into_diagnostic()?
+        );
     } else {
         println!("Indexing complete:");
         println!("  Files indexed:   {}", stats.files_indexed);
@@ -74,6 +86,17 @@ pub fn execute_index(incremental: bool, check: bool, json: bool) -> Result<()> {
             println!("  Skipped unsupported: {}", stats.skipped_unsupported);
         }
         println!("  Duration:        {}ms", stats.duration_ms);
+        println!();
+        println!("Documentation:");
+        println!("  Docs indexed:    {}", doc_stats.docs_indexed);
+        if doc_stats.parse_failures > 0 {
+            println!("  Doc parse failures: {}", doc_stats.parse_failures);
+        }
+        if doc_stats.missing_readme {
+            println!("  README:          not found");
+        } else {
+            println!("  README:          found");
+        }
     }
 
     Ok(())
