@@ -48,20 +48,20 @@ Evidence of successful validation is stored in `.changeguard/reports/latest-veri
 For tracked changes, record the intent and outcome in the ledger.
 
 **Tracked Edit (Manual):**
-1. `changeguard ledger start --entity <path> --category <CAT> --message "Intent"`
+1. `changeguard ledger start <path> --category <CAT> --message "Intent"`
 2. *Perform edits...*
-3. `changeguard ledger commit --tx-id <id> --summary "Done" --reason "Why"`
+3. `changeguard ledger commit <tx-id> --summary "Done" --reason "Why"`
 
 **Surgical Edit (Atomic):**
 Use this for single-file changes where the start and commit happen together:
 ```bash
-changeguard ledger atomic --entity <path> --category <CAT> --summary "Task" --reason "Goal"
+changeguard ledger atomic <path> --category <CAT> --summary "Task" --reason "Goal"
 ```
 
 **Lightweight Note:**
 Use this to add metadata to a file without a formal transaction:
 ```bash
-changeguard ledger note --entity <path> "Metadata note"
+changeguard ledger note <path> "Metadata note"
 ```
 
 ## Strategic Reasoning

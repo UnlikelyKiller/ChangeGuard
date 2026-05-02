@@ -41,11 +41,11 @@ changeguard ledger search QUERY [--category CAT] [--days N] [--breaking] [--limi
 ## Ledger Subcommands (Provenance)
 
 ```bash
-changeguard ledger start --entity PATH --category CAT [--message TEXT] [--issue REF]
-changeguard ledger commit --tx-id ID --summary TEXT --reason TEXT [--change-type TYPE] [--breaking] [--auto-reconcile | --no-auto-reconcile]
-changeguard ledger rollback --tx-id ID --reason TEXT
-changeguard ledger atomic --entity PATH --summary TEXT --reason TEXT [--category CAT]
-changeguard ledger note --entity PATH NOTE
+changeguard ledger start PATH [--category CAT] [--message TEXT] [--issue REF]
+changeguard ledger commit TX_ID --summary TEXT --reason TEXT [--change-type TYPE] [--breaking] [--auto-reconcile | --no-auto-reconcile]
+changeguard ledger rollback TX_ID --reason TEXT
+changeguard ledger atomic PATH --summary TEXT --reason TEXT [--category CAT]
+changeguard ledger note PATH NOTE
 changeguard ledger resume [ID]                              # Find most recent PENDING tx or resume specific    
 changeguard ledger status [--entity PATH] [--compact]       # Holistic view or entity history
 changeguard ledger reconcile [--tx-id ID] [--entity-pattern GLOB] [--all] --reason TEXT

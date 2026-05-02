@@ -112,8 +112,8 @@ pub fn calculate_hotspots(
 
     // Find max frequency for normalization
     let max_freq = frequency_map.values().max().cloned().unwrap_or(1) as f32;
-    // Find max complexity for normalization
-    let max_comp = file_complexities.values().max().cloned().unwrap_or(1) as f32;
+    // Find max complexity for normalization; clamp to 1 to avoid division by zero when all files have 0 complexity
+    let max_comp = file_complexities.values().max().cloned().unwrap_or(0).max(1) as f32;
 
     for (path, freq) in frequency_map {
         let path_str = path.to_string();

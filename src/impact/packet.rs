@@ -4,7 +4,7 @@ use crate::index::runtime_usage::RuntimeUsage;
 use crate::index::symbols::Symbol;
 use crate::util::clock::Clock;
 use chrono::Utc;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -236,10 +236,15 @@ impl Ord for CentralityRisk {
     }
 }
 
+fn deserialize_score<'de, D: Deserializer<'de>>(d: D) -> Result<f32, D::Error> {
+    Ok(Option::<f32>::deserialize(d)?.unwrap_or(0.0))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Hotspot {
     pub path: PathBuf,
+    #[serde(deserialize_with = "deserialize_score")]
     pub score: f32,
     pub complexity: i32,
     pub frequency: usize,
