@@ -12,6 +12,7 @@ use crate::verify::timeouts::{DEFAULT_AUTO_TIMEOUT_SECS, manual_timeout};
 use chrono::Utc;
 use miette::Result;
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -119,11 +120,19 @@ pub fn execute_verify(
                                 None => crate::verify::predict::StructuralCallData::default(),
                             };
 
-                            crate::verify::predict::Predictor::predict_with_structural_calls(
+                            let test_mapping_data = match storage.as_ref() {
+                                Some(storage) => {
+                                    fetch_test_mapping_data(p, storage, &mut current_warnings)
+                                }
+                                None => crate::verify::predict::TestMappingData::default(),
+                            };
+
+                            crate::verify::predict::Predictor::predict_with_test_mappings(
                                 p,
                                 &history,
                                 &current_imports,
                                 &call_data,
+                                &test_mapping_data,
                             )
                         }
                         None => crate::verify::predict::PredictionResult::default(),
@@ -431,4 +440,67 @@ fn scan_imports_recursive(
     }
 
     Ok(())
+}
+
+fn fetch_test_mapping_data(
+    packet: &crate::impact::packet::ImpactPacket,
+    storage: &StorageManager,
+    _warnings: &mut Vec<String>,
+) -> crate::verify::predict::TestMappingData {
+    use rusqlite::OptionalExtension;
+    use std::collections::BTreeMap;
+
+    let conn = storage.get_connection();
+
+    // Gracefully skip if test_mapping table doesn't exist or is empty
+    let has_mappings: Option<i64> = match conn
+        .query_row("SELECT count(*) FROM test_mapping LIMIT 1", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .optional()
+    {
+        Ok(Some(count)) if count > 0 => Some(count),
+        Ok(_) => None, // Table exists but is empty
+        Err(_) => return crate::verify::predict::TestMappingData::default(), // Table doesn't exist
+    };
+
+    if has_mappings.is_none() {
+        return crate::verify::predict::TestMappingData::default();
+    }
+
+    // Collect changed symbol names
+    let changed_symbols: Vec<String> = packet
+        .changes
+        .iter()
+        .filter_map(|f| f.symbols.as_ref())
+        .flat_map(|symbols| symbols.iter().map(|s| s.name.clone()))
+        .collect();
+
+    if changed_symbols.is_empty() {
+        return crate::verify::predict::TestMappingData::default();
+    }
+
+    // For each changed symbol, find test files that cover it
+    let mut mappings: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+
+    for symbol_name in &changed_symbols {
+        // Query test_mapping joined with project_symbols and project_files
+        // to find test files that cover this symbol
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT DISTINCT pf_test.file_path, ps_test.symbol_name
+             FROM test_mapping tm
+             JOIN project_symbols ps_test ON tm.test_symbol_id = ps_test.id
+             JOIN project_files pf_test ON tm.test_file_id = pf_test.id
+             JOIN project_symbols ps_tested ON tm.tested_symbol_id = ps_tested.id
+             WHERE ps_tested.symbol_name = ?1",
+        ) && let Ok(rows) = stmt.query_map([symbol_name], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        }) {
+            for row in rows.flatten() {
+                mappings.entry(row.0).or_default().insert(row.1);
+            }
+        }
+    }
+
+    crate::verify::predict::TestMappingData { mappings }
 }

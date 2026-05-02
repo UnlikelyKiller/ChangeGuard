@@ -327,6 +327,21 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules) -> Result<()> {
     }
     total_weight += infra_total;
 
+    // 3j. Test Coverage Advisory (informational, not risk weight)
+    // For each TestCoverage entry with empty covering_tests, add an advisory.
+    for coverage in &packet.test_coverage {
+        if coverage.covering_tests.is_empty() {
+            reasons.push(format!(
+                "No test coverage found for {} ({})",
+                coverage.changed_symbol, coverage.changed_file
+            ));
+            debug!(
+                "Advisory: No test coverage for {} in {}",
+                coverage.changed_symbol, coverage.changed_file
+            );
+        }
+    }
+
     // 3i. Telemetry Reduction Risk
     // Each file with reduced telemetry coverage contributes 25 points, capped at 25 total.
     let telemetry_weight_per_file = 25;
@@ -1490,6 +1505,126 @@ mod tests {
                 .iter()
                 .any(|r| r.contains("Telemetry coverage reduced")),
             "expected no telemetry coverage risk reasons when empty, got {:?}",
+            packet.risk_reasons
+        );
+        assert!(
+            packet
+                .risk_reasons
+                .contains(&"Minimal changes detected".to_string()),
+            "expected 'Minimal changes detected' in risk reasons, got {:?}",
+            packet.risk_reasons
+        );
+    }
+
+    #[test]
+    fn test_analyze_risk_test_coverage_with_tests() {
+        use crate::impact::packet::{CoveringTest, TestCoverage};
+
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("src/lib.rs"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+        });
+        // Symbol with test coverage
+        packet.test_coverage.push(TestCoverage {
+            changed_symbol: "my_function".to_string(),
+            changed_file: "src/lib.rs".to_string(),
+            covering_tests: vec![CoveringTest {
+                test_file: "tests/test_lib.rs".to_string(),
+                test_symbol: "test_my_function".to_string(),
+                confidence: 1.0,
+                mapping_kind: "IMPORT".to_string(),
+            }],
+        });
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        // Should not have "No test coverage" advisory since covering_tests is non-empty
+        assert!(
+            !packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("No test coverage found for my_function")),
+            "expected no test coverage advisory when tests exist, got {:?}",
+            packet.risk_reasons
+        );
+    }
+
+    #[test]
+    fn test_analyze_risk_no_test_coverage_advisory() {
+        use crate::impact::packet::TestCoverage;
+
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("src/lib.rs"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+        });
+        // Symbol without test coverage
+        packet.test_coverage.push(TestCoverage {
+            changed_symbol: "my_function".to_string(),
+            changed_file: "src/lib.rs".to_string(),
+            covering_tests: vec![],
+        });
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        // Should have advisory about missing test coverage
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("No test coverage found for my_function")
+                    && r.contains("src/lib.rs")),
+            "expected 'No test coverage found for my_function' advisory, got {:?}",
+            packet.risk_reasons
+        );
+    }
+
+    #[test]
+    fn test_analyze_risk_test_coverage_empty_no_regression() {
+        // Empty test_coverage should produce no advisory
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("README.md"),
+            status: "Modified".to_string(),
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+        });
+        // test_coverage is empty by default
+
+        let rules = Rules::default();
+        analyze_risk(&mut packet, &rules).unwrap();
+
+        assert!(
+            !packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("No test coverage found")),
+            "expected no test coverage advisory when empty, got {:?}",
             packet.risk_reasons
         );
         assert!(

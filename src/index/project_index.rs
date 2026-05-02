@@ -11,6 +11,7 @@ use crate::index::metrics::{ComplexityScorer, NativeComplexityScorer};
 use crate::index::observability::{ObservabilityExtractor, ObservabilityStats};
 use crate::index::routes::{RouteExtractor, RouteStats};
 use crate::index::symbols::Symbol;
+use crate::index::test_mapping::{TestMapper, TestMappingStats};
 use crate::index::topology::{DirectoryRole, TopologyIndexStats, classify_directory};
 use crate::state::storage::StorageManager;
 use camino::{Utf8Path, Utf8PathBuf};
@@ -1161,6 +1162,12 @@ impl ProjectIndexer {
     pub fn compute_centrality(&self) -> Result<CentralityStats> {
         let computer = CentralityComputer::new(&self.storage);
         computer.compute()
+    }
+
+    /// Extract test-to-symbol mappings from source files.
+    pub fn extract_test_mappings(&self) -> Result<TestMappingStats> {
+        let mapper = TestMapper::new(&self.storage, self.repo_path.as_std_path().to_path_buf());
+        mapper.extract()
     }
 }
 

@@ -9,6 +9,7 @@ pub enum PredictionReason {
     Structural,
     CallGraph,
     Temporal,
+    TestMapping,
 }
 
 impl std::fmt::Display for PredictionReason {
@@ -17,6 +18,7 @@ impl std::fmt::Display for PredictionReason {
             Self::Structural => write!(f, "Structural"),
             Self::CallGraph => write!(f, "CallGraph"),
             Self::Temporal => write!(f, "Temporal"),
+            Self::TestMapping => write!(f, "TestMapping"),
         }
     }
 }
@@ -38,6 +40,14 @@ pub struct PredictionResult {
 #[derive(Debug, Clone, Default)]
 pub struct StructuralCallData {
     pub callers: Vec<(PathBuf, String, String)>,
+}
+
+/// Pre-fetched test mapping data for prediction.
+/// Each entry maps a test file path to the set of tested symbol names in that file.
+#[derive(Debug, Clone, Default)]
+pub struct TestMappingData {
+    /// Maps test file path -> set of tested symbol names found in that file
+    pub mappings: BTreeMap<String, BTreeSet<String>>,
 }
 
 pub struct Predictor;
@@ -84,6 +94,77 @@ impl Predictor {
 
         // Call graph predictions: if changed symbols have structural callers,
         // predict the caller's file as a verification target.
+        if !call_data.callers.is_empty() {
+            add_call_graph_predictions(&mut predicted, &changed_paths, &call_data.callers);
+        }
+
+        if packet.temporal_couplings.is_empty() && !packet.changes.is_empty() {
+            warnings.push("Temporal coupling data is missing or unavailable; falling back to structural-only prediction.".to_string());
+        }
+
+        for coupling in &packet.temporal_couplings {
+            let a_changed = changed_paths.contains(&coupling.file_a);
+            let b_changed = changed_paths.contains(&coupling.file_b);
+
+            if a_changed && !b_changed {
+                predicted.insert(PredictedFile {
+                    path: coupling.file_b.clone(),
+                    reason: PredictionReason::Temporal,
+                });
+            } else if b_changed && !a_changed {
+                predicted.insert(PredictedFile {
+                    path: coupling.file_a.clone(),
+                    reason: PredictionReason::Temporal,
+                });
+            }
+        }
+
+        let mut files: Vec<_> = predicted.into_iter().collect();
+        files.sort();
+
+        PredictionResult { files, warnings }
+    }
+
+    /// Predict verification targets using test mapping data from the index.
+    /// For each changed symbol, find tests that cover it and add those test files
+    /// as prediction targets. Test-mapping predictions appear before temporal
+    /// and structural predictions in priority.
+    pub fn predict_with_test_mappings(
+        packet: &ImpactPacket,
+        history: &[ImpactPacket],
+        current_imports: &BTreeMap<PathBuf, ImportExport>,
+        call_data: &StructuralCallData,
+        test_mapping_data: &TestMappingData,
+    ) -> PredictionResult {
+        let mut predicted = BTreeSet::new();
+        let mut warnings = Vec::new();
+
+        let changed_paths: BTreeSet<PathBuf> =
+            packet.changes.iter().map(|f| f.path.clone()).collect();
+
+        // Test mapping predictions: files that contain tests covering changed symbols
+        for test_file in test_mapping_data.mappings.keys() {
+            let test_path = PathBuf::from(test_file);
+            if !changed_paths.contains(&test_path) {
+                predicted.insert(PredictedFile {
+                    path: test_path,
+                    reason: PredictionReason::TestMapping,
+                });
+            }
+        }
+
+        // Then add structural predictions
+        add_structural_predictions(&mut predicted, &changed_paths, current_imports.iter());
+
+        for hist_packet in history {
+            let historical_imports = hist_packet
+                .changes
+                .iter()
+                .filter_map(|file| file.imports.as_ref().map(|imports| (&file.path, imports)));
+            add_structural_predictions(&mut predicted, &changed_paths, historical_imports);
+        }
+
+        // Call graph predictions
         if !call_data.callers.is_empty() {
             add_call_graph_predictions(&mut predicted, &changed_paths, &call_data.callers);
         }
@@ -187,6 +268,7 @@ mod tests {
         assert_eq!(format!("{}", PredictionReason::Structural), "Structural");
         assert_eq!(format!("{}", PredictionReason::CallGraph), "CallGraph");
         assert_eq!(format!("{}", PredictionReason::Temporal), "Temporal");
+        assert_eq!(format!("{}", PredictionReason::TestMapping), "TestMapping");
     }
 
     #[test]
