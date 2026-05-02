@@ -2,7 +2,8 @@ use crate::git::repo::{get_head_info, open_repo};
 use crate::git::status::get_repo_status;
 use crate::git::{ChangeType, RepoSnapshot};
 use crate::impact::packet::{
-    AnalysisStatus, ChangedFile, FileAnalysisStatus, ImpactPacket, StructuralCoupling,
+    AnalysisStatus, ChangedFile, CoveringTest, FileAnalysisStatus, ImpactPacket,
+    StructuralCoupling, TestCoverage,
 };
 use crate::index::languages::{Language, parse_symbols};
 use crate::index::metrics::ComplexityScorer;
@@ -194,6 +195,12 @@ pub fn execute_impact(all_parents: bool, summary: bool, telemetry_coverage: bool
             if let Err(e) = populate_infrastructure_dirs(&mut packet, &storage) {
                 tracing::warn!("Infrastructure dirs population failed: {e}");
                 // Graceful degradation: packet.infrastructure_dirs stays empty
+            }
+
+            // Populate test coverage from test_mapping
+            if let Err(e) = populate_test_coverage(&mut packet, &storage) {
+                tracing::warn!("Test coverage population failed: {e}");
+                // Graceful degradation: packet.test_coverage stays empty
             }
 
             if let Err(e) = storage.save_packet(&packet) {
@@ -1275,6 +1282,109 @@ fn check_telemetry_coverage(_packet: &mut ImpactPacket, storage: &StorageManager
         }
     }
 
+    Ok(())
+}
+
+/// Populate test coverage from test_mapping.
+/// For each changed file, query test_mapping for tests covering symbols in that file.
+fn populate_test_coverage(
+    packet: &mut ImpactPacket,
+    storage: &StorageManager,
+) -> miette::Result<()> {
+    use rusqlite::OptionalExtension;
+
+    let conn = storage.get_connection();
+
+    // Gracefully skip if test_mapping table doesn't exist or is empty
+    let has_mappings: Option<i64> = match conn
+        .query_row("SELECT count(*) FROM test_mapping LIMIT 1", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .optional()
+    {
+        Ok(Some(count)) if count > 0 => Some(count),
+        Ok(_) => return Ok(()),  // Table exists but is empty — graceful skip
+        Err(_) => return Ok(()), // Table doesn't exist — graceful skip
+    };
+
+    if has_mappings.is_none() {
+        return Ok(());
+    }
+
+    // Build a path -> project_files.id lookup
+    let mut file_stmt = conn
+        .prepare("SELECT id, file_path FROM project_files WHERE parse_status != 'DELETED'")
+        .map_err(|e| miette::miette!("Failed to prepare project_files query: {e}"))?;
+
+    let file_rows: Vec<(i64, String)> = file_stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|e| miette::miette!("Failed to query project_files: {e}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| miette::miette!("Failed to collect project_files rows: {e}"))?;
+
+    drop(file_stmt);
+
+    let path_to_id: std::collections::HashMap<String, i64> =
+        file_rows.into_iter().map(|(id, path)| (path, id)).collect();
+
+    let mut test_coverages: Vec<TestCoverage> = Vec::new();
+
+    for change in &packet.changes {
+        let path_str = change.path.to_string_lossy().to_string();
+
+        if let Some(&file_id) = path_to_id.get(&path_str) {
+            // Find symbols in this changed file
+            let symbols: Vec<(i64, String)> = {
+                let mut sym_stmt = conn
+                    .prepare("SELECT id, symbol_name FROM project_symbols WHERE file_id = ?1")
+                    .map_err(|e| miette::miette!("Failed to prepare symbols query: {e}"))?;
+
+                sym_stmt
+                    .query_map([file_id], |row| {
+                        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+                    })
+                    .map_err(|e| miette::miette!("Failed to query symbols: {e}"))?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| miette::miette!("Failed to collect symbol rows: {e}"))?
+            };
+
+            for (symbol_id, symbol_name) in &symbols {
+                // Find tests that cover this symbol
+                let mut tm_stmt = conn
+                    .prepare(
+                        "SELECT ps_test.symbol_name, pf_test.file_path, tm.confidence, tm.mapping_kind
+                         FROM test_mapping tm
+                         JOIN project_symbols ps_test ON tm.test_symbol_id = ps_test.id
+                         JOIN project_files pf_test ON tm.test_file_id = pf_test.id
+                         WHERE tm.tested_symbol_id = ?1",
+                    )
+                    .map_err(|e| miette::miette!("Failed to prepare test_mapping query: {e}"))?;
+
+                let covering_tests: Vec<CoveringTest> = tm_stmt
+                    .query_map([*symbol_id], |row| {
+                        Ok(CoveringTest {
+                            test_file: row.get::<_, String>(1)?,
+                            test_symbol: row.get::<_, String>(0)?,
+                            confidence: row.get::<_, f64>(2)?,
+                            mapping_kind: row.get::<_, String>(3)?,
+                        })
+                    })
+                    .map_err(|e| miette::miette!("Failed to query test_mapping: {e}"))?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| miette::miette!("Failed to collect test_mapping rows: {e}"))?;
+
+                test_coverages.push(TestCoverage {
+                    changed_symbol: symbol_name.clone(),
+                    changed_file: path_str.clone(),
+                    covering_tests,
+                });
+            }
+        }
+    }
+
+    packet.test_coverage = test_coverages;
     Ok(())
 }
 

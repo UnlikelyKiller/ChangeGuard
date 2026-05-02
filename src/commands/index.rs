@@ -84,6 +84,9 @@ pub fn execute_index(
     // Extract observability patterns
     let obs_stats = indexer.extract_observability()?;
 
+    // Extract test-to-symbol mappings
+    let tm_stats = indexer.extract_test_mappings()?;
+
     // Compute centrality if requested
     let cent_stats = if analyze_graph {
         indexer.compute_centrality()?
@@ -138,6 +141,12 @@ pub fn execute_index(
         if let (Some(map), Some(obs)) = (output.as_object_mut(), obs_obj.as_object()) {
             for (k, v) in obs {
                 map.insert(format!("obs_{}", k), v.clone());
+            }
+        }
+        let tm_obj = serde_json::to_value(&tm_stats).into_diagnostic()?;
+        if let (Some(map), Some(tm)) = (output.as_object_mut(), tm_obj.as_object()) {
+            for (k, v) in tm {
+                map.insert(format!("tm_{}", k), v.clone());
             }
         }
         if analyze_graph {
@@ -238,6 +247,15 @@ pub fn execute_index(
         );
         println!("  Telemetry patterns: {}", obs_stats.telemetry_patterns);
         println!("  Files processed: {}", obs_stats.files_processed);
+        println!();
+        println!("Test Mapping:");
+        println!("  Total mappings: {}", tm_stats.total_mappings);
+        println!("  Import mappings: {}", tm_stats.import_mappings);
+        println!(
+            "  Naming convention mappings: {}",
+            tm_stats.naming_convention_mappings
+        );
+        println!("  Files processed: {}", tm_stats.files_processed);
         if analyze_graph {
             println!();
             println!("Centrality:");

@@ -370,6 +370,26 @@ pub fn get_migrations() -> Migrations<'static> {
             CREATE INDEX IF NOT EXISTS idx_obs_patterns_file ON observability_patterns(file_id);
             CREATE INDEX IF NOT EXISTS idx_obs_patterns_kind ON observability_patterns(pattern_kind);",
         ),
+        M::up(
+            "CREATE TABLE IF NOT EXISTS test_mapping (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                test_symbol_id INTEGER NOT NULL REFERENCES project_symbols(id),
+                test_file_id INTEGER NOT NULL REFERENCES project_files(id),
+                tested_symbol_id INTEGER REFERENCES project_symbols(id),
+                tested_file_id INTEGER REFERENCES project_files(id),
+                confidence REAL NOT NULL DEFAULT 1.0,
+                mapping_kind TEXT NOT NULL DEFAULT 'IMPORT',
+                evidence TEXT,
+                last_indexed_at TEXT NOT NULL,
+                FOREIGN KEY (test_symbol_id) REFERENCES project_symbols(id),
+                FOREIGN KEY (test_file_id) REFERENCES project_files(id),
+                FOREIGN KEY (tested_symbol_id) REFERENCES project_symbols(id),
+                FOREIGN KEY (tested_file_id) REFERENCES project_files(id),
+                UNIQUE(test_symbol_id, tested_symbol_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_test_mapping_tested ON test_mapping(tested_symbol_id);
+            CREATE INDEX IF NOT EXISTS idx_test_mapping_test ON test_mapping(test_symbol_id);",
+        ),
     ])
 }
 
@@ -418,6 +438,7 @@ mod tests {
             "data_models",
             "symbol_centrality",
             "observability_patterns",
+            "test_mapping",
         ];
 
         for table in &expected_tables {
@@ -1394,5 +1415,138 @@ mod tests {
             )
             .unwrap();
         assert_eq!(file_path, "src/lib.rs");
+    }
+
+    #[test]
+    fn test_insert_and_query_test_mapping() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let migrations = get_migrations();
+        migrations.to_latest(&mut conn).unwrap();
+
+        // Insert test file
+        conn.execute(
+            "INSERT INTO project_files (file_path, language, content_hash, file_size, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            ("tests/test_foo.rs", "Rust", "hash_test", 512, "2026-05-01T00:00:00Z"),
+        ).unwrap();
+        let test_file_id = conn.last_insert_rowid();
+
+        // Insert source file for foo
+        conn.execute(
+            "INSERT INTO project_files (file_path, language, content_hash, file_size, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            ("src/foo.rs", "Rust", "hash_foo", 1024, "2026-05-01T00:00:00Z"),
+        ).unwrap();
+        let foo_file_id = conn.last_insert_rowid();
+
+        // Insert source file for bar
+        conn.execute(
+            "INSERT INTO project_files (file_path, language, content_hash, file_size, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            ("src/bar.rs", "Rust", "hash_bar", 768, "2026-05-01T00:00:00Z"),
+        ).unwrap();
+        let bar_file_id = conn.last_insert_rowid();
+
+        // Insert test symbol
+        conn.execute(
+            "INSERT INTO project_symbols (file_id, qualified_name, symbol_name, symbol_kind, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            (test_file_id, "crate::test_foo", "test_foo", "Function", "2026-05-01T00:00:00Z"),
+        ).unwrap();
+        let test_symbol_id = conn.last_insert_rowid();
+
+        // Insert tested symbol foo
+        conn.execute(
+            "INSERT INTO project_symbols (file_id, qualified_name, symbol_name, symbol_kind, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            (foo_file_id, "crate::foo", "foo", "Function", "2026-05-01T00:00:00Z"),
+        ).unwrap();
+        let foo_symbol_id = conn.last_insert_rowid();
+
+        // Insert tested symbol bar
+        conn.execute(
+            "INSERT INTO project_symbols (file_id, qualified_name, symbol_name, symbol_kind, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            (bar_file_id, "crate::bar", "bar", "Function", "2026-05-01T00:00:00Z"),
+        ).unwrap();
+        let bar_symbol_id = conn.last_insert_rowid();
+
+        // Insert IMPORT mapping (confidence 1.0)
+        conn.execute(
+            "INSERT INTO test_mapping (test_symbol_id, test_file_id, tested_symbol_id, tested_file_id, confidence, mapping_kind, evidence, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            (test_symbol_id, test_file_id, foo_symbol_id, foo_file_id, 1.0_f64, "IMPORT", Some("use crate::foo;"), "2026-05-01T00:00:00Z"),
+        ).unwrap();
+
+        // Insert NAMING_CONVENTION mapping (confidence 0.5) — different tested symbol
+        conn.execute(
+            "INSERT INTO test_mapping (test_symbol_id, test_file_id, tested_symbol_id, tested_file_id, confidence, mapping_kind, evidence, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            (test_symbol_id, test_file_id, bar_symbol_id, bar_file_id, 0.5_f64, "NAMING_CONVENTION", Some("test_foo -> foo"), "2026-05-01T00:00:00Z"),
+        ).unwrap();
+
+        // Verify both rows exist
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM test_mapping", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 2, "Should have 2 test_mapping rows");
+
+        // Verify IMPORT mapping
+        let (mapping_kind, confidence, evidence): (String, f64, Option<String>) = conn
+            .query_row(
+                "SELECT mapping_kind, confidence, evidence FROM test_mapping WHERE mapping_kind = 'IMPORT'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(mapping_kind, "IMPORT");
+        assert!((confidence - 1.0).abs() < f64::EPSILON);
+        assert_eq!(evidence, Some("use crate::foo;".to_string()));
+
+        // Verify NAMING_CONVENTION mapping
+        let (mapping_kind, confidence): (String, f64) = conn
+            .query_row(
+                "SELECT mapping_kind, confidence FROM test_mapping WHERE mapping_kind = 'NAMING_CONVENTION'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(mapping_kind, "NAMING_CONVENTION");
+        assert!((confidence - 0.5).abs() < f64::EPSILON);
+
+        // Verify UNIQUE constraint on (test_symbol_id, tested_symbol_id)
+        let result = conn.execute(
+            "INSERT INTO test_mapping (test_symbol_id, test_file_id, tested_symbol_id, tested_file_id, confidence, mapping_kind, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            (test_symbol_id, test_file_id, foo_symbol_id, foo_file_id, 0.7_f64, "IMPORT", "2026-05-01T00:00:00Z"),
+        );
+        assert!(
+            result.is_err(),
+            "Should not allow duplicate (test_symbol_id, tested_symbol_id)"
+        );
+
+        // Verify index on tested_symbol_id works
+        let tested_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM test_mapping WHERE tested_symbol_id = ?1",
+                [foo_symbol_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(tested_count, 1);
+
+        // Verify FK join works — get test file path and tested symbol name through the relationship
+        let (test_file, tested_name): (String, String) = conn
+            .query_row(
+                "SELECT pf.file_path, ps.symbol_name FROM test_mapping tm
+                 JOIN project_files pf ON tm.test_file_id = pf.id
+                 JOIN project_symbols ps ON tm.tested_symbol_id = ps.id
+                 WHERE tm.mapping_kind = 'IMPORT'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(test_file, "tests/test_foo.rs");
+        assert_eq!(tested_name, "foo");
     }
 }

@@ -246,6 +246,61 @@ pub struct CoverageDelta {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CoveringTest {
+    pub test_file: String,
+    pub test_symbol: String,
+    pub confidence: f64,
+    pub mapping_kind: String,
+}
+
+impl Eq for CoveringTest {}
+
+impl PartialOrd for CoveringTest {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for CoveringTest {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.test_file
+            .cmp(&other.test_file)
+            .then_with(|| self.test_symbol.cmp(&other.test_symbol))
+            .then_with(|| {
+                self.confidence
+                    .partial_cmp(&other.confidence)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .then_with(|| self.mapping_kind.cmp(&other.mapping_kind))
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TestCoverage {
+    pub changed_symbol: String,
+    pub changed_file: String,
+    pub covering_tests: Vec<CoveringTest>,
+}
+
+impl Eq for TestCoverage {}
+
+impl PartialOrd for TestCoverage {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for TestCoverage {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.changed_symbol
+            .cmp(&other.changed_symbol)
+            .then_with(|| self.changed_file.cmp(&other.changed_file))
+    }
+}
+
 impl Eq for CoverageDelta {}
 
 impl PartialOrd for CoverageDelta {
@@ -283,6 +338,8 @@ pub struct ImpactPacket {
     pub telemetry_coverage_delta: Vec<CoverageDelta>,
     #[serde(default)]
     pub infrastructure_dirs: Vec<String>,
+    #[serde(default)]
+    pub test_coverage: Vec<TestCoverage>,
     pub hotspots: Vec<Hotspot>,
     pub verification_results: Vec<VerificationResult>,
 }
@@ -304,6 +361,7 @@ impl Default for ImpactPacket {
             error_handling_delta: Vec::new(),
             telemetry_coverage_delta: Vec::new(),
             infrastructure_dirs: Vec::new(),
+            test_coverage: Vec::new(),
             hotspots: Vec::new(),
             verification_results: Vec::new(),
         }
@@ -345,6 +403,7 @@ impl ImpactPacket {
         self.error_handling_delta.sort_unstable();
         self.telemetry_coverage_delta.sort_unstable();
         self.infrastructure_dirs.sort_unstable();
+        self.test_coverage.sort_unstable();
         self.hotspots.sort_unstable_by(|a, b| {
             b.score
                 .partial_cmp(&a.score)
@@ -402,6 +461,7 @@ impl ImpactPacket {
         self.error_handling_delta.clear();
         self.telemetry_coverage_delta.clear();
         self.infrastructure_dirs.clear();
+        self.test_coverage.clear();
 
         let current_json = serde_json::to_string(self).unwrap_or_default();
         if current_json.len() <= target_chars {
