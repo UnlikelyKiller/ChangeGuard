@@ -29,6 +29,8 @@ pub fn execute_verify(
     let manual_requested = command_str.is_some();
 
     let mut current_warnings = Vec::new();
+    let mut saved_packet: Option<crate::impact::packet::ImpactPacket> = None;
+    let mut saved_config: Option<crate::config::model::Config> = None;
     let (plan, steps) = match command_str {
         Some(cmd) => (None, vec![manual_step(cmd, manual_timeout(timeout_secs))]),
         None => {
@@ -38,6 +40,7 @@ pub fn execute_verify(
                 current_warnings.push(warning);
                 crate::config::model::Config::default()
             });
+            saved_config = Some(config.clone());
 
             // Priority 2: config-defined verify steps
             if let Some(config_plan) = build_plan_from_config(&config.verify) {
@@ -155,6 +158,7 @@ pub fn execute_verify(
                 };
                 print_verify_plan(&plan);
                 let steps = plan.steps.clone();
+                saved_packet = packet.clone();
                 (Some(plan), steps)
             }
         }
@@ -187,15 +191,63 @@ pub fn execute_verify(
         }
     }
 
-    let report =
-        VerificationReport::new(plan.clone(), persisted_results).with_warnings(current_warnings);
+    let report = VerificationReport::new(plan.clone(), persisted_results.clone())
+        .with_warnings(current_warnings);
     write_verify_report(&layout, &report)?;
     persist_verify_report(&layout, &report);
+
+    record_semantic_test_outcomes(&layout, &saved_config, &saved_packet, &persisted_results);
 
     if let Some(error) = final_error {
         Err(error)
     } else {
         Ok(())
+    }
+}
+
+fn record_semantic_test_outcomes(
+    layout: &Layout,
+    config: &Option<crate::config::model::Config>,
+    packet: &Option<crate::impact::packet::ImpactPacket>,
+    results: &[VerificationResult],
+) {
+    let (Some(config), Some(packet)) = (config, packet) else {
+        return;
+    };
+
+    let db_path = layout.state_subdir().join("ledger.db");
+    let Ok(storage) = StorageManager::init(db_path.as_std_path()) else {
+        warn!("Failed to open storage for semantic test outcome recording");
+        return;
+    };
+
+    let diff_text = crate::verify::semantic_predictor::build_diff_text(packet);
+    let diff_summary: String = diff_text.chars().take(200).collect();
+    let commit_hash = packet.head_hash.clone().unwrap_or_default();
+
+    let outcomes: Vec<crate::verify::semantic_predictor::TestOutcome> = results
+        .iter()
+        .map(|r| crate::verify::semantic_predictor::TestOutcome {
+            test_name: r.command.clone(),
+            test_file: r.command.clone(),
+            commit_hash: commit_hash.clone(),
+            status: if r.exit_code == 0 {
+                crate::verify::semantic_predictor::TestStatus::Passed
+            } else {
+                crate::verify::semantic_predictor::TestStatus::Failed
+            },
+            duration_ms: r.duration_ms,
+            diff_summary: diff_summary.clone(),
+        })
+        .collect();
+
+    if let Err(e) = crate::verify::semantic_predictor::record_test_outcomes(
+        storage.get_connection(),
+        &config.local_model,
+        &outcomes,
+        &diff_text,
+    ) {
+        warn!("Failed to record test outcomes for semantic prediction: {e}");
     }
 }
 
