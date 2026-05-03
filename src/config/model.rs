@@ -24,6 +24,13 @@ pub struct VerifyConfig {
     /// Default timeout for steps that don't specify one
     #[serde(default = "default_verify_timeout")]
     pub default_timeout_secs: u64,
+    /// Weight of semantic prediction in score blending [0.0, 1.0]. 0.0 disables.
+    #[serde(default = "default_semantic_weight")]
+    pub semantic_weight: f64,
+}
+
+fn default_semantic_weight() -> f64 {
+    0.3
 }
 
 fn default_verify_timeout() -> u64 {
@@ -35,6 +42,7 @@ impl Default for VerifyConfig {
         Self {
             steps: Vec::new(),
             default_timeout_secs: default_verify_timeout(),
+            semantic_weight: default_semantic_weight(),
         }
     }
 }
@@ -386,10 +394,25 @@ impl Default for ObservabilityConfig {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ContractsConfig {
     #[serde(default)]
     pub spec_paths: Vec<String>,
+    #[serde(default = "default_match_threshold")]
+    pub match_threshold: f32,
+}
+
+fn default_match_threshold() -> f32 {
+    0.5
+}
+
+impl Default for ContractsConfig {
+    fn default() -> Self {
+        Self {
+            spec_paths: Vec::new(),
+            match_threshold: default_match_threshold(),
+        }
+    }
 }
 
 pub fn resolve_local_model_config(config: &LocalModelConfig) -> LocalModelConfig {
@@ -448,7 +471,7 @@ fn resolve_local_model_config_with(
     resolved
 }
 
-fn read_env_key(target_key: &str) -> Option<String> {
+pub(crate) fn read_env_key(target_key: &str) -> Option<String> {
     use std::path::Path;
     let path = Path::new(".env");
     let contents = std::fs::read_to_string(path).ok()?;
@@ -559,6 +582,8 @@ mod tests {
         assert_eq!(config.verify.steps[1].command, "cargo fmt --check");
         // Omitted timeout_secs should deserialize as None (uses default_timeout_secs)
         assert_eq!(config.verify.steps[1].timeout_secs, None);
+        // semantic_weight not specified → uses default 0.3
+        assert!((config.verify.semantic_weight - 0.3).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -566,6 +591,7 @@ mod tests {
         let config = Config::default();
         assert!(config.verify.steps.is_empty());
         assert_eq!(config.verify.default_timeout_secs, 300);
+        assert!((config.verify.semantic_weight - 0.3).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -649,6 +675,7 @@ mod tests {
     fn test_contracts_config_defaults() {
         let config = ContractsConfig::default();
         assert!(config.spec_paths.is_empty());
+        assert!((config.match_threshold - 0.5).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -718,9 +745,11 @@ mod tests {
         let toml_str = r#"
             [contracts]
             spec_paths = ["openapi.yaml", "proto/"]
+            match_threshold = 0.7
         "#;
         let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.contracts.spec_paths, vec!["openapi.yaml", "proto/"]);
+        assert!((config.contracts.match_threshold - 0.7).abs() < f32::EPSILON);
     }
 
     #[test]

@@ -1,6 +1,7 @@
 pub mod cli;
 pub mod commands;
 pub mod config;
+pub mod contracts;
 pub mod docs;
 pub mod embed;
 pub mod exec;
@@ -11,6 +12,7 @@ pub mod impact;
 pub mod index;
 pub mod ledger;
 pub mod local_model;
+pub mod observability;
 pub mod output;
 pub mod platform;
 pub mod policy;

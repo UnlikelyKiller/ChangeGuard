@@ -57,10 +57,13 @@ pub enum Commands {
         /// Disable predictive verification
         #[arg(long)]
         no_predict: bool,
+        /// Show rationale for predicted verification targets
+        #[arg(long)]
+        explain: bool,
     },
-    /// Ask Gemini for assistance based on the current context
+    /// Ask Gemini or a local model for assistance based on the current context
     Ask {
-        /// The query to ask Gemini
+        /// The query to ask
         query: Option<String>,
         /// Gemini interaction mode
         #[arg(long, short, default_value = "analyze")]
@@ -68,6 +71,9 @@ pub enum Commands {
         /// Enable narrative mode (Senior Architect summary)
         #[arg(long)]
         narrative: bool,
+        /// Backend to use (local, gemini, or auto)
+        #[arg(long)]
+        backend: Option<crate::commands::ask::Backend>,
     },
     /// Reset the local state
     Reset {
@@ -104,6 +110,9 @@ pub enum Commands {
         /// Index document files (crawl, chunk, embed) from configured docs paths
         #[arg(long)]
         docs: bool,
+        /// Index API contract specs (OpenAPI/Swagger)
+        #[arg(long)]
+        contracts: bool,
     },
     /// Identify high-risk hotspots in the codebase
     Hotspots {
@@ -368,12 +377,14 @@ pub fn run() -> Result<()> {
             command,
             timeout,
             no_predict,
-        } => crate::commands::verify::execute_verify(command, timeout, no_predict),
+            explain,
+        } => crate::commands::verify::execute_verify(command, timeout, no_predict, explain),
         Commands::Ask {
             query,
             mode,
             narrative,
-        } => crate::commands::ask::execute_ask(query, mode, narrative),
+            backend,
+        } => crate::commands::ask::execute_ask(query, mode, narrative, backend),
         Commands::Reset {
             remove_config,
             remove_rules,
@@ -393,7 +404,15 @@ pub fn run() -> Result<()> {
             json,
             analyze_graph,
             docs,
-        } => crate::commands::index::execute_index(incremental, check, json, analyze_graph, docs),
+            contracts,
+        } => crate::commands::index::execute_index(
+            incremental,
+            check,
+            json,
+            analyze_graph,
+            docs,
+            contracts,
+        ),
         Commands::Hotspots {
             limit,
             commits,

@@ -47,7 +47,7 @@ fn test_impact_packet_is_loadable_by_verify_after_scan() {
 
     // Step 2: verify should be able to load and deserialize that packet
     // (using prediction mode, no manual command override)
-    let result = execute_verify(Some("echo ok".into()), 10, false);
+    let result = execute_verify(Some("echo ok".into()), 10, false, false);
     assert!(
         result.is_ok(),
         "verify should succeed after impact: {:?}",

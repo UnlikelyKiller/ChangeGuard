@@ -22,6 +22,7 @@ pub fn execute_verify(
     command_str: Option<String>,
     timeout_secs: u64,
     no_predict: bool,
+    explain: bool,
 ) -> Result<()> {
     let current_dir = env::current_dir()
         .map_err(|e| miette::miette!("Failed to get current directory: {}", e))?;
@@ -75,7 +76,7 @@ pub fn execute_verify(
                 };
 
                 let rules = load_rules(&layout)?;
-                let prediction = if no_predict {
+                let mut prediction = if no_predict {
                     crate::verify::predict::PredictionResult::default()
                 } else {
                     if let Some(packet) = &mut packet {
@@ -145,6 +146,76 @@ pub fn execute_verify(
                 for warning in &prediction.warnings {
                     warn!("{}", warning);
                     current_warnings.push(warning.clone());
+                }
+
+                // Semantic prediction enrichment
+                let semantic_weight = saved_config
+                    .as_ref()
+                    .map(|c| c.verify.semantic_weight)
+                    .unwrap_or(0.3);
+                if !no_predict
+                    && semantic_weight > 0.0
+                    && let Some(ref pkt) = packet
+                    && let Some(ref stg) = storage
+                {
+                    let diff_text = crate::verify::semantic_predictor::build_diff_text(pkt);
+                    let default_embed_config = crate::config::model::LocalModelConfig::default();
+                    let embed_config = saved_config
+                        .as_ref()
+                        .map(|c| &c.local_model)
+                        .unwrap_or(&default_embed_config);
+
+                    if !embed_config.base_url.is_empty() && !diff_text.is_empty() {
+                        let conn = stg.get_connection();
+                        let history_count =
+                            crate::verify::predict::count_history_rows(conn).unwrap_or(0);
+
+                        let cold_start = history_count < 5;
+                        if cold_start {
+                            let msg = format!(
+                                "Semantic prediction: warming up ({history_count}/50 history records)"
+                            );
+                            warn!("{msg}");
+                            current_warnings.push(msg);
+                        }
+
+                        if !cold_start {
+                            match crate::verify::semantic_predictor::query_similar_outcomes(
+                                conn,
+                                embed_config,
+                                &diff_text,
+                                30,
+                            ) {
+                                Ok(similar_outcomes) => {
+                                    let semantic_scores =
+                                        crate::verify::semantic_predictor::compute_semantic_scores(
+                                            &similar_outcomes,
+                                        );
+                                    prediction = crate::verify::predict::enrich_with_semantic(
+                                        prediction,
+                                        &semantic_scores,
+                                        semantic_weight,
+                                        &similar_outcomes,
+                                        history_count,
+                                    );
+                                }
+                                Err(e) => {
+                                    let warning = format!(
+                                        "Semantic prediction degraded: failed to query outcomes: {}",
+                                        e
+                                    );
+                                    warn!("{warning}");
+                                    current_warnings.push(warning);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if explain && !prediction.explain_lines.is_empty() {
+                    for line in &prediction.explain_lines {
+                        println!("{line}");
+                    }
                 }
 
                 let plan = match &packet {

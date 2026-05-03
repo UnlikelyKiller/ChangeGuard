@@ -67,6 +67,16 @@ pub fn validate_config(config: &Config) -> Result<()> {
         .into());
     }
 
+    if config.verify.semantic_weight < 0.0 || config.verify.semantic_weight > 1.0 {
+        return Err(ConfigError::ValidationFailed {
+            reason: format!(
+                "verify.semantic_weight must be in [0.0, 1.0], got {}",
+                config.verify.semantic_weight
+            ),
+        }
+        .into());
+    }
+
     Ok(())
 }
 
@@ -213,6 +223,7 @@ mod tests {
             verify: VerifyConfig {
                 steps: vec![],
                 default_timeout_secs: 300,
+                semantic_weight: 0.3,
             },
             ..Default::default()
         };
@@ -229,6 +240,7 @@ mod tests {
                     timeout_secs: Some(60),
                 }],
                 default_timeout_secs: 300,
+                semantic_weight: 0.3,
             },
             ..Default::default()
         };
@@ -248,6 +260,7 @@ mod tests {
                     timeout_secs: Some(0),
                 }],
                 default_timeout_secs: 300,
+                semantic_weight: 0.3,
             },
             ..Default::default()
         };
@@ -267,6 +280,7 @@ mod tests {
                     timeout_secs: Some(60),
                 }],
                 default_timeout_secs: 0,
+                semantic_weight: 0.3,
             },
             ..Default::default()
         };
@@ -301,5 +315,31 @@ mod tests {
         let err = validate_config(&config).unwrap_err();
         let msg = format!("{:?}", err);
         assert!(msg.contains("min_revisions"));
+    }
+
+    #[test]
+    fn test_semantic_weight_out_of_range_rejected() {
+        let config = Config {
+            verify: VerifyConfig {
+                semantic_weight: 1.5,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let err = validate_config(&config).unwrap_err();
+        let msg = format!("{:?}", err);
+        assert!(msg.contains("semantic_weight"));
+    }
+
+    #[test]
+    fn test_semantic_weight_in_range_accepted() {
+        let config = Config {
+            verify: VerifyConfig {
+                semantic_weight: 0.5,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert!(validate_config(&config).is_ok());
     }
 }

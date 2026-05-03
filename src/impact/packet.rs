@@ -1,7 +1,9 @@
+use crate::contracts::AffectedContract;
 use crate::index::env_schema::EnvVarDep;
 use crate::index::references::ImportExport;
 use crate::index::runtime_usage::RuntimeUsage;
 use crate::index::symbols::Symbol;
+use crate::observability::signal::ObservabilitySignal;
 use crate::util::clock::Clock;
 use chrono::Utc;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -236,6 +238,41 @@ impl Ord for CentralityRisk {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelevantDecision {
+    pub file_path: PathBuf,
+    pub heading: Option<String>,
+    pub excerpt: String,
+    pub similarity: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rerank_score: Option<f32>,
+}
+
+impl PartialEq for RelevantDecision {
+    fn eq(&self, other: &Self) -> bool {
+        self.similarity == other.similarity && self.file_path == other.file_path
+    }
+}
+
+impl Eq for RelevantDecision {}
+
+impl PartialOrd for RelevantDecision {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for RelevantDecision {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other
+            .similarity
+            .partial_cmp(&self.similarity)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| self.file_path.cmp(&other.file_path))
+    }
+}
+
 fn deserialize_score<'de, D: Deserializer<'de>>(d: D) -> Result<f32, D::Error> {
     Ok(Option::<f32>::deserialize(d)?.unwrap_or(0.0))
 }
@@ -404,6 +441,12 @@ pub struct ImpactPacket {
     pub runtime_usage_delta: Vec<RuntimeUsageDelta>,
     pub hotspots: Vec<Hotspot>,
     pub verification_results: Vec<VerificationResult>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub relevant_decisions: Vec<RelevantDecision>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub observability: Vec<ObservabilitySignal>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub affected_contracts: Vec<AffectedContract>,
 }
 
 impl Default for ImpactPacket {
@@ -428,6 +471,9 @@ impl Default for ImpactPacket {
             runtime_usage_delta: Vec::new(),
             hotspots: Vec::new(),
             verification_results: Vec::new(),
+            relevant_decisions: Vec::new(),
+            observability: Vec::new(),
+            affected_contracts: Vec::new(),
         }
     }
 }
@@ -478,6 +524,36 @@ impl ImpactPacket {
                 .then_with(|| a.path.cmp(&b.path))
         });
         self.verification_results.sort_unstable();
+        self.relevant_decisions.sort_unstable_by(|a, b| {
+            b.similarity
+                .partial_cmp(&a.similarity)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.file_path.cmp(&b.file_path))
+        });
+        // Sort observability by severity descending
+        self.observability.sort_unstable();
+        // Sort affected_contracts by similarity descending, path ascending for ties
+        self.affected_contracts.sort_unstable();
+    }
+
+    /// Escalate risk_level by one tier for observability/contract signals.
+    /// High → Low→Medium or Medium→High; Elevated → Low→Medium only.
+    pub fn escalate_risk(&mut self, elevation: crate::observability::signal::RiskElevation) {
+        use crate::observability::signal::RiskElevation;
+        match elevation {
+            RiskElevation::High => {
+                self.risk_level = match self.risk_level {
+                    RiskLevel::Low => RiskLevel::Medium,
+                    _ => RiskLevel::High,
+                };
+            }
+            RiskElevation::Elevated => {
+                if self.risk_level == RiskLevel::Low {
+                    self.risk_level = RiskLevel::Medium;
+                }
+            }
+            RiskElevation::None => {}
+        }
     }
 
     /// Truncates the packet to fit within a target character limit.
@@ -531,6 +607,10 @@ impl ImpactPacket {
         self.env_var_deps.clear();
         self.test_coverage.clear();
         self.runtime_usage_delta.clear();
+        self.relevant_decisions.clear();
+        // CRITICAL: Clear observability signals which can contain unbounded log excerpts
+        self.observability.clear();
+        self.affected_contracts.clear();
 
         let current_json = serde_json::to_string(self).unwrap_or_default();
         if current_json.len() <= target_chars {
@@ -661,5 +741,371 @@ mod tests {
         let z_symbols = packet.changes[1].symbols.as_ref().unwrap();
         assert_eq!(z_symbols[0].name, "bar");
         assert_eq!(z_symbols[1].name, "foo");
+    }
+
+    #[test]
+    fn test_relevant_decision_serialization_roundtrip() {
+        let decisions = vec![
+            RelevantDecision {
+                file_path: PathBuf::from("docs/guide.md"),
+                heading: Some("Introduction".to_string()),
+                excerpt: "This guide explains...".to_string(),
+                similarity: 0.85,
+                rerank_score: Some(0.92),
+            },
+            RelevantDecision {
+                file_path: PathBuf::from("docs/api.md"),
+                heading: None,
+                excerpt: "API reference section".to_string(),
+                similarity: 0.6,
+                rerank_score: None,
+            },
+        ];
+
+        let packet = ImpactPacket {
+            relevant_decisions: decisions,
+            ..ImpactPacket::default()
+        };
+
+        let json = serde_json::to_string_pretty(&packet).unwrap();
+        assert!(json.contains("relevantDecisions"));
+        assert!(json.contains("docs/guide.md"));
+        assert!(json.contains("rerankScore"));
+
+        // Round-trip
+        let parsed: ImpactPacket = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.relevant_decisions.len(), 2);
+        assert_eq!(
+            parsed.relevant_decisions[0].file_path,
+            PathBuf::from("docs/guide.md")
+        );
+    }
+
+    #[test]
+    fn test_relevant_decision_empty_absent_from_json() {
+        let packet = ImpactPacket::default();
+        let json = serde_json::to_string_pretty(&packet).unwrap();
+        assert!(!json.contains("relevantDecisions"));
+    }
+
+    #[test]
+    fn test_finalize_sorts_relevant_decisions_descending() {
+        let mut packet = ImpactPacket {
+            relevant_decisions: vec![
+                RelevantDecision {
+                    file_path: PathBuf::from("docs/c.md"),
+                    heading: None,
+                    excerpt: "C".to_string(),
+                    similarity: 0.5,
+                    rerank_score: None,
+                },
+                RelevantDecision {
+                    file_path: PathBuf::from("docs/a.md"),
+                    heading: None,
+                    excerpt: "A".to_string(),
+                    similarity: 0.9,
+                    rerank_score: None,
+                },
+                RelevantDecision {
+                    file_path: PathBuf::from("docs/b.md"),
+                    heading: None,
+                    excerpt: "B".to_string(),
+                    similarity: 0.5,
+                    rerank_score: None,
+                },
+            ],
+            ..ImpactPacket::default()
+        };
+
+        packet.finalize();
+
+        // Sorted descending by similarity, then by file_path for ties
+        assert_eq!(packet.relevant_decisions[0].similarity, 0.9);
+        assert_eq!(
+            packet.relevant_decisions[0].file_path,
+            PathBuf::from("docs/a.md")
+        );
+        // Tie at 0.5: b.md < c.md alphabetically
+        assert_eq!(packet.relevant_decisions[1].similarity, 0.5);
+        assert_eq!(
+            packet.relevant_decisions[1].file_path,
+            PathBuf::from("docs/b.md")
+        );
+        assert_eq!(packet.relevant_decisions[2].similarity, 0.5);
+        assert_eq!(
+            packet.relevant_decisions[2].file_path,
+            PathBuf::from("docs/c.md")
+        );
+    }
+
+    #[test]
+    fn test_truncate_for_context_clears_relevant_decisions() {
+        let mut packet = ImpactPacket {
+            changes: vec![ChangedFile {
+                path: PathBuf::from("src/main.rs"),
+                status: "Modified".to_string(),
+                is_staged: true,
+                symbols: None,
+                imports: None,
+                runtime_usage: None,
+                analysis_status: FileAnalysisStatus::default(),
+                analysis_warnings: Vec::new(),
+                api_routes: Vec::new(),
+                data_models: Vec::new(),
+                ci_gates: Vec::new(),
+            }],
+            relevant_decisions: vec![RelevantDecision {
+                file_path: PathBuf::from("docs/a.md"),
+                heading: Some("Intro".to_string()),
+                excerpt: "Content".to_string(),
+                similarity: 0.9,
+                rerank_score: None,
+            }],
+            ..ImpactPacket::default()
+        };
+
+        // Truncate with a very small target to force Phase 3 clearing
+        let truncated = packet.truncate_for_context(100);
+        assert!(truncated);
+        assert!(packet.relevant_decisions.is_empty());
+    }
+
+    #[test]
+    fn test_observability_sorted_by_severity_in_finalize() {
+        use crate::observability::signal::{ObservabilitySignal, SignalSeverity};
+
+        let mut packet = ImpactPacket {
+            observability: vec![
+                ObservabilitySignal::new(
+                    "metric",
+                    "label-a",
+                    1.0,
+                    SignalSeverity::Normal,
+                    "normal",
+                    "source",
+                ),
+                ObservabilitySignal::new(
+                    "metric",
+                    "label-b",
+                    1.0,
+                    SignalSeverity::Critical,
+                    "critical",
+                    "source",
+                ),
+                ObservabilitySignal::new(
+                    "metric",
+                    "label-c",
+                    1.0,
+                    SignalSeverity::Warning,
+                    "warning",
+                    "source",
+                ),
+            ],
+            ..ImpactPacket::default()
+        };
+
+        packet.finalize();
+
+        assert_eq!(packet.observability[0].severity, SignalSeverity::Critical);
+        assert_eq!(packet.observability[1].severity, SignalSeverity::Warning);
+        assert_eq!(packet.observability[2].severity, SignalSeverity::Normal);
+    }
+
+    #[test]
+    fn test_observability_cleared_in_truncate_phase_3() {
+        use crate::observability::signal::{ObservabilitySignal, SignalSeverity};
+
+        let mut packet = ImpactPacket {
+            changes: vec![ChangedFile {
+                path: PathBuf::from("src/main.rs"),
+                status: "Modified".to_string(),
+                is_staged: true,
+                symbols: None,
+                imports: None,
+                runtime_usage: None,
+                analysis_status: FileAnalysisStatus::default(),
+                analysis_warnings: Vec::new(),
+                api_routes: Vec::new(),
+                data_models: Vec::new(),
+                ci_gates: Vec::new(),
+            }],
+            observability: vec![ObservabilitySignal::new(
+                "error_rate",
+                "svc",
+                0.15,
+                SignalSeverity::Critical,
+                "Error rate high",
+                "prometheus",
+            )],
+            temporal_couplings: vec![TemporalCoupling {
+                file_a: PathBuf::from("src/a.rs"),
+                file_b: PathBuf::from("src/b.rs"),
+                score: 0.9,
+            }],
+            ..ImpactPacket::default()
+        };
+
+        // Truncate with very small target to push through to Phase 3
+        let truncated = packet.truncate_for_context(100);
+        assert!(truncated);
+        assert!(packet.observability.is_empty());
+    }
+
+    #[test]
+    fn test_observability_serialization_roundtrip() {
+        use crate::observability::signal::{ObservabilitySignal, SignalSeverity};
+
+        let packet = ImpactPacket {
+            observability: vec![ObservabilitySignal::new(
+                "error_rate",
+                "GET /api",
+                0.15,
+                SignalSeverity::Critical,
+                "Error rate 15%",
+                "prometheus",
+            )],
+            changes: vec![ChangedFile {
+                path: PathBuf::from("src/main.rs"),
+                status: "Modified".to_string(),
+                is_staged: true,
+                symbols: None,
+                imports: None,
+                runtime_usage: None,
+                analysis_status: FileAnalysisStatus::default(),
+                analysis_warnings: Vec::new(),
+                api_routes: Vec::new(),
+                data_models: Vec::new(),
+                ci_gates: Vec::new(),
+            }],
+            ..ImpactPacket::default()
+        };
+
+        let json = serde_json::to_string_pretty(&packet).unwrap();
+        assert!(json.contains("observability"));
+        assert!(json.contains("Error rate 15%"));
+
+        let parsed: ImpactPacket = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.observability.len(), 1);
+        assert_eq!(parsed.observability[0].signal_type, "error_rate");
+        assert_eq!(parsed.observability[0].severity, SignalSeverity::Critical);
+    }
+
+    #[test]
+    fn test_observability_empty_absent_from_json() {
+        let packet = ImpactPacket::default();
+        let json = serde_json::to_string_pretty(&packet).unwrap();
+        assert!(!json.contains("observability"));
+    }
+
+    #[test]
+    fn test_affected_contracts_serialization_roundtrip() {
+        let packet = ImpactPacket {
+            affected_contracts: vec![AffectedContract {
+                endpoint_id: "api/openapi.json::GET::/pets".to_string(),
+                path: "/pets".to_string(),
+                method: "GET".to_string(),
+                summary: "List all pets".to_string(),
+                similarity: 0.85,
+                spec_file: "api/openapi.json".to_string(),
+            }],
+            ..ImpactPacket::default()
+        };
+
+        let json = serde_json::to_string_pretty(&packet).unwrap();
+        assert!(json.contains("affectedContracts"));
+        assert!(json.contains("/pets"));
+        assert!(json.contains("GET"));
+
+        let parsed: ImpactPacket = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.affected_contracts.len(), 1);
+        assert_eq!(parsed.affected_contracts[0].path, "/pets");
+        assert_eq!(parsed.affected_contracts[0].method, "GET");
+        assert!((parsed.affected_contracts[0].similarity - 0.85).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_affected_contracts_empty_absent_from_json() {
+        let packet = ImpactPacket::default();
+        let json = serde_json::to_string_pretty(&packet).unwrap();
+        assert!(!json.contains("affectedContracts"));
+    }
+
+    #[test]
+    fn test_finalize_sorts_affected_contracts() {
+        let mut packet = ImpactPacket {
+            affected_contracts: vec![
+                AffectedContract {
+                    endpoint_id: "c".to_string(),
+                    path: "/pets".to_string(),
+                    method: "GET".to_string(),
+                    summary: "".to_string(),
+                    similarity: 0.5,
+                    spec_file: "api.yaml".to_string(),
+                },
+                AffectedContract {
+                    endpoint_id: "a".to_string(),
+                    path: "/users".to_string(),
+                    method: "POST".to_string(),
+                    summary: "".to_string(),
+                    similarity: 0.9,
+                    spec_file: "api.yaml".to_string(),
+                },
+                AffectedContract {
+                    endpoint_id: "b".to_string(),
+                    path: "/items".to_string(),
+                    method: "GET".to_string(),
+                    summary: "".to_string(),
+                    similarity: 0.5,
+                    spec_file: "api.yaml".to_string(),
+                },
+            ],
+            ..ImpactPacket::default()
+        };
+
+        packet.finalize();
+
+        assert_eq!(packet.affected_contracts[0].similarity, 0.9);
+        assert_eq!(packet.affected_contracts[1].similarity, 0.5);
+        assert_eq!(packet.affected_contracts[2].similarity, 0.5);
+        // Ties sorted by path ascending
+        assert_eq!(packet.affected_contracts[1].path, "/items");
+        assert_eq!(packet.affected_contracts[2].path, "/pets");
+    }
+
+    #[test]
+    fn test_truncate_clears_affected_contracts() {
+        let mut packet = ImpactPacket {
+            changes: vec![ChangedFile {
+                path: PathBuf::from("src/main.rs"),
+                status: "Modified".to_string(),
+                is_staged: true,
+                symbols: None,
+                imports: None,
+                runtime_usage: None,
+                analysis_status: FileAnalysisStatus::default(),
+                analysis_warnings: Vec::new(),
+                api_routes: Vec::new(),
+                data_models: Vec::new(),
+                ci_gates: Vec::new(),
+            }],
+            affected_contracts: vec![AffectedContract {
+                endpoint_id: "a".to_string(),
+                path: "/pets".to_string(),
+                method: "GET".to_string(),
+                summary: "List pets".to_string(),
+                similarity: 0.9,
+                spec_file: "api.yaml".to_string(),
+            }],
+            temporal_couplings: vec![TemporalCoupling {
+                file_a: PathBuf::from("src/a.rs"),
+                file_b: PathBuf::from("src/b.rs"),
+                score: 0.9,
+            }],
+            ..ImpactPacket::default()
+        };
+
+        let truncated = packet.truncate_for_context(100);
+        assert!(truncated);
+        assert!(packet.affected_contracts.is_empty());
     }
 }

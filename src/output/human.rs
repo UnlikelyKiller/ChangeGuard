@@ -1,6 +1,7 @@
 use crate::exec::boundary::ExecutionResult;
 use crate::git::{ChangeType, RepoSnapshot};
 use crate::impact::packet::{AnalysisStatus, ImpactPacket, RiskLevel};
+use crate::observability::signal::SignalSeverity;
 use crate::output::diagnostics::print_header;
 use crate::output::table::build_table;
 use crate::verify::plan::VerificationPlan;
@@ -83,6 +84,25 @@ pub fn print_impact_summary(packet: &ImpactPacket) {
         println!("{table}");
     }
 
+    if !packet.observability.is_empty() {
+        println!("\n{}", "Production Signals:".bold());
+        let mut table = build_table(["Signal Type", "Severity", "Excerpt"]);
+        for signal in &packet.observability {
+            let severity = match signal.severity {
+                SignalSeverity::Critical => "CRITICAL".red().bold().to_string(),
+                SignalSeverity::Warning => "WARNING".yellow().to_string(),
+                SignalSeverity::Normal => "NORMAL".dimmed().to_string(),
+            };
+            let excerpt = signal.excerpt.lines().next().unwrap_or("");
+            table.add_row(vec![
+                signal.signal_type.clone(),
+                severity,
+                excerpt.to_string(),
+            ]);
+        }
+        println!("{table}");
+    }
+
     if !packet.temporal_couplings.is_empty() {
         println!("\n{}", "Temporal Couplings (Historical Co-changes):".bold());
         let mut table = build_table(["File A", "File B", "Affinity"]);
@@ -91,6 +111,20 @@ pub fn print_impact_summary(packet: &ImpactPacket) {
                 coupling.file_a.display().to_string(),
                 coupling.file_b.display().to_string(),
                 format!("{:.0}%", coupling.score * 100.0),
+            ]);
+        }
+        println!("{table}");
+    }
+
+    if !packet.affected_contracts.is_empty() {
+        println!("\n{}", "Affected API Contracts:".bold());
+        let mut table = build_table(["Method", "Path", "Spec", "Similarity"]);
+        for contract in &packet.affected_contracts {
+            table.add_row(vec![
+                contract.method.clone(),
+                contract.path.clone(),
+                contract.spec_file.clone(),
+                format!("{:.0}%", contract.similarity * 100.0),
             ]);
         }
         println!("{table}");
@@ -356,6 +390,7 @@ pub fn print_hotspots_table_with_centrality(hotspots: &[crate::impact::packet::H
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contracts::AffectedContract;
     use crate::git::{ChangeType, FileChange};
     use crate::impact::packet::{ImpactPacket, RiskLevel};
     use crate::verify::plan::{VerificationPlan, VerificationStep};
@@ -400,6 +435,24 @@ mod tests {
         let packet = ImpactPacket {
             risk_level: RiskLevel::High,
             risk_reasons: vec!["Test reason".to_string()],
+            ..Default::default()
+        };
+        print_impact_summary(&packet);
+    }
+
+    #[test]
+    fn test_print_impact_summary_with_contracts() {
+        let packet = ImpactPacket {
+            risk_level: RiskLevel::Medium,
+            risk_reasons: vec!["Public contract potentially affected: POST /pets".to_string()],
+            affected_contracts: vec![AffectedContract {
+                endpoint_id: "api/openapi.json::GET::/pets".to_string(),
+                path: "/pets".to_string(),
+                method: "GET".to_string(),
+                summary: "List all pets".to_string(),
+                similarity: 0.85,
+                spec_file: "api/openapi.json".to_string(),
+            }],
             ..Default::default()
         };
         print_impact_summary(&packet);

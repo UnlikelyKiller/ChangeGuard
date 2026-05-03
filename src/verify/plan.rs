@@ -420,6 +420,7 @@ mod tests {
                 },
             ],
             default_timeout_secs: 120,
+            semantic_weight: 0.3,
         };
         let plan = build_plan_from_config(&config).unwrap();
         assert_eq!(plan.steps.len(), 2);

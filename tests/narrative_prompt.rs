@@ -66,6 +66,9 @@ fn test_narrative_golden_prompt() {
             centrality: None,
         }],
         verification_results: Vec::new(),
+        relevant_decisions: vec![],
+        observability: vec![],
+        affected_contracts: vec![],
     };
 
     // Ensure deterministic order

@@ -493,6 +493,18 @@ pub fn get_migrations() -> Migrations<'static> {
                 recorded_at  TEXT NOT NULL DEFAULT (datetime('now'))
             );",
         ),
+        M::up(
+            "DROP TABLE IF EXISTS observability_snapshots;
+             CREATE TABLE observability_snapshots (
+                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                 signal_type  TEXT NOT NULL,
+                 signal_label TEXT NOT NULL,
+                 metric_value REAL NOT NULL,
+                 raw_excerpt  TEXT NOT NULL,
+                 captured_at  TEXT NOT NULL DEFAULT (datetime('now')),
+                 diff_pair_id TEXT NOT NULL
+             );",
+        ),
     ])
 }
 
@@ -2202,38 +2214,50 @@ mod tests {
         migrations.to_latest(&mut conn).unwrap();
 
         conn.execute(
-            "INSERT INTO observability_snapshots (service_name, error_rate, latency_p99)
-             VALUES (?1, ?2, ?3)",
-            rusqlite::params!["api-gateway", 0.02_f64, 150.5_f64],
+            "INSERT INTO observability_snapshots (signal_type, signal_label, metric_value, raw_excerpt, diff_pair_id)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![
+                "error_rate",
+                "api-gateway",
+                0.02_f64,
+                "Error rate 2% for api-gateway",
+                "diff-001",
+            ],
         )
         .unwrap();
 
         conn.execute(
-            "INSERT INTO observability_snapshots (service_name, error_rate)
-             VALUES (?1, ?2)",
-            rusqlite::params!["auth-service", 0.0_f64],
+            "INSERT INTO observability_snapshots (signal_type, signal_label, metric_value, raw_excerpt, diff_pair_id)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![
+                "latency_p99",
+                "auth-service",
+                150.5_f64,
+                "Latency p99 150.5ms for auth-service",
+                "diff-002",
+            ],
         )
         .unwrap();
 
-        let (service_name, error_rate, latency_p99): (String, f64, Option<f64>) = conn
+        let (signal_type, signal_label, metric_value): (String, String, f64) = conn
             .query_row(
-                "SELECT service_name, error_rate, latency_p99 FROM observability_snapshots WHERE service_name = 'api-gateway'",
+                "SELECT signal_type, signal_label, metric_value FROM observability_snapshots WHERE signal_label = 'api-gateway'",
                 [],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .unwrap();
-        assert_eq!(service_name, "api-gateway");
-        assert!((error_rate - 0.02).abs() < f64::EPSILON);
-        assert_eq!(latency_p99, Some(150.5));
+        assert_eq!(signal_type, "error_rate");
+        assert_eq!(signal_label, "api-gateway");
+        assert!((metric_value - 0.02).abs() < f64::EPSILON);
 
-        // Verify row without latency_p99 has NULL
-        let latency_none: Option<f64> = conn
+        // Verify second row
+        let latency: f64 = conn
             .query_row(
-                "SELECT latency_p99 FROM observability_snapshots WHERE service_name = 'auth-service'",
+                "SELECT metric_value FROM observability_snapshots WHERE signal_label = 'auth-service'",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
-        assert!(latency_none.is_none());
+        assert!((latency - 150.5).abs() < 1e-6);
     }
 }

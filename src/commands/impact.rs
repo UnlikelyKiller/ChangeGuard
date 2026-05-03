@@ -207,7 +207,14 @@ pub fn execute_impact(all_parents: bool, summary: bool, telemetry_coverage: bool
                 // Graceful degradation: packet.runtime_usage_delta stays empty
             }
 
-            // Perform risk analysis AFTER all population
+            // Doc-based retrieval enrichment
+            if let Err(e) = enrich_with_docs(&mut packet, &config, storage.get_connection()) {
+                tracing::warn!("Doc retrieval enrichment failed: {e}");
+                // Graceful degradation: packet.relevant_decisions stays empty
+            }
+
+            // Perform risk analysis FIRST (before observability/contract enrichment
+            // so analysis-level risk_reasons are not overwritten)
             if let Some(rules) = &rules_opt
                 && let Err(e) = crate::impact::analysis::analyze_risk(&mut packet, rules)
             {
@@ -216,6 +223,24 @@ pub fn execute_impact(all_parents: bool, summary: bool, telemetry_coverage: bool
                     "{} Risk analysis failed. Impact report written without risk scoring.",
                     warning_marker()
                 );
+            }
+
+            // Observability signal enrichment (runs AFTER analyze_risk,
+            // escalates risk_level without touching risk_reasons)
+            if let Err(e) = crate::observability::enrich_observability(
+                &mut packet,
+                &config,
+                storage.get_connection(),
+            ) {
+                tracing::warn!("Observability enrichment failed: {e}");
+                // Graceful degradation: packet.observability stays empty
+            }
+
+            // Contract matching enrichment (runs AFTER analyze_risk,
+            // escalates risk_level without touching risk_reasons)
+            if let Err(e) = enrich_contracts(&mut packet, &config, storage.get_connection()) {
+                tracing::warn!("Contract enrichment failed: {e}");
+                // Graceful degradation: packet.affected_contracts stays empty
             }
 
             // Finalize and redact BEFORE persisting anywhere
@@ -1648,6 +1673,159 @@ fn populate_runtime_usage_delta(packet: &mut ImpactPacket, repo_dir: &Path) -> m
     }
 
     packet.runtime_usage_delta = deltas;
+    Ok(())
+}
+
+/// Enrich the impact packet with semantically relevant doc chunks.
+fn enrich_with_docs(
+    packet: &mut ImpactPacket,
+    config: &crate::config::model::Config,
+    conn: &rusqlite::Connection,
+) -> Result<()> {
+    let lm_config = &config.local_model;
+
+    // Skip if no embedding model configured
+    if lm_config.base_url.is_empty() {
+        return Ok(());
+    }
+
+    // Skip if no doc paths configured
+    if config.docs.include.is_empty() {
+        return Ok(());
+    }
+
+    // Check if doc_chunks table has any rows
+    let chunk_count: i64 =
+        match conn.query_row("SELECT COUNT(*) FROM doc_chunks", [], |row| row.get(0)) {
+            Ok(c) => c,
+            Err(_) => return Ok(()), // Table doesn't exist, skip
+        };
+
+    if chunk_count == 0 {
+        return Ok(());
+    }
+
+    // Build query text from changed files
+    let mut query_parts = Vec::new();
+    for change in &packet.changes {
+        let path = change.path.to_string_lossy().to_string();
+        query_parts.push(format!("{} ({})", path, change.status));
+    }
+    let query_text = query_parts.join("; ");
+
+    // Truncate to reasonable query length
+    let query_text = if query_text.len() > 2000 {
+        format!("{}...", &query_text[..2000])
+    } else {
+        query_text
+    };
+
+    let top_n = config.docs.retrieval_top_k;
+
+    // Query docs
+    let retrieved = match crate::retrieval::query::query_docs(lm_config, conn, &query_text, top_n) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("Doc retrieval query failed: {e}");
+            return Ok(());
+        }
+    };
+
+    if retrieved.is_empty() {
+        return Ok(());
+    }
+
+    // Rerank if configured
+    let final_chunks = if !lm_config.rerank_model.is_empty() {
+        crate::retrieval::rerank::rerank(
+            &lm_config.base_url,
+            &lm_config.rerank_model,
+            &query_text,
+            retrieved,
+            lm_config.timeout_secs,
+        )
+    } else {
+        retrieved
+    };
+
+    // Map to RelevantDecision, taking top top_n
+    let decisions: Vec<crate::impact::packet::RelevantDecision> = final_chunks
+        .into_iter()
+        .take(top_n)
+        .map(|chunk| {
+            let excerpt: String = chunk.content.chars().take(200).collect();
+            crate::impact::packet::RelevantDecision {
+                file_path: std::path::PathBuf::from(chunk.file_path),
+                heading: chunk.heading,
+                excerpt,
+                similarity: chunk.similarity,
+                rerank_score: None,
+            }
+        })
+        .collect();
+
+    packet.relevant_decisions = decisions;
+    Ok(())
+}
+
+/// Enrich the impact packet with affected API contracts.
+fn enrich_contracts(
+    packet: &mut ImpactPacket,
+    config: &crate::config::model::Config,
+    conn: &rusqlite::Connection,
+) -> Result<()> {
+    // Skip if no contract spec paths configured
+    if config.contracts.spec_paths.is_empty() {
+        return Ok(());
+    }
+
+    // Skip if no embedding model configured
+    if config.local_model.embedding_model.is_empty() {
+        return Ok(());
+    }
+
+    // Collect changed file paths (absolute paths from the current dir)
+    let file_paths: Vec<String> = packet
+        .changes
+        .iter()
+        .map(|c| c.path.to_string_lossy().to_string())
+        .collect();
+
+    if file_paths.is_empty() {
+        return Ok(());
+    }
+
+    let affected = match crate::contracts::matcher::match_changed_files(
+        &config.contracts,
+        conn,
+        &config.local_model,
+        &file_paths,
+    ) {
+        Ok(a) => a,
+        Err(e) => {
+            tracing::warn!("Contract matching failed: {e}");
+            return Ok(());
+        }
+    };
+
+    // Escalate risk if any contract is strongly matched and public symbols changed
+    if !affected.is_empty() {
+        let has_strong_match = affected.iter().any(|c| c.similarity > 0.75);
+
+        if has_strong_match {
+            let has_public_changes = packet.changes.iter().any(|c| {
+                c.symbols
+                    .as_ref()
+                    .is_some_and(|syms| syms.iter().any(|s| s.is_public))
+            });
+
+            if has_public_changes {
+                packet.escalate_risk(crate::observability::signal::RiskElevation::Elevated);
+            }
+        }
+    }
+
+    packet.affected_contracts = affected;
     Ok(())
 }
 

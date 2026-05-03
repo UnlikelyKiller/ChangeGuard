@@ -31,14 +31,22 @@ pub fn execute_index(
     json: bool,
     analyze_graph: bool,
     docs: bool,
+    contracts: bool,
 ) -> Result<()> {
     let layout = get_layout()?;
-    let storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
+    let db_path = layout.state_subdir().join("ledger.db");
+    let storage = StorageManager::init(db_path.as_std_path())?;
     let repo_path = layout.root.clone();
 
     if docs {
         return execute_docs_index(&layout, storage);
     }
+
+    let contracts_db_path = if contracts {
+        Some(db_path.clone())
+    } else {
+        None
+    };
 
     let mut indexer = ProjectIndexer::new(storage, repo_path);
 
@@ -112,6 +120,13 @@ pub fn execute_index(
         }
     };
 
+    let contracts_summary: Option<crate::contracts::index::ContractsIndexSummary> =
+        if let Some(ref db_path) = contracts_db_path {
+            Some(execute_contracts_index(&layout, db_path.as_std_path())?)
+        } else {
+            None
+        };
+
     if json {
         let mut output = serde_json::to_value(&stats).into_diagnostic()?;
         let doc_obj = serde_json::to_value(&doc_stats).into_diagnostic()?;
@@ -179,6 +194,14 @@ pub fn execute_index(
             if let (Some(map), Some(cent)) = (output.as_object_mut(), cent_obj.as_object()) {
                 for (k, v) in cent {
                     map.insert(format!("cent_{}", k), v.clone());
+                }
+            }
+        }
+        if let Some(ref cs) = contracts_summary {
+            let cs_obj = serde_json::to_value(cs).into_diagnostic()?;
+            if let (Some(map), Some(cs)) = (output.as_object_mut(), cs_obj.as_object()) {
+                for (k, v) in cs {
+                    map.insert(format!("contracts_{}", k), v.clone());
                 }
             }
         }
@@ -303,6 +326,15 @@ pub fn execute_index(
             println!("  Symbols computed: {}", cent_stats.symbols_computed);
             println!("  Max reachable:  {}", cent_stats.max_reachable);
         }
+
+        if let Some(ref cs) = contracts_summary {
+            println!();
+            println!("Contracts:");
+            println!("  Specs parsed:     {}", cs.specs_parsed);
+            println!("  New endpoints:    {}", cs.endpoints_new);
+            println!("  Skipped:          {}", cs.endpoints_skipped);
+            println!("  Deleted:          {}", cs.endpoints_deleted);
+        }
     }
 
     Ok(())
@@ -333,4 +365,32 @@ fn execute_docs_index(layout: &Layout, storage: StorageManager) -> Result<()> {
     );
 
     Ok(())
+}
+
+fn execute_contracts_index(
+    layout: &Layout,
+    db_path: &std::path::Path,
+) -> miette::Result<crate::contracts::index::ContractsIndexSummary> {
+    use crate::contracts::index::index_contracts;
+    use rusqlite::Connection;
+
+    let config = match load_config(layout) {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("Failed to load config: {:#}", e);
+            println!("No contracts config — skipping contract index.");
+            return Ok(Default::default());
+        }
+    };
+
+    if config.contracts.spec_paths.is_empty() {
+        println!("No spec paths configured in [contracts].spec_paths — skipping contract index.");
+        return Ok(Default::default());
+    }
+
+    let conn = Connection::open(db_path).into_diagnostic()?;
+    let summary = index_contracts(&config.contracts, &conn, &config.local_model, &layout.root)
+        .map_err(|e| miette::miette!("Contract index failed: {}", e))?;
+
+    Ok(summary)
 }

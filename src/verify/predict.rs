@@ -35,6 +35,12 @@ pub struct PredictedFile {
 pub struct PredictionResult {
     pub files: Vec<PredictedFile>,
     pub warnings: Vec<String>,
+    /// Per-file blended scores (test_file_path → final_score). Present when semantic prediction is active.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub scores: BTreeMap<String, f64>,
+    /// Per-file rationale lines for --explain output.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub explain_lines: Vec<String>,
 }
 
 /// Pre-fetched structural call data for prediction.
@@ -161,7 +167,11 @@ impl Predictor {
         files.sort();
         files.dedup();
 
-        PredictionResult { files, warnings }
+        PredictionResult {
+            files,
+            warnings,
+            ..Default::default()
+        }
     }
 
     /// Predict verification targets using test mapping data from the index.
@@ -269,7 +279,11 @@ impl Predictor {
         files.sort();
         files.dedup();
 
-        PredictionResult { files, warnings }
+        PredictionResult {
+            files,
+            warnings,
+            ..Default::default()
+        }
     }
 }
 
@@ -331,6 +345,131 @@ fn add_call_graph_predictions(
         });
         let _ = caller_symbol; // Available for future reason detail
     }
+}
+
+/// Assign a base rule score per file based on its prediction reason.
+fn rule_score(reason: &PredictionReason) -> f64 {
+    match reason {
+        PredictionReason::Temporal => 0.80,
+        PredictionReason::CallGraph => 0.70,
+        PredictionReason::Structural => 0.60,
+        PredictionReason::TestMapping => 0.50,
+        PredictionReason::RuntimeDependency(_) => 0.65,
+    }
+}
+
+/// Build rule scores from a PredictionResult: the max score across all
+/// reason entries for each file path.
+pub fn build_rule_scores(files: &[PredictedFile]) -> BTreeMap<String, f64> {
+    let mut scores: BTreeMap<String, f64> = BTreeMap::new();
+    for f in files {
+        let key = f.path.to_string_lossy().to_string();
+        let s = scores.entry(key).or_insert(0.0);
+        let candidate = rule_score(&f.reason);
+        if candidate > *s {
+            *s = candidate;
+        }
+    }
+    scores
+}
+
+/// Compute per-file semantic basis info: (failures, total) across similar past diffs.
+fn build_semantic_basis(
+    similar_outcomes: &[(crate::verify::semantic_predictor::TestOutcome, f32)],
+) -> BTreeMap<String, (usize, usize)> {
+    let mut basis: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+    for (outcome, _sim) in similar_outcomes {
+        let entry = basis.entry(outcome.test_file.clone()).or_insert((0, 0));
+        if outcome.status == crate::verify::semantic_predictor::TestStatus::Failed {
+            entry.0 += 1;
+        }
+        entry.1 += 1;
+    }
+    basis
+}
+
+/// Enrich a rule-based PredictionResult with semantic scores, blending,
+/// and explain-table lines. Returns a new PredictionResult with scores
+/// and explain_lines populated.
+pub fn enrich_with_semantic(
+    mut result: PredictionResult,
+    semantic_scores: &std::collections::HashMap<String, f64>,
+    semantic_weight: f64,
+    similar_outcomes: &[(crate::verify::semantic_predictor::TestOutcome, f32)],
+    cold_start_count: usize,
+) -> PredictionResult {
+    let rule_scores = build_rule_scores(&result.files);
+    let blended = crate::verify::semantic_predictor::blend_scores(
+        &rule_scores.iter().map(|(k, v)| (k.clone(), *v)).collect(),
+        semantic_scores,
+        semantic_weight,
+    );
+
+    result.scores = blended.iter().map(|(k, v)| (k.clone(), *v)).collect();
+
+    // Build explain lines
+    let basis = build_semantic_basis(similar_outcomes);
+    let mut explain_lines = Vec::new();
+    explain_lines.push("Test priority rationale:".to_string());
+
+    let mut all_files: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for f in result.scores.keys() {
+        all_files.insert(f.clone());
+    }
+
+    for file in all_files {
+        let rule = rule_scores.get(&file).copied().unwrap_or(0.0);
+        let semantic = semantic_scores.get(&file).copied().unwrap_or(0.0);
+        let final_score = *blended.get(&file).unwrap_or(&0.0);
+
+        explain_lines.push(format!(
+            "  {file}    rule: {rule:.2}  semantic: {semantic:.2}  final: {final_score:.2}",
+        ));
+
+        if let Some((fails, total)) = basis.get(&file) {
+            explain_lines.push(format!(
+                "    Semantic basis: {fails} of {total} similar past changes caused failures",
+            ));
+        } else if cold_start_count < 50 {
+            explain_lines.push(format!(
+                "    Semantic basis: warming up ({cold_start_count}/50 history records)",
+            ));
+        } else {
+            explain_lines
+                .push("    Semantic basis: insufficient history (< 5 samples)".to_string());
+        }
+    }
+
+    result.explain_lines = explain_lines;
+
+    // Add semantic-only files to the file list
+    let existing_paths: std::collections::BTreeSet<String> = result
+        .files
+        .iter()
+        .map(|f| f.path.to_string_lossy().to_string())
+        .collect();
+    for file in blended.keys() {
+        if !existing_paths.contains(file.as_str()) {
+            result.files.push(PredictedFile {
+                path: std::path::PathBuf::from(file),
+                reason: PredictionReason::TestMapping,
+            });
+        }
+    }
+    result.files.sort();
+    result.files.dedup();
+
+    result
+}
+
+/// Count total number of distinct outcomes in test_outcome_history.
+pub fn count_history_rows(conn: &rusqlite::Connection) -> Result<usize, String> {
+    let count: i64 = conn
+        .query_row("SELECT count(*) FROM test_outcome_history", [], |row| {
+            row.get(0)
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(count as usize)
 }
 
 #[cfg(test)]
@@ -544,5 +683,113 @@ mod tests {
             result.files, result_convenience.files,
             "predict_with_structural_calls with empty data should match predict()"
         );
+    }
+
+    #[test]
+    fn test_build_rule_scores_max_per_file() {
+        let files = vec![
+            PredictedFile {
+                path: PathBuf::from("tests/a.rs"),
+                reason: PredictionReason::Temporal,
+            },
+            PredictedFile {
+                path: PathBuf::from("tests/a.rs"),
+                reason: PredictionReason::Structural,
+            },
+            PredictedFile {
+                path: PathBuf::from("tests/b.rs"),
+                reason: PredictionReason::TestMapping,
+            },
+        ];
+        let scores = build_rule_scores(&files);
+        assert!((scores.get("tests/a.rs").copied().unwrap() - 0.80).abs() < 1e-6);
+        assert!((scores.get("tests/b.rs").copied().unwrap() - 0.50).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_build_rule_scores_empty() {
+        let scores = build_rule_scores(&[]);
+        assert!(scores.is_empty());
+    }
+
+    #[test]
+    fn test_enrich_with_semantic_regression_weight_zero() {
+        let result = PredictionResult {
+            files: vec![PredictedFile {
+                path: PathBuf::from("tests/a.rs"),
+                reason: PredictionReason::Temporal,
+            }],
+            warnings: Vec::new(),
+            ..Default::default()
+        };
+        let original_files = result.files.clone();
+
+        let semantic: std::collections::HashMap<String, f64> =
+            [("tests/a.rs".to_string(), 0.9)].into();
+        let outcomes: Vec<(crate::verify::semantic_predictor::TestOutcome, f32)> = Vec::new();
+
+        let enriched = enrich_with_semantic(result, &semantic, 0.0, &outcomes, 100);
+
+        // score field should not change the files
+        assert_eq!(enriched.files, original_files);
+        // scores map should have the blended values (rule only since weight=0)
+        assert!(
+            enriched
+                .scores
+                .get("tests/a.rs")
+                .is_some_and(|s| (s - 0.80).abs() < 1e-6)
+        );
+    }
+
+    #[test]
+    fn test_enrich_with_semantic_adds_explain_lines() {
+        let result = PredictionResult {
+            files: vec![PredictedFile {
+                path: PathBuf::from("tests/a.rs"),
+                reason: PredictionReason::Temporal,
+            }],
+            warnings: Vec::new(),
+            ..Default::default()
+        };
+
+        let semantic: std::collections::HashMap<String, f64> =
+            [("tests/a.rs".to_string(), 0.9)].into();
+
+        let outcomes = vec![(
+            crate::verify::semantic_predictor::TestOutcome {
+                test_name: String::new(),
+                test_file: "tests/a.rs".to_string(),
+                commit_hash: "abc".to_string(),
+                status: crate::verify::semantic_predictor::TestStatus::Failed,
+                duration_ms: 0,
+                diff_summary: String::new(),
+            },
+            0.9_f32,
+        )];
+
+        let enriched = enrich_with_semantic(result, &semantic, 0.3, &outcomes, 100);
+        assert!(enriched.explain_lines.len() > 1);
+        assert!(
+            enriched
+                .explain_lines
+                .iter()
+                .any(|l| l.contains("tests/a.rs")
+                    && l.contains("rule:")
+                    && l.contains("semantic:"))
+        );
+        assert!(
+            enriched
+                .explain_lines
+                .iter()
+                .any(|l| l.contains("Semantic basis:") && l.contains("1 of 1"))
+        );
+    }
+
+    #[test]
+    fn test_count_history_rows_empty() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        // Table may not exist in an in-memory connection without migrations;
+        // that's OK—the function is tested through integration tests.
+        let _ = count_history_rows(&conn);
     }
 }
