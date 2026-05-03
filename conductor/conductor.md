@@ -170,7 +170,7 @@
     *   Key additions: `Backend` enum, `--backend local/gemini` flag, `resolve_backend()` auto-selection, `config verify` backend reporting.
 
 *   **Track M4-1: Test Outcome Recording & Diff Embedding**
-    *   Status: Planning
+    *   Status: Completed
     *   Dependencies: M1-2
     *   Spec: `conductor/trackM4-1/spec.md`
     *   Plan: `conductor/trackM4-1/plan.md`
@@ -186,7 +186,7 @@
     *   Key additions: `compute_semantic_scores()`, `semantic_weight` config, score blending in predictor, `--explain` flag.
 
 *   **Track M5-1: Prometheus Client & Log Scanner**
-    *   Status: Planning
+    *   Status: Completed
     *   Dependencies: M1-2
     *   Spec: `conductor/trackM5-1/spec.md`
     *   Plan: `conductor/trackM5-1/plan.md`
@@ -202,7 +202,7 @@
     *   Key additions: `enrich_observability()`, risk elevation from observability signals, `observability` field in ImpactPacket, ask context injection.
 
 *   **Track M6-1: OpenAPI Spec Parser & Index Storage**
-    *   Status: Planning
+    *   Status: Completed
     *   Dependencies: M1-2
     *   Spec: `conductor/trackM6-1/spec.md`
     *   Plan: `conductor/trackM6-1/plan.md`
