@@ -139,7 +139,7 @@
     *   Key additions: `src/embed/similarity.rs`, `src/embed/budget.rs`, `embed_long_text()`, `embed_and_store()`, doctor local model status check.
 
 *   **Track M2-1: Document Crawler & Chunker**
-    *   Status: Planning
+    *   Status: Completed
     *   Spec: `conductor/trackM2-1/spec.md`
     *   Plan: `conductor/trackM2-1/plan.md`
     *   Goal: Implement document indexing pipeline: walk configured docs paths, split into semantic chunks, store in `doc_chunks` table.
