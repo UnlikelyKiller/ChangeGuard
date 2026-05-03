@@ -119,7 +119,103 @@
     *   Spec: `conductor/trackL-H1/spec.md`
     *   Plan: `conductor/trackL-H1/plan.md`
     *   Goal: Address critical and high-severity Codex findings: lifecycle invariants, durable state protection, and secure path normalization.
-    *   Key additions: Unique PENDING index, conditional status updates, --include-ledger reset flag, lexical path normalization utility, ProcessPolicy for validators.
+     *   Key additions: Unique PENDING index, conditional status updates, --include-ledger reset flag, lexical path normalization utility, ProcessPolicy for validators.
+
+
+## Milestone M: Observability & Intelligence Expansion (In Progress)
+
+*   **Track M1-1: Embedding HTTP Client & SQLite Schema**
+    *   Status: Completed
+    *   Spec: `conductor/trackM1-1/spec.md`
+    *   Plan: `conductor/trackM1-1/plan.md`
+    *   Goal: Establish embedding infrastructure: config model, SQLite migrations for 5 new tables, HTTP client for local embedding model, content-addressed vector storage.
+    *   Key additions: `LocalModelConfig`/`DocsConfig`/`ObservabilityConfig`/`ContractsConfig`, `embeddings`/`doc_chunks`/`api_endpoints`/`test_outcome_history`/`observability_snapshots` tables, `src/embed/client.rs` & `storage.rs`.
+
+*   **Track M1-2: Cosine Similarity, Top-K, Budget & Doctor**
+    *   Status: Completed
+    *   Spec: `conductor/trackM1-2/spec.md`
+    *   Plan: `conductor/trackM1-2/plan.md`
+    *   Goal: Complete embedding primitives with cosine similarity, top-k retrieval, token budget enforcement, embed_and_store convenience, chunking+mean-pool for long texts, and doctor health reporting.
+    *   Key additions: `src/embed/similarity.rs`, `src/embed/budget.rs`, `embed_long_text()`, `embed_and_store()`, doctor local model status check.
+
+*   **Track M2-1: Document Crawler & Chunker**
+    *   Status: Planning
+    *   Spec: `conductor/trackM2-1/spec.md`
+    *   Plan: `conductor/trackM2-1/plan.md`
+    *   Goal: Implement document indexing pipeline: walk configured docs paths, split into semantic chunks, store in `doc_chunks` table.
+    *   Key additions: `src/docs/crawler.rs`, `src/docs/chunker.rs`, `src/docs/index.rs`, `changeguard index --docs` flag.
+
+*   **Track M2-2: Retrieval, Reranking & Impact Enrichment**
+    *   Status: Planning
+    *   Dependencies: M1-2, M2-1
+    *   Spec: `conductor/trackM2-2/spec.md`
+    *   Plan: `conductor/trackM2-2/plan.md`
+    *   Goal: Wire indexed doc chunks into impact analysis: semantic retrieval, reranking, `relevant_decisions` in ImpactPacket, and ask context injection.
+    *   Key additions: `src/retrieval/query.rs`, `src/retrieval/rerank.rs`, `RelevantDecision` type, impact enrichment, ask context extension.
+
+*   **Track M3-1: Local Model Client & Context Assembly**
+    *   Status: Planning
+    *   Dependencies: M1-2
+    *   Spec: `conductor/trackM3-1/spec.md`
+    *   Plan: `conductor/trackM3-1/plan.md`
+    *   Goal: Build OpenAI-compatible completions client for llama-server and context assembly pipeline for prompts.
+    *   Key additions: `src/local_model/client.rs`, `src/local_model/context.rs`, completions endpoint, token-budgeted context assembly.
+
+*   **Track M3-2: Ask Backend Routing & Integration**
+    *   Status: Planning
+    *   Dependencies: M3-1
+    *   Spec: `conductor/trackM3-2/spec.md`
+    *   Plan: `conductor/trackM3-2/plan.md`
+    *   Goal: Wire local model into `changeguard ask` with `--backend` flag, auto-selection logic, and `config verify` extension.
+    *   Key additions: `Backend` enum, `--backend local/gemini` flag, `resolve_backend()` auto-selection, `config verify` backend reporting.
+
+*   **Track M4-1: Test Outcome Recording & Diff Embedding**
+    *   Status: Planning
+    *   Dependencies: M1-2
+    *   Spec: `conductor/trackM4-1/spec.md`
+    *   Plan: `conductor/trackM4-1/plan.md`
+    *   Goal: Build data collection for semantic test prediction: embed diffs after verify runs, store test outcomes linked to embeddings.
+    *   Key additions: `src/verify/semantic_predictor.rs`, `TestOutcome` enum, `record_test_outcomes()`, hook into `execute_verify()`.
+
+*   **Track M4-2: Semantic Predictor & Score Blending**
+    *   Status: Planning
+    *   Dependencies: M4-1
+    *   Spec: `conductor/trackM4-2/spec.md`
+    *   Plan: `conductor/trackM4-2/plan.md`
+    *   Goal: Implement semantic prediction: query past test outcomes by diff similarity, blend with rule-based scores, surface via `--explain`.
+    *   Key additions: `compute_semantic_scores()`, `semantic_weight` config, score blending in predictor, `--explain` flag.
+
+*   **Track M5-1: Prometheus Client & Log Scanner**
+    *   Status: Planning
+    *   Dependencies: M1-2
+    *   Spec: `conductor/trackM5-1/spec.md`
+    *   Plan: `conductor/trackM5-1/plan.md`
+    *   Goal: Build observability fetching infrastructure: PromQL query client, local log file scanner, ObservabilitySignal type, snapshot storage.
+    *   Key additions: `src/observability/prometheus.rs`, `src/observability/log_scanner.rs`, `src/observability/signal.rs`, Prometheus query client.
+
+*   **Track M5-2: Observability Impact Enrichment**
+    *   Status: Planning
+    *   Dependencies: M5-1
+    *   Spec: `conductor/trackM5-2/spec.md`
+    *   Plan: `conductor/trackM5-2/plan.md`
+    *   Goal: Wire observability signals into impact analysis: fetch live signals, elevate risk on threshold breach, populate ImpactPacket, inject into ask context.
+    *   Key additions: `enrich_observability()`, risk elevation from observability signals, `observability` field in ImpactPacket, ask context injection.
+
+*   **Track M6-1: OpenAPI Spec Parser & Index Storage**
+    *   Status: Planning
+    *   Dependencies: M1-2
+    *   Spec: `conductor/trackM6-1/spec.md`
+    *   Plan: `conductor/trackM6-1/plan.md`
+    *   Goal: Build OpenAPI/Swagger spec parsing and indexing: parse specs into endpoints, embed descriptions, store in `api_endpoints`.
+    *   Key additions: `src/contracts/parser.rs`, `src/contracts/index.rs`, `serde_yaml` dependency, `changeguard index --contracts` flag.
+
+*   **Track M6-2: Contract Matching & Impact Enrichment**
+    *   Status: Planning
+    *   Dependencies: M6-1
+    *   Spec: `conductor/trackM6-2/spec.md`
+    *   Plan: `conductor/trackM6-2/plan.md`
+    *   Goal: Match changed files to API endpoints via embedding similarity, flag public contract risk, surface in ImpactPacket and human output.
+    *   Key additions: `src/contracts/matcher.rs`, `AffectedContract` type, contract matching in impact, human output table, ask context extension.
 
 
 ## Milestone J: Phase 2 Final Remediation (Completed)
