@@ -42,7 +42,12 @@ fn test_risk_analysis_integration() {
     });
 
     let rules = Rules::default();
-    analyze_risk(&mut packet, &rules, &changeguard::config::model::Config::default()).unwrap();
+    analyze_risk(
+        &mut packet,
+        &rules,
+        &changeguard::config::model::Config::default(),
+    )
+    .unwrap();
 
     // Weight: 30 (public symbol) -> Medium
     assert_eq!(packet.risk_level, RiskLevel::Medium);
@@ -77,7 +82,12 @@ fn test_risk_analysis_high_volume() {
     }
 
     let rules = Rules::default();
-    analyze_risk(&mut packet, &rules, &changeguard::config::model::Config::default()).unwrap();
+    analyze_risk(
+        &mut packet,
+        &rules,
+        &changeguard::config::model::Config::default(),
+    )
+    .unwrap();
 
     // Weight: 20 (volume) -> Medium (because 20 is Low, wait, 21-60 is Medium)
     // Actually in my implementation 20 is Low. Let's add more weight.
@@ -97,7 +107,12 @@ fn test_risk_analysis_high_volume() {
         entrypoint_kind: None,
     }]);
 
-    analyze_risk(&mut packet, &rules, &changeguard::config::model::Config::default()).unwrap();
+    analyze_risk(
+        &mut packet,
+        &rules,
+        &changeguard::config::model::Config::default(),
+    )
+    .unwrap();
 
     // Weight: 20 (volume) + 30 (public symbol) = 50 -> Medium
     assert_eq!(packet.risk_level, RiskLevel::Medium);
@@ -157,7 +172,12 @@ fn test_risk_analysis_protected_and_public() {
         ..Rules::default()
     };
 
-    analyze_risk(&mut packet, &rules, &changeguard::config::model::Config::default()).unwrap();
+    analyze_risk(
+        &mut packet,
+        &rules,
+        &changeguard::config::model::Config::default(),
+    )
+    .unwrap();
 
     // Weight: 70 (protected) + 30 (public) = 100 -> High
     assert_eq!(packet.risk_level, RiskLevel::High);
@@ -176,7 +196,12 @@ fn test_env_var_dep_triggers_risk_reason() {
     });
 
     let rules = Rules::default();
-    analyze_risk(&mut packet, &rules, &changeguard::config::model::Config::default()).unwrap();
+    analyze_risk(
+        &mut packet,
+        &rules,
+        &changeguard::config::model::Config::default(),
+    )
+    .unwrap();
 
     assert!(
         packet
@@ -200,7 +225,12 @@ fn test_common_env_var_dep_is_filtered_from_risk() {
     });
 
     let rules = Rules::default();
-    analyze_risk(&mut packet, &rules, &changeguard::config::model::Config::default()).unwrap();
+    analyze_risk(
+        &mut packet,
+        &rules,
+        &changeguard::config::model::Config::default(),
+    )
+    .unwrap();
 
     assert!(
         !packet.risk_reasons.iter().any(|r| r.contains("PATH")),
@@ -224,7 +254,12 @@ fn test_runtime_delta_env_count_change_triggers_risk_reason() {
     });
 
     let rules = Rules::default();
-    analyze_risk(&mut packet, &rules, &changeguard::config::model::Config::default()).unwrap();
+    analyze_risk(
+        &mut packet,
+        &rules,
+        &changeguard::config::model::Config::default(),
+    )
+    .unwrap();
 
     assert!(
         packet
@@ -248,7 +283,12 @@ fn test_runtime_delta_config_count_change_triggers_risk_reason() {
     });
 
     let rules = Rules::default();
-    analyze_risk(&mut packet, &rules, &changeguard::config::model::Config::default()).unwrap();
+    analyze_risk(
+        &mut packet,
+        &rules,
+        &changeguard::config::model::Config::default(),
+    )
+    .unwrap();
 
     assert!(
         packet
@@ -276,7 +316,12 @@ fn test_runtime_delta_same_cardinality_not_flagged() {
     });
 
     let rules = Rules::default();
-    analyze_risk(&mut packet, &rules, &changeguard::config::model::Config::default()).unwrap();
+    analyze_risk(
+        &mut packet,
+        &rules,
+        &changeguard::config::model::Config::default(),
+    )
+    .unwrap();
 
     assert!(
         !packet

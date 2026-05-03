@@ -22,10 +22,8 @@ impl EnrichmentProvider for CoverageProvider {
 
         // 1. Trace Config Drift
         if config.traces.enabled {
-            packet.trace_config_drift = detect_trace_config_changes(
-                &packet.changes,
-                &config.traces.config_patterns,
-            );
+            packet.trace_config_drift =
+                detect_trace_config_changes(&packet.changes, &config.traces.config_patterns);
             packet.trace_env_vars = detect_trace_env_vars(
                 &packet.env_var_deps,
                 &config.traces.env_var_patterns,
@@ -52,7 +50,11 @@ impl EnrichmentProvider for CoverageProvider {
 }
 
 impl CoverageProvider {
-    fn enrich_data_flow(&self, context: &EnrichmentContext, packet: &mut ImpactPacket) -> Result<()> {
+    fn enrich_data_flow(
+        &self,
+        context: &EnrichmentContext,
+        packet: &mut ImpactPacket,
+    ) -> Result<()> {
         let conn = context.storage.get_connection();
 
         // 1. Load all routes
@@ -78,8 +80,9 @@ impl CoverageProvider {
             .into_diagnostic()?;
 
         // 2. Load Call Graph Edges (full graph for data flow)
-        let mut edge_stmt = conn.prepare(
-            "SELECT COALESCE(ps_caller.qualified_name, ps_caller.symbol_name), \
+        let mut edge_stmt = conn
+            .prepare(
+                "SELECT COALESCE(ps_caller.qualified_name, ps_caller.symbol_name), \
                     pf_caller.file_path, \
                     COALESCE(ps_callee.qualified_name, ps_callee.symbol_name), \
                     pf_callee.file_path, \
@@ -89,28 +92,31 @@ impl CoverageProvider {
              JOIN project_files pf_caller ON se.caller_file_id = pf_caller.id \
              JOIN project_symbols ps_callee ON se.callee_symbol_id = ps_callee.id \
              JOIN project_files pf_callee ON se.callee_file_id = pf_callee.id",
-        ).into_diagnostic()?;
+            )
+            .into_diagnostic()?;
 
-        let edges = edge_stmt.query_map([], |row| {
-            Ok(CallEdge {
-                caller_name: row.get(0)?,
-                caller_file: PathBuf::from(row.get::<_, String>(1)?),
-                callee_name: row.get(2)?,
-                callee_file: Some(PathBuf::from(row.get::<_, String>(3)?)),
-                call_kind: match row.get::<_, String>(4)?.as_str() {
-                    "METHOD_CALL" => CallKind::MethodCall,
-                    "TRAIT_DISPATCH" => CallKind::TraitDispatch,
-                    "DYNAMIC" => CallKind::Dynamic,
-                    "EXTERNAL" => CallKind::External,
-                    _ => CallKind::Direct,
-                },
-                resolution_status: ResolutionStatus::Resolved,
-                confidence: 1.0,
-                evidence: "".to_string(),
+        let edges = edge_stmt
+            .query_map([], |row| {
+                Ok(CallEdge {
+                    caller_name: row.get(0)?,
+                    caller_file: PathBuf::from(row.get::<_, String>(1)?),
+                    callee_name: row.get(2)?,
+                    callee_file: Some(PathBuf::from(row.get::<_, String>(3)?)),
+                    call_kind: match row.get::<_, String>(4)?.as_str() {
+                        "METHOD_CALL" => CallKind::MethodCall,
+                        "TRAIT_DISPATCH" => CallKind::TraitDispatch,
+                        "DYNAMIC" => CallKind::Dynamic,
+                        "EXTERNAL" => CallKind::External,
+                        _ => CallKind::Direct,
+                    },
+                    resolution_status: ResolutionStatus::Resolved,
+                    confidence: 1.0,
+                    evidence: "".to_string(),
+                })
             })
-        }).into_diagnostic()?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .into_diagnostic()?;
+            .into_diagnostic()?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .into_diagnostic()?;
 
         let call_graph = CallGraph { edges };
 
@@ -132,7 +138,10 @@ impl CoverageProvider {
             .into_diagnostic()?;
 
         // 4. Enumerate Call Chains
-        let chains = call_graph.enumerate_call_chains(&routes, context.config.coverage.data_flow.chain_depth_max as usize);
+        let chains = call_graph.enumerate_call_chains(
+            &routes,
+            context.config.coverage.data_flow.chain_depth_max as usize,
+        );
 
         // 5. Compute Coupling
         packet.data_flow_matches = compute_data_flow_coupling(

@@ -44,7 +44,8 @@ impl EnrichmentProvider for RuntimeUsageProvider {
                 }
             }
 
-            if current_env_vars != previous_env_vars || current_config_keys != previous_config_keys {
+            if current_env_vars != previous_env_vars || current_config_keys != previous_config_keys
+            {
                 deltas.push(RuntimeUsageDelta {
                     file_path: change.path.to_string_lossy().to_string(),
                     env_vars_previous_count: previous_env_vars,

@@ -1,7 +1,9 @@
 use crate::impact::enrichment::{EnrichmentContext, EnrichmentProvider};
 use crate::impact::packet::{CoverageDelta, ImpactPacket};
-use crate::index::languages::{extract_error_handling, extract_logging_patterns, extract_telemetry_patterns};
-use miette::{IntoDiagnostic, Result};
+use crate::index::languages::{
+    extract_error_handling, extract_logging_patterns, extract_telemetry_patterns,
+};
+use miette::Result;
 use std::fs;
 use tracing::info;
 
@@ -13,23 +15,25 @@ impl EnrichmentProvider for ObservabilityProvider {
     }
 
     fn enrich(&self, context: &EnrichmentContext, packet: &mut ImpactPacket) -> Result<()> {
-        if !context.storage.table_exists_and_has_data("observability_patterns")? {
-            info!("Skipping observability enrichment: observability_patterns table is empty or missing.");
+        if !context
+            .storage
+            .table_exists_and_has_data("observability_patterns")?
+        {
+            info!(
+                "Skipping observability enrichment: observability_patterns table is empty or missing."
+            );
             return Ok(());
         }
 
         let conn = context.storage.get_connection();
-        
+
         for change in &packet.changes {
             let Some(&file_id) = context.file_id_map.get(&change.path) else {
                 continue;
             };
 
             let full_path = context.project_root.join(&change.path);
-            let content = match fs::read_to_string(&full_path) {
-                Ok(c) => Some(c),
-                Err(_) => None,
-            };
+            let content = fs::read_to_string(&full_path).ok();
 
             // 1. Error Handling
             self.enrich_coverage(
@@ -39,7 +43,9 @@ impl EnrichmentProvider for ObservabilityProvider {
                 content.as_deref(),
                 "ERROR_HANDLE",
                 &mut packet.error_handling_delta,
-                |p, c| extract_error_handling(p, c).map(|v| v.iter().filter(|x| !x.in_test).count()),
+                |p, c| {
+                    extract_error_handling(p, c).map(|v| v.iter().filter(|x| !x.in_test).count())
+                },
             )?;
 
             // 2. Logging
@@ -50,7 +56,9 @@ impl EnrichmentProvider for ObservabilityProvider {
                 content.as_deref(),
                 "LOG",
                 &mut packet.logging_coverage_delta,
-                |p, c| extract_logging_patterns(p, c).map(|v| v.iter().filter(|x| !x.in_test).count()),
+                |p, c| {
+                    extract_logging_patterns(p, c).map(|v| v.iter().filter(|x| !x.in_test).count())
+                },
             )?;
 
             // 3. Telemetry
@@ -61,19 +69,27 @@ impl EnrichmentProvider for ObservabilityProvider {
                 content.as_deref(),
                 "TRACE",
                 &mut packet.telemetry_coverage_delta,
-                |p, c| extract_telemetry_patterns(p, c).map(|v| v.iter().filter(|x| !x.in_test).count()),
+                |p, c| {
+                    extract_telemetry_patterns(p, c)
+                        .map(|v| v.iter().filter(|x| !x.in_test).count())
+                },
             )?;
         }
 
         // 4. Enrich specific observability signals (M7 logic)
-        crate::observability::enrich_observability(packet, context.config, context.storage.get_connection())
-            .map_err(|e| miette::miette!(e))?;
+        crate::observability::enrich_observability(
+            packet,
+            context.config,
+            context.storage.get_connection(),
+        )
+        .map_err(|e| miette::miette!(e))?;
 
         Ok(())
     }
 }
 
 impl ObservabilityProvider {
+    #[allow(clippy::too_many_arguments)]
     fn enrich_coverage<F>(
         &self,
         conn: &rusqlite::Connection,

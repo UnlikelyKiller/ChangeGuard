@@ -446,9 +446,15 @@ pub struct TracesConfig {
     pub risk_cap: u32,
 }
 
-fn default_trace_risk_weight_per_config() -> u32 { 3 }
-fn default_trace_risk_weight_per_env() -> u32 { 2 }
-fn default_trace_risk_cap() -> u32 { 10 }
+fn default_trace_risk_weight_per_config() -> u32 {
+    3
+}
+fn default_trace_risk_weight_per_env() -> u32 {
+    2
+}
+fn default_trace_risk_cap() -> u32 {
+    10
+}
 
 fn default_trace_config_patterns() -> Vec<String> {
     vec![
@@ -499,7 +505,9 @@ pub struct SdkConfig {
     pub risk_cap: u32,
 }
 
-fn default_sdk_risk_cap() -> u32 { 10 }
+fn default_sdk_risk_cap() -> u32 {
+    10
+}
 
 fn default_sdk_patterns() -> Vec<String> {
     vec![
@@ -546,9 +554,15 @@ pub struct ServicesConfig {
     pub risk_weight_2svcs: u32,
 }
 
-fn default_svc_risk_5plus() -> u32 { 10 }
-fn default_svc_risk_3to4() -> u32 { 6 }
-fn default_svc_risk_2svcs() -> u32 { 3 }
+fn default_svc_risk_5plus() -> u32 {
+    15
+}
+fn default_svc_risk_3to4() -> u32 {
+    8
+}
+fn default_svc_risk_2svcs() -> u32 {
+    3
+}
 
 fn default_cross_service_elevation_threshold() -> u32 {
     2
@@ -578,8 +592,12 @@ pub struct DataFlowConfig {
     pub risk_cap: u32,
 }
 
-fn default_dataflow_risk_per_match() -> u32 { 4 }
-fn default_dataflow_risk_cap() -> u32 { 12 }
+fn default_dataflow_risk_per_match() -> u32 {
+    4
+}
+fn default_dataflow_risk_cap() -> u32 {
+    12
+}
 
 fn default_chain_depth_max() -> u32 {
     5
@@ -684,7 +702,6 @@ impl Default for AdrStalenessConfig {
         }
     }
 }
-
 
 impl Default for ContractsConfig {
     fn default() -> Self {
@@ -1052,7 +1069,10 @@ mod tests {
         let config: Config = toml::from_str(toml_str).unwrap();
         assert!(config.coverage.enabled);
         assert!(config.coverage.traces.enabled);
-        assert_eq!(config.coverage.traces.config_patterns, vec!["**/otel*.yaml"]);
+        assert_eq!(
+            config.coverage.traces.config_patterns,
+            vec!["**/otel*.yaml"]
+        );
         assert_eq!(config.coverage.traces.env_var_patterns, vec!["OTEL_*"]);
         assert!(config.coverage.sdk.enabled);
         assert_eq!(config.coverage.sdk.patterns, vec!["stripe", "auth0"]);

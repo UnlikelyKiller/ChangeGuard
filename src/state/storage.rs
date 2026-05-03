@@ -178,22 +178,27 @@ impl StorageManager {
         }
     }
 
-    pub fn get_directory_classifications(&self) -> Result<Vec<crate::index::topology::DirectoryClassification>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT dir_path, role, confidence, evidence FROM project_topology"
-        ).into_diagnostic()?;
+    pub fn get_directory_classifications(
+        &self,
+    ) -> Result<Vec<crate::index::topology::DirectoryClassification>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT dir_path, role, confidence, evidence FROM project_topology")
+            .into_diagnostic()?;
 
-        let rows = stmt.query_map([], |row| {
-            let role_str: String = row.get(1)?;
-            let role = crate::index::topology::DirectoryRole::parse(&role_str)
-                .unwrap_or(crate::index::topology::DirectoryRole::Source);
-            Ok(crate::index::topology::DirectoryClassification {
-                dir_path: row.get(0)?,
-                role,
-                confidence: row.get(2)?,
-                evidence: row.get(3)?,
+        let rows = stmt
+            .query_map([], |row| {
+                let role_str: String = row.get(1)?;
+                let role = crate::index::topology::DirectoryRole::parse(&role_str)
+                    .unwrap_or(crate::index::topology::DirectoryRole::Source);
+                Ok(crate::index::topology::DirectoryClassification {
+                    dir_path: row.get(0)?,
+                    role,
+                    confidence: row.get(2)?,
+                    evidence: row.get(3)?,
+                })
             })
-        }).into_diagnostic()?;
+            .into_diagnostic()?;
 
         let mut results = Vec::new();
         for row in rows {
@@ -356,7 +361,7 @@ mod tests {
         let storage = in_memory_storage();
         // snapshots table is created in migrations, but empty
         assert!(!storage.table_exists_and_has_data("snapshots").unwrap());
-        
+
         // Save a packet to make it non-empty
         let packet = ImpactPacket::default();
         storage.save_packet(&packet).unwrap();

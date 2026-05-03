@@ -16,10 +16,8 @@ impl EnrichmentProvider for DeployProvider {
             return Ok(());
         }
 
-        packet.deploy_manifest_changes = detect_deploy_manifest_changes(
-            &packet.changes,
-            &config.deploy.patterns,
-        );
+        packet.deploy_manifest_changes =
+            detect_deploy_manifest_changes(&packet.changes, &config.deploy.patterns);
 
         Ok(())
     }

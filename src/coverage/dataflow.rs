@@ -123,7 +123,8 @@ mod tests {
             ci_gates: Vec::new(),
         }];
 
-        let matches = compute_data_flow_coupling(&[chain], &changed_files, &[], 0.2, Path::new("."));
+        let matches =
+            compute_data_flow_coupling(&[chain], &changed_files, &[], 0.2, Path::new("."));
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].change_pct, 0.5);
         assert_eq!(matches[0].risk, RiskLevel::Medium);
@@ -161,7 +162,8 @@ mod tests {
         }];
 
         // 1/10 = 10%, threshold is 20%
-        let matches = compute_data_flow_coupling(&[chain], &changed_files, &[], 0.2, Path::new("."));
+        let matches =
+            compute_data_flow_coupling(&[chain], &changed_files, &[], 0.2, Path::new("."));
         assert_eq!(matches.len(), 0);
     }
 
@@ -201,7 +203,8 @@ mod tests {
         }];
 
         // 1/2 = 50%, threshold is 20%
-        let matches = compute_data_flow_coupling(&[chain], &changed_files, &[], 0.2, Path::new("."));
+        let matches =
+            compute_data_flow_coupling(&[chain], &changed_files, &[], 0.2, Path::new("."));
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].chain_label, "get_user -> User");
         assert!((matches[0].change_pct - 0.5).abs() < f64::EPSILON);
@@ -211,8 +214,18 @@ mod tests {
     fn test_compute_data_flow_coupling_threshold_edge() {
         let chain = CallChain {
             nodes: vec![
-                CallChainNode { symbol: "s1".to_string(), file_path: PathBuf::from("f1.rs"), is_data_model: false, is_external: false },
-                CallChainNode { symbol: "s2".to_string(), file_path: PathBuf::from("f2.rs"), is_data_model: true, is_external: false },
+                CallChainNode {
+                    symbol: "s1".to_string(),
+                    file_path: PathBuf::from("f1.rs"),
+                    is_data_model: false,
+                    is_external: false,
+                },
+                CallChainNode {
+                    symbol: "s2".to_string(),
+                    file_path: PathBuf::from("f2.rs"),
+                    is_data_model: true,
+                    is_external: false,
+                },
             ],
             has_cycle: false,
         };
@@ -234,11 +247,13 @@ mod tests {
 
         // 1/2 = 50%
         // threshold 0.6 -> no match
-        let matches = compute_data_flow_coupling(&[chain.clone()], &changed_files, &[], 0.6, Path::new("."));
+        let matches =
+            compute_data_flow_coupling(&[chain.clone()], &changed_files, &[], 0.6, Path::new("."));
         assert_eq!(matches.len(), 0);
 
         // threshold 0.4 -> match
-        let matches = compute_data_flow_coupling(&[chain], &changed_files, &[], 0.4, Path::new("."));
+        let matches =
+            compute_data_flow_coupling(&[chain], &changed_files, &[], 0.4, Path::new("."));
         assert_eq!(matches.len(), 1);
     }
 }

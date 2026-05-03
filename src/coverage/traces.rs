@@ -1,8 +1,8 @@
 use crate::impact::packet::{ChangedFile, TraceConfigChange, TraceConfigType, TraceEnvVarChange};
 use crate::index::env_schema::EnvVarDep;
 use globset::{Glob, GlobSetBuilder};
-use std::path::PathBuf;
 use tracing::warn;
+use std::path::PathBuf;
 
 pub fn detect_trace_config_changes(
     changed_files: &[ChangedFile],
@@ -108,7 +108,6 @@ mod tests {
     use super::*;
     use crate::impact::packet::ChangedFile;
     use crate::index::env_schema::EnvVarDep;
-    use std::path::PathBuf;
 
     #[test]
     fn test_otel_collector_yaml_detected() {
@@ -129,7 +128,10 @@ mod tests {
         let patterns = vec!["**/otel*.yaml".to_string()];
         let changes = detect_trace_config_changes(&changed_files, &patterns);
         assert_eq!(changes.len(), 1);
-        assert_eq!(changes[0].config_type, TraceConfigType::OpenTelemetryCollector);
+        assert_eq!(
+            changes[0].config_type,
+            TraceConfigType::OpenTelemetryCollector
+        );
         assert!(!changes[0].is_deleted);
     }
 
@@ -194,7 +196,10 @@ mod tests {
         let patterns = vec!["**/otel*.yaml*".to_string()];
         let changes = detect_trace_config_changes(&changed_files, &patterns);
         assert_eq!(changes.len(), 1);
-        assert_eq!(changes[0].config_type, TraceConfigType::OpenTelemetryCollector);
+        assert_eq!(
+            changes[0].config_type,
+            TraceConfigType::OpenTelemetryCollector
+        );
     }
 
     #[test]

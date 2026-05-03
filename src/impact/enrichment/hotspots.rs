@@ -16,9 +16,8 @@ impl EnrichmentProvider for HotspotProvider {
     fn enrich(&self, context: &EnrichmentContext, packet: &mut ImpactPacket) -> Result<()> {
         info!("Calculating hotspots...");
 
-        let repo = open_repo(&context.project_root).map_err(|e| {
-            miette::miette!("Failed to open repo for hotspot analysis: {}", e)
-        })?;
+        let repo = open_repo(&context.project_root)
+            .map_err(|e| miette::miette!("Failed to open repo for hotspot analysis: {}", e))?;
 
         let history_provider = GixHistoryProvider::new(&repo);
 

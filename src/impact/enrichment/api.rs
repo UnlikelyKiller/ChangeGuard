@@ -17,7 +17,7 @@ impl EnrichmentProvider for ApiProvider {
         }
 
         let conn = context.storage.get_connection();
-        
+
         for changed_file in &mut packet.changes {
             let Some(&file_id) = context.file_id_map.get(&changed_file.path) else {
                 continue;

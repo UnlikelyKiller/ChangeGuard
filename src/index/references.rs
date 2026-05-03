@@ -304,9 +304,11 @@ var Debug = true
             .unwrap();
         assert!(result.imported_from.contains(&"fmt".to_string()));
         assert!(result.imported_from.contains(&"os".to_string()));
-        assert!(result
-            .imported_from
-            .contains(&"github.com/stripe/stripe-go".to_string()));
+        assert!(
+            result
+                .imported_from
+                .contains(&"github.com/stripe/stripe-go".to_string())
+        );
         assert!(result.exported_symbols.contains(&"Run".to_string()));
         assert!(result.exported_symbols.contains(&"Start".to_string()));
         assert!(result.exported_symbols.contains(&"User".to_string()));

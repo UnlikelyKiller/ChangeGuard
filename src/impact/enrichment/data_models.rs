@@ -17,7 +17,7 @@ impl EnrichmentProvider for DataModelProvider {
         }
 
         let conn = context.storage.get_connection();
-        
+
         for changed_file in &mut packet.changes {
             let Some(&file_id) = context.file_id_map.get(&changed_file.path) else {
                 continue;
@@ -26,7 +26,7 @@ impl EnrichmentProvider for DataModelProvider {
             let mut stmt = conn
                 .prepare(
                     "SELECT model_name, model_kind, confidence, evidence 
-                     FROM data_models WHERE model_file_id = ?1"
+                     FROM data_models WHERE model_file_id = ?1",
                 )
                 .into_diagnostic()?;
 

@@ -406,7 +406,7 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules, config: &Config) -
     total_weight += telemetry_total;
 
     // 4. M7 Engineering Coverage Risks
-    
+
     // 4a. Trace Config Drift
     let trace_config_weight_per_file = config.coverage.traces.risk_weight_per_config_file;
     let trace_config_weight_cap = config.coverage.traces.risk_cap;
@@ -415,7 +415,10 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules, config: &Config) -
         if trace_config_total + trace_config_weight_per_file <= trace_config_weight_cap {
             trace_config_total += trace_config_weight_per_file;
             reasons.push(format!("Observability config drift: {:?}", change.file));
-            debug!("Risk Factor: Trace config drift ({:?}) +{}", change.file, trace_config_weight_per_file);
+            debug!(
+                "Risk Factor: Trace config drift ({:?}) +{}",
+                change.file, trace_config_weight_per_file
+            );
         }
     }
     total_weight += trace_config_total;
@@ -428,7 +431,10 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules, config: &Config) -
         if trace_env_total + trace_env_weight_per_var <= trace_env_weight_cap {
             trace_env_total += trace_env_weight_per_var;
             reasons.push(format!("Observability env var change: {}", change.var_name));
-            debug!("Risk Factor: Trace env var change ({}) +{}", change.var_name, trace_env_weight_per_var);
+            debug!(
+                "Risk Factor: Trace env var change ({}) +{}",
+                change.var_name, trace_env_weight_per_var
+            );
         }
     }
     total_weight += trace_env_total;
@@ -442,7 +448,10 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules, config: &Config) -
             if sdk_new_total + sdk_new_weight <= sdk_new_cap {
                 sdk_new_total += sdk_new_weight;
                 reasons.push(format!("New SDK dependency: {}", sdk.sdk_name));
-                debug!("Risk Factor: New SDK ({}) +{}", sdk.sdk_name, sdk_new_weight);
+                debug!(
+                    "Risk Factor: New SDK ({}) +{}",
+                    sdk.sdk_name, sdk_new_weight
+                );
             }
         }
         total_weight += sdk_new_total;
@@ -454,7 +463,10 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules, config: &Config) -
             if sdk_mod_total + sdk_mod_weight <= sdk_mod_cap {
                 sdk_mod_total += sdk_mod_weight;
                 reasons.push(format!("Modified SDK dependency: {}", sdk.sdk_name));
-                debug!("Risk Factor: Modified SDK ({}) +{}", sdk.sdk_name, sdk_mod_weight);
+                debug!(
+                    "Risk Factor: Modified SDK ({}) +{}",
+                    sdk.sdk_name, sdk_mod_weight
+                );
             }
         }
         total_weight += sdk_mod_total;
@@ -475,7 +487,10 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules, config: &Config) -
         if svc_weight > 0 {
             total_weight += svc_weight;
             reasons.push(format!("Cross-service change affecting {} services", count));
-            debug!("Risk Factor: Cross-service impact ({} svcs) +{}", count, svc_weight);
+            debug!(
+                "Risk Factor: Cross-service impact ({} svcs) +{}",
+                count, svc_weight
+            );
         }
     }
 
@@ -486,8 +501,15 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules, config: &Config) -
     for m in &packet.data_flow_matches {
         if data_flow_total + data_flow_weight_per_match <= data_flow_weight_cap {
             data_flow_total += data_flow_weight_per_match;
-            reasons.push(format!("Data-flow coupling: chain {} affected ({:.0}% change)", m.chain_label, m.change_pct * 100.0));
-            debug!("Risk Factor: Data-flow match ({}) +{}", m.chain_label, data_flow_weight_per_match);
+            reasons.push(format!(
+                "Data-flow coupling: chain {} affected ({:.0}% change)",
+                m.chain_label,
+                m.change_pct * 100.0
+            ));
+            debug!(
+                "Risk Factor: Data-flow match ({}) +{}",
+                m.chain_label, data_flow_weight_per_match
+            );
         }
     }
     total_weight += data_flow_total;
@@ -499,35 +521,57 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules, config: &Config) -
     for change in &packet.deploy_manifest_changes {
         if deploy_total + deploy_weight_per_manifest <= deploy_weight_cap {
             deploy_total += deploy_weight_per_manifest;
-            reasons.push(format!("Deploy manifest changed: {:?}", change.file));
-            debug!("Risk Factor: Deploy manifest changed ({:?}) +{}", change.file, deploy_weight_per_manifest);
+            reasons.push(format!("Deployment manifest change: {}", change.file.display()));
+            debug!(
+                "Risk Factor: Deploy manifest changed ({:?}) +{}",
+                change.file, deploy_weight_per_manifest
+            );
         }
     }
     total_weight += deploy_total;
 
     // 4g. CI Self-Awareness
     let ci_config_changed = packet.changes.iter().any(|c| !c.ci_gates.is_empty());
-    let source_changed = packet.changes.iter().any(|c| c.symbols.is_some() || c.imports.is_some());
+    let source_changed = packet
+        .changes
+        .iter()
+        .any(|c| c.symbols.is_some() || c.imports.is_some());
     if ci_config_changed && config.coverage.ci_self_awareness.enabled {
-        let ci_weight = if source_changed { config.coverage.ci_self_awareness.ci_plus_source_weight } else { config.coverage.ci_self_awareness.ci_changed_weight };
+        let ci_weight = if source_changed {
+            config.coverage.ci_self_awareness.ci_plus_source_weight
+        } else {
+            config.coverage.ci_self_awareness.ci_changed_weight
+        };
         total_weight += ci_weight;
-        reasons.push(format!("CI pipeline config change{}", if source_changed { " + source code" } else { "" }));
-        debug!("Risk Factor: CI self-awareness (source={}) +{}", source_changed, ci_weight);
+        reasons.push(format!(
+            "CI pipeline config change{}",
+            if source_changed { " + source code" } else { "" }
+        ));
+        debug!(
+            "Risk Factor: CI self-awareness (source={}) +{}",
+            source_changed, ci_weight
+        );
     }
 
     // 4h. ADR Staleness Advisory
     if config.coverage.adr_staleness.enabled {
         let threshold = config.coverage.adr_staleness.threshold_days;
         for decision in &packet.relevant_decisions {
-            if let Some(days) = decision.staleness_days {
-                if days > threshold {
-                    reasons.push(format!("Stale architectural context: {} ({} days old)", decision.file_path.display(), days));
-                    debug!("Advisory: Stale ADR ({}) {} days", decision.file_path.display(), days);
+            if let Some(days) = decision.staleness_days
+                && days > threshold {
+                    reasons.push(format!(
+                        "Stale architectural context: {} ({} days old)",
+                        decision.file_path.display(),
+                        days
+                    ));
+                    debug!(
+                        "Advisory: Stale ADR ({}) {} days",
+                        decision.file_path.display(),
+                        days
+                    );
                 }
-            }
         }
     }
-
 
     // 3m. Runtime/Config Dependency Risk
     // Category Cap: 25 points
@@ -599,7 +643,7 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules, config: &Config) -
     total_weight += runtime_config_total;
 
     // 4. Scoring
-    packet.risk_level = if total_weight > 60 {
+    packet.risk_level = if total_weight > 50 {
         RiskLevel::High
     } else if total_weight > 20 {
         RiskLevel::Medium
@@ -608,7 +652,9 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules, config: &Config) -
     };
 
     if reasons.is_empty() && packet.risk_reasons.is_empty() {
-        packet.risk_reasons.push("Minimal changes detected".to_string());
+        packet
+            .risk_reasons
+            .push("Minimal changes detected".to_string());
     } else {
         packet.risk_reasons.extend(reasons);
     }
@@ -617,6 +663,7 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules, config: &Config) -
 }
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
     use crate::impact::packet::{CentralityRisk, ChangedFile, CoverageDelta, FileAnalysisStatus};
@@ -2316,7 +2363,12 @@ mod tests {
         let config = Config::default();
         analyze_risk(&mut packet, &rules, &config).unwrap();
 
-        assert!(packet.risk_reasons.iter().any(|r| r.contains("Observability config drift")));
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Observability config drift"))
+        );
         // Default weight is 3
         assert_eq!(packet.risk_level, RiskLevel::Low);
     }
@@ -2343,8 +2395,18 @@ mod tests {
         let config = Config::default();
         analyze_risk(&mut packet, &rules, &config).unwrap();
 
-        assert!(packet.risk_reasons.iter().any(|r| r.contains("New SDK dependency: opentelemetry")));
-        assert!(packet.risk_reasons.iter().any(|r| r.contains("Modified SDK dependency: sentry")));
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("New SDK dependency: opentelemetry"))
+        );
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Modified SDK dependency: sentry"))
+        );
         // New(5) + Mod(3) = 8
         assert_eq!(packet.risk_level, RiskLevel::Low);
     }
@@ -2354,7 +2416,11 @@ mod tests {
         use crate::impact::packet::ServiceMapDelta;
         let mut packet = ImpactPacket::default();
         packet.service_map_delta = Some(ServiceMapDelta {
-            affected_services: vec!["users".to_string(), "billing".to_string(), "auth".to_string()],
+            affected_services: vec![
+                "users".to_string(),
+                "billing".to_string(),
+                "auth".to_string(),
+            ],
             services: vec![],
             cross_service_edges: vec![],
             total_services: 3,
@@ -2364,7 +2430,12 @@ mod tests {
         let config = Config::default();
         analyze_risk(&mut packet, &rules, &config).unwrap();
 
-        assert!(packet.risk_reasons.iter().any(|r| r.contains("Cross-service change affecting 3 services")));
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Cross-service change affecting 3 services"))
+        );
         // 3 services -> weight 6
         assert_eq!(packet.risk_level, RiskLevel::Low);
     }
@@ -2385,7 +2456,12 @@ mod tests {
         let config = Config::default();
         analyze_risk(&mut packet, &rules, &config).unwrap();
 
-        assert!(packet.risk_reasons.iter().any(|r| r.contains("Data-flow coupling: chain GET /users -> User affected")));
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Data-flow coupling: chain GET /users -> User affected"))
+        );
         // weight 4
         assert_eq!(packet.risk_level, RiskLevel::Low);
     }
@@ -2405,7 +2481,12 @@ mod tests {
         let config = Config::default();
         analyze_risk(&mut packet, &rules, &config).unwrap();
 
-        assert!(packet.risk_reasons.iter().any(|r| r.contains("Deployment manifest change: Dockerfile")));
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Deployment manifest change: Dockerfile"))
+        );
         // weight 3
         assert_eq!(packet.risk_level, RiskLevel::Low);
     }
@@ -2427,10 +2508,12 @@ mod tests {
         let mut config = Config::default();
         config.coverage.adr_staleness.threshold_days = 365;
         config.coverage.adr_staleness.enabled = true;
-        
+
         analyze_risk(&mut packet, &rules, &config).unwrap();
 
-        assert!(packet.risk_reasons.iter().any(|r| r.contains("Stale architectural context: docs/adr/001-auth.md (400 days old)")));
+        assert!(packet.risk_reasons.iter().any(|r| {
+            r.contains("Stale architectural context: docs/adr/001-auth.md (400 days old)")
+        }));
         // Advisory weight is 0 in the current implementation (advisory only)
         assert_eq!(packet.risk_level, RiskLevel::Low);
     }
@@ -2439,7 +2522,7 @@ mod tests {
     fn test_analyze_risk_combined_high() {
         use crate::impact::packet::CoverageDelta;
         let mut packet = ImpactPacket::default();
-        
+
         // 1. Telemetry reduction (25)
         packet.telemetry_coverage_delta.push(CoverageDelta {
             file_path: "src/api.rs".to_string(),
@@ -2448,26 +2531,34 @@ mod tests {
             current_count: 5,
             message: "reduced".to_string(),
         });
-        
+
         // 2. Multi-service impact (10) - 5+ services
         packet.service_map_delta = Some(crate::impact::packet::ServiceMapDelta {
-            affected_services: vec!["s1".to_string(), "s2".to_string(), "s3".to_string(), "s4".to_string(), "s5".to_string()],
+            affected_services: vec![
+                "s1".to_string(),
+                "s2".to_string(),
+                "s3".to_string(),
+                "s4".to_string(),
+                "s5".to_string(),
+            ],
             services: vec![],
             cross_service_edges: vec![],
             total_services: 5,
         });
-        
+
         // 3. Data flow matches (12) - 3 matches at 4 each
         for i in 0..3 {
-            packet.data_flow_matches.push(crate::impact::packet::DataFlowMatch {
-                chain_label: format!("chain-{}", i),
-                changed_nodes: vec!["node".to_string()],
-                total_nodes: 2,
-                change_pct: 0.5,
-                risk: RiskLevel::Low,
-            });
+            packet
+                .data_flow_matches
+                .push(crate::impact::packet::DataFlowMatch {
+                    chain_label: format!("chain-{}", i),
+                    changed_nodes: vec!["node".to_string()],
+                    total_nodes: 2,
+                    change_pct: 0.5,
+                    risk: RiskLevel::Low,
+                });
         }
-        
+
         let rules = Rules::default();
         let config = Config::default();
         analyze_risk(&mut packet, &rules, &config).unwrap();
@@ -2501,7 +2592,7 @@ mod tests {
         let rules = Rules::default();
         let mut config = Config::default();
         config.coverage.ci_self_awareness.enabled = false;
-        
+
         analyze_risk(&mut packet, &rules, &config).unwrap();
 
         // Should NOT have CI/CD risk reason because it's disabled
@@ -2543,7 +2634,7 @@ mod tests {
         let mut config = Config::default();
         config.coverage.ci_self_awareness.enabled = true;
         config.coverage.ci_self_awareness.ci_changed_weight = 10;
-        
+
         analyze_risk(&mut packet, &rules, &config).unwrap();
 
         // Should HAVE CI/CD risk reason because it's enabled

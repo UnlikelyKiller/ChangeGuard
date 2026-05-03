@@ -13,13 +13,16 @@ impl EnrichmentProvider for EnvironmentProvider {
     }
 
     fn enrich(&self, context: &EnrichmentContext, packet: &mut ImpactPacket) -> Result<()> {
-        if !context.storage.table_exists_and_has_data("env_references")? {
+        if !context
+            .storage
+            .table_exists_and_has_data("env_references")?
+        {
             info!("Skipping environment enrichment: env_references table is empty or missing.");
             return Ok(());
         }
 
         let conn = context.storage.get_connection();
-        
+
         // 1. Collect all declared var names
         let mut decl_stmt = conn
             .prepare("SELECT var_name FROM env_declarations")
@@ -49,7 +52,7 @@ impl EnrichmentProvider for EnvironmentProvider {
 
             for res in refs {
                 let (var_name, reference_kind) = res.into_diagnostic()?;
-                
+
                 if var_name == "*" {
                     continue;
                 }
@@ -60,7 +63,8 @@ impl EnrichmentProvider for EnvironmentProvider {
                         declared: false,
                         evidence: format!(
                             "Referenced as {} in {} but not declared in any env config",
-                            reference_kind, change.path.display()
+                            reference_kind,
+                            change.path.display()
                         ),
                     });
                 }

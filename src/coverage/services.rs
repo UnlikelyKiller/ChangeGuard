@@ -32,7 +32,8 @@ pub fn infer_services(
     for class in &topology.classifications {
         if class.role == crate::index::topology::DirectoryRole::ServiceRoot {
             let path = PathBuf::from(&class.dir_path);
-            let name = path.file_name()
+            let name = path
+                .file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| "root".to_string());
             service_groups.insert(path, (name, Vec::new(), Vec::new()));
@@ -58,7 +59,7 @@ pub fn infer_services(
         let entry = service_groups
             .entry(root_dir)
             .or_insert_with(|| (name, Vec::new(), Vec::new()));
-        
+
         // Add caller as a "route" (logical entrypoint) if not already present
         if !entry.1.contains(&edge.caller_name) {
             entry.1.push(edge.caller_name.clone());
@@ -132,13 +133,17 @@ fn find_best_service_root(path: &Path, topology: &DirectoryTopology) -> (PathBuf
 
     loop {
         let current_str = current.to_string_lossy().replace('\\', "/");
-        if let Some(_class) = topology.classifications.iter().find(|c| (c.dir_path == current_str || (current_str.is_empty() && c.dir_path == ".")) && c.role == crate::index::topology::DirectoryRole::ServiceRoot) {
-            let name = current.file_name()
+        if let Some(_class) = topology.classifications.iter().find(|c| {
+            (c.dir_path == current_str || (current_str.is_empty() && c.dir_path == "."))
+                && c.role == crate::index::topology::DirectoryRole::ServiceRoot
+        }) {
+            let name = current
+                .file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| "root".to_string());
             return (current, name);
         }
-        
+
         if let Some(parent) = current.parent() {
             if parent == current || current == Path::new("") {
                 break;
@@ -180,30 +185,26 @@ fn find_package_name(dir: &Path) -> Option<String> {
             let p = current.join(filename);
             if let Ok(content) = std::fs::read_to_string(&p) {
                 if *filename == "Cargo.toml" {
-                    if let Ok(value) = toml::from_str::<toml::Value>(&content) {
-                        if let Some(name) = value
+                    if let Ok(value) = toml::from_str::<toml::Value>(&content)
+                        && let Some(name) = value
                             .get("package")
                             .and_then(|v| v.get("name"))
                             .and_then(|v| v.as_str())
                         {
                             return Some(name.to_string());
                         }
-                    }
-                } else if *filename == "package.json" {
-                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
-                        if let Some(name) = value.get("name").and_then(|v| v.as_str()) {
+                } else if *filename == "package.json"
+                    && let Ok(value) = serde_json::from_str::<serde_json::Value>(&content)
+                        && let Some(name) = value.get("name").and_then(|v| v.as_str()) {
                             return Some(name.to_string());
                         }
-                    }
-                }
             }
         }
 
-        if current.join("__init__.py").exists() {
-            if let Some(name) = current.file_name().and_then(|n| n.to_str()) {
+        if current.join("__init__.py").exists()
+            && let Some(name) = current.file_name().and_then(|n| n.to_str()) {
                 return Some(name.to_string());
             }
-        }
 
         if let Some(parent) = current.parent() {
             if parent == current || current == Path::new("") {
@@ -239,13 +240,12 @@ pub fn compute_cross_service_edges(
         if let (Some(caller_svc), Some(callee_svc)) = (
             symbol_to_service.get(&edge.caller_name),
             symbol_to_service.get(&edge.callee_name),
-        ) {
-            if caller_svc != callee_svc {
+        )
+            && caller_svc != callee_svc {
                 *edges
                     .entry((caller_svc.clone(), callee_svc.clone()))
                     .or_insert(0) += 1;
             }
-        }
     }
 
     let mut result: Vec<_> = edges
@@ -393,11 +393,7 @@ mod tests {
         use std::fs;
         let temp = tempfile::tempdir().unwrap();
         let repo_dir = temp.path();
-        fs::write(
-            repo_dir.join("package.json"),
-            r#"{"name": "from-json"}"#,
-        )
-        .unwrap();
+        fs::write(repo_dir.join("package.json"), r#"{"name": "from-json"}"#).unwrap();
 
         let routes = vec![ApiRoute {
             method: "GET".to_string(),

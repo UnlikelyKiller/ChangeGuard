@@ -25,14 +25,23 @@ impl EnrichmentProvider for CouplingProvider {
 }
 
 impl CouplingProvider {
-    fn enrich_structural(&self, context: &EnrichmentContext, packet: &mut ImpactPacket) -> Result<()> {
-        if !context.storage.table_exists_and_has_data("structural_edges")? {
-            info!("Skipping structural coupling enrichment: structural_edges table is empty or missing.");
+    fn enrich_structural(
+        &self,
+        context: &EnrichmentContext,
+        packet: &mut ImpactPacket,
+    ) -> Result<()> {
+        if !context
+            .storage
+            .table_exists_and_has_data("structural_edges")?
+        {
+            info!(
+                "Skipping structural coupling enrichment: structural_edges table is empty or missing."
+            );
             return Ok(());
         }
 
         let conn = context.storage.get_connection();
-        
+
         // Collect changed symbol names
         let changed_symbols: Vec<String> = packet
             .changes
@@ -80,18 +89,19 @@ impl CouplingProvider {
         Ok(())
     }
 
-    fn enrich_temporal(&self, context: &EnrichmentContext, packet: &mut ImpactPacket) -> Result<()> {
+    fn enrich_temporal(
+        &self,
+        context: &EnrichmentContext,
+        packet: &mut ImpactPacket,
+    ) -> Result<()> {
         info!("Running temporal coupling analysis...");
-        
-        let repo = open_repo(&context.project_root).map_err(|e| {
-            miette::miette!("Failed to open repo for temporal analysis: {}", e)
-        })?;
+
+        let repo = open_repo(&context.project_root)
+            .map_err(|e| miette::miette!("Failed to open repo for temporal analysis: {}", e))?;
 
         let history_provider = GixHistoryProvider::new(&repo);
-        let temporal_engine = TemporalEngine::new(
-            history_provider,
-            context.config.temporal.clone(),
-        );
+        let temporal_engine =
+            TemporalEngine::new(history_provider, context.config.temporal.clone());
 
         match temporal_engine.calculate_couplings() {
             Ok(couplings) => {

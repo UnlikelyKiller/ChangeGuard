@@ -11,13 +11,18 @@ impl EnrichmentProvider for InfrastructureProvider {
     }
 
     fn enrich(&self, context: &EnrichmentContext, packet: &mut ImpactPacket) -> Result<()> {
-        if !context.storage.table_exists_and_has_data("project_topology")? {
-            info!("Skipping infrastructure enrichment: project_topology table is empty or missing.");
+        if !context
+            .storage
+            .table_exists_and_has_data("project_topology")?
+        {
+            info!(
+                "Skipping infrastructure enrichment: project_topology table is empty or missing."
+            );
             return Ok(());
         }
 
         let conn = context.storage.get_connection();
-        
+
         let mut stmt = conn
             .prepare("SELECT directory_path FROM project_topology WHERE role = 'Infrastructure'")
             .into_diagnostic()?;

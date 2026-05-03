@@ -17,7 +17,7 @@ impl EnrichmentProvider for CIGateProvider {
         }
 
         let conn = context.storage.get_connection();
-        
+
         for changed_file in &mut packet.changes {
             let Some(&file_id) = context.file_id_map.get(&changed_file.path) else {
                 continue;
@@ -26,7 +26,7 @@ impl EnrichmentProvider for CIGateProvider {
             let mut stmt = conn
                 .prepare(
                     "SELECT platform, workflow_path, job_id, step_name, event_type, is_blocking 
-                     FROM ci_gates WHERE ci_file_id = ?1"
+                     FROM ci_gates WHERE ci_file_id = ?1",
                 )
                 .into_diagnostic()?;
 

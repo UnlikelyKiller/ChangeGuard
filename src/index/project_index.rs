@@ -1247,8 +1247,8 @@ impl ProjectIndexer {
     /// Infer service boundaries and assign files to services.
     pub fn infer_services(&mut self) -> Result<ServiceIndexStats> {
         use crate::coverage::services::{DataModelSource, DirectoryTopology, infer_services};
-        use crate::index::call_graph::CallGraph;
         use crate::impact::packet::{ApiRoute, DataModel};
+        use crate::index::call_graph::CallGraph;
 
         let (routes, data_models, call_graph) = {
             let conn = self.storage.get_connection();
@@ -1313,7 +1313,10 @@ impl ProjectIndexer {
         };
 
         let topology = DirectoryTopology {
-            classifications: self.storage.get_directory_classifications().unwrap_or_default(),
+            classifications: self
+                .storage
+                .get_directory_classifications()
+                .unwrap_or_default(),
         };
 
         // 4. Infer services

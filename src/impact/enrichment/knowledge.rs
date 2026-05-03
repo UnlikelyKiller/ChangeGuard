@@ -28,7 +28,7 @@ impl EnrichmentProvider for KnowledgeProvider {
         }
 
         let conn = context.storage.get_connection();
-        
+
         // Check if doc_chunks table has any rows
         if !context.storage.table_exists_and_has_data("doc_chunks")? {
             info!("Skipping knowledge enrichment: doc_chunks table is empty or missing.");
@@ -41,7 +41,7 @@ impl EnrichmentProvider for KnowledgeProvider {
             let path = change.path.to_string_lossy().to_string();
             query_parts.push(format!("{} ({})", path, change.status));
         }
-        
+
         if query_parts.is_empty() {
             return Ok(());
         }
@@ -94,13 +94,11 @@ impl EnrichmentProvider for KnowledgeProvider {
 
                 // Populate staleness_days from filesystem mtime
                 let full_path = PathBuf::from(chunk.file_path.clone());
-                if let Ok(metadata) = fs::metadata(&full_path) {
-                    if let Ok(modified) = metadata.modified() {
-                        if let Ok(elapsed) = modified.elapsed() {
+                if let Ok(metadata) = fs::metadata(&full_path)
+                    && let Ok(modified) = metadata.modified()
+                        && let Ok(elapsed) = modified.elapsed() {
                             staleness_days = Some((elapsed.as_secs() / 86400) as u32);
                         }
-                    }
-                }
 
                 RelevantDecision {
                     file_path: PathBuf::from(chunk.file_path),

@@ -47,9 +47,14 @@ fn classify_manifest(path: &std::path::Path) -> ManifestType {
     let path_str = path.to_string_lossy().to_lowercase();
     if path_str.contains("dockerfile") {
         ManifestType::Dockerfile
-    } else if path_str.contains("docker-compose") || path_str.ends_with(".yml") && path_str.contains("compose") {
+    } else if path_str.contains("docker-compose")
+        || path_str.ends_with(".yml") && path_str.contains("compose")
+    {
         ManifestType::DockerCompose
-    } else if path_str.contains("k8s") || path_str.contains("kubernetes") || path_str.contains("manifests") {
+    } else if path_str.contains("k8s")
+        || path_str.contains("kubernetes")
+        || path_str.contains("manifests")
+    {
         ManifestType::Kubernetes
     } else if path_str.ends_with(".tf") || path_str.contains("terraform") {
         ManifestType::Terraform
@@ -68,11 +73,26 @@ mod tests {
 
     #[test]
     fn test_classify_manifest() {
-        assert_eq!(classify_manifest(&PathBuf::from("Dockerfile")), ManifestType::Dockerfile);
-        assert_eq!(classify_manifest(&PathBuf::from("docker-compose.yml")), ManifestType::DockerCompose);
-        assert_eq!(classify_manifest(&PathBuf::from("infra/k8s/deployment.yaml")), ManifestType::Kubernetes);
-        assert_eq!(classify_manifest(&PathBuf::from("main.tf")), ManifestType::Terraform);
-        assert_eq!(classify_manifest(&PathBuf::from("charts/my-app/values.yaml")), ManifestType::Helm);
+        assert_eq!(
+            classify_manifest(&PathBuf::from("Dockerfile")),
+            ManifestType::Dockerfile
+        );
+        assert_eq!(
+            classify_manifest(&PathBuf::from("docker-compose.yml")),
+            ManifestType::DockerCompose
+        );
+        assert_eq!(
+            classify_manifest(&PathBuf::from("infra/k8s/deployment.yaml")),
+            ManifestType::Kubernetes
+        );
+        assert_eq!(
+            classify_manifest(&PathBuf::from("main.tf")),
+            ManifestType::Terraform
+        );
+        assert_eq!(
+            classify_manifest(&PathBuf::from("charts/my-app/values.yaml")),
+            ManifestType::Helm
+        );
     }
 
     #[test]
@@ -116,22 +136,20 @@ mod tests {
 
     #[test]
     fn test_detect_deploy_changes_no_match() {
-        let files = vec![
-            ChangedFile {
-                path: PathBuf::from("src/main.rs"),
-                status: "Modified".to_string(),
-                old_path: None,
-                is_staged: true,
-                symbols: None,
-                imports: None,
-                runtime_usage: None,
-                analysis_status: FileAnalysisStatus::default(),
-                analysis_warnings: Vec::new(),
-                api_routes: Vec::new(),
-                data_models: Vec::new(),
-                ci_gates: Vec::new(),
-            },
-        ];
+        let files = vec![ChangedFile {
+            path: PathBuf::from("src/main.rs"),
+            status: "Modified".to_string(),
+            old_path: None,
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+            ci_gates: Vec::new(),
+        }];
 
         let patterns = vec!["**/Dockerfile*".to_string()];
         let changes = detect_deploy_manifest_changes(&files, &patterns);

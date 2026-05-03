@@ -11,6 +11,12 @@ pub struct ImpactOrchestrator {
     providers: Vec<Box<dyn EnrichmentProvider>>,
 }
 
+impl Default for ImpactOrchestrator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ImpactOrchestrator {
     pub fn new() -> Self {
         Self {
@@ -20,21 +26,47 @@ impl ImpactOrchestrator {
 
     pub fn with_builtins() -> Self {
         let mut orch = Self::new();
-        orch.register_provider(Box::new(crate::impact::enrichment::federated::FederatedProvider));
+        orch.register_provider(Box::new(
+            crate::impact::enrichment::federated::FederatedProvider,
+        ));
         orch.register_provider(Box::new(crate::impact::enrichment::api::ApiProvider));
-        orch.register_provider(Box::new(crate::impact::enrichment::data_models::DataModelProvider));
-        orch.register_provider(Box::new(crate::impact::enrichment::contracts::ContractProvider));
-        orch.register_provider(Box::new(crate::impact::enrichment::ci_gates::CIGateProvider));
-        orch.register_provider(Box::new(crate::impact::enrichment::infrastructure::InfrastructureProvider));
-        orch.register_provider(Box::new(crate::impact::enrichment::environment::EnvironmentProvider));
-        orch.register_provider(Box::new(crate::impact::enrichment::observability::ObservabilityProvider));
-        orch.register_provider(Box::new(crate::impact::enrichment::coupling::CouplingProvider));
+        orch.register_provider(Box::new(
+            crate::impact::enrichment::data_models::DataModelProvider,
+        ));
+        orch.register_provider(Box::new(
+            crate::impact::enrichment::contracts::ContractProvider,
+        ));
+        orch.register_provider(Box::new(
+            crate::impact::enrichment::ci_gates::CIGateProvider,
+        ));
+        orch.register_provider(Box::new(
+            crate::impact::enrichment::infrastructure::InfrastructureProvider,
+        ));
+        orch.register_provider(Box::new(
+            crate::impact::enrichment::environment::EnvironmentProvider,
+        ));
+        orch.register_provider(Box::new(
+            crate::impact::enrichment::observability::ObservabilityProvider,
+        ));
+        orch.register_provider(Box::new(
+            crate::impact::enrichment::coupling::CouplingProvider,
+        ));
         orch.register_provider(Box::new(crate::impact::enrichment::deploy::DeployProvider));
-        orch.register_provider(Box::new(crate::impact::enrichment::hotspots::HotspotProvider));
-        orch.register_provider(Box::new(crate::impact::enrichment::coverage::CoverageProvider));
-        orch.register_provider(Box::new(crate::impact::enrichment::services::ServiceProvider));
-        orch.register_provider(Box::new(crate::impact::enrichment::runtime_usage::RuntimeUsageProvider));
-        orch.register_provider(Box::new(crate::impact::enrichment::knowledge::KnowledgeProvider));
+        orch.register_provider(Box::new(
+            crate::impact::enrichment::hotspots::HotspotProvider,
+        ));
+        orch.register_provider(Box::new(
+            crate::impact::enrichment::coverage::CoverageProvider,
+        ));
+        orch.register_provider(Box::new(
+            crate::impact::enrichment::services::ServiceProvider,
+        ));
+        orch.register_provider(Box::new(
+            crate::impact::enrichment::runtime_usage::RuntimeUsageProvider,
+        ));
+        orch.register_provider(Box::new(
+            crate::impact::enrichment::knowledge::KnowledgeProvider,
+        ));
         orch.register_provider(Box::new(crate::impact::enrichment::risk::RiskProvider));
         orch
     }
@@ -55,7 +87,7 @@ impl ImpactOrchestrator {
         // 1. Prepare Context
         let file_id_map = storage.get_active_file_id_map()?;
         let warnings_collector = Arc::new(Mutex::new(Vec::new()));
-        
+
         let context = EnrichmentContext {
             storage,
             config,
@@ -68,7 +100,7 @@ impl ImpactOrchestrator {
         for provider in &self.providers {
             let name = provider.name();
             info!("Running enrichment provider: {}", name);
-            
+
             if let Err(e) = provider.enrich(&context, packet) {
                 warn!("Enrichment provider '{}' failed: {}", name, e);
                 context.add_warning(format!("Provider '{}' failed: {}", name, e));

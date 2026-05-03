@@ -1,6 +1,6 @@
-use std::path::{Path, PathBuf};
-use crate::impact::packet::{ChangedFile, SdkDependencyDelta, SdkDependency};
+use crate::impact::packet::{ChangedFile, SdkDependency, SdkDependencyDelta};
 use crate::index::references::extract_import_export;
+use std::path::{Path, PathBuf};
 
 pub fn detect_sdk_changes(
     changed_files: &[ChangedFile],
@@ -137,8 +137,14 @@ mod tests {
     fn test_find_sdk_name() {
         let patterns = ["stripe".to_string(), "auth0".to_string()];
         let lower_patterns: Vec<String> = patterns.iter().map(|p| p.to_lowercase()).collect();
-        assert_eq!(find_sdk_name("use stripe::Charge", &lower_patterns), "stripe");
-        assert_eq!(find_sdk_name("import { Auth0 } from 'auth0'", &lower_patterns), "auth0");
+        assert_eq!(
+            find_sdk_name("use stripe::Charge", &lower_patterns),
+            "stripe"
+        );
+        assert_eq!(
+            find_sdk_name("import { Auth0 } from 'auth0'", &lower_patterns),
+            "auth0"
+        );
     }
 
     #[test]
@@ -248,7 +254,10 @@ mod tests {
         let delta = detect_sdk_changes(&changed_files, &patterns, Path::new("."));
         assert_eq!(delta.added.len(), 1);
         assert_eq!(delta.added[0].sdk_name, "stripe");
-        assert_eq!(delta.added[0].import_statement, "github.com/stripe/stripe-go");
+        assert_eq!(
+            delta.added[0].import_statement,
+            "github.com/stripe/stripe-go"
+        );
     }
 
     #[test]

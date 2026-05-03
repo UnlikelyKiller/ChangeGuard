@@ -1,9 +1,7 @@
 use crate::git::repo::{get_head_info, open_repo};
 use crate::git::status::get_repo_status;
 use crate::git::{ChangeType, RepoSnapshot};
-use crate::impact::packet::{
-    ChangedFile, FileAnalysisStatus, ImpactPacket,
-};
+use crate::impact::packet::{ChangedFile, FileAnalysisStatus, ImpactPacket};
 use crate::output::diagnostics::{success_marker, warning_marker};
 use crate::output::human::print_impact_summary;
 use crate::state::layout::Layout;
@@ -73,7 +71,7 @@ pub fn execute_impact(all_parents: bool, summary: bool, _telemetry_coverage: boo
     }
 
     // Write report
-    let _report_path = write_impact_report(&layout, &packet)?;
+    write_impact_report(&layout, &packet)?;
 
     if summary {
         crate::output::human::print_impact_brief(&packet);
@@ -155,7 +153,9 @@ fn map_snapshot_to_packet(snapshot: RepoSnapshot, base_dir: &Path) -> Result<Imp
                 ChangeType::Added => ("Added".to_string(), None),
                 ChangeType::Modified => ("Modified".to_string(), None),
                 ChangeType::Deleted => ("Deleted".to_string(), None),
-                ChangeType::Renamed { ref old_path } => ("Renamed".to_string(), Some(old_path.clone())),
+                ChangeType::Renamed { ref old_path } => {
+                    ("Renamed".to_string(), Some(old_path.clone()))
+                }
             };
 
             let outcome = if matches!(c.change_type, ChangeType::Added | ChangeType::Modified) {
@@ -193,4 +193,3 @@ fn map_snapshot_to_packet(snapshot: RepoSnapshot, base_dir: &Path) -> Result<Imp
 }
 
 // analyze_changed_file moved to crate::index::analysis::analyze_file
-
