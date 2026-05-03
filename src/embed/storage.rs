@@ -104,6 +104,14 @@ pub fn embedding_count(conn: &Connection) -> Result<usize, String> {
     Ok(count as usize)
 }
 
+pub fn load_candidates(
+    _conn: &Connection,
+    _entity_type: &str,
+    _model_name: &str,
+) -> Result<Vec<(String, Vec<f32>)>, String> {
+    Ok(Vec::new())
+}
+
 pub fn clear_all_embeddings(conn: &Connection) -> Result<(), String> {
     conn.execute("DELETE FROM embeddings", [])
         .map_err(|e| e.to_string())?;
@@ -258,6 +266,26 @@ mod tests {
 
         clear_all_embeddings(&conn).unwrap();
         assert_eq!(embedding_count(&conn).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_load_candidates_returns_stored_embeddings() {
+        let conn = setup_db();
+        let v1: Vec<f32> = vec![1.0, 2.0, 3.0];
+        let v2: Vec<f32> = vec![4.0, 5.0, 6.0];
+        let v3: Vec<f32> = vec![7.0, 8.0, 9.0];
+
+        upsert_embedding(&conn, "FILE", "a.rs", "text a", "model-x", &v1, 3).unwrap();
+        upsert_embedding(&conn, "FILE", "b.rs", "text b", "model-x", &v2, 3).unwrap();
+        upsert_embedding(&conn, "FILE", "c.rs", "text c", "model-x", &v3, 3).unwrap();
+
+        let candidates = load_candidates(&conn, "FILE", "model-x").unwrap();
+        assert_eq!(candidates.len(), 3);
+
+        let ids: Vec<&str> = candidates.iter().map(|(id, _)| id.as_str()).collect();
+        assert!(ids.contains(&"a.rs"));
+        assert!(ids.contains(&"b.rs"));
+        assert!(ids.contains(&"c.rs"));
     }
 
     #[test]

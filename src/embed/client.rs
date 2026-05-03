@@ -1,35 +1,42 @@
+use crate::config::model::LocalModelConfig;
 use std::time::Duration;
 
 pub const MAX_BATCH_SIZE: usize = 32;
 
 #[derive(Debug, Clone)]
 pub struct Dimensions {
-    pub current: usize,
+    pub dimensions: usize,
+    pub model_name: String,
     pub active: bool,
 }
 
 impl Dimensions {
     pub fn new(dims: usize) -> Self {
         Self {
-            current: dims,
+            dimensions: dims,
+            model_name: String::new(),
             active: dims > 0,
         }
     }
 }
 
-pub fn check_local_model(base_url: &str) -> Result<bool, String> {
-    if base_url.is_empty() {
-        return Ok(false);
+pub fn check_local_model(config: &LocalModelConfig) -> Result<Dimensions, String> {
+    if config.base_url.is_empty() {
+        return Ok(Dimensions {
+            dimensions: 0,
+            model_name: String::new(),
+            active: false,
+        });
     }
-    let agent = ureq::AgentBuilder::new()
-        .timeout_read(Duration::from_secs(5))
-        .timeout_write(Duration::from_secs(5))
-        .build();
+    Ok(Dimensions {
+        dimensions: 0,
+        model_name: String::new(),
+        active: false,
+    })
+}
 
-    match agent.get(base_url).call() {
-        Ok(_) => Ok(true),
-        Err(_) => Ok(false),
-    }
+pub fn embed_long_text(_config: &LocalModelConfig, _text: &str) -> Result<Vec<f32>, String> {
+    Err("not implemented".to_string())
 }
 
 pub fn embed_batch(
@@ -111,22 +118,100 @@ pub fn embed_batch(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::model::LocalModelConfig;
     use httpmock::prelude::*;
 
     #[test]
     fn test_dimensions_new_active() {
         let d = Dimensions::new(768);
-        assert_eq!(d.current, 768);
+        assert_eq!(d.dimensions, 768);
         assert!(d.active);
 
         let d = Dimensions::new(0);
-        assert_eq!(d.current, 0);
+        assert_eq!(d.dimensions, 0);
         assert!(!d.active);
     }
 
     #[test]
     fn test_check_local_model_empty_url() {
-        assert!(!check_local_model("").unwrap());
+        let config = LocalModelConfig::default();
+        let result = check_local_model(&config).unwrap();
+        assert!(!result.active);
+        assert_eq!(result.dimensions, 0);
+    }
+
+    #[test]
+    fn test_check_local_model_unreachable() {
+        let config = LocalModelConfig {
+            base_url: "http://127.0.0.1:1".to_string(),
+            embedding_model: "test-model".to_string(),
+            timeout_secs: 1,
+            ..LocalModelConfig::default()
+        };
+        let result = check_local_model(&config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_embed_long_text_short_delegates_to_batch() {
+        let server = MockServer::start();
+
+        server.mock(|when, then| {
+            when.method(httpmock::Method::POST)
+                .path("/v1/embeddings");
+            then.status(200)
+                .header("Content-Type", "application/json")
+                .json_body(serde_json::json!({
+                    "data": [
+                        {"embedding": [0.1, 0.2, 0.3]}
+                    ]
+                }));
+        });
+
+        let config = LocalModelConfig {
+            base_url: server.base_url(),
+            embedding_model: "test-model".to_string(),
+            context_window: 8192,
+            timeout_secs: 30,
+            ..LocalModelConfig::default()
+        };
+
+        let result = embed_long_text(&config, "hello world").unwrap();
+        assert_eq!(result.len(), 3);
+        assert!((result[0] - 0.1).abs() < 1e-6);
+        assert!((result[1] - 0.2).abs() < 1e-6);
+        assert!((result[2] - 0.3).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_embed_long_text_long_text_chunked_and_pooled() {
+        let server = MockServer::start();
+
+        let mock = server.mock(|when, then| {
+            when.method(httpmock::Method::POST)
+                .path("/v1/embeddings");
+            then.status(200)
+                .header("Content-Type", "application/json")
+                .json_body(serde_json::json!({
+                    "data": [
+                        {"embedding": [1.0, 0.0, 0.0]},
+                        {"embedding": [0.0, 1.0, 0.0]}
+                    ]
+                }));
+        });
+
+        // context_window = 2 means max_chars = 8, so a 20-char text splits into 3 chunks
+        let config = LocalModelConfig {
+            base_url: server.base_url(),
+            embedding_model: "test-model".to_string(),
+            context_window: 2,
+            timeout_secs: 30,
+            ..LocalModelConfig::default()
+        };
+
+        let long_text = "abcdefghijklmnopqrstuvwxyz"; // 26 chars
+        let result = embed_long_text(&config, long_text).unwrap();
+        assert_eq!(result.len(), 3);
     }
 
     #[test]
@@ -155,7 +240,8 @@ mod tests {
         let server = MockServer::start();
 
         let mock = server.mock(|when, then| {
-            when.method(POST).path("/v1/embeddings");
+            when.method(httpmock::Method::POST)
+                .path("/v1/embeddings");
             then.status(200)
                 .header("Content-Type", "application/json")
                 .json_body(serde_json::json!({
@@ -180,7 +266,8 @@ mod tests {
         let server = MockServer::start();
 
         server.mock(|when, then| {
-            when.method(POST).path("/v1/embeddings");
+            when.method(httpmock::Method::POST)
+                .path("/v1/embeddings");
             then.status(503).body("Service Unavailable");
         });
 
@@ -191,7 +278,6 @@ mod tests {
 
     #[test]
     fn test_embed_batch_connection_refused() {
-        // Use a port that's very unlikely to have a listener
         let result = embed_batch("http://127.0.0.1:1", "model", &["hello"], 1);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("unreachable"));
