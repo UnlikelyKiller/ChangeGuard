@@ -2,6 +2,7 @@ use crate::impact::packet::{ChangedFile, TraceConfigChange, TraceConfigType, Tra
 use crate::index::env_schema::EnvVarDep;
 use globset::{Glob, GlobSetBuilder};
 use tracing::warn;
+#[cfg(test)]
 use std::path::PathBuf;
 
 pub fn detect_trace_config_changes(

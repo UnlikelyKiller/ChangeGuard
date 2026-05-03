@@ -1,6 +1,8 @@
 use crate::impact::packet::{ChangedFile, SdkDependency, SdkDependencyDelta};
 use crate::index::references::extract_import_export;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(test)]
+use std::path::PathBuf;
 
 pub fn detect_sdk_changes(
     changed_files: &[ChangedFile],
