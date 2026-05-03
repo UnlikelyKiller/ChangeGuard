@@ -146,7 +146,7 @@
     *   Key additions: `src/docs/crawler.rs`, `src/docs/chunker.rs`, `src/docs/index.rs`, `changeguard index --docs` flag.
 
 *   **Track M2-2: Retrieval, Reranking & Impact Enrichment**
-    *   Status: Planning
+    *   Status: Completed
     *   Dependencies: M1-2, M2-1
     *   Spec: `conductor/trackM2-2/spec.md`
     *   Plan: `conductor/trackM2-2/plan.md`
