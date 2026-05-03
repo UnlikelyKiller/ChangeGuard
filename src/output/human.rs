@@ -169,6 +169,7 @@ pub fn print_doctor_report(
     path_display: &str,
     path_kind: &str,
     is_wsl_mounted: bool,
+    local_model_status: &str,
 ) {
     println!(
         "\n{}",
@@ -209,6 +210,8 @@ pub fn print_doctor_report(
                 .italic()
         );
     }
+
+    println!("\n{:<20} {}", "Local Model:".bold(), local_model_status);
 
     println!(
         "\n{}",

@@ -105,11 +105,38 @@ pub fn embedding_count(conn: &Connection) -> Result<usize, String> {
 }
 
 pub fn load_candidates(
-    _conn: &Connection,
-    _entity_type: &str,
-    _model_name: &str,
+    conn: &Connection,
+    entity_type: &str,
+    model_name: &str,
 ) -> Result<Vec<(String, Vec<f32>)>, String> {
-    Ok(Vec::new())
+    let mut stmt = conn
+        .prepare(
+            "SELECT entity_id, vector FROM embeddings WHERE entity_type = ?1 AND model_name = ?2",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map(rusqlite::params![entity_type, model_name], |row| {
+            let entity_id: String = row.get(0)?;
+            let blob: Vec<u8> = row.get(1)?;
+            Ok((entity_id, blob))
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut candidates = Vec::new();
+    for row in rows {
+        let (entity_id, blob) = row.map_err(|e| e.to_string())?;
+        if blob.len() % 4 != 0 {
+            return Err("Corrupt vector blob: length not a multiple of 4".to_string());
+        }
+        let floats: Vec<f32> = blob
+            .chunks_exact(4)
+            .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+            .collect();
+        candidates.push((entity_id, floats));
+    }
+
+    Ok(candidates)
 }
 
 pub fn clear_all_embeddings(conn: &Connection) -> Result<(), String> {

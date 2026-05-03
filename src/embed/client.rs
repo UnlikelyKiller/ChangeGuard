@@ -28,15 +28,84 @@ pub fn check_local_model(config: &LocalModelConfig) -> Result<Dimensions, String
             active: false,
         });
     }
+
+    let vectors = embed_batch(
+        &config.base_url,
+        &config.embedding_model,
+        &["ping"],
+        config.timeout_secs,
+    )?;
+
+    let dims = vectors.first().map(|v| v.len()).unwrap_or(0);
+
     Ok(Dimensions {
-        dimensions: 0,
-        model_name: String::new(),
-        active: false,
+        dimensions: dims,
+        model_name: config.embedding_model.clone(),
+        active: dims > 0,
     })
 }
 
-pub fn embed_long_text(_config: &LocalModelConfig, _text: &str) -> Result<Vec<f32>, String> {
-    Err("not implemented".to_string())
+pub fn embed_long_text(config: &LocalModelConfig, text: &str) -> Result<Vec<f32>, String> {
+    let max_chars = config.context_window * 4;
+    let overlap_chars = 64 * 4;
+
+    if text.len() <= max_chars {
+        let vectors = embed_batch(
+            &config.base_url,
+            &config.embedding_model,
+            &[text],
+            config.timeout_secs,
+        )?;
+        return vectors
+            .into_iter()
+            .next()
+            .ok_or_else(|| "No embedding returned".to_string());
+    }
+
+    let mut chunks: Vec<&str> = Vec::new();
+    let mut start = 0;
+    while start < text.len() {
+        let end = std::cmp::min(start + max_chars, text.len());
+        chunks.push(&text[start..end]);
+        if end == text.len() {
+            break;
+        }
+        let step = if max_chars > overlap_chars {
+            max_chars - overlap_chars
+        } else {
+            1
+        };
+        start += step;
+    }
+
+    let mut all_vectors: Vec<Vec<f32>> = Vec::new();
+    for batch in chunks.chunks(MAX_BATCH_SIZE) {
+        let chunk_refs: Vec<&str> = batch.to_vec();
+        let batch_vectors = embed_batch(
+            &config.base_url,
+            &config.embedding_model,
+            &chunk_refs,
+            config.timeout_secs,
+        )?;
+        all_vectors.extend(batch_vectors);
+    }
+
+    if all_vectors.is_empty() {
+        return Err("No embeddings returned for chunks".to_string());
+    }
+
+    let dim = all_vectors[0].len();
+    let mut pooled = vec![0.0_f32; dim];
+    for v in &all_vectors {
+        for (i, item) in pooled.iter_mut().enumerate().take(dim) {
+            *item += v[i];
+        }
+    }
+    for item in pooled.iter_mut().take(dim) {
+        *item /= all_vectors.len() as f32;
+    }
+
+    Ok(pooled)
 }
 
 pub fn embed_batch(
@@ -157,8 +226,7 @@ mod tests {
         let server = MockServer::start();
 
         server.mock(|when, then| {
-            when.method(httpmock::Method::POST)
-                .path("/v1/embeddings");
+            when.method(httpmock::Method::POST).path("/v1/embeddings");
             then.status(200)
                 .header("Content-Type", "application/json")
                 .json_body(serde_json::json!({
@@ -188,30 +256,33 @@ mod tests {
         let server = MockServer::start();
 
         let mock = server.mock(|when, then| {
-            when.method(httpmock::Method::POST)
-                .path("/v1/embeddings");
+            when.method(httpmock::Method::POST).path("/v1/embeddings");
             then.status(200)
                 .header("Content-Type", "application/json")
                 .json_body(serde_json::json!({
                     "data": [
-                        {"embedding": [1.0, 0.0, 0.0]},
-                        {"embedding": [0.0, 1.0, 0.0]}
+                        {"embedding": [1.0, 0.0]},
+                        {"embedding": [0.0, 1.0]}
                     ]
                 }));
         });
 
-        // context_window = 2 means max_chars = 8, so a 20-char text splits into 3 chunks
+        // context_window=4 => max_chars=16. Text of 17 chars produces 2 chunks
+        // (step=1 when overlap > max_chars). Both chunks fit in one batch.
         let config = LocalModelConfig {
             base_url: server.base_url(),
             embedding_model: "test-model".to_string(),
-            context_window: 2,
+            context_window: 4,
             timeout_secs: 30,
             ..LocalModelConfig::default()
         };
 
-        let long_text = "abcdefghijklmnopqrstuvwxyz"; // 26 chars
-        let result = embed_long_text(&config, long_text).unwrap();
-        assert_eq!(result.len(), 3);
+        let result = embed_long_text(&config, &"a".repeat(17)).unwrap();
+        assert_eq!(result.len(), 2);
+        // Mean-pool of [1.0, 0.0] and [0.0, 1.0] = [0.5, 0.5]
+        assert!((result[0] - 0.5).abs() < 1e-6);
+        assert!((result[1] - 0.5).abs() < 1e-6);
+        mock.assert();
     }
 
     #[test]
@@ -240,8 +311,7 @@ mod tests {
         let server = MockServer::start();
 
         let mock = server.mock(|when, then| {
-            when.method(httpmock::Method::POST)
-                .path("/v1/embeddings");
+            when.method(httpmock::Method::POST).path("/v1/embeddings");
             then.status(200)
                 .header("Content-Type", "application/json")
                 .json_body(serde_json::json!({
@@ -266,8 +336,7 @@ mod tests {
         let server = MockServer::start();
 
         server.mock(|when, then| {
-            when.method(httpmock::Method::POST)
-                .path("/v1/embeddings");
+            when.method(httpmock::Method::POST).path("/v1/embeddings");
             then.status(503).body("Service Unavailable");
         });
 

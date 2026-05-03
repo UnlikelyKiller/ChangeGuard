@@ -7,13 +7,43 @@ use crate::config::model::LocalModelConfig;
 use rusqlite::Connection;
 
 pub fn embed_and_store(
-    _config: &LocalModelConfig,
-    _conn: &Connection,
-    _entity_type: &str,
-    _entity_id: &str,
-    _text: &str,
+    config: &LocalModelConfig,
+    conn: &Connection,
+    entity_type: &str,
+    entity_id: &str,
+    text: &str,
 ) -> Result<bool, String> {
-    Ok(false)
+    if config.base_url.is_empty() {
+        return Ok(false);
+    }
+
+    let hash = storage::content_hash(text);
+
+    let existing: Option<String> = conn
+        .query_row(
+            "SELECT content_hash FROM embeddings WHERE entity_type = ?1 AND entity_id = ?2 AND model_name = ?3",
+            rusqlite::params![entity_type, entity_id, config.embedding_model],
+            |row| row.get(0),
+        )
+        .ok();
+
+    if existing.as_deref() == Some(&hash) {
+        return Ok(false);
+    }
+
+    let vector = client::embed_long_text(config, text)?;
+
+    storage::upsert_embedding(
+        conn,
+        entity_type,
+        entity_id,
+        text,
+        &config.embedding_model,
+        &vector,
+        vector.len(),
+    )?;
+
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -21,7 +51,6 @@ mod tests {
     use super::*;
     use crate::state::migrations::get_migrations;
     use httpmock::prelude::*;
-    use tempfile::tempdir;
 
     fn setup_db() -> Connection {
         let mut conn = Connection::open_in_memory().unwrap();
@@ -44,8 +73,7 @@ mod tests {
         let server = MockServer::start();
 
         server.mock(|when, then| {
-            when.method(httpmock::Method::POST)
-                .path("/v1/embeddings");
+            when.method(httpmock::Method::POST).path("/v1/embeddings");
             then.status(200)
                 .header("Content-Type", "application/json")
                 .json_body(serde_json::json!({
@@ -74,8 +102,7 @@ mod tests {
         let server = MockServer::start();
 
         let mock = server.mock(|when, then| {
-            when.method(httpmock::Method::POST)
-                .path("/v1/embeddings");
+            when.method(httpmock::Method::POST).path("/v1/embeddings");
             then.status(200)
                 .header("Content-Type", "application/json")
                 .json_body(serde_json::json!({

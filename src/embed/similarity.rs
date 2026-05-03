@@ -1,13 +1,61 @@
-pub fn cosine_sim(_a: &[f32], _b: &[f32]) -> Result<f32, String> {
-    Ok(0.0)
+pub fn cosine_sim(a: &[f32], b: &[f32]) -> Result<f32, String> {
+    if a.len() != b.len() {
+        return Err(format!(
+            "Vector length mismatch: {} vs {}",
+            a.len(),
+            b.len()
+        ));
+    }
+
+    let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+    let mag_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let mag_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+
+    if mag_a == 0.0 || mag_b == 0.0 {
+        return Err("Zero vector: cannot compute cosine similarity".to_string());
+    }
+
+    let sim = dot / (mag_a * mag_b);
+
+    #[cfg(debug_assertions)]
+    debug_assert!((-1.0..=1.0).contains(&sim));
+
+    Ok(sim)
 }
 
-pub fn pairwise_cosine(_query: &[f32], _candidates: &[(String, Vec<f32>)]) -> Vec<(String, f32)> {
-    Vec::new()
+pub fn pairwise_cosine(query: &[f32], candidates: &[(String, Vec<f32>)]) -> Vec<(String, f32)> {
+    let mut scores: Vec<(String, f32)> = candidates
+        .iter()
+        .filter_map(|(key, vec)| {
+            cosine_sim(query, vec)
+                .ok()
+                .map(|score| (key.clone(), score))
+        })
+        .collect();
+
+    scores.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.0.cmp(&b.0))
+    });
+
+    scores
 }
 
-pub fn top_k(_scores: Vec<(String, f32)>, _k: usize) -> Vec<(String, f32)> {
-    Vec::new()
+pub fn top_k(scores: Vec<(String, f32)>, k: usize) -> Vec<(String, f32)> {
+    let mut sorted = scores;
+    sorted.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.0.cmp(&b.0))
+    });
+
+    if k == 0 || k >= sorted.len() {
+        return sorted;
+    }
+
+    sorted.truncate(k);
+    sorted
 }
 
 #[cfg(test)]
