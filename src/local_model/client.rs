@@ -1,5 +1,5 @@
 use crate::config::model::LocalModelConfig;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize)]
@@ -23,12 +23,97 @@ impl Default for CompletionOptions {
     }
 }
 
+#[derive(Debug, Deserialize)]
+struct ChoiceMessage {
+    content: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct Choice {
+    message: ChoiceMessage,
+}
+
+#[derive(Debug, Deserialize)]
+struct CompletionResponse {
+    choices: Vec<Choice>,
+}
+
 pub fn complete(
-    _config: &LocalModelConfig,
-    _messages: &[ChatMessage],
-    _options: &CompletionOptions,
+    config: &LocalModelConfig,
+    messages: &[ChatMessage],
+    options: &CompletionOptions,
 ) -> Result<String, String> {
-    todo!()
+    if config.base_url.is_empty() {
+        return Err(format!(
+            "Local model server not reachable at {}. Start llama-server or use --backend gemini.",
+            config.base_url
+        ));
+    }
+
+    let url = format!("{}/v1/chat/completions", config.base_url);
+
+    let body = serde_json::json!({
+        "model": config.generation_model,
+        "messages": messages,
+        "max_tokens": options.max_tokens,
+        "temperature": options.temperature,
+        "stream": false,
+    });
+
+    let agent = ureq::AgentBuilder::new()
+        .timeout_read(Duration::from_secs(config.timeout_secs))
+        .timeout_write(Duration::from_secs(30))
+        .build();
+
+    let mut retry = false;
+
+    let response = loop {
+        let result = agent
+            .post(&url)
+            .set("Content-Type", "application/json")
+            .send_json(&body);
+
+        break match result {
+            Ok(resp) => resp,
+            Err(ureq::Error::Status(503, _response)) if !retry => {
+                std::thread::sleep(Duration::from_secs(2));
+                retry = true;
+                continue;
+            }
+            Err(ureq::Error::Status(503, response)) => {
+                let body = response.into_string().unwrap_or_default();
+                return Err(format!(
+                    "Local model server returned 503: {}",
+                    body.chars().take(200).collect::<String>()
+                ));
+            }
+            Err(ureq::Error::Status(429, _)) => return Err("rate limited".to_string()),
+            Err(ureq::Error::Status(code, response)) => {
+                let body = response.into_string().unwrap_or_default();
+                return Err(format!(
+                    "Local model server returned {code}: {}",
+                    body.chars().take(200).collect::<String>()
+                ));
+            }
+            Err(ureq::Error::Transport(_inner)) => {
+                return Err(format!(
+                    "Local model server not reachable at {}",
+                    config.base_url
+                ));
+            }
+        };
+    };
+
+    let parsed: CompletionResponse = response
+        .into_json()
+        .map_err(|e| format!("Failed to parse completion response: {e}"))?;
+
+    parsed
+        .choices
+        .into_iter()
+        .next()
+        .map(|c| c.message.content)
+        .ok_or_else(|| "No completion choices returned".to_string())
 }
 
 #[cfg(test)]
