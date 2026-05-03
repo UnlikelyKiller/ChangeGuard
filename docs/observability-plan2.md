@@ -151,6 +151,17 @@ patterns = [
 | `src/coverage/sdk.rs` | `detect_sdk_changes()` |
 | Tests | Tempfile fixtures for trace configs, import scanning |
 
+### 4.5 Hardening Additions
+
+| Addition | Reason |
+|---|---|
+| Case-insensitive SDK matching | `Stripe`, `STRIPE`, and `stripe` in imports must all match. Use `.to_lowercase()` on both the import text and the pattern. |
+| Language-aware import extraction | Python `from stripe import Charge`, Rust `use stripe::Charge`, JS `import { Stripe } from 'stripe'`, Go `import "github.com/stripe/stripe-go"` — each needs the import path extracted before matching. |
+| Glob-safe config pattern validation | Invalid glob patterns in `config_patterns` must log `WARN` and skip, never abort `scan`. |
+| Double-extension trace files | `otel-collector.yaml.tmpl`, `jaeger-agent.yml.dist` — config patterns should use `*` suffix matching rather than exact extension matching. |
+| Stale trace config detection | If a trace config file existed in the previous scan but has been deleted, record it as removed (not just "no longer present"). |
+| `--no-trace` env-var exclusion | Allow users to configure `exclude_env_patterns` at the project level to suppress noisy trace env var matches (e.g., `OTEL_SDK_DISABLED`). |
+
 ---
 
 ## 5. Track M7-2: Service-Map Derivation
@@ -185,6 +196,16 @@ Computed at index-time. Stored in the existing `symbol_centrality` or a new deri
 | `src/index/routes.rs` (extend) | `infer_service_for_route()` |
 | Tests | Multi-file repo fixture, route → service grouping |
 
+### 5.5 Hardening Additions
+
+| Addition | Reason |
+|---|---|
+| Multi-strategy service naming | Fallback chain: directory name → package name (Rust `Cargo.toml`, Python `__init__.py`, JS `package.json` nearest parent) → "unnamed-service-N". Never produce empty service names. |
+| Service deduplication by route ownership | If two directories both contain routes to `/users`, the service owning the closest handler file to the route definition wins. Document the tiebreak. |
+| Monorepo-aware directory depth | Flat repos (`src/handler.rs` → service "src") should produce one service, not explode. Cap detection depth at 2 levels. |
+| Empty route set fallback | Projects without detected routes (CLI tools, libraries) return `service_map_delta: None` rather than an empty map. |
+| Cross-service edge dedup | If service A has 5 call-graph edges to service B, collapse them into one cross-service edge with an edge count. |
+
 ---
 
 ## 6. Track M7-3: Data-Flow Coupling Risk
@@ -215,6 +236,16 @@ Flag when changed files contain both a route handler AND the data model it touch
 | `src/coverage/dataflow.rs` | `compute_data_flow_coupling()`, `DataFlowMatch` type |
 | `src/index/call_graph.rs` (extend) | `enumerate_call_chains()` |
 | Tests | Fixture with route→handler→repo→model chain, co-change detection |
+
+### 6.4 Hardening Additions
+
+| Addition | Reason |
+|---|---|
+| Cycle detection | Call graphs with cycles (A→B→A) must terminate after `chain_depth_max` iterations, not loop infinitely. |
+| Changed-node percentage threshold | If a call chain has 20 nodes and only 1 changed, it's not coupling. Require ≥20% of chain nodes to be changed to flag. |
+| External-node filtering | A call to `std::fs::read` or `println!` should not create a data-flow chain. Filter out standard-library / framework nodes. |
+| Database model resolution | If a handler calls `db.query("SELECT * FROM users")` without an explicit `User` struct reference, use the SQL table name as the model name. Fallback to "unknown-model". |
+| Chain depth floor | Chains shorter than 2 nodes (route → handler only) are not flagged. Minimum chain depth is 2. |
 
 ---
 
@@ -254,6 +285,17 @@ Risk weight: 3 per manifest file, cumulated with a cap at 15.
 | `src/index/project_index.rs` (extend) | Integration into file classification |
 | Tests | Tempfile fixtures with Dockerfile, docker-compose, k8s, terraform |
 
+### 7.4 Hardening Additions
+
+| Addition | Reason |
+|---|---|
+| Dockerfile instruction scanning | Detect `COPY`, `ADD`, and `FROM` directives. If `COPY src/ ./src/` in Dockerfile and `src/` changed, escalate risk by one tier. |
+| docker-compose service → file coupling | If `docker-compose.yml` defines `build: ./api` and `./api/Dockerfile` also changed, escalate from Low to Medium. |
+| Terraform plan/output drill-down | Parse Terraform files for `resource`, `module`, `variable` blocks. Flag when a resource type with high blast radius (`aws_rds_cluster`, `kubernetes_deployment`) is touched. |
+| Helm values coupling | If `Chart.yaml` + `values.yaml` change together, add a specific coupling reason. |
+| Skip binary files in manifest directories | `k8s/**/*.yaml` should not match `.yaml.bak` or binary files with `.yaml` extension. Validate YAML parseability before classifying. |
+| Multi-manifest dedup | If both `Dockerfile` and `Dockerfile.prod` change, count as 1 Dockerfile manifest type with a count annotation, not 2 separate risk reasons. |
+
 ---
 
 ## 8. Track M7-5: CI Pipeline Self-Awareness
@@ -277,6 +319,15 @@ No new packet fields. Append to `risk_reasons` with weight 3 (CI-only) or 5 (CI+
 |------|---------|
 | `src/index/ci_gates.rs` (extend) | `is_ci_config_file()`, risk reason injection |
 | Tests | Diffs containing CI config changes |
+
+### 8.4 Hardening Additions
+
+| Addition | Reason |
+|---|---|
+| Non-standard CI detection | If no known CI config files are detected but `.github/`, `.gitlab-ci.yml`, or `Jenkinsfile` appear in changed files, flag as "Unknown CI pipeline file changed". |
+| CI + deploy coupling | If CI config AND deploy manifests change in the same diff, the CI self-awareness risk and deploy risk compound (not add — escalate by one tier). |
+| Skip generated CI files | `.github/workflows/generated-*.yml` or files with `# auto-generated` headers should not trigger CI awareness. |
+| Pre-commit hook detection | If `.pre-commit-config.yaml` or `lefthook.yml` changes, flag as "Pre-commit hooks modified — local checks may change". |
 
 ---
 
@@ -306,6 +357,16 @@ This is a **warning**, not a risk reason. It appears in the `ask` context and hu
 | `src/retrieval/query.rs` (extend) | `compute_staleness()`, `stale_threshold_days` config |
 | `src/impact/packet.rs` (extend) | `staleness_days: Option<u32>` on `RelevantDecision` |
 | Tests | Tempfile docs with known mtimes, threshold filtering |
+
+### 9.4 Hardening Additions
+
+| Addition | Reason |
+|---|---|
+| Multi-source age detection | Check ADR file mtime, then ADR frontmatter `date:` field, then `created:` metadata line. Use the most recent date found. |
+| Recently-updated ADRs exempt | If an ADR's mtime is within 30 days, never flag it as stale regardless of its creation date — it was recently reviewed. |
+| Staleness severity tiers | < 365 days: no flag. 365-730 days: "may need review". > 730 days: "significantly stale — may not reflect current architecture". |
+| Staleness documentation in ask context | When an ADR is flagged stale, the ask context should include a brief explanation of why staleness matters for this change, not just a date. |
+| Git-based age for unversioned docs | If a document has no date metadata and no filesystem mtime (e.g., generated content), fall back to `git log --follow` to find the last modification date. |
 
 ---
 
@@ -396,12 +457,27 @@ Extend `src/output/human.rs` with new sections (all empty → not shown):
 | File | Content |
 |------|---------|
 | `src/config/model.rs` | `CoverageConfig` with sub-sections for each dimension |
-| `src/impact/packet.rs` | 4 new types + 5 new fields + finalize/truncate |
+| `src/impact/packet.rs` | 5 new types + 5 new fields + finalize/truncate |
 | `src/impact/analysis.rs` | Risk weight wiring for all new signals |
 | `src/commands/impact.rs` | 7 enrichment hooks |
 | `src/commands/ask.rs` | Context injection for new enrichment fields |
 | `src/output/human.rs` | 7 new output sections |
 | Tests | 20+ tests for enrichment, ordering, serialization, GDP |
+
+### 10.6 Hardening Additions
+
+| Addition | Reason |
+|---|---|
+| Master kill switch | `[coverage].enabled = false` must disable ALL enrichment hooks, all new detection during scan, and all ask context injection. Test: with enabled=false, packet has zero M7 fields and risk_score is identical to pre-M7. |
+| Per-dimension kill switches | Each `[coverage.*].enabled` sub-toggle must independently disable its dimension without affecting others. Test matrix validates combinations. |
+| Enrichment hook ordering | Hooks must run after `analyze_risk()` (matching audit5 fix pattern). Enrichment results must not be overwritten by risk analysis. |
+| Risk weight caps enforcement | Test each signal type hits its cap and stops contributing weight. Verify that 100 trace config changes contributes only 9 weight, not 300. |
+| Determinism contract for all new Vec fields | Every new `Vec` field must have `Ord` on its element type, sorted in `finalize()` by primary key descending, and cleared in `truncate_for_context()` Phase 3. Includes: `trace_config_drift`, `data_flow_matches`, `deploy_manifest_changes`. `SdkDependencyDelta` sorts its inner `added`/`modified`/`removed` Vecs. |
+| Serialization roundtrip | Every new packet field must survive `serde_json::to_string → from_str` without loss. Test with all fields populated, all fields empty, and mixed. |
+| Human output conditional rendering | Each of 7 new sections must NOT render when its source field is empty. Must render with correct column alignment when populated. |
+| Ask context budget enforcement | New enrichment sections injected into ask context must respect the existing 38k token budget. If context is near the budget limit, M7 sections are dropped after all M6 sections (lowest priority). |
+| No hot-path embedding | Verify no `embed_long_text` or `embed_batch` call exists in any M7 enrichment hook. All detection is file-classification or pre-indexed queries. |
+| Config backward compatibility | Adding `[coverage]` section to config must not change deserialization of existing sections. Test: load an M6-era config with a post-M7 binary — all M6 behavior identical. |
 
 ---
 

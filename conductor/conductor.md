@@ -215,7 +215,63 @@
     *   Spec: `conductor/trackM6-2/spec.md`
     *   Plan: `conductor/trackM6-2/plan.md`
     *   Goal: Match changed files to API endpoints via embedding similarity, flag public contract risk, surface in ImpactPacket and human output.
-    *   Key additions: `src/contracts/matcher.rs`, `AffectedContract` type, contract matching in impact, human output table, ask context extension.
+     *   Key additions: `src/contracts/matcher.rs`, `AffectedContract` type, contract matching in impact, human output table, ask context extension.
+
+
+## Milestone M7: Engineering Coverage Deepening (Planning)
+
+*   **Track M7-1: Trace Config & SDK Dependency Detection**
+    *   Status: Planning
+    *   Spec: `docs/observability-plan2.md` §4
+    *   Plan: `conductor/trackM7-1/plan.md`
+    *   Goal: Detect observability pipeline config changes (otel-collector, Jaeger, DataDog, Grafana Agent) and third-party SDK import additions (Stripe, Auth0, Twilio, etc.).
+    *   Key additions: `src/coverage/traces.rs`, `src/coverage/sdk.rs`, `TraceConfigChange` type, `SdkDependencyDelta` type.
+
+*   **Track M7-2: Service-Map Derivation**
+    *   Status: Planning
+    *   Dependencies: M6-1
+    *   Spec: `docs/observability-plan2.md` §5
+    *   Plan: `conductor/trackM7-2/plan.md`
+    *   Goal: Infer service boundaries from route/handler/data-model topology, derive cross-service dependency edges.
+    *   Key additions: `src/coverage/services.rs`, `ServiceMapDelta` type, multi-strategy service naming.
+
+*   **Track M7-3: Data-Flow Coupling Risk**
+    *   Status: Planning
+    *   Dependencies: M7-2
+    *   Spec: `docs/observability-plan2.md` §6
+    *   Plan: `conductor/trackM7-3/plan.md`
+    *   Goal: Flag call chains where route handlers and their data models co-change, detect incomplete refactors.
+    *   Key additions: `src/coverage/dataflow.rs`, `DataFlowMatch` type, cycle detection, change-percentage threshold.
+
+*   **Track M7-4: Deployment Manifest Awareness**
+    *   Status: Planning
+    *   Spec: `docs/observability-plan2.md` §7
+    *   Plan: `conductor/trackM7-4/plan.md`
+    *   Goal: Classify Dockerfile, docker-compose, k8s, terraform, and helm changes with tiered risk weighting.
+    *   Key additions: `src/coverage/deploy.rs`, `ManifestType` enum, `DeployManifestChange` type, Dockerfile COPY/ADD scanning.
+
+*   **Track M7-5: CI Pipeline Self-Awareness**
+    *   Status: Planning
+    *   Spec: `docs/observability-plan2.md` §8
+    *   Plan: `conductor/trackM7-5/plan.md`
+    *   Goal: Surface risk when CI config itself changes in a diff, detect CI+source co-change patterns.
+    *   Key additions: Extend `src/index/ci_gates.rs`, pre-commit hook awareness.
+
+*   **Track M7-6: ADR Staleness Detection**
+    *   Status: Planning
+    *   Dependencies: M2-2
+    *   Spec: `docs/observability-plan2.md` §9
+    *   Plan: `conductor/trackM7-6/plan.md`
+    *   Goal: Flag retrieved ADRs exceeding configurable age threshold with severity tiers and recently-updated exemption.
+    *   Key additions: Extend `RelevantDecision` with `staleness_days`, multi-source age detection.
+
+*   **Track M7-7: Impact Packet Extension & Enrichment Integration**
+    *   Status: Planning
+    *   Dependencies: M7-1..M7-6
+    *   Spec: `docs/observability-plan2.md` §10
+    *   Plan: `conductor/trackM7-7/plan.md`
+    *   Goal: Wire all M7 detection into ImpactPacket, risk scoring, human output, and ask context. Master kill switch via `[coverage].enabled`.
+    *   Key additions: 5 new ImpactPacket fields, 7 enrichment hooks, 7 human output sections, per-dimension kill switches.
 
 
 ## Milestone J: Phase 2 Final Remediation (Completed)
