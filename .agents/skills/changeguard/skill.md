@@ -35,7 +35,7 @@ Before making a meaningful edit, assess the risk:
 changeguard scan --impact
 ```
 
-Read the generated report at `.changeguard/reports/latest-impact.json` to identify risk level, affected symbols, temporal couplings, and runtime dependencies (environment variables, config keys).
+Read the generated report at `.changeguard/reports/latest-impact.json` to identify risk level, affected symbols, temporal couplings, runtime dependencies (environment variables, config keys), and — when configured — relevant documentation decisions, production observability signals, and affected API contracts.
 
 After making edits, verify the change:
 
@@ -44,6 +44,81 @@ changeguard verify
 ```
 
 Evidence of successful validation is stored in `.changeguard/reports/latest-verify.json`. For full command details, see [commands.md](./references/commands.md).
+
+## Indexing (Observability & Intelligence)
+
+ChangeGuard can index documentation and API specs for richer impact analysis:
+
+```bash
+changeguard index --docs      # index markdown/text docs from configured paths
+changeguard index --contracts # index OpenAPI 3.x / Swagger 2.0 specs
+```
+
+These populate the embedding store used by semantic retrieval, contract matching, and test prediction. Re-indexing skips unchanged files via content-addressed hashing.
+
+## AI Backend (Ask Command)
+
+The `ask` command supports two AI backends:
+
+```bash
+changeguard ask --backend local "review this change"   # local LLM (llama-server)
+changeguard ask --backend gemini "analyze the impact"  # Gemini API (default)
+```
+
+Auto-selection: if `prefer_local = true` and a local base URL is configured, Local is used; otherwise Gemini. Set `GEMINI_API_KEY` for Gemini. The local backend uses an OpenAI-compatible `/v1/chat/completions` endpoint.
+
+## Configuration (New Sections)
+
+In `changeguard.toml`:
+
+```toml
+[local_model]
+base_url = "http://localhost:8081"         # or CHANGEGUARD_LOCAL_MODEL_URL
+embedding_model = "bge-m3"                 # or CHANGEGUARD_EMBEDDING_MODEL
+generation_model = "qwen3.5-9b"            # or CHANGEGUARD_GENERATION_MODEL
+dimensions = 0                             # 0 = auto-detect; or CHANGEGUARD_EMBEDDING_DIMENSIONS
+timeout_secs = 30
+prefer_local = true
+
+[docs]
+include = [".changeguard/docs/*.md", "README.md"]
+chunk_tokens = 512
+chunk_overlap = 64
+retrieval_top_k = 5
+
+[observability]
+prometheus_url = ""                        # Prometheus API base URL
+log_paths = []                             # log file paths to scan
+error_rate_threshold = 0.05
+log_lookback_secs = 3600
+risk_threshold = 0.6
+
+[contracts]
+spec_paths = []                            # OpenAPI/Swagger spec file globs
+match_threshold = 0.5
+```
+
+## Impact Packet Enrichment
+
+When configured, impact reports include these enrichment sections:
+
+| Field | Source | Description |
+|---|---|---|
+| `relevant_decisions` | Doc index + embedding similarity | Semantically relevant documentation chunks |
+| `observability` | Prometheus + log scanner | Production signals (latency, error rate, log anomalies) with severity |
+| `affected_contracts` | API endpoint index + file embeddings | Public API endpoints potentially affected by the change |
+
+All enrichment degrades gracefully: if the local model is unreachable or configuration is absent, enrichment is a silent no-op. No blocking, no panics. Risk elevation from observability/contract signals escalates `risk_level` (Low→Medium→High) without overwriting rule-based risk reasons.
+
+## Root Cause & Test Prediction
+
+When `semantic_weight > 0`, the `verify` command queries past test outcomes by diff embedding similarity and blends semantic scores with rule-based predictions:
+
+```bash
+changeguard verify --explain   # show which past outcomes influenced each prediction
+```
+
+Set `semantic_weight = 0` to disable (regression-safe identical output). The predictor shows "warming up" messages until 50 historical outcomes are recorded.
 
 ## Ledger Workflow (Provenance)
 
@@ -81,7 +156,7 @@ Adjust your coding strategy based on ChangeGuard signals:
 Use the `riskLevel` from impact reports to route your effort:
 - **Low**: Small/isolated change. Run suggested verification.
 - **Medium**: Inspect affected symbols and risk reasons before choosing tests.
-- **High**: Slow down. Inspect temporal couplings, public API changes, and cross-repo links before finalizing.
+- **High**: Slow down. Inspect temporal couplings, public API changes, and cross-repo links before finalizing. If `riskLevel` was elevated by observability signals or contract risk, the elevation is additive — rule-based risk reasons are preserved alongside.
 
 For quick triage, use `changeguard impact --summary`.
 
@@ -98,6 +173,23 @@ For quick triage, use `changeguard impact --summary`.
 **After Edits:**
 - Run `changeguard verify` and any repo-specific tests.
 - For tracked changes, run `changeguard ledger commit`.
+
+## Working on ChangeGuard Itself
+
+When editing ChangeGuard's own source code, the installed binary at `~/.cargo/bin/changeguard.exe` may be stale. Rebuild and reinstall after every source change:
+
+```powershell
+cargo build --release
+Copy-Item -Force .\target\release\changeguard.exe $env:USERPROFILE\.cargo\bin\changeguard.exe
+```
+
+The CI gate for ChangeGuard development is:
+```powershell
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --workspace
+cargo deny check
+```
 
 ## Final Response Template (Optional)
 
