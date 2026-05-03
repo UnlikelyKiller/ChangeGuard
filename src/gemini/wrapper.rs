@@ -147,10 +147,10 @@ fn resolve_api_key(configured_key: Option<&str>) -> Result<String> {
         return Ok(key.to_string());
     }
 
-    if let Ok(key) = std::env::var("GEMINI_API_KEY") {
-        if !key.trim().is_empty() {
-            return Ok(key.trim().to_string());
-        }
+    if let Ok(key) = std::env::var("GEMINI_API_KEY")
+        && !key.trim().is_empty()
+    {
+        return Ok(key.trim().to_string());
     }
 
     if let Some(key) = read_env_key(Path::new(".env")) {

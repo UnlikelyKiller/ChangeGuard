@@ -58,3 +58,4 @@ daemon = ["dep:tower-lsp-server", "dep:tokio"]
 
 [dev-dependencies]
 tempfile = "3"
+httpmock = "0.7"

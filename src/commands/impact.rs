@@ -208,14 +208,14 @@ pub fn execute_impact(all_parents: bool, summary: bool, telemetry_coverage: bool
             }
 
             // Perform risk analysis AFTER all population
-            if let Some(rules) = &rules_opt {
-                if let Err(e) = crate::impact::analysis::analyze_risk(&mut packet, rules) {
-                    tracing::warn!("Risk analysis failed: {e}");
-                    println!(
-                        "{} Risk analysis failed. Impact report written without risk scoring.",
-                        warning_marker()
-                    );
-                }
+            if let Some(rules) = &rules_opt
+                && let Err(e) = crate::impact::analysis::analyze_risk(&mut packet, rules)
+            {
+                tracing::warn!("Risk analysis failed: {e}");
+                println!(
+                    "{} Risk analysis failed. Impact report written without risk scoring.",
+                    warning_marker()
+                );
             }
 
             // Finalize and redact BEFORE persisting anywhere
@@ -235,14 +235,14 @@ pub fn execute_impact(all_parents: bool, summary: bool, telemetry_coverage: bool
         }
         Err(e) => {
             // Even if SQLite fails, we still want to analyze risk, finalize, and redact
-            if let Some(rules) = &rules_opt {
-                if let Err(e) = crate::impact::analysis::analyze_risk(&mut packet, rules) {
-                    tracing::warn!("Risk analysis failed: {e}");
-                    println!(
-                        "{} Risk analysis failed. Impact report written without risk scoring.",
-                        warning_marker()
-                    );
-                }
+            if let Some(rules) = &rules_opt
+                && let Err(e) = crate::impact::analysis::analyze_risk(&mut packet, rules)
+            {
+                tracing::warn!("Risk analysis failed: {e}");
+                println!(
+                    "{} Risk analysis failed. Impact report written without risk scoring.",
+                    warning_marker()
+                );
             }
 
             packet.finalize();

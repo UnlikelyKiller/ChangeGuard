@@ -435,6 +435,64 @@ pub fn get_migrations() -> Migrations<'static> {
             CREATE INDEX IF NOT EXISTS idx_env_references_file ON env_references(file_id);
             CREATE INDEX IF NOT EXISTS idx_env_references_var ON env_references(var_name);",
         ),
+        M::up(
+            "CREATE TABLE IF NOT EXISTS embeddings (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_type  TEXT    NOT NULL,
+                entity_id    TEXT    NOT NULL,
+                content_hash TEXT    NOT NULL,
+                model_name   TEXT    NOT NULL,
+                dimensions   INTEGER NOT NULL,
+                vector       BLOB    NOT NULL,
+                created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+                UNIQUE (entity_type, entity_id, model_name)
+            );
+            CREATE INDEX IF NOT EXISTS idx_embeddings_entity ON embeddings (entity_type, entity_id);",
+        ),
+        M::up(
+            "CREATE TABLE IF NOT EXISTS doc_chunks (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_path   TEXT    NOT NULL,
+                chunk_index INTEGER NOT NULL,
+                heading     TEXT,
+                content     TEXT    NOT NULL,
+                token_count INTEGER NOT NULL,
+                UNIQUE (file_path, chunk_index)
+            );",
+        ),
+        M::up(
+            "CREATE TABLE IF NOT EXISTS api_endpoints (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                spec_path    TEXT NOT NULL,
+                method       TEXT NOT NULL,
+                path         TEXT NOT NULL,
+                summary      TEXT,
+                description  TEXT,
+                tags         TEXT,
+                content_hash TEXT NOT NULL,
+                UNIQUE (spec_path, method, path)
+            );",
+        ),
+        M::up(
+            "CREATE TABLE IF NOT EXISTS test_outcome_history (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                diff_embedding_id INTEGER NOT NULL REFERENCES embeddings(id),
+                test_file         TEXT    NOT NULL,
+                outcome           TEXT    NOT NULL CHECK (outcome IN ('pass', 'fail', 'skip')),
+                commit_hash       TEXT,
+                recorded_at       TEXT    NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_test_history_diff ON test_outcome_history (diff_embedding_id);",
+        ),
+        M::up(
+            "CREATE TABLE IF NOT EXISTS observability_snapshots (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                service_name TEXT NOT NULL,
+                error_rate   REAL,
+                latency_p99  REAL,
+                recorded_at  TEXT NOT NULL DEFAULT (datetime('now'))
+            );",
+        ),
     ])
 }
 
@@ -487,6 +545,11 @@ mod tests {
             "ci_gates",
             "env_declarations",
             "env_references",
+            "embeddings",
+            "doc_chunks",
+            "api_endpoints",
+            "test_outcome_history",
+            "observability_snapshots",
         ];
 
         for table in &expected_tables {
@@ -1921,5 +1984,256 @@ mod tests {
             result.is_err(),
             "Should not allow duplicate (file_id, symbol_id, var_name, reference_kind)"
         );
+    }
+
+    #[test]
+    fn test_insert_and_query_embeddings() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let migrations = get_migrations();
+        migrations.to_latest(&mut conn).unwrap();
+
+        // Insert an embedding
+        conn.execute(
+            "INSERT INTO embeddings (entity_type, entity_id, content_hash, model_name, dimensions, vector)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![
+                "FILE",
+                "src/main.rs",
+                "abc123hash",
+                "nomic-embed-text",
+                768,
+                [1.0_f32.to_le_bytes(), 2.0_f32.to_le_bytes()].concat(),
+            ],
+        ).unwrap();
+
+        // Query back
+        let (entity_type, entity_id, content_hash, model_name, dimensions): (String, String, String, String, i64) = conn
+            .query_row(
+                "SELECT entity_type, entity_id, content_hash, model_name, dimensions FROM embeddings WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            )
+            .unwrap();
+        assert_eq!(entity_type, "FILE");
+        assert_eq!(entity_id, "src/main.rs");
+        assert_eq!(content_hash, "abc123hash");
+        assert_eq!(model_name, "nomic-embed-text");
+        assert_eq!(dimensions, 768);
+
+        // Verify UNIQUE constraint on (entity_type, entity_id, model_name)
+        let result = conn.execute(
+            "INSERT INTO embeddings (entity_type, entity_id, content_hash, model_name, dimensions, vector)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params!["FILE", "src/main.rs", "otherhash", "nomic-embed-text", 768, vec![0u8; 3072]],
+        );
+        assert!(
+            result.is_err(),
+            "Should not allow duplicate (entity_type, entity_id, model_name)"
+        );
+    }
+
+    #[test]
+    fn test_insert_and_query_doc_chunks() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let migrations = get_migrations();
+        migrations.to_latest(&mut conn).unwrap();
+
+        conn.execute(
+            "INSERT INTO doc_chunks (file_path, chunk_index, heading, content, token_count)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![
+                "README.md",
+                0,
+                "## Overview",
+                "This is a project overview.",
+                6
+            ],
+        )
+        .unwrap();
+
+        // Second chunk
+        conn.execute(
+            "INSERT INTO doc_chunks (file_path, chunk_index, heading, content, token_count)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params!["README.md", 1, "## Setup", "Install dependencies.", 3],
+        )
+        .unwrap();
+
+        let (file_path, chunk_index, heading, content, token_count): (String, i64, String, String, i64) = conn
+            .query_row(
+                "SELECT file_path, chunk_index, heading, content, token_count FROM doc_chunks WHERE chunk_index = 0",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            )
+            .unwrap();
+        assert_eq!(file_path, "README.md");
+        assert_eq!(chunk_index, 0);
+        assert_eq!(heading, "## Overview");
+        assert_eq!(content, "This is a project overview.");
+        assert_eq!(token_count, 6);
+
+        // Verify UNIQUE constraint on (file_path, chunk_index)
+        let result = conn.execute(
+            "INSERT INTO doc_chunks (file_path, chunk_index, content, token_count)
+             VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params!["README.md", 0, "duplicate", 1],
+        );
+        assert!(
+            result.is_err(),
+            "Should not allow duplicate (file_path, chunk_index)"
+        );
+    }
+
+    #[test]
+    fn test_insert_and_query_api_endpoints_table() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let migrations = get_migrations();
+        migrations.to_latest(&mut conn).unwrap();
+
+        conn.execute(
+            "INSERT INTO api_endpoints (spec_path, method, path, summary, description, tags, content_hash)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![
+                "openapi.yaml",
+                "GET",
+                "/api/users",
+                "List users",
+                "Returns a paginated list of users.",
+                "users",
+                "hash_get_users",
+            ],
+        ).unwrap();
+
+        let (spec_path, method, path, summary, description, tags, content_hash): (String, String, String, String, String, String, String) = conn
+            .query_row(
+                "SELECT spec_path, method, path, summary, description, tags, content_hash FROM api_endpoints WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?)),
+            )
+            .unwrap();
+        assert_eq!(spec_path, "openapi.yaml");
+        assert_eq!(method, "GET");
+        assert_eq!(path, "/api/users");
+        assert_eq!(summary, "List users");
+        assert_eq!(description, "Returns a paginated list of users.");
+        assert_eq!(tags, "users");
+        assert_eq!(content_hash, "hash_get_users");
+
+        // Verify UNIQUE constraint on (spec_path, method, path)
+        let result = conn.execute(
+            "INSERT INTO api_endpoints (spec_path, method, path, content_hash)
+             VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params!["openapi.yaml", "GET", "/api/users", "other_hash"],
+        );
+        assert!(
+            result.is_err(),
+            "Should not allow duplicate (spec_path, method, path)"
+        );
+    }
+
+    #[test]
+    fn test_insert_and_query_test_outcome_history() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let migrations = get_migrations();
+        migrations.to_latest(&mut conn).unwrap();
+
+        // Need an embedding row for FK reference
+        conn.execute(
+            "INSERT INTO embeddings (entity_type, entity_id, content_hash, model_name, dimensions, vector)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![
+                "DIFF",
+                "diff-001",
+                "diffhash",
+                "nomic-embed-text",
+                768,
+                vec![0u8; 3072],
+            ],
+        ).unwrap();
+
+        conn.execute(
+            "INSERT INTO test_outcome_history (diff_embedding_id, test_file, outcome, commit_hash)
+             VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![1, "tests/test_foo.rs", "pass", "abc123def"],
+        )
+        .unwrap();
+
+        conn.execute(
+            "INSERT INTO test_outcome_history (diff_embedding_id, test_file, outcome)
+             VALUES (?1, ?2, ?3)",
+            rusqlite::params![1, "tests/test_bar.rs", "fail"],
+        )
+        .unwrap();
+
+        let (test_file, outcome, commit_hash): (String, String, Option<String>) = conn
+            .query_row(
+                "SELECT test_file, outcome, commit_hash FROM test_outcome_history WHERE outcome = 'pass'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(test_file, "tests/test_foo.rs");
+        assert_eq!(outcome, "pass");
+        assert_eq!(commit_hash, Some("abc123def".to_string()));
+
+        // Verify CHECK constraint rejects invalid outcome
+        let result = conn.execute(
+            "INSERT INTO test_outcome_history (diff_embedding_id, test_file, outcome)
+             VALUES (?1, ?2, ?3)",
+            rusqlite::params![1, "tests/bad.rs", "error"],
+        );
+        assert!(result.is_err(), "Should reject invalid outcome 'error'");
+
+        // Verify FK join works
+        let (entity_type,): (String,) = conn
+            .query_row(
+                "SELECT e.entity_type FROM test_outcome_history toh JOIN embeddings e ON toh.diff_embedding_id = e.id WHERE toh.test_file = 'tests/test_foo.rs'",
+                [],
+                |row| Ok((row.get(0)?,)),
+            )
+            .unwrap();
+        assert_eq!(entity_type, "DIFF");
+    }
+
+    #[test]
+    fn test_insert_and_query_observability_snapshots() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let migrations = get_migrations();
+        migrations.to_latest(&mut conn).unwrap();
+
+        conn.execute(
+            "INSERT INTO observability_snapshots (service_name, error_rate, latency_p99)
+             VALUES (?1, ?2, ?3)",
+            rusqlite::params!["api-gateway", 0.02_f64, 150.5_f64],
+        )
+        .unwrap();
+
+        conn.execute(
+            "INSERT INTO observability_snapshots (service_name, error_rate)
+             VALUES (?1, ?2)",
+            rusqlite::params!["auth-service", 0.0_f64],
+        )
+        .unwrap();
+
+        let (service_name, error_rate, latency_p99): (String, f64, Option<f64>) = conn
+            .query_row(
+                "SELECT service_name, error_rate, latency_p99 FROM observability_snapshots WHERE service_name = 'api-gateway'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(service_name, "api-gateway");
+        assert!((error_rate - 0.02).abs() < f64::EPSILON);
+        assert_eq!(latency_p99, Some(150.5));
+
+        // Verify row without latency_p99 has NULL
+        let latency_none: Option<f64> = conn
+            .query_row(
+                "SELECT latency_p99 FROM observability_snapshots WHERE service_name = 'auth-service'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(latency_none.is_none());
     }
 }

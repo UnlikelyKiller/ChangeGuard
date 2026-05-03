@@ -1,6 +1,7 @@
 pub mod cli;
 pub mod commands;
 pub mod config;
+pub mod embed;
 pub mod exec;
 pub mod federated;
 pub mod gemini;
