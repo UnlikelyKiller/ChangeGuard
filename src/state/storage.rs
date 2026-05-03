@@ -3,7 +3,8 @@ use crate::index::storage::persist_symbols;
 use crate::state::migrations::get_migrations;
 use miette::{IntoDiagnostic, Result};
 use rusqlite::Connection;
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use tracing::info;
 
 use crate::index::symbols::SymbolKind;
@@ -200,6 +201,56 @@ impl StorageManager {
         }
         Ok(results)
     }
+
+    /// Returns a map of file paths to their internal IDs in the project_files table.
+    /// Only includes files that are not marked as DELETED.
+    pub fn get_active_file_id_map(&self) -> Result<HashMap<PathBuf, i64>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, file_path FROM project_files WHERE parse_status != 'DELETED'")
+            .into_diagnostic()?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                let id: i64 = row.get(0)?;
+                let path: String = row.get(1)?;
+                Ok((PathBuf::from(path), id))
+            })
+            .into_diagnostic()?;
+
+        let mut map = HashMap::new();
+        for row in rows {
+            let (path, id) = row.into_diagnostic()?;
+            map.insert(path, id);
+        }
+        Ok(map)
+    }
+
+    /// Checks if a table exists and contains at least one row.
+    pub fn table_exists_and_has_data(&self, table_name: &str) -> Result<bool> {
+        // First check if table exists in sqlite_master
+        let exists: bool = self
+            .conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
+                [table_name],
+                |row| row.get(0),
+            )
+            .into_diagnostic()?;
+
+        if !exists {
+            return Ok(false);
+        }
+
+        // Then check if it has data
+        let query = format!("SELECT EXISTS(SELECT 1 FROM {} LIMIT 1)", table_name);
+        let has_data: bool = self
+            .conn
+            .query_row(&query, [], |row| row.get(0))
+            .into_diagnostic()?;
+
+        Ok(has_data)
+    }
 }
 
 #[cfg(test)]
@@ -298,5 +349,38 @@ mod tests {
         let storage = in_memory_storage();
         let result = storage.get_latest_verification_run().unwrap();
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_table_exists_and_has_data() {
+        let storage = in_memory_storage();
+        // snapshots table is created in migrations, but empty
+        assert!(!storage.table_exists_and_has_data("snapshots").unwrap());
+        
+        // Save a packet to make it non-empty
+        let packet = ImpactPacket::default();
+        storage.save_packet(&packet).unwrap();
+        assert!(storage.table_exists_and_has_data("snapshots").unwrap());
+
+        // Non-existent table
+        assert!(!storage.table_exists_and_has_data("non_existent").unwrap());
+    }
+
+    #[test]
+    fn test_get_active_file_id_map() {
+        let storage = in_memory_storage();
+        storage.conn.execute(
+            "INSERT INTO project_files (file_path, parse_status, last_indexed_at) VALUES ('src/a.rs', 'OK', '2026-01-01T00:00:00Z')",
+            [],
+        ).unwrap();
+        storage.conn.execute(
+            "INSERT INTO project_files (file_path, parse_status, last_indexed_at) VALUES ('src/b.rs', 'DELETED', '2026-01-01T00:00:00Z')",
+            [],
+        ).unwrap();
+
+        let map = storage.get_active_file_id_map().unwrap();
+        assert_eq!(map.len(), 1);
+        assert!(map.contains_key(&PathBuf::from("src/a.rs")));
+        assert!(!map.contains_key(&PathBuf::from("src/b.rs")));
     }
 }

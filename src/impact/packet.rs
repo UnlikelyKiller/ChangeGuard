@@ -588,6 +588,8 @@ pub struct ImpactPacket {
     pub sdk_dependencies_delta: Option<SdkDependencyDelta>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub deploy_manifest_changes: Vec<DeployManifestChange>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub analysis_warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
@@ -637,6 +639,7 @@ impl Default for ImpactPacket {
             trace_env_vars: Vec::new(),
             sdk_dependencies_delta: None,
             deploy_manifest_changes: Vec::new(),
+            analysis_warnings: Vec::new(),
         }
     }
 }

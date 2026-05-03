@@ -1,3 +1,4 @@
+pub mod analysis;
 pub mod call_graph;
 pub mod centrality;
 pub mod ci_gates;
