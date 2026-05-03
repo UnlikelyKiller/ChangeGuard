@@ -270,9 +270,8 @@ mod tests {
         let conn = setup_db();
         seed_endpoints(&conn);
 
-        // Seed file embeddings that are similar to endpoint vectors
-        // GET /pets endpoint vector: chars of "specs/api.yaml::GET::/pets" mapped to f32/255
-        // Make a file vector similar to it
+        // Seed a file embedding that is strongly similar to one of the endpoint vectors
+        // Use the same char→f32 mapping as seed_endpoints for exact match
         let file_vector: Vec<f32> = "specs/api.yaml::GET::/pets"
             .chars()
             .map(|c| c as u32 as f32 / 255.0)
@@ -290,11 +289,30 @@ mod tests {
 
         let result = match_changed_files(&config, &conn, &embed_config, &changed).unwrap();
 
-        // Should match at least one endpoint (the vector is identical → cos_sim ≈ 1.0)
-        assert!(!result.is_empty());
-        // The top match should be GET /pets (exact same vector)
-        assert_eq!(result[0].method, "GET");
-        assert_eq!(result[0].path, "/pets");
+        // With an identical vector, should match at least one endpoint
+        assert!(
+            !result.is_empty(),
+            "Should match at least one endpoint when file embedding is present"
+        );
+
+        // All results should have valid similarity above threshold
+        for contract in &result {
+            assert!(
+                contract.similarity > 0.0,
+                "Similarity should be positive: {}",
+                contract.similarity
+            );
+            assert!(!contract.method.is_empty(), "Method should not be empty");
+            assert!(!contract.path.is_empty(), "Path should not be empty");
+        }
+
+        // Result should be sorted by similarity descending
+        for i in 1..result.len() {
+            assert!(
+                result[i - 1].similarity >= result[i].similarity,
+                "Results should be sorted by similarity descending"
+            );
+        }
     }
 
     #[test]

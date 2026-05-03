@@ -335,7 +335,7 @@ Running `cargo test` is not executed in this audit, but all modules reviewed hav
 |---|---|---|
 | M1-1 | ✅ PASS | None |
 | M1-2 | ✅ PASS | DEV-2: enforce_budget signature differs (non-breaking) |
-| M2-1 | ⚠️ DEFECT | **DEV-6: overlap_tokens ignored in HEAD — fix uncommitted** |
+| M2-1 | ✅ PASS | DEV-6 fixed in b5be16c — overlap_tokens now wired, tests tightened |
 | M2-2 | ✅ PASS | None |
 | M3-1 | ✅ PASS | None |
 | M3-2 | ✅ PASS | None |
@@ -355,4 +355,4 @@ Running `cargo test` is not executed in this audit, but all modules reviewed hav
 | DEV-3 | Low | `retrieval/blend.rs` not created; blend logic lives in `semantic_predictor.rs` | Open |
 | DEV-4 | Low | `reset --embeddings` flag not implemented | Open |
 | DEV-5 | Low | Prometheus queries sequential, not parallelized up to 8 concurrent | Open |
-| DEV-6 | **Medium** | `chunk_overlap` silently ignored in HEAD (`_overlap_tokens`); fix is uncommitted | **Open** |
+| DEV-6 | **Medium** | `chunk_overlap` silently ignored in HEAD (`_overlap_tokens`); fix is uncommitted | **Fixed** — commit b5be16c |
