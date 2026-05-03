@@ -12,7 +12,9 @@ fn test_structural_prediction() {
     current.changes.push(ChangedFile {
         path: PathBuf::from("src/models/user.rs"),
         status: "Modified".to_string(),
+        old_path: None,
         is_staged: true,
+
         symbols: None,
         imports: None,
         runtime_usage: None,
@@ -27,7 +29,9 @@ fn test_structural_prediction() {
     history.changes.push(ChangedFile {
         path: PathBuf::from("src/handlers/auth.rs"),
         status: "Modified".to_string(),
+        old_path: None,
         is_staged: false,
+
         symbols: None,
         imports: Some(ImportExport {
             imported_from: vec!["src/models/user.rs".to_string()],
@@ -54,7 +58,9 @@ fn test_temporal_prediction() {
     current.changes.push(ChangedFile {
         path: PathBuf::from("src/a.rs"),
         status: "Modified".to_string(),
+        old_path: None,
         is_staged: true,
+
         symbols: None,
         imports: None,
         runtime_usage: None,
@@ -83,7 +89,9 @@ fn test_deduplication_and_sorting() {
     current.changes.push(ChangedFile {
         path: PathBuf::from("src/a.rs"),
         status: "Modified".to_string(),
+        old_path: None,
         is_staged: true,
+
         symbols: None,
         imports: None,
         runtime_usage: None,
@@ -105,7 +113,9 @@ fn test_deduplication_and_sorting() {
     history.changes.push(ChangedFile {
         path: PathBuf::from("src/b.rs"),
         status: "Modified".to_string(),
+        old_path: None,
         is_staged: false,
+
         symbols: None,
         imports: Some(ImportExport {
             imported_from: vec!["src/a.rs".to_string()],
@@ -132,7 +142,9 @@ fn test_current_imports_take_part_in_structural_prediction() {
     current.changes.push(ChangedFile {
         path: PathBuf::from("src/models/user.rs"),
         status: "Modified".to_string(),
+        old_path: None,
         is_staged: true,
+
         symbols: None,
         imports: None,
         runtime_usage: None,

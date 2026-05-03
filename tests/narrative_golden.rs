@@ -20,7 +20,9 @@ fn test_narrative_golden_prompt() {
             ChangedFile {
                 path: PathBuf::from("src/core/logic.rs"),
                 status: "Modified".to_string(),
+                old_path: None,
                 is_staged: true,
+
                 symbols: None,
                 imports: None,
                 runtime_usage: None,
@@ -33,7 +35,9 @@ fn test_narrative_golden_prompt() {
             ChangedFile {
                 path: PathBuf::from("tests/integration.rs"),
                 status: "Modified".to_string(),
+                old_path: None,
                 is_staged: true,
+
                 symbols: None,
                 imports: None,
                 runtime_usage: None,
@@ -69,6 +73,8 @@ fn test_narrative_golden_prompt() {
         relevant_decisions: vec![],
         observability: vec![],
         affected_contracts: vec![],
+        service_map_delta: None,
+        ..ImpactPacket::default()
     };
 
     // Ensure deterministic ordering

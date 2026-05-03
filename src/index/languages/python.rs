@@ -6,6 +6,7 @@ use crate::index::observability::{
 use crate::index::routes::ExtractedRoute;
 use crate::index::symbols::{Symbol, SymbolKind};
 use miette::{IntoDiagnostic, Result};
+use std::path::Path;
 use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator};
 
 pub fn extract_symbols(content: &str) -> Result<Option<Vec<Symbol>>> {
@@ -306,7 +307,7 @@ fn extract_flask_method_from_decorator(decorator_text: &str) -> String {
     "GET".to_string()
 }
 
-pub fn extract_calls(content: &str, _symbols: &[Symbol]) -> Result<Vec<CallEdge>> {
+pub fn extract_calls(path: &Path, content: &str, _symbols: &[Symbol]) -> Result<Vec<CallEdge>> {
     let mut parser = Parser::new();
     let language = tree_sitter_python::LANGUAGE;
     parser.set_language(&language.into()).into_diagnostic()?;
@@ -316,11 +317,16 @@ pub fn extract_calls(content: &str, _symbols: &[Symbol]) -> Result<Vec<CallEdge>
         .ok_or_else(|| miette::miette!("Failed to parse Python content"))?;
 
     let mut edges = Vec::new();
-    collect_py_call_edges(tree.root_node(), content, &mut edges);
+    collect_py_call_edges(path, tree.root_node(), content, &mut edges);
     Ok(edges)
 }
 
-fn collect_py_call_edges(node: tree_sitter::Node, content: &str, edges: &mut Vec<CallEdge>) {
+fn collect_py_call_edges(
+    path: &Path,
+    node: tree_sitter::Node,
+    content: &str,
+    edges: &mut Vec<CallEdge>,
+) {
     let kind = node.kind();
 
     if kind == "call" {
@@ -350,7 +356,9 @@ fn collect_py_call_edges(node: tree_sitter::Node, content: &str, edges: &mut Vec
                         let evidence = format!("call_expr:{name}()");
                         edges.push(CallEdge {
                             caller_name,
+                            caller_file: path.to_path_buf(),
                             callee_name: name,
+                            callee_file: None,
                             call_kind,
                             resolution_status,
                             confidence,
@@ -367,7 +375,9 @@ fn collect_py_call_edges(node: tree_sitter::Node, content: &str, edges: &mut Vec
                         let evidence = format!("method_call:{full_text}");
                         edges.push(CallEdge {
                             caller_name,
+                            caller_file: path.to_path_buf(),
                             callee_name,
+                            callee_file: None,
                             call_kind: CallKind::MethodCall,
                             resolution_status: ResolutionStatus::Resolved,
                             confidence: CallKind::MethodCall.default_confidence(),
@@ -385,7 +395,9 @@ fn collect_py_call_edges(node: tree_sitter::Node, content: &str, edges: &mut Vec
                         let evidence = format!("dynamic:{text}");
                         edges.push(CallEdge {
                             caller_name,
+                            caller_file: path.to_path_buf(),
                             callee_name: text,
+                            callee_file: None,
                             call_kind: CallKind::Dynamic,
                             resolution_status: ResolutionStatus::Unresolved,
                             confidence: CallKind::Dynamic.default_confidence(),
@@ -400,7 +412,7 @@ fn collect_py_call_edges(node: tree_sitter::Node, content: &str, edges: &mut Vec
     // Recurse into children
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        collect_py_call_edges(child, content, edges);
+        collect_py_call_edges(path, child, content, edges);
     }
 }
 
@@ -1038,7 +1050,7 @@ def caller():
     return helper()
 "#;
 
-        let edges = extract_calls(content, &[]).unwrap();
+        let edges = extract_calls(Path::new("test.py"), content, &[]).unwrap();
         let direct: Vec<&CallEdge> = edges
             .iter()
             .filter(|e| e.call_kind == CallKind::Direct && e.callee_name == "helper")
@@ -1060,7 +1072,7 @@ def caller():
     s.process()
 "#;
 
-        let edges = extract_calls(content, &[]).unwrap();
+        let edges = extract_calls(Path::new("test.py"), content, &[]).unwrap();
         let method: Vec<&CallEdge> = edges
             .iter()
             .filter(|e| e.call_kind == CallKind::MethodCall && e.callee_name == "process")
@@ -1076,7 +1088,7 @@ def caller():
     fn()
 "#;
 
-        let edges = extract_calls(content, &[]).unwrap();
+        let edges = extract_calls(Path::new("test.py"), content, &[]).unwrap();
         let getattr_edge: Vec<&CallEdge> = edges
             .iter()
             .filter(|e| e.callee_name == "getattr" && e.call_kind == CallKind::Dynamic)

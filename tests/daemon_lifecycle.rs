@@ -225,7 +225,9 @@ fn packet_for_file(file_path: &Path) -> ImpactPacket {
     packet.changes.push(ChangedFile {
         path: PathBuf::from(file_path),
         status: "Modified".to_string(),
+        old_path: None,
         is_staged: true,
+
         symbols: Some(vec![Symbol {
             name: "main".to_string(),
             kind: SymbolKind::Function,

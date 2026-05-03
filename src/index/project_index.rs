@@ -23,6 +23,7 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::path::PathBuf;
 use std::time::Instant;
 use tracing::{info, warn};
 
@@ -92,9 +93,15 @@ const BINARY_EXTENSIONS: &[&str] = &[
     "exe", "dll", "so", "dylib", "wasm", "class", "jar", "pyc",
 ];
 
-const SUPPORTED_EXTENSIONS: &[&str] = &["rs", "ts", "tsx", "js", "jsx", "py"];
+const SUPPORTED_EXTENSIONS: &[&str] = &["rs", "ts", "tsx", "js", "jsx", "py", "go"];
 
 const PARSER_VERSION: &str = "1";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServiceIndexStats {
+    pub services_inferred: usize,
+    pub files_assigned: usize,
+}
 
 pub struct ProjectIndexer {
     storage: StorageManager,
@@ -1166,6 +1173,57 @@ impl ProjectIndexer {
         computer.compute()
     }
 
+    /// Load all structural edges from the database as `CallEdge` structs.
+    pub fn get_all_call_edges(&self) -> Result<Vec<crate::index::call_graph::CallEdge>> {
+        use crate::index::call_graph::{CallEdge, CallKind, ResolutionStatus};
+
+        let conn = self.storage.get_connection();
+        let mut stmt = conn
+            .prepare(
+                "SELECT COALESCE(ps_caller.qualified_name, ps_caller.symbol_name), \
+                        pf_caller.file_path, \
+                        COALESCE(ps_callee.qualified_name, ps_callee.symbol_name), \
+                        pf_callee.file_path, \
+                        se.call_kind, se.resolution_status, se.confidence, se.evidence \
+                 FROM structural_edges se \
+                 JOIN project_symbols ps_caller ON se.caller_symbol_id = ps_caller.id \
+                 JOIN project_files pf_caller ON se.caller_file_id = pf_caller.id \
+                 LEFT JOIN project_symbols ps_callee ON se.callee_symbol_id = ps_callee.id \
+                 LEFT JOIN project_files pf_callee ON se.callee_file_id = pf_callee.id",
+            )
+            .into_diagnostic()?;
+
+        let edges = stmt
+            .query_map([], |row| {
+                Ok(CallEdge {
+                    caller_name: row.get(0)?,
+                    caller_file: PathBuf::from(row.get::<_, String>(1)?),
+                    callee_name: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                    callee_file: row.get::<_, Option<String>>(3)?.map(PathBuf::from),
+                    call_kind: match row.get::<_, String>(4)?.as_str() {
+                        "METHOD_CALL" => CallKind::MethodCall,
+                        "TRAIT_DISPATCH" => CallKind::TraitDispatch,
+                        "DYNAMIC" => CallKind::Dynamic,
+                        "EXTERNAL" => CallKind::External,
+                        _ => CallKind::Direct,
+                    },
+                    resolution_status: match row.get::<_, String>(5)?.as_str() {
+                        "AMBIGUOUS" => ResolutionStatus::Ambiguous,
+                        "UNRESOLVED" => ResolutionStatus::Unresolved,
+                        "CAPPED" => ResolutionStatus::Capped,
+                        _ => ResolutionStatus::Resolved,
+                    },
+                    confidence: row.get(6)?,
+                    evidence: row.get(7)?,
+                })
+            })
+            .into_diagnostic()?
+            .collect::<Result<Vec<_>, _>>()
+            .into_diagnostic()?;
+
+        Ok(edges)
+    }
+
     /// Extract test-to-symbol mappings from source files.
     pub fn extract_test_mappings(&self) -> Result<TestMappingStats> {
         let mapper = TestMapper::new(&self.storage, self.repo_path.as_std_path().to_path_buf());
@@ -1184,6 +1242,125 @@ impl ProjectIndexer {
         let extractor =
             EnvSchemaIndexer::new(&self.storage, self.repo_path.as_std_path().to_path_buf());
         extractor.extract()
+    }
+
+    /// Infer service boundaries and assign files to services.
+    pub fn infer_services(&mut self) -> Result<ServiceIndexStats> {
+        use crate::coverage::services::{DataModelSource, DirectoryTopology, infer_services};
+        use crate::index::call_graph::CallGraph;
+        use crate::impact::packet::{ApiRoute, DataModel};
+
+        let (routes, data_models, call_graph) = {
+            let conn = self.storage.get_connection();
+
+            // 1. Load routes
+            let mut route_stmt = conn
+                .prepare(
+                    "SELECT method, path_pattern, handler_symbol_name, framework, route_source, mount_prefix, is_dynamic, route_confidence, evidence \
+                     FROM api_routes",
+                )
+                .into_diagnostic()?;
+
+            let routes: Vec<ApiRoute> = route_stmt
+                .query_map([], |row| {
+                    Ok(ApiRoute {
+                        method: row.get(0)?,
+                        path_pattern: row.get(1)?,
+                        handler_symbol_name: row.get(2)?,
+                        framework: row.get(3)?,
+                        route_source: row.get(4)?,
+                        mount_prefix: row.get(5)?,
+                        is_dynamic: row.get::<_, i32>(6)? != 0,
+                        route_confidence: row.get(7)?,
+                        evidence: row.get(8)?,
+                    })
+                })
+                .into_diagnostic()?
+                .collect::<Result<Vec<_>, _>>()
+                .into_diagnostic()?;
+
+            // 2. Load data models with source paths
+            let mut dm_stmt = conn
+                .prepare(
+                    "SELECT dm.model_name, dm.model_kind, dm.confidence, dm.evidence, pf.file_path \
+                     FROM data_models dm \
+                     JOIN project_files pf ON dm.model_file_id = pf.id",
+                )
+                .into_diagnostic()?;
+
+            let data_models: Vec<DataModelSource> = dm_stmt
+                .query_map([], |row| {
+                    Ok(DataModelSource {
+                        model: DataModel {
+                            model_name: row.get(0)?,
+                            model_kind: row.get(1)?,
+                            confidence: row.get(2)?,
+                            evidence: row.get(3)?,
+                        },
+                        source_path: row.get(4)?,
+                    })
+                })
+                .into_diagnostic()?
+                .collect::<Result<Vec<_>, _>>()
+                .into_diagnostic()?;
+
+            // 3. Load Call Graph Edges
+            let call_graph = CallGraph {
+                edges: self.get_all_call_edges()?,
+            };
+
+            (routes, data_models, call_graph)
+        };
+
+        let topology = DirectoryTopology {
+            classifications: self.storage.get_directory_classifications().unwrap_or_default(),
+        };
+
+        // 4. Infer services
+        let services = infer_services(&routes, &data_models, &call_graph, &topology);
+
+        // 5. Update project_files.service_name
+        let mut files_assigned = 0;
+        let conn_mut = self.storage.get_connection_mut();
+        let tx = conn_mut.unchecked_transaction().into_diagnostic()?;
+
+        // Reset all service names first
+        tx.execute("UPDATE project_files SET service_name = NULL", [])
+            .into_diagnostic()?;
+
+        // Sort services by directory depth (deepest first) to ensure specific services
+        // take precedence over root services in monorepos.
+        let mut sorted_services = services.clone();
+        sorted_services.sort_by(|a, b| {
+            let a_depth = a.directory.components().count();
+            let b_depth = b.directory.components().count();
+            b_depth.cmp(&a_depth)
+        });
+
+        for service in &sorted_services {
+            let dir_str = service.directory.to_string_lossy().replace('\\', "/");
+            let affected = if dir_str.is_empty() || dir_str == "." {
+                // Root service: only match files in the root directory that aren't already assigned
+                tx.execute(
+                    "UPDATE project_files SET service_name = ?1 WHERE file_path NOT LIKE '%/%' AND service_name IS NULL",
+                    rusqlite::params![service.name],
+                )
+            } else {
+                let pattern = format!("{}/%", dir_str);
+                tx.execute(
+                    "UPDATE project_files SET service_name = ?1 WHERE (file_path LIKE ?2 OR file_path = ?3) AND service_name IS NULL",
+                    rusqlite::params![service.name, pattern, dir_str],
+                )
+            }.into_diagnostic()?;
+            files_assigned += affected;
+        }
+
+        tx.commit().into_diagnostic()?;
+
+        Ok(ServiceIndexStats {
+            services_inferred: services.len(),
+            files_assigned,
+        })
     }
 }
 

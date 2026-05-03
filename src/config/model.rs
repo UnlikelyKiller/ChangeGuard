@@ -132,6 +132,8 @@ pub struct Config {
     pub observability: ObservabilityConfig,
     #[serde(default)]
     pub contracts: ContractsConfig,
+    #[serde(default)]
+    pub coverage: CoverageConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -405,6 +407,284 @@ pub struct ContractsConfig {
 fn default_match_threshold() -> f32 {
     0.5
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct CoverageConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub traces: TracesConfig,
+    #[serde(default)]
+    pub sdk: SdkConfig,
+    #[serde(default)]
+    pub services: ServicesConfig,
+    #[serde(default)]
+    pub data_flow: DataFlowConfig,
+    #[serde(default)]
+    pub deploy: DeployConfig,
+    #[serde(default)]
+    pub ci_self_awareness: CiSelfAwarenessConfig,
+    #[serde(default)]
+    pub adr_staleness: AdrStalenessConfig,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TracesConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_trace_config_patterns")]
+    pub config_patterns: Vec<String>,
+    #[serde(default = "default_trace_env_var_patterns")]
+    pub env_var_patterns: Vec<String>,
+    #[serde(default = "default_exclude_env_patterns")]
+    pub exclude_env_patterns: Vec<String>,
+    #[serde(default = "default_trace_risk_weight_per_config")]
+    pub risk_weight_per_config_file: u32,
+    #[serde(default = "default_trace_risk_weight_per_env")]
+    pub risk_weight_per_env_var: u32,
+    #[serde(default = "default_trace_risk_cap")]
+    pub risk_cap: u32,
+}
+
+fn default_trace_risk_weight_per_config() -> u32 { 3 }
+fn default_trace_risk_weight_per_env() -> u32 { 2 }
+fn default_trace_risk_cap() -> u32 { 10 }
+
+fn default_trace_config_patterns() -> Vec<String> {
+    vec![
+        "**/otel*.yaml".to_string(),
+        "**/jaeger*.yaml".to_string(),
+        "**/datadog*.yaml".to_string(),
+    ]
+}
+
+fn default_trace_env_var_patterns() -> Vec<String> {
+    vec![
+        "OTEL_*".to_string(),
+        "JAEGER_*".to_string(),
+        "DD_*".to_string(),
+        "OTLP_*".to_string(),
+    ]
+}
+
+fn default_exclude_env_patterns() -> Vec<String> {
+    vec!["OTEL_SDK_DISABLED".to_string()]
+}
+
+impl Default for TracesConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            config_patterns: default_trace_config_patterns(),
+            env_var_patterns: default_trace_env_var_patterns(),
+            exclude_env_patterns: default_exclude_env_patterns(),
+            risk_weight_per_config_file: default_trace_risk_weight_per_config(),
+            risk_weight_per_env_var: default_trace_risk_weight_per_env(),
+            risk_cap: default_trace_risk_cap(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SdkConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_sdk_patterns")]
+    pub patterns: Vec<String>,
+    #[serde(default = "default_sdk_risk_weight_new")]
+    pub risk_weight_new: u32,
+    #[serde(default = "default_sdk_risk_weight_modified")]
+    pub risk_weight_modified: u32,
+    #[serde(default = "default_sdk_risk_cap")]
+    pub risk_cap: u32,
+}
+
+fn default_sdk_risk_cap() -> u32 { 10 }
+
+fn default_sdk_patterns() -> Vec<String> {
+    vec![
+        "stripe".to_string(),
+        "auth0".to_string(),
+        "twilio".to_string(),
+        "sendgrid".to_string(),
+        "openai".to_string(),
+        "anthropic".to_string(),
+    ]
+}
+
+fn default_sdk_risk_weight_new() -> u32 {
+    5
+}
+
+fn default_sdk_risk_weight_modified() -> u32 {
+    2
+}
+
+impl Default for SdkConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            patterns: default_sdk_patterns(),
+            risk_weight_new: default_sdk_risk_weight_new(),
+            risk_weight_modified: default_sdk_risk_weight_modified(),
+            risk_cap: default_sdk_risk_cap(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ServicesConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_cross_service_elevation_threshold")]
+    pub cross_service_elevation_threshold: u32,
+    #[serde(default = "default_svc_risk_5plus")]
+    pub risk_weight_5plus: u32,
+    #[serde(default = "default_svc_risk_3to4")]
+    pub risk_weight_3to4: u32,
+    #[serde(default = "default_svc_risk_2svcs")]
+    pub risk_weight_2svcs: u32,
+}
+
+fn default_svc_risk_5plus() -> u32 { 10 }
+fn default_svc_risk_3to4() -> u32 { 6 }
+fn default_svc_risk_2svcs() -> u32 { 3 }
+
+fn default_cross_service_elevation_threshold() -> u32 {
+    2
+}
+
+impl Default for ServicesConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            cross_service_elevation_threshold: default_cross_service_elevation_threshold(),
+            risk_weight_5plus: default_svc_risk_5plus(),
+            risk_weight_3to4: default_svc_risk_3to4(),
+            risk_weight_2svcs: default_svc_risk_2svcs(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DataFlowConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_chain_depth_max")]
+    pub chain_depth_max: u32,
+    #[serde(default = "default_dataflow_risk_per_match")]
+    pub risk_weight_per_match: u32,
+    #[serde(default = "default_dataflow_risk_cap")]
+    pub risk_cap: u32,
+}
+
+fn default_dataflow_risk_per_match() -> u32 { 4 }
+fn default_dataflow_risk_cap() -> u32 { 12 }
+
+fn default_chain_depth_max() -> u32 {
+    5
+}
+
+impl Default for DataFlowConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            chain_depth_max: default_chain_depth_max(),
+            risk_weight_per_match: default_dataflow_risk_per_match(),
+            risk_cap: default_dataflow_risk_cap(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DeployConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_deploy_patterns")]
+    pub patterns: Vec<String>,
+    #[serde(default = "default_deploy_risk_weight_per_manifest")]
+    pub risk_weight_per_manifest: u32,
+    #[serde(default = "default_deploy_risk_cap")]
+    pub risk_cap: u32,
+}
+
+fn default_deploy_patterns() -> Vec<String> {
+    vec![
+        "**/Dockerfile*".to_string(),
+        "**/docker-compose*.yml".to_string(),
+        "**/*.tf".to_string(),
+        "**/k8s/**/*.yaml".to_string(),
+    ]
+}
+
+fn default_deploy_risk_weight_per_manifest() -> u32 {
+    3
+}
+
+fn default_deploy_risk_cap() -> u32 {
+    15
+}
+
+impl Default for DeployConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            patterns: default_deploy_patterns(),
+            risk_weight_per_manifest: default_deploy_risk_weight_per_manifest(),
+            risk_cap: default_deploy_risk_cap(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CiSelfAwarenessConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_ci_changed_weight")]
+    pub ci_changed_weight: u32,
+    #[serde(default = "default_ci_plus_source_weight")]
+    pub ci_plus_source_weight: u32,
+}
+
+fn default_ci_changed_weight() -> u32 {
+    3
+}
+
+fn default_ci_plus_source_weight() -> u32 {
+    5
+}
+
+impl Default for CiSelfAwarenessConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            ci_changed_weight: default_ci_changed_weight(),
+            ci_plus_source_weight: default_ci_plus_source_weight(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AdrStalenessConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_staleness_threshold_days")]
+    pub threshold_days: u32,
+}
+
+fn default_staleness_threshold_days() -> u32 {
+    365
+}
+
+impl Default for AdrStalenessConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            threshold_days: default_staleness_threshold_days(),
+        }
+    }
+}
+
 
 impl Default for ContractsConfig {
     fn default() -> Self {
@@ -750,6 +1030,37 @@ mod tests {
         let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.contracts.spec_paths, vec!["openapi.yaml", "proto/"]);
         assert!((config.contracts.match_threshold - 0.7).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_coverage_config_deserialization() {
+        let toml_str = r#"
+            [coverage]
+            enabled = true
+
+            [coverage.traces]
+            enabled = true
+            config_patterns = ["**/otel*.yaml"]
+            env_var_patterns = ["OTEL_*"]
+
+            [coverage.sdk]
+            enabled = true
+            patterns = ["stripe", "auth0"]
+            risk_weight_new = 10
+            risk_weight_modified = 5
+        "#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert!(config.coverage.enabled);
+        assert!(config.coverage.traces.enabled);
+        assert_eq!(config.coverage.traces.config_patterns, vec!["**/otel*.yaml"]);
+        assert_eq!(config.coverage.traces.env_var_patterns, vec!["OTEL_*"]);
+        assert!(config.coverage.sdk.enabled);
+        assert_eq!(config.coverage.sdk.patterns, vec!["stripe", "auth0"]);
+        assert_eq!(config.coverage.sdk.risk_weight_new, 10);
+        assert_eq!(config.coverage.sdk.risk_weight_modified, 5);
+        // Other sections should have defaults
+        assert!(!config.coverage.services.enabled);
+        assert_eq!(config.coverage.adr_staleness.threshold_days, 365);
     }
 
     #[test]

@@ -25,6 +25,7 @@ pub fn extract_import_export(path: &Path, content: &str) -> Result<Option<Import
         "rs" => extract_rust_import_export(content)?,
         "ts" | "tsx" | "js" | "jsx" => extract_typescript_import_export(content)?,
         "py" => extract_python_import_export(content)?,
+        "go" => extract_go_import_export(content)?,
         _ => return Ok(None),
     };
 
@@ -151,6 +152,48 @@ fn extract_python_import_export(content: &str) -> Result<ImportExport> {
     })
 }
 
+fn extract_go_import_export(content: &str) -> Result<ImportExport> {
+    let mut parser = Parser::new();
+    let language = tree_sitter_go::LANGUAGE;
+    parser.set_language(&language.into()).into_diagnostic()?;
+    let tree = parser
+        .parse(content, None)
+        .ok_or_else(|| miette::miette!("Failed to parse Go content"))?;
+
+    let import_query = Query::new(
+        &language.into(),
+        r#"(import_spec path: (interpreted_string_literal) @import)"#,
+    )
+    .into_diagnostic()?;
+
+    let export_query = Query::new(
+        &language.into(),
+        r#"
+        (function_declaration name: (identifier) @export)
+        (method_declaration name: (field_identifier) @export)
+        (type_declaration (type_spec name: (type_identifier) @export))
+        (const_declaration (const_spec name: (identifier) @export))
+        (var_declaration (var_spec name: (identifier) @export))
+    "#,
+    )
+    .into_diagnostic()?;
+
+    let imported_from = capture_texts(&import_query, &tree, content, "import")?
+        .into_iter()
+        .map(|s| s.trim_matches('"').to_string())
+        .collect();
+
+    let exported_symbols = capture_texts(&export_query, &tree, content, "export")?
+        .into_iter()
+        .filter(|s| s.chars().next().is_some_and(|c| c.is_uppercase()))
+        .collect();
+
+    Ok(ImportExport {
+        imported_from,
+        exported_symbols,
+    })
+}
+
 fn capture_texts(
     query: &Query,
     tree: &tree_sitter::Tree,
@@ -239,5 +282,35 @@ def _private_fn():
         assert!(result.imported_from.contains(&"pkg.module".to_string()));
         assert!(result.exported_symbols.contains(&"public_fn".to_string()));
         assert!(!result.exported_symbols.contains(&"_private_fn".to_string()));
+    }
+
+    #[test]
+    fn test_extract_go_import_export() {
+        let content = r#"
+package main
+import "fmt"
+import (
+    "os"
+    "github.com/stripe/stripe-go"
+)
+func Run() {}
+func (s *Server) Start() {}
+type User struct {}
+const Max = 10
+var Debug = true
+"#;
+        let result = extract_import_export(Path::new("main.go"), content)
+            .unwrap()
+            .unwrap();
+        assert!(result.imported_from.contains(&"fmt".to_string()));
+        assert!(result.imported_from.contains(&"os".to_string()));
+        assert!(result
+            .imported_from
+            .contains(&"github.com/stripe/stripe-go".to_string()));
+        assert!(result.exported_symbols.contains(&"Run".to_string()));
+        assert!(result.exported_symbols.contains(&"Start".to_string()));
+        assert!(result.exported_symbols.contains(&"User".to_string()));
+        assert!(result.exported_symbols.contains(&"Max".to_string()));
+        assert!(result.exported_symbols.contains(&"Debug".to_string()));
     }
 }

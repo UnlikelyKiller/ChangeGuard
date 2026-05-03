@@ -565,6 +565,7 @@ mod tests {
                 excerpt: "This guide explains the architecture.".to_string(),
                 similarity: 0.85,
                 rerank_score: None,
+                staleness_days: None,
             },
             RelevantDecision {
                 file_path: std::path::PathBuf::from("docs/api.md"),
@@ -572,6 +573,7 @@ mod tests {
                 excerpt: "Endpoints for the service.".to_string(),
                 similarity: 0.6,
                 rerank_score: Some(0.92),
+                staleness_days: None,
             },
         ];
 
@@ -593,6 +595,7 @@ mod tests {
             excerpt: "Some content".to_string(),
             similarity: 0.5,
             rerank_score: None,
+            staleness_days: None,
         }];
 
         let result = format_relevant_decisions(&decisions);

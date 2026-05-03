@@ -235,6 +235,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("src/config.rs"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: false,
             symbols: Some(vec![Symbol {
                 name: "AKIAIOSFODNN7EXAMPLE".to_string(),
@@ -272,8 +273,9 @@ mod tests {
     fn test_redact_github_token_in_symbols() {
         let mut packet = ImpactPacket::default();
         packet.changes.push(ChangedFile {
-            path: PathBuf::from("src/auth.rs"),
+            path: PathBuf::from("src/api.rs"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: false,
             symbols: Some(vec![Symbol {
                 name: "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890".to_string(),
@@ -311,6 +313,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("src/api.rs"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: false,
             symbols: Some(vec![Symbol {
                 name: "AIzaSyA1B2C3D4E5F6G7H8I9J0K1L2M3N4O5P6Q".to_string(),
@@ -351,6 +354,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("keys/server.key"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: false,
             symbols: Some(vec![Symbol {
                 name: "-----BEGIN RSA PRIVATE KEY-----".to_string(),
@@ -413,8 +417,9 @@ mod tests {
     fn test_no_redaction_on_normal_symbols() {
         let mut packet = ImpactPacket::default();
         packet.changes.push(ChangedFile {
-            path: PathBuf::from("src/main.rs"),
+            path: PathBuf::from("src/api.rs"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: false,
             symbols: Some(vec![
                 Symbol {

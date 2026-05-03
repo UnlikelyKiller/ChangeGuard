@@ -162,6 +162,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("src/main.rs"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,

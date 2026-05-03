@@ -280,7 +280,9 @@ mod tests {
                 ChangedFile {
                     path: PathBuf::from("src/main.rs"),
                     status: "Modified".to_string(),
+                    old_path: None,
                     is_staged: true,
+
                     symbols: Some(vec![
                         Symbol {
                             name: "main".to_string(),
@@ -320,7 +322,9 @@ mod tests {
                 ChangedFile {
                     path: PathBuf::from("src/lib.rs"),
                     status: "Modified".to_string(),
+                    old_path: None,
                     is_staged: true,
+
                     symbols: Some(vec![
                         Symbol {
                             name: "init".to_string(),
@@ -359,8 +363,10 @@ mod tests {
                 },
                 ChangedFile {
                     path: PathBuf::from("src/utils.rs"),
-                    status: "Added".to_string(),
+                    status: "Modified".to_string(),
+                    old_path: None,
                     is_staged: true,
+
                     symbols: Some(vec![Symbol {
                         name: "normalize".to_string(),
                         kind: crate::index::symbols::SymbolKind::Function,

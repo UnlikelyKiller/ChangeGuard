@@ -505,6 +505,10 @@ pub fn get_migrations() -> Migrations<'static> {
                  diff_pair_id TEXT NOT NULL
              );",
         ),
+        M::up(
+            "ALTER TABLE project_files ADD COLUMN service_name TEXT;
+             CREATE INDEX IF NOT EXISTS idx_project_files_service ON project_files(service_name);",
+        ),
     ])
 }
 

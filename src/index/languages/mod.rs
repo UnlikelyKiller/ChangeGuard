@@ -25,9 +25,9 @@ pub fn parse_symbols(path: &Path, content: &str) -> Result<Option<Vec<Symbol>>> 
 
 pub fn extract_calls(path: &Path, content: &str, symbols: &[Symbol]) -> Result<Vec<CallEdge>> {
     match path.extension().and_then(|e| e.to_str()) {
-        Some("rs") => rust::extract_calls(content, symbols),
-        Some("ts") | Some("tsx") => typescript::extract_calls(content, symbols),
-        Some("py") => python::extract_calls(content, symbols),
+        Some("rs") => rust::extract_calls(path, content, symbols),
+        Some("ts") | Some("tsx") => typescript::extract_calls(path, content, symbols),
+        Some("py") => python::extract_calls(path, content, symbols),
         _ => Ok(Vec::new()),
     }
 }

@@ -64,7 +64,7 @@ pub fn print_scan_summary(snapshot: &RepoSnapshot) {
     }
 }
 
-pub fn print_impact_summary(packet: &ImpactPacket) {
+pub fn print_impact_summary(packet: &ImpactPacket, config: &crate::config::model::Config) {
     print_header("ChangeGuard Impact Analysis");
 
     let risk_color = match packet.risk_level {
@@ -125,6 +125,122 @@ pub fn print_impact_summary(packet: &ImpactPacket) {
                 contract.path.clone(),
                 contract.spec_file.clone(),
                 format!("{:.0}%", contract.similarity * 100.0),
+            ]);
+        }
+        println!("{table}");
+    }
+
+    if !packet.trace_config_drift.is_empty() || !packet.trace_env_vars.is_empty() {
+        println!("\n{}", "Observability Trace Drift:".bold());
+        let mut table = build_table(["Type", "Entity", "Details"]);
+        for drift in &packet.trace_config_drift {
+            table.add_row(vec![
+                "Config File".to_string(),
+                drift.file.display().to_string(),
+                format!("{:?}{}", drift.config_type, if drift.is_deleted { " (DELETED)" } else { "" }),
+            ]);
+        }
+        for env in &packet.trace_env_vars {
+            table.add_row(vec![
+                "Env Var".to_string(),
+                env.var_name.clone(),
+                format!("Pattern: {}", env.pattern),
+            ]);
+        }
+        println!("{table}");
+    }
+
+    if let Some(sdk_delta) = &packet.sdk_dependencies_delta {
+        if !sdk_delta.added.is_empty()
+            || !sdk_delta.removed.is_empty()
+            || !sdk_delta.modified.is_empty()
+        {
+            println!("\n{}", "Third-party SDK Changes:".bold());
+            let mut table = build_table(["State", "SDK Name", "Pattern Match"]);
+            for sdk in &sdk_delta.added {
+                table.add_row(vec![
+                    "Added".green().to_string(),
+                    sdk.sdk_name.clone(),
+                    sdk.import_statement.clone(),
+                ]);
+            }
+            for sdk in &sdk_delta.modified {
+                table.add_row(vec![
+                    "Modified".yellow().to_string(),
+                    sdk.sdk_name.clone(),
+                    sdk.import_statement.clone(),
+                ]);
+            }
+            for sdk in &sdk_delta.removed {
+                table.add_row(vec![
+                    "Removed".red().to_string(),
+                    sdk.sdk_name.clone(),
+                    sdk.import_statement.clone(),
+                ]);
+            }
+            println!("{table}");
+        }
+    }
+
+    if let Some(delta) = &packet.service_map_delta {
+        if !delta.affected_services.is_empty() {
+            println!("\n{}", "Service Map Impact:".bold());
+            println!(
+                "{:<20} {}",
+                "Affected Services:".bold().cyan(),
+                delta.affected_services.join(", ")
+            );
+            if !delta.cross_service_edges.is_empty() {
+                println!("\n{}", "Cross-Service Dependencies:".bold().dimmed());
+                let mut table = build_table(["Caller Service", "Callee Service", "Edge Count"]);
+                for (caller, callee, count) in &delta.cross_service_edges {
+                    table.add_row(vec![caller.clone(), callee.clone(), count.to_string()]);
+                }
+                println!("{table}");
+            }
+        }
+    }
+
+    if !packet.data_flow_matches.is_empty() {
+        println!("\n{}", "Data-Flow Coupling (Route -> Model):".bold());
+        let mut table = build_table(["Chain Pattern (Route -> Data Model)", "Chain Depth", "Co-change %"]);
+        for m in &packet.data_flow_matches {
+            table.add_row(vec![
+                m.chain_label.clone(),
+                m.total_nodes.to_string(),
+                format!("{:.0}%", m.change_pct * 100.0),
+            ]);
+        }
+        println!("{table}");
+    }
+
+    if !packet.deploy_manifest_changes.is_empty() {
+        println!("\n{}", "Deployment Manifest Changes:".bold());
+        let mut table = build_table(["Type", "File Path", "Status"]);
+        for change in &packet.deploy_manifest_changes {
+            table.add_row(vec![
+                format!("{:?}", change.manifest_type),
+                change.file.display().to_string(),
+                if change.is_deleted { "Deleted".red().to_string() } else { "Modified".yellow().to_string() },
+            ]);
+        }
+        println!("{table}");
+    }
+
+    if !packet.relevant_decisions.is_empty() {
+        println!("\n{}", "Relevant Architectural Decisions:".bold());
+        let mut table = build_table(["Decision File", "Staleness", "Similarity"]);
+        for decision in &packet.relevant_decisions {
+            let threshold = config.coverage.adr_staleness.threshold_days;
+            let staleness = match decision.staleness_days {
+                Some(days) if days > threshold => format!("{} days (STALE)", days).red().bold().to_string(),
+                Some(days) => format!("{} days", days).dimmed().to_string(),
+                None => "Unknown".dimmed().to_string(),
+            };
+            table.add_row(vec![
+                decision.file_path.display().to_string(),
+                staleness,
+                format!("{:.0}%", decision.similarity * 100.0),
             ]);
         }
         println!("{table}");
@@ -437,7 +553,7 @@ mod tests {
             risk_reasons: vec!["Test reason".to_string()],
             ..Default::default()
         };
-        print_impact_summary(&packet);
+        print_impact_summary(&packet, &crate::config::model::Config::default());
     }
 
     #[test]
@@ -455,7 +571,7 @@ mod tests {
             }],
             ..Default::default()
         };
-        print_impact_summary(&packet);
+        print_impact_summary(&packet, &crate::config::model::Config::default());
     }
 
     #[test]

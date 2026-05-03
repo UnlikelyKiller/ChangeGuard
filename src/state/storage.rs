@@ -176,6 +176,30 @@ impl StorageManager {
             Err(e) => Err(e).into_diagnostic(),
         }
     }
+
+    pub fn get_directory_classifications(&self) -> Result<Vec<crate::index::topology::DirectoryClassification>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT dir_path, role, confidence, evidence FROM project_topology"
+        ).into_diagnostic()?;
+
+        let rows = stmt.query_map([], |row| {
+            let role_str: String = row.get(1)?;
+            let role = crate::index::topology::DirectoryRole::parse(&role_str)
+                .unwrap_or(crate::index::topology::DirectoryRole::Source);
+            Ok(crate::index::topology::DirectoryClassification {
+                dir_path: row.get(0)?,
+                role,
+                confidence: row.get(2)?,
+                evidence: row.get(3)?,
+            })
+        }).into_diagnostic()?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row.into_diagnostic()?);
+        }
+        Ok(results)
+    }
 }
 
 #[cfg(test)]
@@ -246,8 +270,10 @@ mod tests {
             head_hash: Some("abc".to_string()),
             changes: vec![ChangedFile {
                 path: PathBuf::from("src/main.rs"),
-                status: "Modified".to_string(),
+                status: "Added".to_string(),
+                old_path: None,
                 is_staged: true,
+
                 symbols: None,
                 imports: None,
                 runtime_usage: None,

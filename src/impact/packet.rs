@@ -132,6 +132,8 @@ impl Ord for CIGate {
 pub struct ChangedFile {
     pub path: PathBuf,
     pub status: String, // e.g., "Added", "Modified", "Deleted", "Renamed"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub old_path: Option<PathBuf>,
     pub is_staged: bool,
     pub symbols: Option<Vec<Symbol>>,
     pub imports: Option<ImportExport>,
@@ -247,6 +249,8 @@ pub struct RelevantDecision {
     pub similarity: f32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rerank_score: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub staleness_days: Option<u32>,
 }
 
 impl PartialEq for RelevantDecision {
@@ -412,6 +416,131 @@ impl Ord for CoverageDelta {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "camelCase")]
+pub struct CallChainNode {
+    pub symbol: String,
+    pub file_path: PathBuf,
+    pub is_data_model: bool,
+    pub is_external: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "camelCase")]
+pub struct CallChain {
+    pub nodes: Vec<CallChainNode>,
+    pub has_cycle: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum TraceConfigType {
+    OpenTelemetryCollector,
+    JaegerAgent,
+    DataDogAgent,
+    GrafanaAgent,
+    GrafanaTempo,
+    Unknown,
+}
+
+impl TraceConfigType {
+    pub fn from_path(path: &std::path::Path) -> Self {
+        let path_str = path.to_string_lossy().to_lowercase();
+        if path_str.contains("otel") {
+            Self::OpenTelemetryCollector
+        } else if path_str.contains("jaeger") {
+            Self::JaegerAgent
+        } else if path_str.contains("datadog") {
+            Self::DataDogAgent
+        } else if path_str.contains("grafana-agent") {
+            Self::GrafanaAgent
+        } else if path_str.contains("tempo") {
+            Self::GrafanaTempo
+        } else {
+            Self::Unknown
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceConfigChange {
+    pub file: PathBuf,
+    pub config_type: TraceConfigType,
+    pub risk_weight: u8,
+    pub is_deleted: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceEnvVarChange {
+    pub var_name: String,
+    pub pattern: String,
+    pub risk_weight: u8,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "camelCase")]
+pub struct SdkDependencyDelta {
+    pub added: Vec<SdkDependency>,
+    pub removed: Vec<SdkDependency>,
+    pub modified: Vec<SdkDependency>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "camelCase")]
+pub struct SdkDependency {
+    pub sdk_name: String,
+    pub file_path: PathBuf,
+    pub import_statement: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ManifestType {
+    Dockerfile,
+    DockerCompose,
+    Kubernetes,
+    Terraform,
+    Helm,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "camelCase")]
+pub struct DeployManifestChange {
+    pub file: PathBuf,
+    pub manifest_type: ManifestType,
+    pub risk_weight: u8,
+    pub is_deleted: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DataFlowMatch {
+    pub chain_label: String,
+    pub changed_nodes: Vec<String>,
+    pub total_nodes: usize,
+    pub change_pct: f64,
+    pub risk: RiskLevel,
+}
+
+impl Eq for DataFlowMatch {}
+
+impl PartialOrd for DataFlowMatch {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for DataFlowMatch {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other
+            .change_pct
+            .partial_cmp(&self.change_pct)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| self.chain_label.cmp(&other.chain_label))
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ImpactPacket {
@@ -447,6 +576,34 @@ pub struct ImpactPacket {
     pub observability: Vec<ObservabilitySignal>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub affected_contracts: Vec<AffectedContract>,
+    #[serde(default)]
+    pub data_flow_matches: Vec<DataFlowMatch>,
+    #[serde(default)]
+    pub service_map_delta: Option<ServiceMapDelta>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub trace_config_drift: Vec<TraceConfigChange>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub trace_env_vars: Vec<TraceEnvVarChange>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sdk_dependencies_delta: Option<SdkDependencyDelta>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub deploy_manifest_changes: Vec<DeployManifestChange>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct ServiceMapDelta {
+    pub services: Vec<Service>,
+    pub affected_services: Vec<String>,
+    pub cross_service_edges: Vec<(String, String, usize)>, // (caller_service, callee_service, count)
+    pub total_services: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Service {
+    pub name: String,
+    pub directory: PathBuf,
+    pub routes: Vec<String>,      // paths
+    pub data_models: Vec<String>, // names
 }
 
 impl Default for ImpactPacket {
@@ -457,7 +614,7 @@ impl Default for ImpactPacket {
             head_hash: None,
             branch_name: None,
             risk_level: RiskLevel::Medium,
-            risk_reasons: vec!["Provisional baseline risk".to_string()],
+            risk_reasons: Vec::new(),
             changes: Vec::new(),
             temporal_couplings: Vec::new(),
             structural_couplings: Vec::new(),
@@ -474,6 +631,12 @@ impl Default for ImpactPacket {
             relevant_decisions: Vec::new(),
             observability: Vec::new(),
             affected_contracts: Vec::new(),
+            service_map_delta: None,
+            data_flow_matches: Vec::new(),
+            trace_config_drift: Vec::new(),
+            trace_env_vars: Vec::new(),
+            sdk_dependencies_delta: None,
+            deploy_manifest_changes: Vec::new(),
         }
     }
 }
@@ -534,6 +697,15 @@ impl ImpactPacket {
         self.observability.sort_unstable();
         // Sort affected_contracts by similarity descending, path ascending for ties
         self.affected_contracts.sort_unstable();
+        self.data_flow_matches.sort_unstable();
+        self.trace_config_drift.sort_unstable();
+        self.trace_env_vars.sort_unstable();
+        if let Some(ref mut sdk) = self.sdk_dependencies_delta {
+            sdk.added.sort_unstable();
+            sdk.removed.sort_unstable();
+            sdk.modified.sort_unstable();
+        }
+        self.deploy_manifest_changes.sort_unstable();
     }
 
     /// Escalate risk_level by one tier for observability/contract signals.
@@ -611,6 +783,12 @@ impl ImpactPacket {
         // CRITICAL: Clear observability signals which can contain unbounded log excerpts
         self.observability.clear();
         self.affected_contracts.clear();
+        self.data_flow_matches.clear();
+        self.trace_config_drift.clear();
+        self.trace_env_vars.clear();
+        self.sdk_dependencies_delta = None;
+        self.deploy_manifest_changes.clear();
+        self.service_map_delta = None;
 
         let current_json = serde_json::to_string(self).unwrap_or_default();
         if current_json.len() <= target_chars {
@@ -651,6 +829,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("src/main.rs"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -681,6 +860,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("z.rs"),
             status: "Added".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: Some(vec![
                 Symbol {
@@ -721,6 +901,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("a.rs"),
             status: "Added".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -752,6 +933,7 @@ mod tests {
                 excerpt: "This guide explains...".to_string(),
                 similarity: 0.85,
                 rerank_score: Some(0.92),
+                staleness_days: None,
             },
             RelevantDecision {
                 file_path: PathBuf::from("docs/api.md"),
@@ -759,6 +941,7 @@ mod tests {
                 excerpt: "API reference section".to_string(),
                 similarity: 0.6,
                 rerank_score: None,
+                staleness_days: None,
             },
         ];
 
@@ -798,6 +981,7 @@ mod tests {
                     excerpt: "C".to_string(),
                     similarity: 0.5,
                     rerank_score: None,
+                    staleness_days: None,
                 },
                 RelevantDecision {
                     file_path: PathBuf::from("docs/a.md"),
@@ -805,6 +989,7 @@ mod tests {
                     excerpt: "A".to_string(),
                     similarity: 0.9,
                     rerank_score: None,
+                    staleness_days: None,
                 },
                 RelevantDecision {
                     file_path: PathBuf::from("docs/b.md"),
@@ -812,6 +997,7 @@ mod tests {
                     excerpt: "B".to_string(),
                     similarity: 0.5,
                     rerank_score: None,
+                    staleness_days: None,
                 },
             ],
             ..ImpactPacket::default()
@@ -844,6 +1030,7 @@ mod tests {
             changes: vec![ChangedFile {
                 path: PathBuf::from("src/main.rs"),
                 status: "Modified".to_string(),
+                old_path: None,
                 is_staged: true,
                 symbols: None,
                 imports: None,
@@ -860,6 +1047,7 @@ mod tests {
                 excerpt: "Content".to_string(),
                 similarity: 0.9,
                 rerank_score: None,
+                staleness_days: None,
             }],
             ..ImpactPacket::default()
         };
@@ -919,6 +1107,7 @@ mod tests {
             changes: vec![ChangedFile {
                 path: PathBuf::from("src/main.rs"),
                 status: "Modified".to_string(),
+                old_path: None,
                 is_staged: true,
                 symbols: None,
                 imports: None,
@@ -967,6 +1156,7 @@ mod tests {
             changes: vec![ChangedFile {
                 path: PathBuf::from("src/main.rs"),
                 status: "Modified".to_string(),
+                old_path: None,
                 is_staged: true,
                 symbols: None,
                 imports: None,
@@ -1078,6 +1268,7 @@ mod tests {
             changes: vec![ChangedFile {
                 path: PathBuf::from("src/main.rs"),
                 status: "Modified".to_string(),
+                old_path: None,
                 is_staged: true,
                 symbols: None,
                 imports: None,

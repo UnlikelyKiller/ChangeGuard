@@ -2,10 +2,10 @@ use crate::git::repo::{get_head_info, open_repo};
 use crate::git::status::get_repo_status;
 use crate::git::{ChangeType, RepoSnapshot};
 use crate::impact::packet::{
-    AnalysisStatus, CIGate, ChangedFile, CoveringTest, FileAnalysisStatus, ImpactPacket,
+    AnalysisStatus, CIGate, ChangedFile, CoveringTest, FileAnalysisStatus, ImpactPacket, RiskLevel,
     StructuralCoupling, TestCoverage,
 };
-use crate::index::languages::{Language, parse_symbols};
+use crate::index::languages::{parse_symbols, Language};
 use crate::index::metrics::ComplexityScorer;
 use crate::index::references::extract_import_export;
 use crate::index::runtime_usage::extract_runtime_usage;
@@ -21,7 +21,7 @@ use owo_colors::OwoColorize;
 use rusqlite::OptionalExtension;
 use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 struct AnalysisOutcome {
     symbols: Option<Vec<crate::index::symbols::Symbol>>,
@@ -189,11 +189,7 @@ pub fn execute_impact(all_parents: bool, summary: bool, telemetry_coverage: bool
                 // Graceful degradation: packet.test_coverage stays empty
             }
 
-            // Populate CI gates from ci_gates table
-            if let Err(e) = populate_ci_gates(&mut packet, &storage) {
-                tracing::warn!("CI gates population failed: {e}");
-                // Graceful degradation: changed_file.ci_gates stays empty
-            }
+            // CI gate population moved to enrich_ci_self_awareness in M7
 
             // Populate undeclared env var dependencies
             if let Err(e) = populate_env_var_deps(&mut packet, &storage) {
@@ -207,6 +203,37 @@ pub fn execute_impact(all_parents: bool, summary: bool, telemetry_coverage: bool
                 // Graceful degradation: packet.runtime_usage_delta stays empty
             }
 
+            // M7 Observability & Engineering Coverage Enrichment (Phase 1: Detection)
+            if let Err(e) = enrich_trace_configs(&mut packet, &config.coverage) {
+                tracing::warn!("Trace config enrichment failed: {e}");
+            }
+            if let Err(e) = enrich_sdk_dependencies(&mut packet, &config.coverage, &current_dir) {
+                tracing::warn!("SDK dependency enrichment failed: {e}");
+            }
+            if let Err(e) = enrich_deploy_manifests(&mut packet, &config.coverage) {
+                tracing::warn!("Deploy manifest enrichment failed: {e}");
+            }
+            if let Err(e) = enrich_ci_self_awareness(&mut packet, &config.coverage, &storage) {
+                tracing::warn!("CI self-awareness enrichment failed: {e}");
+            }
+            // ADR staleness is now populated during enrich_with_docs
+
+            // Populate service map delta
+            if config.coverage.enabled && config.coverage.services.enabled
+                && let Err(e) = populate_service_map(&mut packet, &storage) {
+                tracing::warn!("Service map population failed: {e}");
+            }
+
+            // Populate data-flow coupling
+            if let Err(e) = enrich_data_flow(
+                &mut packet,
+                &storage,
+                &config.coverage,
+                &current_dir,
+            ) {
+                tracing::warn!("Data-flow coupling enrichment failed: {e}");
+            }
+
             // Doc-based retrieval enrichment
             if let Err(e) = enrich_with_docs(&mut packet, &config, storage.get_connection()) {
                 tracing::warn!("Doc retrieval enrichment failed: {e}");
@@ -216,7 +243,7 @@ pub fn execute_impact(all_parents: bool, summary: bool, telemetry_coverage: bool
             // Perform risk analysis FIRST (before observability/contract enrichment
             // so analysis-level risk_reasons are not overwritten)
             if let Some(rules) = &rules_opt
-                && let Err(e) = crate::impact::analysis::analyze_risk(&mut packet, rules)
+                && let Err(e) = crate::impact::analysis::analyze_risk(&mut packet, rules, &config)
             {
                 tracing::warn!("Risk analysis failed: {e}");
                 println!(
@@ -261,7 +288,7 @@ pub fn execute_impact(all_parents: bool, summary: bool, telemetry_coverage: bool
         Err(e) => {
             // Even if SQLite fails, we still want to analyze risk, finalize, and redact
             if let Some(rules) = &rules_opt
-                && let Err(e) = crate::impact::analysis::analyze_risk(&mut packet, rules)
+                && let Err(e) = crate::impact::analysis::analyze_risk(&mut packet, rules, &config)
             {
                 tracing::warn!("Risk analysis failed: {e}");
                 println!(
@@ -289,7 +316,7 @@ pub fn execute_impact(all_parents: bool, summary: bool, telemetry_coverage: bool
     if summary {
         crate::output::human::print_impact_brief(&packet);
     } else {
-        print_impact_summary(&packet);
+        print_impact_summary(&packet, &config);
     }
 
     println!(
@@ -362,11 +389,11 @@ fn map_snapshot_to_packet(snapshot: RepoSnapshot, base_dir: &Path) -> Result<Imp
         .into_iter()
         .map(|c| {
             pb.set_message(format!("Extracting symbols from {}", c.path.display()));
-            let status = match c.change_type {
-                ChangeType::Added => "Added".to_string(),
-                ChangeType::Modified => "Modified".to_string(),
-                ChangeType::Deleted => "Deleted".to_string(),
-                ChangeType::Renamed { .. } => "Renamed".to_string(),
+            let (status, old_path) = match c.change_type {
+                ChangeType::Added => ("Added".to_string(), None),
+                ChangeType::Modified => ("Modified".to_string(), None),
+                ChangeType::Deleted => ("Deleted".to_string(), None),
+                ChangeType::Renamed { ref old_path } => ("Renamed".to_string(), Some(old_path.clone())),
             };
 
             let outcome = if matches!(c.change_type, ChangeType::Added | ChangeType::Modified) {
@@ -385,6 +412,7 @@ fn map_snapshot_to_packet(snapshot: RepoSnapshot, base_dir: &Path) -> Result<Imp
             ChangedFile {
                 path: c.path,
                 status,
+                old_path,
                 is_staged: c.is_staged,
                 symbols: outcome.symbols,
                 imports: outcome.imports,
@@ -423,7 +451,7 @@ fn analyze_changed_file(relative_path: &Path, base_dir: &Path) -> AnalysisOutcom
         };
     };
 
-    let supported = matches!(extension, "rs" | "ts" | "tsx" | "js" | "jsx" | "py");
+    let supported = matches!(extension, "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go");
     if !supported {
         status.symbols = AnalysisStatus::Unsupported;
         status.imports = AnalysisStatus::Unsupported;
@@ -1754,12 +1782,25 @@ fn enrich_with_docs(
         .take(top_n)
         .map(|chunk| {
             let excerpt: String = chunk.content.chars().take(200).collect();
+            let mut staleness_days = None;
+
+            // Populate staleness_days from filesystem mtime
+            let full_path = std::path::PathBuf::from(chunk.file_path.clone());
+            if let Ok(metadata) = std::fs::metadata(&full_path) {
+                if let Ok(modified) = metadata.modified() {
+                    if let Ok(elapsed) = modified.elapsed() {
+                        staleness_days = Some((elapsed.as_secs() / 86400) as u32);
+                    }
+                }
+            }
+
             crate::impact::packet::RelevantDecision {
                 file_path: std::path::PathBuf::from(chunk.file_path),
                 heading: chunk.heading,
                 excerpt,
                 similarity: chunk.similarity,
                 rerank_score: None,
+                staleness_days,
             }
         })
         .collect();
@@ -1828,6 +1869,306 @@ fn enrich_contracts(
     packet.affected_contracts = affected;
     Ok(())
 }
+
+fn populate_service_map(
+    packet: &mut ImpactPacket,
+    storage: &crate::state::storage::StorageManager,
+) -> Result<()> {
+    use crate::coverage::services::compute_cross_service_edges;
+    use crate::index::call_graph::CallGraph;
+    use crate::impact::packet::{Service, ServiceMapDelta};
+    use miette::IntoDiagnostic;
+    use rusqlite::OptionalExtension;
+
+    let conn = storage.get_connection();
+
+    // 1. Detect affected services by checking service_name of changed files
+    let mut affected_services_set = std::collections::HashSet::new();
+    for change in &packet.changes {
+        let path_to_check = change.old_path.as_ref().unwrap_or(&change.path);
+        let path_str = path_to_check.to_string_lossy().to_string();
+        let service_name: Option<String> = conn
+            .query_row(
+                "SELECT service_name FROM project_files WHERE file_path = ?1",
+                [path_str],
+                |row| row.get(0),
+            )
+            .optional()
+            .into_diagnostic()?;
+        if let Some(name) = service_name {
+            affected_services_set.insert(name);
+        }
+    }
+
+    if affected_services_set.is_empty() {
+        return Ok(());
+    }
+
+    // 2. Load ALL services to compute cross-service edges and total count
+    let service_names: Vec<String> = conn
+        .prepare("SELECT DISTINCT service_name FROM project_files WHERE service_name IS NOT NULL")
+        .into_diagnostic()?
+        .query_map([], |row| row.get(0))
+        .into_diagnostic()?
+        .collect::<Result<Vec<String>, _>>()
+        .into_diagnostic()?;
+
+    let total_services = service_names.len();
+
+    let mut services = Vec::new();
+    for name in &service_names {
+        // Load routes for this service
+        let mut route_stmt = conn.prepare(
+            "SELECT handler_symbol_name FROM api_routes ar JOIN project_files pf ON ar.handler_file_id = pf.id WHERE pf.service_name = ?1"
+        ).into_diagnostic()?;
+        let routes: Vec<String> = route_stmt
+            .query_map([name], |row| row.get::<_, Option<String>>(0))
+            .into_diagnostic()?
+            .filter_map(|r| r.ok())
+            .flatten()
+            .collect();
+
+        // Load models for this service
+        let mut model_stmt = conn.prepare(
+            "SELECT model_name FROM data_models dm JOIN project_files pf ON dm.model_file_id = pf.id WHERE pf.service_name = ?1"
+        ).into_diagnostic()?;
+        let data_models: Vec<String> = model_stmt
+            .query_map([name], |row| row.get::<_, String>(0))
+            .into_diagnostic()?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        // Load directory (take first file's parent as heuristic)
+        let directory: String = conn.query_row(
+            "SELECT file_path FROM project_files WHERE service_name = ?1 LIMIT 1",
+            [name],
+            |row| row.get(0)
+        ).unwrap_or_else(|_| ".".to_string());
+        let directory = std::path::Path::new(&directory).parent().unwrap_or(std::path::Path::new(".")).to_path_buf();
+
+        services.push(Service {
+            name: name.clone(),
+            directory,
+            routes,
+            data_models,
+        });
+    }
+
+    // 3. Load Call Graph Edges
+    let mut edge_stmt = conn.prepare(
+        "SELECT COALESCE(ps_caller.qualified_name, ps_caller.symbol_name), \
+                pf_caller.file_path, \
+                COALESCE(ps_callee.qualified_name, ps_callee.symbol_name), \
+                pf_callee.file_path
+         FROM structural_edges se
+         JOIN project_symbols ps_caller ON se.caller_symbol_id = ps_caller.id
+         JOIN project_files pf_caller ON se.caller_file_id = pf_caller.id
+         JOIN project_symbols ps_callee ON se.callee_symbol_id = ps_callee.id
+         JOIN project_files pf_callee ON se.callee_file_id = pf_callee.id"
+    ).into_diagnostic()?;
+
+    let edges = edge_stmt.query_map([], |row| {
+        Ok(crate::index::call_graph::CallEdge {
+            caller_name: row.get(0)?,
+            caller_file: PathBuf::from(row.get::<_, String>(1)?),
+            callee_name: row.get(2)?,
+            callee_file: Some(PathBuf::from(row.get::<_, String>(3)?)),
+            call_kind: crate::index::call_graph::CallKind::Direct,
+            resolution_status: crate::index::call_graph::ResolutionStatus::Resolved,
+            confidence: 1.0,
+            evidence: "".to_string(),
+        })
+    }).into_diagnostic()?.collect::<Result<Vec<_>, _>>().into_diagnostic()?;
+
+    let call_graph = CallGraph { edges };
+
+    let cross_service_edges = compute_cross_service_edges(&services, &call_graph);
+
+    let mut affected_services: Vec<String> = affected_services_set.into_iter().collect();
+    affected_services.sort();
+
+    packet.service_map_delta = Some(ServiceMapDelta {
+        services,
+        affected_services: affected_services.clone(),
+        cross_service_edges,
+        total_services,
+    });
+
+    Ok(())
+}
+
+
+fn enrich_trace_configs(
+    packet: &mut ImpactPacket,
+    config: &crate::config::model::CoverageConfig,
+) -> Result<()> {
+    if !config.enabled || !config.traces.enabled {
+        return Ok(());
+    }
+
+    use crate::coverage::traces::{detect_trace_config_changes, detect_trace_env_vars};
+
+    packet.trace_config_drift = detect_trace_config_changes(&packet.changes, &config.traces.config_patterns);
+    packet.trace_env_vars = detect_trace_env_vars(&packet.env_var_deps, &config.traces.env_var_patterns, &config.traces.exclude_env_patterns);
+
+    Ok(())
+}
+
+fn enrich_sdk_dependencies(
+    packet: &mut ImpactPacket,
+    config: &crate::config::model::CoverageConfig,
+    repo_root: &Path,
+) -> Result<()> {
+    if !config.enabled || !config.sdk.enabled {
+        return Ok(());
+    }
+
+    use crate::coverage::sdk::detect_sdk_changes;
+
+    packet.sdk_dependencies_delta = Some(detect_sdk_changes(&packet.changes, &config.sdk.patterns, repo_root));
+
+    Ok(())
+}
+
+fn enrich_data_flow(
+    packet: &mut ImpactPacket,
+    storage: &crate::state::storage::StorageManager,
+    config: &crate::config::model::CoverageConfig,
+    repo_root: &Path,
+) -> Result<()> {
+    if !config.enabled || !config.data_flow.enabled {
+        return Ok(());
+    }
+
+    use crate::coverage::dataflow::compute_data_flow_coupling;
+    use crate::index::call_graph::CallGraph;
+    use crate::impact::packet::{ApiRoute, DataModel};
+    use miette::IntoDiagnostic;
+
+    let conn = storage.get_connection();
+
+    // 1. Load all routes
+    let mut route_stmt = conn
+        .prepare("SELECT method, path_pattern, handler_symbol_name, framework, route_source, mount_prefix, is_dynamic, route_confidence, evidence FROM api_routes")
+        .into_diagnostic()?;
+    let routes: Vec<ApiRoute> = route_stmt
+        .query_map([], |row| {
+            Ok(ApiRoute {
+                method: row.get(0)?,
+                path_pattern: row.get(1)?,
+                handler_symbol_name: row.get(2)?,
+                framework: row.get(3)?,
+                route_source: row.get(4)?,
+                mount_prefix: row.get(5)?,
+                is_dynamic: row.get::<_, i32>(6)? != 0,
+                route_confidence: row.get(7)?,
+                evidence: row.get(8)?,
+            })
+        })
+        .into_diagnostic()?
+        .collect::<Result<Vec<_>, _>>()
+        .into_diagnostic()?;
+
+    // 2. Load all Call Graph Edges
+    let mut edge_stmt = conn
+        .prepare(
+            "SELECT COALESCE(ps_caller.qualified_name, ps_caller.symbol_name), \
+                    pf_caller.file_path, \
+                    COALESCE(ps_callee.qualified_name, ps_callee.symbol_name), \
+                    pf_callee.file_path, \
+                    se.call_kind \
+             FROM structural_edges se \
+             JOIN project_symbols ps_caller ON se.caller_symbol_id = ps_caller.id \
+             JOIN project_files pf_caller ON se.caller_file_id = pf_caller.id \
+             JOIN project_symbols ps_callee ON se.callee_symbol_id = ps_callee.id \
+             JOIN project_files pf_callee ON se.callee_file_id = pf_callee.id",
+        )
+        .into_diagnostic()?;
+
+    let edges = edge_stmt
+        .query_map([], |row| {
+            Ok(crate::index::call_graph::CallEdge {
+                caller_name: row.get(0)?,
+                caller_file: std::path::PathBuf::from(row.get::<_, String>(1)?),
+                callee_name: row.get(2)?,
+                callee_file: Some(std::path::PathBuf::from(row.get::<_, String>(3)?)),
+                call_kind: match row.get::<_, String>(4)?.as_str() {
+                    "METHOD_CALL" => crate::index::call_graph::CallKind::MethodCall,
+                    "TRAIT_DISPATCH" => crate::index::call_graph::CallKind::TraitDispatch,
+                    "DYNAMIC" => crate::index::call_graph::CallKind::Dynamic,
+                    "EXTERNAL" => crate::index::call_graph::CallKind::External,
+                    _ => crate::index::call_graph::CallKind::Direct,
+                },
+                resolution_status: crate::index::call_graph::ResolutionStatus::Resolved,
+                confidence: 1.0,
+                evidence: "".to_string(),
+            })
+        })
+        .into_diagnostic()?
+        .collect::<Result<Vec<_>, _>>()
+        .into_diagnostic()?;
+
+    let call_graph = CallGraph { edges };
+
+    // 3. Load all Data Models
+    let mut model_stmt = conn
+        .prepare("SELECT model_name, model_kind, confidence, evidence FROM data_models")
+        .into_diagnostic()?;
+    let data_models: Vec<DataModel> = model_stmt
+        .query_map([], |row| {
+            Ok(DataModel {
+                model_name: row.get(0)?,
+                model_kind: row.get(1)?,
+                confidence: row.get(2)?,
+                evidence: row.get(3)?,
+            })
+        })
+        .into_diagnostic()?
+        .collect::<Result<Vec<_>, _>>()
+        .into_diagnostic()?;
+
+    // 4. Enumerate Call Chains
+    let chains = call_graph.enumerate_call_chains(&routes, config.data_flow.chain_depth_max as usize);
+
+    // 5. Compute Coupling
+    let matches = compute_data_flow_coupling(&chains, &packet.changes, &data_models, 0.2, repo_root);
+
+    packet.data_flow_matches = matches;
+
+    // Reasons will be added in analyze_risk() for consistency.
+
+    Ok(())
+}
+
+fn enrich_deploy_manifests(
+    packet: &mut ImpactPacket,
+    config: &crate::config::model::CoverageConfig,
+) -> Result<()> {
+    if !config.enabled || !config.deploy.enabled {
+        return Ok(());
+    }
+
+    use crate::coverage::deploy::detect_deploy_manifest_changes;
+
+    packet.deploy_manifest_changes = detect_deploy_manifest_changes(&packet.changes, &config.deploy.patterns);
+
+    Ok(())
+}
+
+fn enrich_ci_self_awareness(
+    packet: &mut ImpactPacket,
+    config: &crate::config::model::CoverageConfig,
+    storage: &StorageManager,
+) -> Result<()> {
+    if !config.enabled || !config.ci_self_awareness.enabled {
+        return Ok(());
+    }
+
+    // CI self-awareness requires CI gates to be populated for analysis
+    populate_ci_gates(packet, storage)
+}
+
+// Redundant enrich_adr_staleness removed - staleness now populated during retrieval
 
 #[cfg(test)]
 mod tests {

@@ -221,19 +221,20 @@
 ## Milestone M7: Engineering Coverage Deepening (Planning)
 
 *   **Track M7-1: Trace Config & SDK Dependency Detection**
-    *   Status: Planning
-    *   Spec: `docs/observability-plan2.md` §4
+    *   Status: Completed
+    *   Spec: `conductor/trackM7-1/spec.md`
     *   Plan: `conductor/trackM7-1/plan.md`
     *   Goal: Detect observability pipeline config changes (otel-collector, Jaeger, DataDog, Grafana Agent) and third-party SDK import additions (Stripe, Auth0, Twilio, etc.).
+    *   Key Additions: `src/coverage/traces.rs`, `src/coverage/sdk.rs`, Go support in `src/index/references.rs`, `CoverageConfig` in `src/config/model.rs`.
+
     *   Key additions: `src/coverage/traces.rs`, `src/coverage/sdk.rs`, `TraceConfigChange` type, `SdkDependencyDelta` type.
 
 *   **Track M7-2: Service-Map Derivation**
-    *   Status: Planning
-    *   Dependencies: M6-1
+    *   Status: Completed
     *   Spec: `docs/observability-plan2.md` §5
     *   Plan: `conductor/trackM7-2/plan.md`
     *   Goal: Infer service boundaries from route/handler/data-model topology, derive cross-service dependency edges.
-    *   Key additions: `src/coverage/services.rs`, `ServiceMapDelta` type, multi-strategy service naming.
+    *   Key Additions: `src/coverage/services.rs`, migration M15, `service_map_delta` in `ImpactPacket`, Go support in extension lists.
 
 *   **Track M7-3: Data-Flow Coupling Risk**
     *   Status: Planning

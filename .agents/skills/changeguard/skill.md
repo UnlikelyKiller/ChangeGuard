@@ -96,6 +96,25 @@ risk_threshold = 0.6
 [contracts]
 spec_paths = []                            # OpenAPI/Swagger spec file globs
 match_threshold = 0.5
+
+[coverage]
+enabled = true                             # Master toggle for M7 features
+[coverage.traces]
+enabled = true
+[coverage.sdk]
+enabled = true
+patterns = ["stripe", "auth0", "aws-sdk"] # SDK patterns to detect
+[coverage.services]
+enabled = true
+[coverage.data_flow]
+enabled = true
+[coverage.deploy]
+enabled = true
+[coverage.ci_self_awareness]
+enabled = true
+[coverage.adr_staleness]
+enabled = true
+threshold_days = 365
 ```
 
 ## Impact Packet Enrichment
@@ -104,9 +123,14 @@ When configured, impact reports include these enrichment sections:
 
 | Field | Source | Description |
 |---|---|---|
-| `relevant_decisions` | Doc index + embedding similarity | Semantically relevant documentation chunks |
+| `relevant_decisions` | Doc index + embedding similarity | Semantically relevant documentation chunks (includes staleness warnings) |
 | `observability` | Prometheus + log scanner | Production signals (latency, error rate, log anomalies) with severity |
 | `affected_contracts` | API endpoint index + file embeddings | Public API endpoints potentially affected by the change |
+| `trace_config_drift` | Trace config file & env-var detection | Changes to OTEL, Jaeger, Datadog collector configs or env vars |
+| `sdk_dependencies_delta` | Third-party SDK import analysis | New or modified integrations with Stripe, AWS, Auth0, etc. |
+| `service_map_delta` | Route topology & service map inference | Impact on inferred service boundaries and cross-service edges |
+| `data_flow_matches` | Call graph → Data model coupling | Co-changes between API route handlers and the data models they touch |
+| `deploy_manifest_changes`| Deployment manifest classification | Changes to Dockerfiles, K8s manifests, Terraform, or Helm charts |
 
 All enrichment degrades gracefully: if the local model is unreachable or configuration is absent, enrichment is a silent no-op. No blocking, no panics. Risk elevation from observability/contract signals escalates `risk_level` (Low→Medium→High) without overwriting rule-based risk reasons.
 

@@ -238,7 +238,11 @@ fn extract_ts_string_literal(s: &str) -> String {
     }
 }
 
-pub fn extract_calls(content: &str, _symbols: &[Symbol]) -> Result<Vec<CallEdge>> {
+pub fn extract_calls(
+    path: &std::path::Path,
+    content: &str,
+    _symbols: &[Symbol],
+) -> Result<Vec<CallEdge>> {
     let mut parser = Parser::new();
     let language = tree_sitter_typescript::LANGUAGE_TYPESCRIPT;
     parser.set_language(&language.into()).into_diagnostic()?;
@@ -248,11 +252,16 @@ pub fn extract_calls(content: &str, _symbols: &[Symbol]) -> Result<Vec<CallEdge>
         .ok_or_else(|| miette::miette!("Failed to parse TypeScript content"))?;
 
     let mut edges = Vec::new();
-    collect_ts_call_edges(tree.root_node(), content, &mut edges);
+    collect_ts_call_edges(tree.root_node(), content, &mut edges, path);
     Ok(edges)
 }
 
-fn collect_ts_call_edges(node: tree_sitter::Node, content: &str, edges: &mut Vec<CallEdge>) {
+fn collect_ts_call_edges(
+    node: tree_sitter::Node,
+    content: &str,
+    edges: &mut Vec<CallEdge>,
+    path: &std::path::Path,
+) {
     let kind = node.kind();
 
     if kind == "call_expression" {
@@ -269,7 +278,9 @@ fn collect_ts_call_edges(node: tree_sitter::Node, content: &str, edges: &mut Vec
                         let evidence = format!("call_expr:{name}()");
                         edges.push(CallEdge {
                             caller_name,
+                            caller_file: path.to_path_buf(),
                             callee_name: name,
+                            callee_file: None,
                             call_kind: CallKind::Direct,
                             resolution_status: ResolutionStatus::Resolved,
                             confidence: CallKind::Direct.default_confidence(),
@@ -286,7 +297,9 @@ fn collect_ts_call_edges(node: tree_sitter::Node, content: &str, edges: &mut Vec
                         let evidence = format!("method_call:{full_text}");
                         edges.push(CallEdge {
                             caller_name,
+                            caller_file: path.to_path_buf(),
                             callee_name,
+                            callee_file: None,
                             call_kind: CallKind::MethodCall,
                             resolution_status: ResolutionStatus::Resolved,
                             confidence: CallKind::MethodCall.default_confidence(),
@@ -304,7 +317,9 @@ fn collect_ts_call_edges(node: tree_sitter::Node, content: &str, edges: &mut Vec
                         let evidence = format!("dynamic:{text}");
                         edges.push(CallEdge {
                             caller_name,
+                            caller_file: path.to_path_buf(),
                             callee_name: text,
+                            callee_file: None,
                             call_kind: CallKind::Dynamic,
                             resolution_status: ResolutionStatus::Unresolved,
                             confidence: CallKind::Dynamic.default_confidence(),
@@ -324,7 +339,9 @@ fn collect_ts_call_edges(node: tree_sitter::Node, content: &str, edges: &mut Vec
                 let evidence = format!("new_expr:new {name}()");
                 edges.push(CallEdge {
                     caller_name,
+                    caller_file: path.to_path_buf(),
                     callee_name: name,
+                    callee_file: None,
                     call_kind: CallKind::MethodCall,
                     resolution_status: ResolutionStatus::Resolved,
                     confidence: CallKind::MethodCall.default_confidence(),
@@ -337,7 +354,7 @@ fn collect_ts_call_edges(node: tree_sitter::Node, content: &str, edges: &mut Vec
     // Recurse into children
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        collect_ts_call_edges(child, content, edges);
+        collect_ts_call_edges(child, content, edges, path);
     }
 }
 
@@ -983,7 +1000,7 @@ mod tests {
             }
         "#;
 
-        let edges = extract_calls(content, &[]).unwrap();
+        let edges = extract_calls(std::path::Path::new("test.ts"), content, &[]).unwrap();
         let direct: Vec<&CallEdge> = edges
             .iter()
             .filter(|e| e.call_kind == CallKind::Direct && e.callee_name == "helper")
@@ -1001,7 +1018,7 @@ mod tests {
             }
         "#;
 
-        let edges = extract_calls(content, &[]).unwrap();
+        let edges = extract_calls(std::path::Path::new("test.ts"), content, &[]).unwrap();
         let method: Vec<&CallEdge> = edges
             .iter()
             .filter(|e| e.call_kind == CallKind::MethodCall && e.callee_name == "greet")
@@ -1018,7 +1035,7 @@ mod tests {
             }
         "#;
 
-        let edges = extract_calls(content, &[]).unwrap();
+        let edges = extract_calls(std::path::Path::new("test.ts"), content, &[]).unwrap();
         let new_edge: Vec<&CallEdge> = edges
             .iter()
             .filter(|e| e.call_kind == CallKind::MethodCall && e.callee_name == "Service")
@@ -1039,7 +1056,7 @@ mod tests {
             }
         "#;
 
-        let edges = extract_calls(content, &[]).unwrap();
+        let edges = extract_calls(std::path::Path::new("test.ts"), content, &[]).unwrap();
         // cb() should appear; whether it's Direct or Dynamic depends on tree-sitter
         // but there should be at least one edge for the cb() invocation.
         let cb_edges: Vec<&CallEdge> = edges

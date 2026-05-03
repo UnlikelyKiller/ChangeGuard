@@ -53,6 +53,7 @@ pulldown-cmark = { version = "0.13", default-features = false }
 dunce = "1.0.5"
 path-clean = "1.0.1"
 ureq = { version = "2", features = ["json"] }
+tree-sitter-go = "0.25.0"
 
 [features]
 default = []

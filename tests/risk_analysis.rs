@@ -15,7 +15,9 @@ fn test_risk_analysis_integration() {
     packet.changes.push(ChangedFile {
         path: PathBuf::from("src/lib.rs"),
         status: "Modified".to_string(),
+        old_path: None,
         is_staged: true,
+
         symbols: Some(vec![Symbol {
             name: "highly_risky".into(),
             kind: SymbolKind::Function,
@@ -40,7 +42,7 @@ fn test_risk_analysis_integration() {
     });
 
     let rules = Rules::default();
-    analyze_risk(&mut packet, &rules).unwrap();
+    analyze_risk(&mut packet, &rules, &changeguard::config::model::Config::default()).unwrap();
 
     // Weight: 30 (public symbol) -> Medium
     assert_eq!(packet.risk_level, RiskLevel::Medium);
@@ -61,6 +63,7 @@ fn test_risk_analysis_high_volume() {
         packet.changes.push(ChangedFile {
             path: PathBuf::from(format!("file_{}.rs", i)),
             status: "Added".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -74,7 +77,7 @@ fn test_risk_analysis_high_volume() {
     }
 
     let rules = Rules::default();
-    analyze_risk(&mut packet, &rules).unwrap();
+    analyze_risk(&mut packet, &rules, &changeguard::config::model::Config::default()).unwrap();
 
     // Weight: 20 (volume) -> Medium (because 20 is Low, wait, 21-60 is Medium)
     // Actually in my implementation 20 is Low. Let's add more weight.
@@ -94,7 +97,7 @@ fn test_risk_analysis_high_volume() {
         entrypoint_kind: None,
     }]);
 
-    analyze_risk(&mut packet, &rules).unwrap();
+    analyze_risk(&mut packet, &rules, &changeguard::config::model::Config::default()).unwrap();
 
     // Weight: 20 (volume) + 30 (public symbol) = 50 -> Medium
     assert_eq!(packet.risk_level, RiskLevel::Medium);
@@ -107,7 +110,9 @@ fn test_risk_analysis_protected_and_public() {
     packet.changes.push(ChangedFile {
         path: PathBuf::from("Cargo.toml"),
         status: "Modified".to_string(),
+        old_path: None,
         is_staged: true,
+
         symbols: None,
         imports: None,
         runtime_usage: None,
@@ -121,7 +126,9 @@ fn test_risk_analysis_protected_and_public() {
     packet.changes.push(ChangedFile {
         path: PathBuf::from("src/api.rs"),
         status: "Modified".to_string(),
+        old_path: None,
         is_staged: true,
+
         symbols: Some(vec![Symbol {
             name: "highly_risky".into(),
             kind: SymbolKind::Function,
@@ -150,7 +157,7 @@ fn test_risk_analysis_protected_and_public() {
         ..Rules::default()
     };
 
-    analyze_risk(&mut packet, &rules).unwrap();
+    analyze_risk(&mut packet, &rules, &changeguard::config::model::Config::default()).unwrap();
 
     // Weight: 70 (protected) + 30 (public) = 100 -> High
     assert_eq!(packet.risk_level, RiskLevel::High);
@@ -169,7 +176,7 @@ fn test_env_var_dep_triggers_risk_reason() {
     });
 
     let rules = Rules::default();
-    analyze_risk(&mut packet, &rules).unwrap();
+    analyze_risk(&mut packet, &rules, &changeguard::config::model::Config::default()).unwrap();
 
     assert!(
         packet
@@ -193,7 +200,7 @@ fn test_common_env_var_dep_is_filtered_from_risk() {
     });
 
     let rules = Rules::default();
-    analyze_risk(&mut packet, &rules).unwrap();
+    analyze_risk(&mut packet, &rules, &changeguard::config::model::Config::default()).unwrap();
 
     assert!(
         !packet.risk_reasons.iter().any(|r| r.contains("PATH")),
@@ -217,7 +224,7 @@ fn test_runtime_delta_env_count_change_triggers_risk_reason() {
     });
 
     let rules = Rules::default();
-    analyze_risk(&mut packet, &rules).unwrap();
+    analyze_risk(&mut packet, &rules, &changeguard::config::model::Config::default()).unwrap();
 
     assert!(
         packet
@@ -241,7 +248,7 @@ fn test_runtime_delta_config_count_change_triggers_risk_reason() {
     });
 
     let rules = Rules::default();
-    analyze_risk(&mut packet, &rules).unwrap();
+    analyze_risk(&mut packet, &rules, &changeguard::config::model::Config::default()).unwrap();
 
     assert!(
         packet
@@ -269,7 +276,7 @@ fn test_runtime_delta_same_cardinality_not_flagged() {
     });
 
     let rules = Rules::default();
-    analyze_risk(&mut packet, &rules).unwrap();
+    analyze_risk(&mut packet, &rules, &changeguard::config::model::Config::default()).unwrap();
 
     assert!(
         !packet

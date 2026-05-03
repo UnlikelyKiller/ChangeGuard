@@ -108,6 +108,9 @@ pub fn execute_index(
     // Extract env schema (declarations and references)
     let env_stats = indexer.extract_env_schema()?;
 
+    // Infer service boundaries
+    let service_stats = indexer.infer_services()?;
+
     // Compute centrality if requested
     let cent_stats = if analyze_graph {
         indexer.compute_centrality()?
@@ -132,6 +135,7 @@ pub fn execute_index(
         let doc_obj = serde_json::to_value(&doc_stats).into_diagnostic()?;
         let topo_obj = serde_json::to_value(&topo_stats).into_diagnostic()?;
         let ep_obj = serde_json::to_value(&ep_stats).into_diagnostic()?;
+        let service_obj = serde_json::to_value(&service_stats).into_diagnostic()?;
         if let (Some(map), Some(doc)) = (output.as_object_mut(), doc_obj.as_object()) {
             for (k, v) in doc {
                 map.insert(format!("doc_{}", k), v.clone());
@@ -145,6 +149,11 @@ pub fn execute_index(
         if let (Some(map), Some(ep)) = (output.as_object_mut(), ep_obj.as_object()) {
             for (k, v) in ep {
                 map.insert(format!("ep_{}", k), v.clone());
+            }
+        }
+        if let (Some(map), Some(svc)) = (output.as_object_mut(), service_obj.as_object()) {
+            for (k, v) in svc {
+                map.insert(format!("service_{}", k), v.clone());
             }
         }
         let cg_obj = serde_json::to_value(&cg_stats).into_diagnostic()?;
@@ -335,6 +344,11 @@ pub fn execute_index(
             println!("  Skipped:          {}", cs.endpoints_skipped);
             println!("  Deleted:          {}", cs.endpoints_deleted);
         }
+
+        println!();
+        println!("Services:");
+        println!("  Services inferred: {}", service_stats.services_inferred);
+        println!("  Files assigned:    {}", service_stats.files_assigned);
     }
 
     Ok(())

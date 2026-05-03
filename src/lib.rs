@@ -2,6 +2,7 @@ pub mod cli;
 pub mod commands;
 pub mod config;
 pub mod contracts;
+pub mod coverage;
 pub mod docs;
 pub mod embed;
 pub mod exec;

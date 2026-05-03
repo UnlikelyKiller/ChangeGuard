@@ -156,7 +156,9 @@ mod tests {
             changes: vec![ChangedFile {
                 path: PathBuf::from("src/main.rs"),
                 status: "Modified".to_string(),
+                old_path: None,
                 is_staged: false,
+
                 symbols: None,
                 imports: None,
                 runtime_usage: None,
@@ -358,7 +360,9 @@ mod tests {
             changes: vec![ChangedFile {
                 path: PathBuf::from("src/lib.rs"),
                 status: "Modified".to_string(),
+                old_path: None,
                 is_staged: true,
+
                 symbols: None,
                 imports: None,
                 runtime_usage: None,

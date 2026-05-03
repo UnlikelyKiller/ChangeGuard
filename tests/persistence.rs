@@ -19,8 +19,10 @@ fn test_persistence_integration() {
         };
         packet.changes.push(ChangedFile {
             path: PathBuf::from("src/main.rs"),
-            status: "Modified".to_string(),
+            status: "Added".to_string(),
+            old_path: None,
             is_staged: true,
+
             symbols: Some(vec![Symbol {
                 name: "run".to_string(),
                 kind: SymbolKind::Function,

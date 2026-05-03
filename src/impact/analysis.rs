@@ -43,7 +43,8 @@ static FRAMEWORK_CONVENTION_CONFIG_KEYS: LazyLock<[&str; 8]> = LazyLock::new(|| 
     ]
 });
 
-pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules) -> Result<()> {
+use crate::config::model::Config;
+pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules, config: &Config) -> Result<()> {
     let mut total_weight = 0;
     let mut reasons = Vec::new();
 
@@ -404,34 +405,129 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules) -> Result<()> {
     }
     total_weight += telemetry_total;
 
-    // 3k. CI/CD Change Risk
-    // Each changed file with CI gates generates a risk reason.
-    // Weight: +30 per file, capped at 30 total for this category.
-    let ci_weight_per_file = 30;
-    let ci_weight_cap = 30;
-    let mut ci_total = 0;
-    for file in &packet.changes {
-        if !file.ci_gates.is_empty() {
-            let gate = &file.ci_gates[0];
-            let trigger_info = gate
-                .trigger
-                .as_ref()
-                .map(|t| format!(" (trigger: {})", t))
-                .unwrap_or_default();
-            reasons.push(format!(
-                "CI/CD change: {} ({}){}",
-                gate.job_name, gate.platform, trigger_info
-            ));
-            debug!(
-                "Risk Factor: CI/CD change ({} in {}) +{}",
-                gate.job_name, gate.platform, ci_weight_per_file
-            );
-            if ci_total + ci_weight_per_file <= ci_weight_cap {
-                ci_total += ci_weight_per_file;
+    // 4. M7 Engineering Coverage Risks
+    
+    // 4a. Trace Config Drift
+    let trace_config_weight_per_file = config.coverage.traces.risk_weight_per_config_file;
+    let trace_config_weight_cap = config.coverage.traces.risk_cap;
+    let mut trace_config_total = 0;
+    for change in &packet.trace_config_drift {
+        if trace_config_total + trace_config_weight_per_file <= trace_config_weight_cap {
+            trace_config_total += trace_config_weight_per_file;
+            reasons.push(format!("Observability config drift: {:?}", change.file));
+            debug!("Risk Factor: Trace config drift ({:?}) +{}", change.file, trace_config_weight_per_file);
+        }
+    }
+    total_weight += trace_config_total;
+
+    // 4b. Trace Env Var Changes
+    let trace_env_weight_per_var = config.coverage.traces.risk_weight_per_env_var;
+    let trace_env_weight_cap = config.coverage.traces.risk_cap; // Note: using same cap as config drift for now or check config
+    let mut trace_env_total = 0;
+    for change in &packet.trace_env_vars {
+        if trace_env_total + trace_env_weight_per_var <= trace_env_weight_cap {
+            trace_env_total += trace_env_weight_per_var;
+            reasons.push(format!("Observability env var change: {}", change.var_name));
+            debug!("Risk Factor: Trace env var change ({}) +{}", change.var_name, trace_env_weight_per_var);
+        }
+    }
+    total_weight += trace_env_total;
+
+    // 4c. SDK Dependency Changes
+    if let Some(ref delta) = packet.sdk_dependencies_delta {
+        let sdk_new_weight = config.coverage.sdk.risk_weight_new;
+        let sdk_new_cap = config.coverage.sdk.risk_cap;
+        let mut sdk_new_total = 0;
+        for sdk in &delta.added {
+            if sdk_new_total + sdk_new_weight <= sdk_new_cap {
+                sdk_new_total += sdk_new_weight;
+                reasons.push(format!("New SDK dependency: {}", sdk.sdk_name));
+                debug!("Risk Factor: New SDK ({}) +{}", sdk.sdk_name, sdk_new_weight);
+            }
+        }
+        total_weight += sdk_new_total;
+
+        let sdk_mod_weight = config.coverage.sdk.risk_weight_modified;
+        let sdk_mod_cap = config.coverage.sdk.risk_cap;
+        let mut sdk_mod_total = 0;
+        for sdk in &delta.modified {
+            if sdk_mod_total + sdk_mod_weight <= sdk_mod_cap {
+                sdk_mod_total += sdk_mod_weight;
+                reasons.push(format!("Modified SDK dependency: {}", sdk.sdk_name));
+                debug!("Risk Factor: Modified SDK ({}) +{}", sdk.sdk_name, sdk_mod_weight);
+            }
+        }
+        total_weight += sdk_mod_total;
+    }
+
+    // 4d. Cross-Service Impact (Service-Map)
+    if let Some(ref delta) = packet.service_map_delta {
+        let count = delta.affected_services.len();
+        let svc_weight = if count >= 5 {
+            config.coverage.services.risk_weight_5plus
+        } else if count >= 3 {
+            config.coverage.services.risk_weight_3to4
+        } else if count == 2 {
+            config.coverage.services.risk_weight_2svcs
+        } else {
+            0
+        };
+        if svc_weight > 0 {
+            total_weight += svc_weight;
+            reasons.push(format!("Cross-service change affecting {} services", count));
+            debug!("Risk Factor: Cross-service impact ({} svcs) +{}", count, svc_weight);
+        }
+    }
+
+    // 4e. Data-Flow Coupling
+    let data_flow_weight_per_match = config.coverage.data_flow.risk_weight_per_match;
+    let data_flow_weight_cap = config.coverage.data_flow.risk_cap;
+    let mut data_flow_total = 0;
+    for m in &packet.data_flow_matches {
+        if data_flow_total + data_flow_weight_per_match <= data_flow_weight_cap {
+            data_flow_total += data_flow_weight_per_match;
+            reasons.push(format!("Data-flow coupling: chain {} affected ({:.0}% change)", m.chain_label, m.change_pct * 100.0));
+            debug!("Risk Factor: Data-flow match ({}) +{}", m.chain_label, data_flow_weight_per_match);
+        }
+    }
+    total_weight += data_flow_total;
+
+    // 4f. Deploy Manifest Changes
+    let deploy_weight_per_manifest = config.coverage.deploy.risk_weight_per_manifest;
+    let deploy_weight_cap = config.coverage.deploy.risk_cap;
+    let mut deploy_total = 0;
+    for change in &packet.deploy_manifest_changes {
+        if deploy_total + deploy_weight_per_manifest <= deploy_weight_cap {
+            deploy_total += deploy_weight_per_manifest;
+            reasons.push(format!("Deploy manifest changed: {:?}", change.file));
+            debug!("Risk Factor: Deploy manifest changed ({:?}) +{}", change.file, deploy_weight_per_manifest);
+        }
+    }
+    total_weight += deploy_total;
+
+    // 4g. CI Self-Awareness
+    let ci_config_changed = packet.changes.iter().any(|c| !c.ci_gates.is_empty());
+    let source_changed = packet.changes.iter().any(|c| c.symbols.is_some() || c.imports.is_some());
+    if ci_config_changed && config.coverage.ci_self_awareness.enabled {
+        let ci_weight = if source_changed { config.coverage.ci_self_awareness.ci_plus_source_weight } else { config.coverage.ci_self_awareness.ci_changed_weight };
+        total_weight += ci_weight;
+        reasons.push(format!("CI pipeline config change{}", if source_changed { " + source code" } else { "" }));
+        debug!("Risk Factor: CI self-awareness (source={}) +{}", source_changed, ci_weight);
+    }
+
+    // 4h. ADR Staleness Advisory
+    if config.coverage.adr_staleness.enabled {
+        let threshold = config.coverage.adr_staleness.threshold_days;
+        for decision in &packet.relevant_decisions {
+            if let Some(days) = decision.staleness_days {
+                if days > threshold {
+                    reasons.push(format!("Stale architectural context: {} ({} days old)", decision.file_path.display(), days));
+                    debug!("Advisory: Stale ADR ({}) {} days", decision.file_path.display(), days);
+                }
             }
         }
     }
-    total_weight += ci_total;
+
 
     // 3m. Runtime/Config Dependency Risk
     // Category Cap: 25 points
@@ -511,11 +607,11 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules) -> Result<()> {
         RiskLevel::Low
     };
 
-    if reasons.is_empty() {
-        reasons.push("Minimal changes detected".to_string());
+    if reasons.is_empty() && packet.risk_reasons.is_empty() {
+        packet.risk_reasons.push("Minimal changes detected".to_string());
+    } else {
+        packet.risk_reasons.extend(reasons);
     }
-
-    packet.risk_reasons = reasons;
 
     Ok(())
 }
@@ -532,6 +628,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("README.md"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -544,7 +641,7 @@ mod tests {
         });
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         assert_eq!(packet.risk_level, RiskLevel::Low);
         assert!(
@@ -560,6 +657,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("Cargo.toml"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -576,7 +674,7 @@ mod tests {
             ..Rules::default()
         };
 
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         assert_eq!(packet.risk_level, RiskLevel::High);
         assert!(
@@ -595,6 +693,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("src/main.rs"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: Some(vec![Symbol {
                 name: "main".to_string(),
@@ -619,7 +718,7 @@ mod tests {
         });
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         assert_eq!(packet.risk_level, RiskLevel::Medium);
         assert!(
@@ -638,6 +737,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("src/handlers.rs"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: Some(vec![Symbol {
                 name: "get_users".to_string(),
@@ -662,7 +762,7 @@ mod tests {
         });
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         assert!(
             packet
@@ -680,6 +780,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("src/lib.rs"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: Some(vec![Symbol {
                 name: "public_fn".to_string(),
@@ -704,7 +805,7 @@ mod tests {
         });
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         assert!(
             packet
@@ -722,6 +823,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("src/lib.rs"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: Some(vec![Symbol {
                 name: "test_foo".to_string(),
@@ -746,7 +848,7 @@ mod tests {
         });
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         // TEST entry points get no additional risk weight
         assert_eq!(packet.risk_level, RiskLevel::Low);
@@ -761,6 +863,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("src/lib.rs"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: Some(vec![Symbol {
                 name: "some_fn".to_string(),
@@ -785,7 +888,7 @@ mod tests {
         });
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         assert_eq!(packet.risk_level, RiskLevel::Low);
         assert!(
@@ -803,6 +906,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("src/utils.rs"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -820,7 +924,7 @@ mod tests {
         });
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         // 15 weight from structural coupling, plus default "Provisional baseline risk" replaced
         assert!(
@@ -850,6 +954,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("src/utils.rs"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -878,7 +983,7 @@ mod tests {
         });
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         // Only first 2 should produce risk reasons
         let coupling_reasons: Vec<_> = packet
@@ -898,6 +1003,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("README.md"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -911,7 +1017,7 @@ mod tests {
         // structural_couplings is empty by default
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         assert_eq!(packet.risk_level, RiskLevel::Low);
         assert!(
@@ -940,6 +1046,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("src/utils.rs"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -958,7 +1065,7 @@ mod tests {
         });
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         // Verify the risk reasons include the exact structural coupling message
         assert!(
@@ -994,6 +1101,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("README.md"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -1007,7 +1115,7 @@ mod tests {
         // structural_couplings is empty by default (Vec::new())
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         // Risk level should be Low (same as pre-E2-1 behavior)
         assert_eq!(packet.risk_level, RiskLevel::Low);
@@ -1040,6 +1148,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("src/routes.rs"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -1062,7 +1171,7 @@ mod tests {
         });
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         // Should have risk reason for the route
         assert!(
@@ -1086,6 +1195,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("README.md"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -1098,7 +1208,7 @@ mod tests {
         });
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         assert_eq!(packet.risk_level, RiskLevel::Low);
         // No route risk reasons should appear
@@ -1127,6 +1237,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("src/models/user.rs"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -1144,7 +1255,7 @@ mod tests {
         });
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         // Should have risk reason for the data model
         assert!(
@@ -1167,6 +1278,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("src/generated/proto.rs"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -1184,7 +1296,7 @@ mod tests {
         });
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         // Should have risk reason for the data model
         assert!(
@@ -1206,6 +1318,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("README.md"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -1218,7 +1331,7 @@ mod tests {
         });
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         assert_eq!(packet.risk_level, RiskLevel::Low);
         // No data contract risk reasons should appear
@@ -1242,6 +1355,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("src/core.rs"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -1258,7 +1372,7 @@ mod tests {
         });
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         assert!(
             packet
@@ -1290,6 +1404,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("src/util.rs"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -1306,7 +1421,7 @@ mod tests {
         });
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         assert!(
             !packet
@@ -1324,6 +1439,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("README.md"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -1337,7 +1453,7 @@ mod tests {
         // No centrality_risks — default empty
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         assert_eq!(packet.risk_level, RiskLevel::Low);
         assert!(
@@ -1356,6 +1472,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("src/service.rs"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -1375,7 +1492,7 @@ mod tests {
         });
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         // Should have a risk reason about logging coverage reduction
         assert!(
@@ -1399,6 +1516,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("README.md"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -1412,7 +1530,7 @@ mod tests {
         // logging_coverage_delta is empty by default
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         assert_eq!(packet.risk_level, RiskLevel::Low);
         assert!(
@@ -1438,6 +1556,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("src/handler.rs"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -1457,7 +1576,7 @@ mod tests {
         });
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         // Should have a risk reason about error handling reduction
         assert!(
@@ -1481,6 +1600,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("README.md"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -1494,7 +1614,7 @@ mod tests {
         // error_handling_delta is empty by default
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         assert_eq!(packet.risk_level, RiskLevel::Low);
         assert!(
@@ -1520,6 +1640,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("deploy/config.yaml"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -1541,7 +1662,7 @@ mod tests {
         packet.infrastructure_dirs.push("deploy".to_string());
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         // Should have infrastructure error handling risk reason
         assert!(
@@ -1563,6 +1684,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("deploy/config.yaml"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -1583,7 +1705,7 @@ mod tests {
         // infrastructure_dirs is empty — falls back to heuristic which includes "deploy"
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         // Should have infrastructure error handling risk reason via heuristic fallback
         assert!(
@@ -1603,6 +1725,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("src/api/handler.rs"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -1624,7 +1747,7 @@ mod tests {
         });
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         // Should have a risk reason about telemetry coverage reduction
         assert!(
@@ -1648,6 +1771,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("README.md"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -1661,7 +1785,7 @@ mod tests {
         // telemetry_coverage_delta is empty by default
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         assert_eq!(packet.risk_level, RiskLevel::Low);
         assert!(
@@ -1689,6 +1813,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("src/lib.rs"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -1712,7 +1837,7 @@ mod tests {
         });
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         // Should not have "No test coverage" advisory since covering_tests is non-empty
         assert!(
@@ -1733,6 +1858,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("src/lib.rs"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -1751,7 +1877,7 @@ mod tests {
         });
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         // Should have advisory about missing test coverage
         assert!(
@@ -1772,6 +1898,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("README.md"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -1785,7 +1912,7 @@ mod tests {
         // test_coverage is empty by default
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         assert!(
             !packet
@@ -1812,6 +1939,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from(".github/workflows/ci.yml"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -1828,21 +1956,21 @@ mod tests {
         });
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        let mut config = Config::default();
+        config.coverage.ci_self_awareness.enabled = true;
+        analyze_risk(&mut packet, &rules, &config).unwrap();
 
         // Should have a CI/CD change risk reason
         assert!(
             packet
                 .risk_reasons
                 .iter()
-                .any(|r| r.contains("CI/CD change")
-                    && r.contains("build")
-                    && r.contains("github_actions")),
-            "expected 'CI/CD change: build (github_actions)' in risk reasons, got {:?}",
+                .any(|r| r.contains("CI pipeline config change")),
+            "expected 'CI pipeline config change' in risk reasons, got {:?}",
             packet.risk_reasons
         );
-        // 30 weight from CI/CD change -> Medium (>20)
-        assert_eq!(packet.risk_level, RiskLevel::Medium);
+        // 3 weight from CI/CD change -> Low (<= 20)
+        assert_eq!(packet.risk_level, RiskLevel::Low);
     }
 
     #[test]
@@ -1852,6 +1980,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("README.md"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -1864,7 +1993,8 @@ mod tests {
         });
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        let config = Config::default();
+        analyze_risk(&mut packet, &rules, &config).unwrap();
 
         assert_eq!(packet.risk_level, RiskLevel::Low);
         assert!(
@@ -1893,6 +2023,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from(".github/workflows/ci.yml"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -1910,6 +2041,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from(".gitlab-ci.yml"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -1926,24 +2058,25 @@ mod tests {
         });
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        let mut config = Config::default();
+        config.coverage.ci_self_awareness.enabled = true;
+        analyze_risk(&mut packet, &rules, &config).unwrap();
 
-        // Both files should have CI/CD change reasons
+        // Should have one CI pipeline reason (it's not per-file anymore, but global)
         let ci_reasons: Vec<_> = packet
             .risk_reasons
             .iter()
-            .filter(|r| r.contains("CI/CD change"))
+            .filter(|r| r.contains("CI pipeline config change"))
             .collect();
         assert_eq!(
             ci_reasons.len(),
-            2,
-            "expected 2 CI/CD change reasons, got {:?}",
+            1,
+            "expected 1 CI pipeline config change reason, got {:?}",
             ci_reasons
         );
 
-        // 30 weight cap means total weight is 30, not 60
-        // 30 > 20 -> Medium
-        assert_eq!(packet.risk_level, RiskLevel::Medium);
+        // 3 weight (alone) -> Low
+        assert_eq!(packet.risk_level, RiskLevel::Low);
     }
 
     #[test]
@@ -1955,6 +2088,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("src/config.rs"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -1972,7 +2106,8 @@ mod tests {
         });
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        let config = Config::default();
+        analyze_risk(&mut packet, &rules, &config).unwrap();
 
         // Should have a runtime dependency risk reason
         assert!(
@@ -1999,6 +2134,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("src/main.rs"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -2016,7 +2152,8 @@ mod tests {
         });
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        let config = Config::default();
+        analyze_risk(&mut packet, &rules, &config).unwrap();
 
         // No runtime dependency risk reasons should appear for common env vars
         assert!(
@@ -2039,6 +2176,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("src/settings.rs"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -2058,7 +2196,8 @@ mod tests {
         });
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        let config = Config::default();
+        analyze_risk(&mut packet, &rules, &config).unwrap();
 
         // Should have config key risk reasons
         assert!(
@@ -2081,6 +2220,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("src/app.rs"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -2103,7 +2243,8 @@ mod tests {
         });
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        let config = Config::default();
+        analyze_risk(&mut packet, &rules, &config).unwrap();
 
         assert!(
             packet
@@ -2124,6 +2265,7 @@ mod tests {
         packet.changes.push(ChangedFile {
             path: PathBuf::from("README.md"),
             status: "Modified".to_string(),
+            old_path: None,
             is_staged: true,
             symbols: None,
             imports: None,
@@ -2136,7 +2278,8 @@ mod tests {
         });
 
         let rules = Rules::default();
-        analyze_risk(&mut packet, &rules).unwrap();
+        let config = Config::default();
+        analyze_risk(&mut packet, &rules, &config).unwrap();
 
         assert_eq!(packet.risk_level, RiskLevel::Low);
         assert!(
@@ -2154,6 +2297,262 @@ mod tests {
                 .risk_reasons
                 .contains(&"Minimal changes detected".to_string()),
             "expected 'Minimal changes detected' in risk reasons, got {:?}",
+            packet.risk_reasons
+        );
+    }
+
+    #[test]
+    fn test_analyze_risk_trace_config_drift() {
+        use crate::impact::packet::{TraceConfigChange, TraceConfigType};
+        let mut packet = ImpactPacket::default();
+        packet.trace_config_drift.push(TraceConfigChange {
+            file: PathBuf::from("otel-config.yaml"),
+            config_type: TraceConfigType::OpenTelemetryCollector,
+            risk_weight: 3,
+            is_deleted: false,
+        });
+
+        let rules = Rules::default();
+        let config = Config::default();
+        analyze_risk(&mut packet, &rules, &config).unwrap();
+
+        assert!(packet.risk_reasons.iter().any(|r| r.contains("Observability config drift")));
+        // Default weight is 3
+        assert_eq!(packet.risk_level, RiskLevel::Low);
+    }
+
+    #[test]
+    fn test_analyze_risk_sdk_dependencies() {
+        use crate::impact::packet::{SdkDependency, SdkDependencyDelta};
+        let mut packet = ImpactPacket::default();
+        packet.sdk_dependencies_delta = Some(SdkDependencyDelta {
+            added: vec![SdkDependency {
+                sdk_name: "opentelemetry".to_string(),
+                file_path: PathBuf::from("src/main.rs"),
+                import_statement: "use opentelemetry;".to_string(),
+            }],
+            modified: vec![SdkDependency {
+                sdk_name: "sentry".to_string(),
+                file_path: PathBuf::from("src/lib.rs"),
+                import_statement: "use sentry;".to_string(),
+            }],
+            removed: vec![],
+        });
+
+        let rules = Rules::default();
+        let config = Config::default();
+        analyze_risk(&mut packet, &rules, &config).unwrap();
+
+        assert!(packet.risk_reasons.iter().any(|r| r.contains("New SDK dependency: opentelemetry")));
+        assert!(packet.risk_reasons.iter().any(|r| r.contains("Modified SDK dependency: sentry")));
+        // New(5) + Mod(3) = 8
+        assert_eq!(packet.risk_level, RiskLevel::Low);
+    }
+
+    #[test]
+    fn test_analyze_risk_service_map_delta() {
+        use crate::impact::packet::ServiceMapDelta;
+        let mut packet = ImpactPacket::default();
+        packet.service_map_delta = Some(ServiceMapDelta {
+            affected_services: vec!["users".to_string(), "billing".to_string(), "auth".to_string()],
+            services: vec![],
+            cross_service_edges: vec![],
+            total_services: 3,
+        });
+
+        let rules = Rules::default();
+        let config = Config::default();
+        analyze_risk(&mut packet, &rules, &config).unwrap();
+
+        assert!(packet.risk_reasons.iter().any(|r| r.contains("Cross-service change affecting 3 services")));
+        // 3 services -> weight 6
+        assert_eq!(packet.risk_level, RiskLevel::Low);
+    }
+
+    #[test]
+    fn test_analyze_risk_data_flow_coupling() {
+        use crate::impact::packet::DataFlowMatch;
+        let mut packet = ImpactPacket::default();
+        packet.data_flow_matches.push(DataFlowMatch {
+            chain_label: "GET /users -> User".to_string(),
+            changed_nodes: vec!["get_users".to_string()],
+            total_nodes: 2,
+            change_pct: 0.5,
+            risk: RiskLevel::Low,
+        });
+
+        let rules = Rules::default();
+        let config = Config::default();
+        analyze_risk(&mut packet, &rules, &config).unwrap();
+
+        assert!(packet.risk_reasons.iter().any(|r| r.contains("Data-flow coupling: chain GET /users -> User affected")));
+        // weight 4
+        assert_eq!(packet.risk_level, RiskLevel::Low);
+    }
+
+    #[test]
+    fn test_analyze_risk_deploy_manifest_change() {
+        use crate::impact::packet::{DeployManifestChange, ManifestType};
+        let mut packet = ImpactPacket::default();
+        packet.deploy_manifest_changes.push(DeployManifestChange {
+            file: PathBuf::from("Dockerfile"),
+            manifest_type: ManifestType::Dockerfile,
+            risk_weight: 3,
+            is_deleted: false,
+        });
+
+        let rules = Rules::default();
+        let config = Config::default();
+        analyze_risk(&mut packet, &rules, &config).unwrap();
+
+        assert!(packet.risk_reasons.iter().any(|r| r.contains("Deployment manifest change: Dockerfile")));
+        // weight 3
+        assert_eq!(packet.risk_level, RiskLevel::Low);
+    }
+
+    #[test]
+    fn test_analyze_risk_adr_staleness_advisory() {
+        use crate::impact::packet::RelevantDecision;
+        let mut packet = ImpactPacket::default();
+        packet.relevant_decisions.push(RelevantDecision {
+            file_path: PathBuf::from("docs/adr/001-auth.md"),
+            heading: Some("Auth".to_string()),
+            excerpt: "Use OAuth2".to_string(),
+            similarity: 0.9,
+            rerank_score: None,
+            staleness_days: Some(400),
+        });
+
+        let rules = Rules::default();
+        let mut config = Config::default();
+        config.coverage.adr_staleness.threshold_days = 365;
+        config.coverage.adr_staleness.enabled = true;
+        
+        analyze_risk(&mut packet, &rules, &config).unwrap();
+
+        assert!(packet.risk_reasons.iter().any(|r| r.contains("Stale architectural context: docs/adr/001-auth.md (400 days old)")));
+        // Advisory weight is 0 in the current implementation (advisory only)
+        assert_eq!(packet.risk_level, RiskLevel::Low);
+    }
+
+    #[test]
+    fn test_analyze_risk_combined_high() {
+        use crate::impact::packet::CoverageDelta;
+        let mut packet = ImpactPacket::default();
+        
+        // 1. Telemetry reduction (25)
+        packet.telemetry_coverage_delta.push(CoverageDelta {
+            file_path: "src/api.rs".to_string(),
+            pattern_kind: "TRACE".to_string(),
+            previous_count: 10,
+            current_count: 5,
+            message: "reduced".to_string(),
+        });
+        
+        // 2. Multi-service impact (10) - 5+ services
+        packet.service_map_delta = Some(crate::impact::packet::ServiceMapDelta {
+            affected_services: vec!["s1".to_string(), "s2".to_string(), "s3".to_string(), "s4".to_string(), "s5".to_string()],
+            services: vec![],
+            cross_service_edges: vec![],
+            total_services: 5,
+        });
+        
+        // 3. Data flow matches (12) - 3 matches at 4 each
+        for i in 0..3 {
+            packet.data_flow_matches.push(crate::impact::packet::DataFlowMatch {
+                chain_label: format!("chain-{}", i),
+                changed_nodes: vec!["node".to_string()],
+                total_nodes: 2,
+                change_pct: 0.5,
+                risk: RiskLevel::Low,
+            });
+        }
+        
+        let rules = Rules::default();
+        let config = Config::default();
+        analyze_risk(&mut packet, &rules, &config).unwrap();
+
+        assert_eq!(packet.risk_level, RiskLevel::High);
+    }
+    #[test]
+    fn test_analyze_risk_ci_gates_disabled() {
+        use crate::impact::packet::CIGate;
+
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from(".github/workflows/ci.yml"),
+            status: "Modified".to_string(),
+            old_path: None,
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+            ci_gates: vec![CIGate {
+                platform: "github_actions".to_string(),
+                job_name: "build".to_string(),
+                trigger: Some("push".to_string()),
+            }],
+        });
+
+        let rules = Rules::default();
+        let mut config = Config::default();
+        config.coverage.ci_self_awareness.enabled = false;
+        
+        analyze_risk(&mut packet, &rules, &config).unwrap();
+
+        // Should NOT have CI/CD risk reason because it's disabled
+        assert!(
+            !packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("CI pipeline config change")),
+            "expected no CI pipeline risk reason when disabled, got {:?}",
+            packet.risk_reasons
+        );
+    }
+
+    #[test]
+    fn test_analyze_risk_ci_gates_enabled() {
+        use crate::impact::packet::CIGate;
+
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from(".github/workflows/ci.yml"),
+            status: "Modified".to_string(),
+            old_path: None,
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+            ci_gates: vec![CIGate {
+                platform: "github_actions".to_string(),
+                job_name: "build".to_string(),
+                trigger: Some("push".to_string()),
+            }],
+        });
+
+        let rules = Rules::default();
+        let mut config = Config::default();
+        config.coverage.ci_self_awareness.enabled = true;
+        config.coverage.ci_self_awareness.ci_changed_weight = 10;
+        
+        analyze_risk(&mut packet, &rules, &config).unwrap();
+
+        // Should HAVE CI/CD risk reason because it's enabled
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("CI pipeline config change")),
+            "expected CI pipeline risk reason when enabled, got {:?}",
             packet.risk_reasons
         );
     }

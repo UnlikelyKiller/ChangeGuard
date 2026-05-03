@@ -52,6 +52,7 @@ pub enum DirectoryRole {
     Generated,
     Vendor,
     BuildArtifact,
+    ServiceRoot,
 }
 
 impl DirectoryRole {
@@ -65,6 +66,7 @@ impl DirectoryRole {
             DirectoryRole::Generated => "GENERATED",
             DirectoryRole::Vendor => "VENDOR",
             DirectoryRole::BuildArtifact => "BUILD_ARTIFACT",
+            DirectoryRole::ServiceRoot => "SERVICE_ROOT",
         }
     }
 
@@ -78,6 +80,7 @@ impl DirectoryRole {
             "GENERATED" => Some(DirectoryRole::Generated),
             "VENDOR" => Some(DirectoryRole::Vendor),
             "BUILD_ARTIFACT" => Some(DirectoryRole::BuildArtifact),
+            "SERVICE_ROOT" => Some(DirectoryRole::ServiceRoot),
             _ => None,
         }
     }
