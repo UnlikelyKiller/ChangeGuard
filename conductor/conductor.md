@@ -162,7 +162,7 @@
     *   Key additions: `src/local_model/client.rs`, `src/local_model/context.rs`, completions endpoint, token-budgeted context assembly.
 
 *   **Track M3-2: Ask Backend Routing & Integration**
-    *   Status: Planning
+    *   Status: Completed
     *   Dependencies: M3-1
     *   Spec: `conductor/trackM3-2/spec.md`
     *   Plan: `conductor/trackM3-2/plan.md`
