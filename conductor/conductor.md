@@ -122,7 +122,7 @@
      *   Key additions: Unique PENDING index, conditional status updates, --include-ledger reset flag, lexical path normalization utility, ProcessPolicy for validators.
 
 
-## Milestone M: Observability & Intelligence Expansion (In Progress)
+## Milestone M: Observability & Intelligence Expansion (Completed)
 
 *   **Track M1-1: Embedding HTTP Client & SQLite Schema**
     *   Status: Completed
@@ -178,7 +178,7 @@
     *   Key additions: `src/verify/semantic_predictor.rs`, `TestOutcome` enum, `record_test_outcomes()`, hook into `execute_verify()`.
 
 *   **Track M4-2: Semantic Predictor & Score Blending**
-    *   Status: Planning
+    *   Status: Completed
     *   Dependencies: M4-1
     *   Spec: `conductor/trackM4-2/spec.md`
     *   Plan: `conductor/trackM4-2/plan.md`
@@ -194,7 +194,7 @@
     *   Key additions: `src/observability/prometheus.rs`, `src/observability/log_scanner.rs`, `src/observability/signal.rs`, Prometheus query client.
 
 *   **Track M5-2: Observability Impact Enrichment**
-    *   Status: Planning
+    *   Status: Completed
     *   Dependencies: M5-1
     *   Spec: `conductor/trackM5-2/spec.md`
     *   Plan: `conductor/trackM5-2/plan.md`
@@ -210,7 +210,7 @@
     *   Key additions: `src/contracts/parser.rs`, `src/contracts/index.rs`, `serde_yaml` dependency, `changeguard index --contracts` flag.
 
 *   **Track M6-2: Contract Matching & Impact Enrichment**
-    *   Status: Planning
+    *   Status: Completed
     *   Dependencies: M6-1
     *   Spec: `conductor/trackM6-2/spec.md`
     *   Plan: `conductor/trackM6-2/plan.md`
