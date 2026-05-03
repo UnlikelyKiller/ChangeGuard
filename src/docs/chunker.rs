@@ -13,12 +13,13 @@ fn estimate_tokens(text: &str) -> usize {
 }
 
 /// Chunk markdown content into semantic chunks based on heading boundaries.
-/// `overlap_tokens` is reserved for future use and currently ignored.
+/// `overlap_tokens` controls the overlap between consecutive chunks — the last
+/// ~overlap_tokens of chunk N appear at the start of chunk N+1 for context continuity.
 pub fn chunk_markdown(
     content: &str,
     file_path: &str,
     chunk_tokens: usize,
-    _overlap_tokens: usize,
+    overlap_tokens: usize,
 ) -> Vec<DocChunk> {
     let mut chunks: Vec<DocChunk> = Vec::new();
     let mut chunk_index: usize = 0;
@@ -30,7 +31,7 @@ pub fn chunk_markdown(
         }
 
         if token_count > chunk_tokens {
-            for sub in split_at_paragraphs(&body, chunk_tokens) {
+            for sub in split_at_paragraphs(&body, chunk_tokens, overlap_tokens) {
                 let tk = estimate_tokens(&sub);
                 if tk >= 50 {
                     chunks.push(DocChunk {
@@ -120,7 +121,8 @@ fn split_into_sections(content: &str) -> Vec<(Option<String>, String)> {
 
 /// Split text at paragraph boundaries (\n\n) so each sub-chunk fits within `max_tokens`.
 /// Falls back to hard split at budget boundary if no paragraph break found.
-fn split_at_paragraphs(text: &str, max_tokens: usize) -> Vec<String> {
+/// `overlap_tokens` defines the context window overlap between consecutive chunks.
+fn split_at_paragraphs(text: &str, max_tokens: usize, overlap_tokens: usize) -> Vec<String> {
     let max_chars = max_tokens * 4;
     let mut result = Vec::new();
     let mut remaining = text;
@@ -131,7 +133,6 @@ fn split_at_paragraphs(text: &str, max_tokens: usize) -> Vec<String> {
             break;
         }
 
-        // Find the best split point within max_chars
         let slice = if remaining.len() <= max_chars {
             remaining
         } else {
@@ -139,22 +140,26 @@ fn split_at_paragraphs(text: &str, max_tokens: usize) -> Vec<String> {
         };
 
         // Try paragraph break
-        if let Some(pos) = slice.rfind("\n\n") {
-            let chunk = remaining[..pos].to_string();
-            result.push(chunk);
-            remaining = remaining[pos + 2..].trim_start();
+        let (chunk, consumed) = if let Some(pos) = slice.rfind("\n\n") {
+            (&remaining[..pos], pos + 2)
         } else if let Some(pos) = slice.rfind('\n') {
-            let chunk = remaining[..pos].to_string();
-            result.push(chunk);
-            remaining = remaining[pos + 1..].trim_start();
+            (&remaining[..pos], pos + 1)
         } else if remaining.len() > max_chars {
-            let chunk = remaining[..max_chars].to_string();
-            result.push(chunk);
-            remaining = &remaining[max_chars..];
+            (&remaining[..max_chars], max_chars)
         } else {
-            result.push(remaining.to_string());
-            break;
-        }
+            (remaining, remaining.len())
+        };
+
+        result.push(chunk.to_string());
+
+        // Apply overlap: rewind `consumed - overlap_chars` to include overlap text
+        let overlap_chars = (overlap_tokens * 4).min(consumed);
+        let advance = if consumed > overlap_chars {
+            consumed - overlap_chars
+        } else {
+            1
+        };
+        remaining = &remaining[advance..];
     }
 
     result
@@ -252,5 +257,72 @@ mod tests {
     fn test_empty_input() {
         let chunks = chunk_markdown("", "test.md", 512, 0);
         assert!(chunks.is_empty());
+    }
+
+    #[test]
+    fn test_overlap_between_consecutive_chunks() {
+        // Create text twice the budget with distinct content to verify overlap
+        let section_a = "A".repeat(200); // ~50 tokens
+        let section_b = "B".repeat(200); // ~50 tokens
+        let body = format!("{}\n\n{}", section_a, section_b);
+        // Budget of 75 tokens (300 chars), 64-token overlap (256 chars)
+        // This should produce overlapping chunks
+        let chunks = chunk_markdown(&body, "test.md", 75, 64);
+
+        // With 64-token overlap, consecutive chunks should share content
+        assert!(!chunks.is_empty(), "Should produce at least 1 chunk");
+        for chunk in &chunks {
+            assert!(
+                estimate_tokens(&chunk.content) <= 75,
+                "Chunk should be within budget: {}",
+                chunk.token_count
+            );
+        }
+    }
+
+    #[test]
+    fn test_overlap_produces_more_chunks_than_no_overlap() {
+        let body = "X".repeat(1000);
+        let chunks_no_overlap = chunk_markdown(&body, "test.md", 60, 0);
+        let chunks_with_overlap = chunk_markdown(&body, "test.md", 60, 64);
+        // Overlap re-includes text from previous chunk end into next chunk start,
+        // pushing more content forward → strictly more chunks than no-overlap
+        assert!(
+            chunks_with_overlap.len() > chunks_no_overlap.len(),
+            "with_overlap should produce more chunks: {} vs {}",
+            chunks_with_overlap.len(),
+            chunks_no_overlap.len()
+        );
+    }
+
+    #[test]
+    fn test_overlap_chunks_share_content() {
+        // Create text just over one budget with a recognizable boundary word
+        let body = "A".repeat(200) + "\n\n" + &"B".repeat(200);
+        let chunks = chunk_markdown(&body, "test.md", 75, 64);
+
+        assert!(
+            chunks.len() >= 2,
+            "Expected at least 2 chunks with 75-token budget on 400 chars"
+        );
+
+        // Consecutive chunks should have overlapping text
+        for i in 1..chunks.len() {
+            let prev_end = &chunks[i - 1].content[chunks[i - 1].content.len().saturating_sub(50)..];
+            let next_start = &chunks[i].content[..50.min(chunks[i].content.len())];
+
+            // With overlap, the tail of prev should share chars with head of next
+            let shared = prev_end
+                .chars()
+                .zip(next_start.chars())
+                .filter(|(a, b)| a == b)
+                .count();
+            assert!(
+                shared > 0,
+                "Consecutive chunks {}-{} should share content (shared {shared} chars)",
+                i - 1,
+                i
+            );
+        }
     }
 }
