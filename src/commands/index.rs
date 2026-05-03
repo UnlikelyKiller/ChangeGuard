@@ -2,10 +2,12 @@ use camino::Utf8PathBuf;
 use miette::{IntoDiagnostic, Result};
 use std::env;
 
+use crate::config::load::load_config;
+use crate::docs::index::run_docs_index;
 use crate::index::project_index::ProjectIndexer;
 use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
-use tracing::info;
+use tracing::{info, warn};
 
 fn get_repo_root() -> Result<Utf8PathBuf> {
     let current_dir = env::current_dir().into_diagnostic()?;
@@ -28,10 +30,15 @@ pub fn execute_index(
     check: bool,
     json: bool,
     analyze_graph: bool,
+    docs: bool,
 ) -> Result<()> {
     let layout = get_layout()?;
     let storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
     let repo_path = layout.root.clone();
+
+    if docs {
+        return execute_docs_index(&layout, storage);
+    }
 
     let mut indexer = ProjectIndexer::new(storage, repo_path);
 
@@ -297,6 +304,33 @@ pub fn execute_index(
             println!("  Max reachable:  {}", cent_stats.max_reachable);
         }
     }
+
+    Ok(())
+}
+
+fn execute_docs_index(layout: &Layout, storage: StorageManager) -> Result<()> {
+    let config = match load_config(layout) {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("Failed to load config: {:#}", e);
+            println!("No doc paths configured — skipping doc index.");
+            return Ok(());
+        }
+    };
+
+    if config.docs.include.is_empty() {
+        println!("No doc paths configured in [docs].include — skipping doc index.");
+        return Ok(());
+    }
+
+    let conn = storage.get_connection();
+    let summary = run_docs_index(&config, &layout.root, conn)
+        .map_err(|e| miette::miette!("Docs index failed: {}", e))?;
+
+    println!(
+        "Docs indexed: {} files, {} new chunks, {} updated, {} deleted.",
+        summary.files_crawled, summary.chunks_new, summary.chunks_updated, summary.chunks_deleted
+    );
 
     Ok(())
 }

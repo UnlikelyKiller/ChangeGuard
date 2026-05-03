@@ -101,6 +101,9 @@ pub enum Commands {
         /// Compute symbol centrality from the call graph (entrypoints_reachable)
         #[arg(long)]
         analyze_graph: bool,
+        /// Index document files (crawl, chunk, embed) from configured docs paths
+        #[arg(long)]
+        docs: bool,
     },
     /// Identify high-risk hotspots in the codebase
     Hotspots {
@@ -389,7 +392,8 @@ pub fn run() -> Result<()> {
             check,
             json,
             analyze_graph,
-        } => crate::commands::index::execute_index(incremental, check, json, analyze_graph),
+            docs,
+        } => crate::commands::index::execute_index(incremental, check, json, analyze_graph, docs),
         Commands::Hotspots {
             limit,
             commits,
