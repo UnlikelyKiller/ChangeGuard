@@ -154,7 +154,7 @@
     *   Key additions: `src/retrieval/query.rs`, `src/retrieval/rerank.rs`, `RelevantDecision` type, impact enrichment, ask context extension.
 
 *   **Track M3-1: Local Model Client & Context Assembly**
-    *   Status: Planning
+    *   Status: Completed
     *   Dependencies: M1-2
     *   Spec: `conductor/trackM3-1/spec.md`
     *   Plan: `conductor/trackM3-1/plan.md`
