@@ -427,6 +427,15 @@
 *   **Track 1: Repo-Local State Layout and Init** (Status: Completed)
 *   **Track 0: Bootstrap CLI Skeleton** (Status: Completed)
 
+## Milestone R: System Architecture Refactoring (Active)
+
+*   **Track R1-1: Impact Orchestrator Extraction & Decomposition**
+    *   Status: Active
+    *   Spec: `conductor/trackR1-1/spec.md`
+    *   Plan: `conductor/trackR1-1/plan.md`
+    *   Goal: Decompose monolithic `impact.rs` into `ImpactOrchestrator` and modular enrichment providers in `src/impact/enrichment/`.
+    *   Key additions: `src/impact/orchestrator.rs`, `src/impact/enrichment/mod.rs`, `src/impact/enrichment/api.rs`, etc.
+
 ## Workflow
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.
