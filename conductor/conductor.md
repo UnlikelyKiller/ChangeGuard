@@ -488,6 +488,23 @@
     *   Goal: Decompose monolithic `impact.rs` into `ImpactOrchestrator` and modular enrichment providers in `src/impact/enrichment/`.
     *   Key additions: `src/impact/orchestrator.rs`, `src/impact/enrichment/mod.rs`, `src/impact/enrichment/api.rs`, etc.
 
+## Milestone S: Global Intelligence & Precision Search (Planning)
+
+*   **Track S1: High-Performance Global Code Search**
+    *   Status: Planning
+    *   Plan: `docs/sourcebot-plan.md`
+    *   Goal: Implement sub-millisecond trigram-based regex search across the federated codebase.
+
+*   **Track S2: Precise LSP-Based Indexing (SCIP/LSIF)**
+    *   Status: Planning
+    *   Plan: `docs/sourcebot-plan.md`
+    *   Goal: Ingest SCIP indices for compiler-grade precision in navigation and impact analysis.
+
+*   **Track S3: Semantic Discovery for "Code Snippets"**
+    *   Status: Planning
+    *   Plan: `docs/sourcebot-plan.md`
+    *   Goal: Implement local vector embedding and search for fine-grained code logic blocks.
+
 ## Workflow
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.
