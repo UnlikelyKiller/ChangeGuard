@@ -509,6 +509,13 @@ pub fn get_migrations() -> Migrations<'static> {
             "ALTER TABLE project_files ADD COLUMN service_name TEXT;
              CREATE INDEX IF NOT EXISTS idx_project_files_service ON project_files(service_name);",
         ),
+        // Ensure UNIQUE constraint exists on project_symbols for existing databases
+        // created before the UNIQUE clause was added to the CREATE TABLE statement.
+        // CREATE UNIQUE INDEX IF NOT EXISTS is idempotent and safe to run on new DBs too.
+        M::up(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_project_symbols_unique_key \
+             ON project_symbols(file_id, qualified_name, symbol_kind);",
+        ),
     ])
 }
 
