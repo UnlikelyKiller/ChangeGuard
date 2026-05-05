@@ -57,6 +57,23 @@ When the user invokes `/graphify` for deep semantic clustering, follow this stre
 
 ---
 
+## CLI Usage
+
+To graphify a project path (like `c:\dev\crawlx`) while skipping the junk, you would just run:
+
+```powershell
+graphify extract c:\dev\crawlx --backend local
+```
+
+### Why you don't need to specify exclusions:
+Graphify is built to understand project structures automatically. Out of the box, it will **automatically skip**:
+
+1.  **Your `.gitignore`**: Any logs, build artifacts, or secret files you have listed in your `.gitignore` are respected and skipped.
+2.  **Standard Build Folders**: Even without a `.gitignore`, it automatically skips common junk folders like `node_modules`, `.git`, `.venv`, `__pycache__`, Rust's `target/`, and standard `build/` or `logs/` directories.
+3.  **Binaries**: It skips raw executables, DLLs, and compiled binaries, focusing only on readable code, documents, papers, and images.
+
+If you have a specific folder unique to that project that you want to skip (e.g., a massive `test_data/` folder full of JSONs that aren't code), just make sure it's in your `.gitignore` before you run the command!
+
 ## Skill Resources
 - `scripts/`: Python logic for each pipeline stage.
 - `evals/`: Test cases for performance benchmarking.
