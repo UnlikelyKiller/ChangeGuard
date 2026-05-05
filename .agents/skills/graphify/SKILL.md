@@ -9,7 +9,10 @@ A multimodal knowledge graph pipeline for codebases and document collections.
 
 ## Orchestration Logic
 
-When the user invokes `/graphify` or asks a structural question, follow this streamlined pipeline.
+**IMPORTANT DISTINCTION**: ChangeGuard now has native, built-in AST extraction and visualization (`changeguard index --analyze-graph` and `changeguard viz`). You do NOT need to run the graphify Python pipeline just to see the project architecture or structural graph.
+ONLY run the full graphify pipeline below if the user specifically requests **deep LLM semantic extraction, natural language clustering, or rationales** which require the local Qwen model.
+
+When the user invokes `/graphify` for deep semantic clustering, follow this streamlined pipeline.
 
 ### 1. Initialization
 - If no path is given, use `.`.

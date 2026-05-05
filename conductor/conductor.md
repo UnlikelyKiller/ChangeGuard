@@ -218,45 +218,45 @@
      *   Key additions: `src/contracts/matcher.rs`, `AffectedContract` type, contract matching in impact, human output table, ask context extension.
 
 
-## Milestone KG: Knowledge Graph & Semantic Intelligence (Planning)
+## Milestone KG: Knowledge Graph & Semantic Intelligence (Active)
 
 *   **Track G1: CozoDB Integration & Schema**
-    *   Status: Planning
+    *   Status: Completed
     *   Spec: `conductor/trackG1/spec.md`
     *   Plan: `conductor/trackG1/plan.md`
     *   Goal: Implement Phase 1 of Knowledge Graph: Add CozoDB engine and define Datalog relations.
     *   Key additions: `cozo` crate, `src/state/storage/cozo.rs`, `:create node/edge` relations.
 
 *   **Track G2: Unified Ledger Schema**
-    *   Status: Planning
+    *   Status: Completed
     *   Spec: `conductor/trackG2/spec.md`
     *   Plan: `conductor/trackG2/plan.md`
     *   Goal: Mirror existing SQLite data into CozoDB and implement the migration bridge.
     *   Key additions: `src/state/migration/cozo_port.rs`, mirrored `ledger_entry`/`project_symbol` relations.
 
 *   **Track G3: Graph Ingestion Engine**
-    *   Status: Planning
+    *   Status: Completed
     *   Spec: `conductor/trackG3/spec.md`
     *   Plan: `conductor/trackG3/plan.md`
     *   Goal: Native parser for `graph.json` with semantic-to-ledger provenance matching.
     *   Key additions: `src/index/graph_loader.rs`, batch graph loading.
 
 *   **Track G4: Semantic Impact Enrichment**
-    *   Status: Planning
+    *   Status: Completed
     *   Spec: `conductor/trackG4/spec.md`
     *   Plan: `conductor/trackG4/plan.md`
     *   Goal: Implement Datalog reachability queries and integrate KG enrichment into `ImpactOrchestrator`.
     *   Key additions: `src/impact/enrichment/kg_provider.rs`, semantic neighbor queries.
 
 *   **Track G5: Visual Intelligence & Navigation**
-    *   Status: Planning
+    *   Status: Completed
     *   Spec: `conductor/trackG5/spec.md`
     *   Plan: `conductor/trackG5/plan.md`
     *   Goal: Native Rust `viz` command for HTML graph export with heatmap support.
     *   Key additions: `src/commands/viz.rs`, interactive HTML templates.
 
 *   **Track G6: Native Structural Extraction (De-coupling Part 1)**
-    *   Status: Planning
+    *   Status: Completed
     *   Spec: `conductor/trackG6/spec.md`
     *   Plan: `conductor/trackG6/plan.md`
     *   Goal: Port AST link discovery from Python to native Rust `tree-sitter`.
