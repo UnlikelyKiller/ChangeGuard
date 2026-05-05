@@ -298,7 +298,7 @@ mod tests {
     #[test]
     fn test_overlap_chunks_share_content() {
         // Create text just over one budget with a recognizable boundary word
-        let body = "A".repeat(200) + "\n\n" + &"B".repeat(200);
+        let body = format!("{}\n\n{}", "A".repeat(200), "B".repeat(200));
         let chunks = chunk_markdown(&body, "test.md", 75, 64);
 
         assert!(

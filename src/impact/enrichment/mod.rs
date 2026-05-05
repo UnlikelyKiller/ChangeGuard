@@ -16,6 +16,7 @@ pub mod observability;
 pub mod risk;
 pub mod runtime_usage;
 pub mod services;
+pub mod kg_provider;
 use crate::state::storage::StorageManager;
 use miette::Result;
 use std::collections::HashMap;

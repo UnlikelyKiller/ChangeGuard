@@ -60,9 +60,15 @@ changeguard ledger adr [--output-dir DIR] [--days N]        # Export decisions t
 ```bash
 changeguard hotspots --limit 20 --commits 500
 changeguard hotspots --json
-changeguard federate export
-changeguard federate scan
 changeguard federate status
+```
+
+### Indexing & Search
+
+```bash
+changeguard index --docs        # Index markdown documentation
+changeguard index --contracts   # Index OpenAPI/Swagger contracts
+changeguard index --all         # Full re-index
 ```
 
 ## Gemini-Assisted Reporting

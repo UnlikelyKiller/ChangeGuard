@@ -11,6 +11,8 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
 toml = "1.1.2"
+cozo = { version = "0.7", default-features = false, features = ["storage-sled", "graph-algo", "requests"] }
+rayon = "=1.10"
 
 anyhow = "1.0.102"
 miette = { version = "7.6.0", features = ["fancy"] }

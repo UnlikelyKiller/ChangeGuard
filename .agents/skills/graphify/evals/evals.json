@@ -1,0 +1,23 @@
+{
+  "skill_name": "graphify",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "/graphify .",
+      "expected_output": "Full knowledge graph generated with God Nodes and community structure.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Explain how the extraction pipeline works.",
+      "expected_output": "Explanation based on the GRAPH_REPORT.md identifying key modules like llm.py and build.py.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "/graphify add https://example.com/doc.pdf",
+      "expected_output": "PDF fetched, saved to ./raw, and graph updated incrementally.",
+      "files": []
+    }
+  ]
+}

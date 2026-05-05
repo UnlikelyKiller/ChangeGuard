@@ -113,6 +113,16 @@ impl ProjectIndexer {
         Self { storage, repo_path }
     }
 
+    pub fn sync_to_kg(&self) -> Result<()> {
+        let graph_json = self.repo_path.join("graphify-out").join("graph.json");
+        if graph_json.exists() {
+            if let Some(cozo) = &self.storage.cozo {
+                crate::index::graph_loader::ingest_graphify_json(graph_json.as_std_path(), cozo, "index_sync")?;
+            }
+        }
+        Ok(())
+    }
+
     /// Discover tracked files in the repository, filtering by supported language extensions
     /// and excluding binary files. Returns sorted for deterministic ordering.
     pub fn discover_files(&self) -> Result<Vec<Utf8PathBuf>> {
@@ -574,6 +584,30 @@ impl ProjectIndexer {
 
     fn clear_project_data(&mut self) -> Result<()> {
         let conn = self.storage.get_connection_mut();
+        // Clear tables that reference symbols/files first to avoid FK violations
+        conn.execute("DELETE FROM symbol_centrality", [])
+            .into_diagnostic()?;
+        conn.execute("DELETE FROM structural_edges", [])
+            .into_diagnostic()?;
+        conn.execute("DELETE FROM api_routes", [])
+            .into_diagnostic()?;
+        conn.execute("DELETE FROM data_models", [])
+            .into_diagnostic()?;
+        conn.execute("DELETE FROM observability_patterns", [])
+            .into_diagnostic()?;
+        conn.execute("DELETE FROM test_mapping", [])
+            .into_diagnostic()?;
+        conn.execute("DELETE FROM ci_gates", [])
+            .into_diagnostic()?;
+        conn.execute("DELETE FROM env_references", [])
+            .into_diagnostic()?;
+        conn.execute("DELETE FROM env_declarations", [])
+            .into_diagnostic()?;
+        conn.execute("DELETE FROM project_docs", [])
+            .into_diagnostic()?;
+        conn.execute("DELETE FROM project_topology", [])
+            .into_diagnostic()?;
+        
         conn.execute("DELETE FROM project_symbols", [])
             .into_diagnostic()?;
         conn.execute("DELETE FROM project_files", [])
@@ -1441,10 +1475,15 @@ fn insert_file_row(conn: &Connection, pf: &ProjectFile) -> Result<()> {
 
 fn upsert_file_row(conn: &Connection, pf: &ProjectFile) -> Result<()> {
     conn.execute(
-        "INSERT OR REPLACE INTO project_files \
+        "INSERT INTO project_files \
          (file_path, language, content_hash, git_blob_oid, file_size, mtime_ns, \
           parser_version, parse_status, last_indexed_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) \
+         ON CONFLICT(file_path) DO UPDATE SET \
+            language=excluded.language, content_hash=excluded.content_hash, \
+            git_blob_oid=excluded.git_blob_oid, file_size=excluded.file_size, \
+            mtime_ns=excluded.mtime_ns, parser_version=excluded.parser_version, \
+            parse_status=excluded.parse_status, last_indexed_at=excluded.last_indexed_at",
         rusqlite::params![
             pf.file_path,
             pf.language,
@@ -1477,7 +1516,15 @@ fn insert_symbol_row(conn: &Connection, ps: &ProjectSymbol, file_id: i64) -> Res
           entrypoint_kind, is_public, cognitive_complexity, cyclomatic_complexity, \
           line_start, line_end, byte_start, byte_end, signature_hash, confidence, \
           evidence, last_indexed_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17) \
+         ON CONFLICT(file_id, qualified_name, symbol_kind) DO UPDATE SET \
+            symbol_name=excluded.symbol_name, visibility=excluded.visibility, \
+            entrypoint_kind=excluded.entrypoint_kind, is_public=excluded.is_public, \
+            cognitive_complexity=excluded.cognitive_complexity, cyclomatic_complexity=excluded.cyclomatic_complexity, \
+            line_start=excluded.line_start, line_end=excluded.line_end, \
+            byte_start=excluded.byte_start, byte_end=excluded.byte_end, \
+            signature_hash=excluded.signature_hash, confidence=excluded.confidence, \
+            evidence=excluded.evidence, last_indexed_at=excluded.last_indexed_at",
         rusqlite::params![
             file_id,
             ps.qualified_name,

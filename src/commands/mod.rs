@@ -17,6 +17,7 @@ pub mod ledger_stack;
 pub mod reset;
 pub mod scan;
 pub mod verify;
+pub mod viz;
 pub mod watch;
 
 use miette::Diagnostic;

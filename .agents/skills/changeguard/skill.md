@@ -123,14 +123,19 @@ When configured, impact reports include these enrichment sections:
 
 | Field | Source | Description |
 |---|---|---|
-| `relevant_decisions` | Doc index + embedding similarity | Semantically relevant documentation chunks (includes staleness warnings) |
-| `observability` | Prometheus + log scanner | Production signals (latency, error rate, log anomalies) with severity |
-| `affected_contracts` | API endpoint index + file embeddings | Public API endpoints potentially affected by the change |
-| `trace_config_drift` | Trace config file & env-var detection | Changes to OTEL, Jaeger, Datadog collector configs or env vars |
-| `sdk_dependencies_delta` | Third-party SDK import analysis | New or modified integrations with Stripe, AWS, Auth0, etc. |
-| `service_map_delta` | Route topology & service map inference | Impact on inferred service boundaries and cross-service edges |
-| `data_flow_matches` | Call graph → Data model coupling | Co-changes between API route handlers and the data models they touch |
-| `deploy_manifest_changes`| Deployment manifest classification | Changes to Dockerfiles, K8s manifests, Terraform, or Helm charts |
+| `relevant_decisions` | Knowledge Index | Semantically relevant documentation chunks and architectural context |
+| `observability` | Prometheus/Logs | Real-time production signals (latency, error rate, anomalies) |
+| `affected_contracts` | Contract Index | Public API endpoints potentially affected by the change |
+| `trace_config_drift` | Traces Provider | Changes to OTEL, Jaeger, or Datadog collector configurations |
+| `trace_env_vars` | Environment Provider | Changes to observability-related environment variables |
+| `sdk_dependencies_delta` | SDK Provider | New or modified third-party SDK integrations (Stripe, AWS, etc.) |
+| `service_map_delta` | Service Provider | Impact on inferred service topology and cross-service edges |
+| `data_flow_matches` | Coupling Provider | Semantic coupling between API handlers and data models |
+| `deploy_manifest_changes`| Deploy Provider | Changes to Dockerfiles, K8s, Terraform, or Helm charts |
+| `infrastructure_dirs` | Infrastructure Prov. | Detected infrastructure directories affected by the change |
+| `ci_gates` | CIGate Provider | CI pipeline gates and job triggers associated with changed files |
+| `hotspots` | Hotspot Provider | Historical instability and complexity scores for changed files |
+| `temporal_couplings` | Coupling Provider | Files that frequently change together (temporal affinity) |
 
 All enrichment degrades gracefully: if the local model is unreachable or configuration is absent, enrichment is a silent no-op. No blocking, no panics. Risk elevation from observability/contract signals escalates `risk_level` (Low→Medium→High) without overwriting rule-based risk reasons.
 
@@ -200,11 +205,9 @@ For quick triage, use `changeguard impact --summary`.
 
 ## Working on ChangeGuard Itself
 
-When editing ChangeGuard's own source code, the installed binary at `~/.cargo/bin/changeguard.exe` may be stale. Rebuild and reinstall after every source change:
-
-```powershell
-cargo build --release
-Copy-Item -Force .\target\release\changeguard.exe $env:USERPROFILE\.cargo\bin\changeguard.exe
+When editing ChangeGuard's own source code, the installed binary may be stale. Rebuild and reinstall after every change:
+```bash
+cargo install --path .
 ```
 
 The CI gate for ChangeGuard development is:

@@ -18,6 +18,7 @@ pub struct StoredSymbol {
 
 pub struct StorageManager {
     conn: Connection,
+    pub cozo: Option<crate::state::storage_cozo::CozoStorage>,
 }
 
 impl StorageManager {
@@ -32,8 +33,11 @@ impl StorageManager {
         let migrations = get_migrations();
         migrations.to_latest(&mut conn).into_diagnostic()?;
 
+        let cozo_path = db_path.parent().map(|p| p.join("ledger.cozo")).unwrap_or_default();
+        let cozo = crate::state::storage_cozo::CozoStorage::new(&cozo_path).ok();
+
         info!("Initialized storage at {:?}", db_path);
-        Ok(Self { conn })
+        Ok(Self { conn, cozo })
     }
 
     pub fn get_connection(&self) -> &Connection {
@@ -45,7 +49,7 @@ impl StorageManager {
     }
 
     pub fn init_from_conn(conn: Connection) -> Self {
-        Self { conn }
+        Self { conn, cozo: None }
     }
 
     pub fn save_packet(&self, packet: &ImpactPacket) -> Result<()> {
@@ -268,7 +272,7 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         let mut conn = conn;
         get_migrations().to_latest(&mut conn).unwrap();
-        StorageManager { conn }
+        StorageManager { conn, cozo: None }
     }
 
     #[test]

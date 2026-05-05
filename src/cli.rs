@@ -169,6 +169,12 @@ pub enum Commands {
         #[command(subcommand)]
         command: ConfigCommands,
     },
+    /// Generate an interactive visualization of the knowledge graph
+    Viz {
+        /// Custom output path for the HTML file
+        #[arg(long, short)]
+        output: Option<std::path::PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -530,5 +536,6 @@ pub fn run() -> Result<()> {
             entity,
             include_unaudited,
         } => crate::commands::ledger_audit::execute_ledger_audit(entity, include_unaudited),
+        Commands::Viz { output } => crate::commands::viz::execute_viz(output),
     }
 }

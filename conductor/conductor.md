@@ -218,6 +218,58 @@
      *   Key additions: `src/contracts/matcher.rs`, `AffectedContract` type, contract matching in impact, human output table, ask context extension.
 
 
+## Milestone KG: Knowledge Graph & Semantic Intelligence (Planning)
+
+*   **Track G1: CozoDB Integration & Schema**
+    *   Status: Planning
+    *   Spec: `conductor/trackG1/spec.md`
+    *   Plan: `conductor/trackG1/plan.md`
+    *   Goal: Implement Phase 1 of Knowledge Graph: Add CozoDB engine and define Datalog relations.
+    *   Key additions: `cozo` crate, `src/state/storage/cozo.rs`, `:create node/edge` relations.
+
+*   **Track G2: Unified Ledger Schema**
+    *   Status: Planning
+    *   Spec: `conductor/trackG2/spec.md`
+    *   Plan: `conductor/trackG2/plan.md`
+    *   Goal: Mirror existing SQLite data into CozoDB and implement the migration bridge.
+    *   Key additions: `src/state/migration/cozo_port.rs`, mirrored `ledger_entry`/`project_symbol` relations.
+
+*   **Track G3: Graph Ingestion Engine**
+    *   Status: Planning
+    *   Spec: `conductor/trackG3/spec.md`
+    *   Plan: `conductor/trackG3/plan.md`
+    *   Goal: Native parser for `graph.json` with semantic-to-ledger provenance matching.
+    *   Key additions: `src/index/graph_loader.rs`, batch graph loading.
+
+*   **Track G4: Semantic Impact Enrichment**
+    *   Status: Planning
+    *   Spec: `conductor/trackG4/spec.md`
+    *   Plan: `conductor/trackG4/plan.md`
+    *   Goal: Implement Datalog reachability queries and integrate KG enrichment into `ImpactOrchestrator`.
+    *   Key additions: `src/impact/enrichment/kg_provider.rs`, semantic neighbor queries.
+
+*   **Track G5: Visual Intelligence & Navigation**
+    *   Status: Planning
+    *   Spec: `conductor/trackG5/spec.md`
+    *   Plan: `conductor/trackG5/plan.md`
+    *   Goal: Native Rust `viz` command for HTML graph export with heatmap support.
+    *   Key additions: `src/commands/viz.rs`, interactive HTML templates.
+
+*   **Track G6: Native Structural Extraction (De-coupling Part 1)**
+    *   Status: Planning
+    *   Spec: `conductor/trackG6/spec.md`
+    *   Plan: `conductor/trackG6/plan.md`
+    *   Goal: Port AST link discovery from Python to native Rust `tree-sitter`.
+    *   Key additions: `src/languages/rust.rs`, `src/index/mod.rs` (LinkResolver).
+
+*   **Track G7: Native Semantic Extraction (De-coupling Part 2)**
+    *   Status: Planning
+    *   Spec: `conductor/trackG7/spec.md`
+    *   Plan: `conductor/trackG7/plan.md`
+    *   Goal: Complete standalone independence by implementing native semantic extraction.
+    *   Key additions: `src/ai/semantic_extractor.rs`, removal of `graphifyy` dependency.
+
+
 ## Milestone M7: Engineering Coverage Deepening (Planning)
 
 *   **Track M7-1: Trace Config & SDK Dependency Detection**

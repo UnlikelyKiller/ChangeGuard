@@ -18,3 +18,4 @@ pub mod storage;
 pub mod symbols;
 pub mod test_mapping;
 pub mod topology;
+pub mod graph_loader;

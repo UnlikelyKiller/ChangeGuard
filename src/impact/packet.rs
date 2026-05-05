@@ -127,7 +127,7 @@ impl Ord for CIGate {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ChangedFile {
     pub path: PathBuf,
@@ -588,8 +588,20 @@ pub struct ImpactPacket {
     pub sdk_dependencies_delta: Option<SdkDependencyDelta>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub deploy_manifest_changes: Vec<DeployManifestChange>,
+    #[serde(default)]
+    pub knowledge_graph: Vec<KGImpact>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub analysis_warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "camelCase")]
+pub struct KGImpact {
+    pub source_node: String,
+    pub impacted_node: String,
+    pub relation: String,
+    pub path_length: usize,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
@@ -639,6 +651,7 @@ impl Default for ImpactPacket {
             trace_env_vars: Vec::new(),
             sdk_dependencies_delta: None,
             deploy_manifest_changes: Vec::new(),
+            knowledge_graph: Vec::new(),
             analysis_warnings: Vec::new(),
         }
     }

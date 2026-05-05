@@ -113,6 +113,7 @@ pub fn execute_index(
 
     // Compute centrality if requested
     let cent_stats = if analyze_graph {
+        indexer.sync_to_kg()?;
         indexer.compute_centrality()?
     } else {
         info!("Centrality computation skipped (use --analyze-graph to enable).");
