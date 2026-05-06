@@ -1,10 +1,10 @@
+use crate::state::storage_cozo::CozoStorage;
+use miette::{IntoDiagnostic, Result};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::fs;
 use std::path::Path;
-use miette::{IntoDiagnostic, Result};
-use crate::state::storage_cozo::CozoStorage;
 use tracing::info;
-use serde_json::json;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct GraphJsonNode {
@@ -37,31 +37,44 @@ pub struct GraphJson {
     pub edges: Vec<GraphJsonEdge>,
 }
 
-pub fn ingest_graphify_json(json_path: &Path, cozo: &CozoStorage, provenance_id: &str) -> Result<()> {
+pub fn ingest_graphify_json(
+    json_path: &Path,
+    cozo: &CozoStorage,
+    provenance_id: &str,
+) -> Result<()> {
     let content = fs::read_to_string(json_path).into_diagnostic()?;
     let graph: GraphJson = serde_json::from_str(&content).into_diagnostic()?;
 
-    info!("Ingesting graph from {:?}: {} nodes, {} edges", json_path, graph.nodes.len(), graph.edges.len());
+    info!(
+        "Ingesting graph from {:?}: {} nodes, {} edges",
+        json_path,
+        graph.nodes.len(),
+        graph.edges.len()
+    );
 
     // 1. Ingest Nodes
     let mut node_batch = Vec::new();
     for node in &graph.nodes {
-        let category = if node.file_type.is_empty() { "code" } else { &node.file_type };
+        let category = if node.file_type.is_empty() {
+            "code"
+        } else {
+            &node.file_type
+        };
         let metadata = json!({
             "source_file": node.source_file,
             "source_location": node.source_location
         });
         node_batch.push(json!([
-            node.id,
-            node.label,
-            category,
-            0.0, // initial risk score
+            node.id, node.label, category, 0.0, // initial risk score
             metadata
         ]));
     }
 
     if !node_batch.is_empty() {
-        let script = format!("?[id, label, category, risk_score, metadata] <- {} :put node", serde_json::to_string(&node_batch).into_diagnostic()?);
+        let script = format!(
+            "?[id, label, category, risk_score, metadata] <- {} :put node",
+            serde_json::to_string(&node_batch).into_diagnostic()?
+        );
         cozo.run_script(&script)?;
     }
 
@@ -85,7 +98,10 @@ pub fn ingest_graphify_json(json_path: &Path, cozo: &CozoStorage, provenance_id:
 
     if !edge_batch.is_empty() {
         // We use :put to insert or update
-        let script = format!("?[source, target, relation, confidence, provenance_id] <- {} :put edge", serde_json::to_string(&edge_batch).into_diagnostic()?);
+        let script = format!(
+            "?[source, target, relation, confidence, provenance_id] <- {} :put edge",
+            serde_json::to_string(&edge_batch).into_diagnostic()?
+        );
         cozo.run_script(&script)?;
     }
 
@@ -105,7 +121,7 @@ mod tests {
         let cozo = CozoStorage::new(&PathBuf::from("")).unwrap();
         let dir = tempdir().unwrap();
         let json_path = dir.path().join("graph.json");
-        
+
         let json_content = r#"{
             "nodes": [
                 {"id": "node_1", "label": "Label 1", "file_type": "code"},
@@ -124,7 +140,11 @@ mod tests {
         assert_eq!(res.rows.len(), 2);
 
         // Verify edge
-        let res = cozo.run_script("?[target, conf] := *edge{source: 'node_1', target: target, confidence: conf}").unwrap();
+        let res = cozo
+            .run_script(
+                "?[target, conf] := *edge{source: 'node_1', target: target, confidence: conf}",
+            )
+            .unwrap();
         assert_eq!(res.rows.len(), 1);
         if let cozo::DataValue::Str(s) = &res.rows[0][0] {
             assert_eq!(s.as_str(), "node_2");

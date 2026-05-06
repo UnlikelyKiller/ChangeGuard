@@ -115,10 +115,14 @@ impl ProjectIndexer {
 
     pub fn sync_to_kg(&self) -> Result<()> {
         let graph_json = self.repo_path.join("graphify-out").join("graph.json");
-        if graph_json.exists() {
-            if let Some(cozo) = &self.storage.cozo {
-                crate::index::graph_loader::ingest_graphify_json(graph_json.as_std_path(), cozo, "index_sync")?;
-            }
+        if graph_json.exists()
+            && let Some(cozo) = &self.storage.cozo
+        {
+            crate::index::graph_loader::ingest_graphify_json(
+                graph_json.as_std_path(),
+                cozo,
+                "index_sync",
+            )?;
         }
         Ok(())
     }
@@ -597,8 +601,7 @@ impl ProjectIndexer {
             .into_diagnostic()?;
         conn.execute("DELETE FROM test_mapping", [])
             .into_diagnostic()?;
-        conn.execute("DELETE FROM ci_gates", [])
-            .into_diagnostic()?;
+        conn.execute("DELETE FROM ci_gates", []).into_diagnostic()?;
         conn.execute("DELETE FROM env_references", [])
             .into_diagnostic()?;
         conn.execute("DELETE FROM env_declarations", [])
@@ -607,7 +610,7 @@ impl ProjectIndexer {
             .into_diagnostic()?;
         conn.execute("DELETE FROM project_topology", [])
             .into_diagnostic()?;
-        
+
         conn.execute("DELETE FROM project_symbols", [])
             .into_diagnostic()?;
         conn.execute("DELETE FROM project_files", [])

@@ -33,7 +33,10 @@ impl StorageManager {
         let migrations = get_migrations();
         migrations.to_latest(&mut conn).into_diagnostic()?;
 
-        let cozo_path = db_path.parent().map(|p| p.join("ledger.cozo")).unwrap_or_default();
+        let cozo_path = db_path
+            .parent()
+            .map(|p| p.join("ledger.cozo"))
+            .unwrap_or_default();
         let cozo = crate::state::storage_cozo::CozoStorage::new(&cozo_path).ok();
 
         info!("Initialized storage at {:?}", db_path);

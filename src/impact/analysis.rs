@@ -521,7 +521,10 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules, config: &Config) -
     for change in &packet.deploy_manifest_changes {
         if deploy_total + deploy_weight_per_manifest <= deploy_weight_cap {
             deploy_total += deploy_weight_per_manifest;
-            reasons.push(format!("Deployment manifest change: {}", change.file.display()));
+            reasons.push(format!(
+                "Deployment manifest change: {}",
+                change.file.display()
+            ));
             debug!(
                 "Risk Factor: Deploy manifest changed ({:?}) +{}",
                 change.file, deploy_weight_per_manifest
@@ -558,18 +561,19 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules, config: &Config) -
         let threshold = config.coverage.adr_staleness.threshold_days;
         for decision in &packet.relevant_decisions {
             if let Some(days) = decision.staleness_days
-                && days > threshold {
-                    reasons.push(format!(
-                        "Stale architectural context: {} ({} days old)",
-                        decision.file_path.display(),
-                        days
-                    ));
-                    debug!(
-                        "Advisory: Stale ADR ({}) {} days",
-                        decision.file_path.display(),
-                        days
-                    );
-                }
+                && days > threshold
+            {
+                reasons.push(format!(
+                    "Stale architectural context: {} ({} days old)",
+                    decision.file_path.display(),
+                    days
+                ));
+                debug!(
+                    "Advisory: Stale ADR ({}) {} days",
+                    decision.file_path.display(),
+                    days
+                );
+            }
         }
     }
 

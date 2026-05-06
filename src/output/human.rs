@@ -158,50 +158,51 @@ pub fn print_impact_summary(packet: &ImpactPacket, config: &crate::config::model
         && (!sdk_delta.added.is_empty()
             || !sdk_delta.removed.is_empty()
             || !sdk_delta.modified.is_empty())
-        {
-            println!("\n{}", "Third-party SDK Changes:".bold());
-            let mut table = build_table(["State", "SDK Name", "Pattern Match"]);
-            for sdk in &sdk_delta.added {
-                table.add_row(vec![
-                    "Added".green().to_string(),
-                    sdk.sdk_name.clone(),
-                    sdk.import_statement.clone(),
-                ]);
-            }
-            for sdk in &sdk_delta.modified {
-                table.add_row(vec![
-                    "Modified".yellow().to_string(),
-                    sdk.sdk_name.clone(),
-                    sdk.import_statement.clone(),
-                ]);
-            }
-            for sdk in &sdk_delta.removed {
-                table.add_row(vec![
-                    "Removed".red().to_string(),
-                    sdk.sdk_name.clone(),
-                    sdk.import_statement.clone(),
-                ]);
+    {
+        println!("\n{}", "Third-party SDK Changes:".bold());
+        let mut table = build_table(["State", "SDK Name", "Pattern Match"]);
+        for sdk in &sdk_delta.added {
+            table.add_row(vec![
+                "Added".green().to_string(),
+                sdk.sdk_name.clone(),
+                sdk.import_statement.clone(),
+            ]);
+        }
+        for sdk in &sdk_delta.modified {
+            table.add_row(vec![
+                "Modified".yellow().to_string(),
+                sdk.sdk_name.clone(),
+                sdk.import_statement.clone(),
+            ]);
+        }
+        for sdk in &sdk_delta.removed {
+            table.add_row(vec![
+                "Removed".red().to_string(),
+                sdk.sdk_name.clone(),
+                sdk.import_statement.clone(),
+            ]);
+        }
+        println!("{table}");
+    }
+
+    if let Some(delta) = &packet.service_map_delta
+        && !delta.affected_services.is_empty()
+    {
+        println!("\n{}", "Service Map Impact:".bold());
+        println!(
+            "{:<20} {}",
+            "Affected Services:".bold().cyan(),
+            delta.affected_services.join(", ")
+        );
+        if !delta.cross_service_edges.is_empty() {
+            println!("\n{}", "Cross-Service Dependencies:".bold().dimmed());
+            let mut table = build_table(["Caller Service", "Callee Service", "Edge Count"]);
+            for (caller, callee, count) in &delta.cross_service_edges {
+                table.add_row(vec![caller.clone(), callee.clone(), count.to_string()]);
             }
             println!("{table}");
         }
-
-    if let Some(delta) = &packet.service_map_delta
-        && !delta.affected_services.is_empty() {
-            println!("\n{}", "Service Map Impact:".bold());
-            println!(
-                "{:<20} {}",
-                "Affected Services:".bold().cyan(),
-                delta.affected_services.join(", ")
-            );
-            if !delta.cross_service_edges.is_empty() {
-                println!("\n{}", "Cross-Service Dependencies:".bold().dimmed());
-                let mut table = build_table(["Caller Service", "Callee Service", "Edge Count"]);
-                for (caller, callee, count) in &delta.cross_service_edges {
-                    table.add_row(vec![caller.clone(), callee.clone(), count.to_string()]);
-                }
-                println!("{table}");
-            }
-        }
+    }
 
     if !packet.data_flow_matches.is_empty() {
         println!("\n{}", "Data-Flow Coupling (Route -> Model):".bold());

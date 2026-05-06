@@ -505,6 +505,43 @@
     *   Plan: `docs/sourcebot-plan.md`
     *   Goal: Implement local vector embedding and search for fine-grained code logic blocks.
 
+## Milestone U: Usability & Robustness Hardening (Planning)
+
+*   **Track 41: Robust Doc Chunker**
+    *   Status: Planning
+    *   Spec: `conductor/track41/spec.md`
+    *   Plan: `conductor/track41/plan.md`
+    *   Goal: Fix Unicode boundary panic in `src/docs/chunker.rs` when indexing Markdown with multi-byte characters (box-drawing, emoji, CJK).
+    *   Key additions: Unicode-aware character boundary slicing, regression tests.
+
+*   **Track 42: Ledger CLI Schema Consistency**
+    *   Status: Planning
+    *   Spec: `conductor/track42/spec.md`
+    *   Plan: `conductor/track42/plan.md`
+    *   Goal: Align flag and positional argument usage across all `ledger` subcommands to eliminate "unexpected argument" errors.
+    *   Key additions: Standardized CLI schema for `LedgerCommands`, updated handler signatures, integration tests.
+
+*   **Track 43: Smart Context Pruning for Local LLM**
+    *   Status: Planning
+    *   Spec: `conductor/track43/spec.md`
+    *   Plan: `conductor/track43/plan.md`
+    *   Goal: Make `ask --backend local` viable on large repositories by implementing relevance-based context pruning before sending to the local model.
+    *   Key additions: `src/local_model/pruner.rs`, mode-aware impact packet pruning, top-K chunk retrieval.
+
+*   **Track 44: Atomic Commit-Commit**
+    *   Status: Planning
+    *   Spec: `conductor/track44/spec.md`
+    *   Plan: `conductor/track44/plan.md`
+    *   Goal: Add `--with-git` flag to `ledger commit` to perform both ChangeGuard ledger commit and `git commit` in a single operation.
+    *   Key additions: `src/git/commit.rs`, `--with-git` / `--git-message` flags, mock-based integration tests.
+
+*   **Track 45: Interactive Fix Suggestions**
+    *   Status: Planning
+    *   Spec: `conductor/track45/spec.md`
+    *   Plan: `conductor/track45/plan.md`
+    *   Goal: Surface copy-paste-ready `changeguard` commands in `verify` output when failures or drift are detected.
+    *   Key additions: `src/verify/suggestions.rs`, `suggested_actions` in verify JSON output, five mapped failure patterns.
+
 ## Workflow
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.

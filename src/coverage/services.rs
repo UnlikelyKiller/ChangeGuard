@@ -190,21 +190,23 @@ fn find_package_name(dir: &Path) -> Option<String> {
                             .get("package")
                             .and_then(|v| v.get("name"))
                             .and_then(|v| v.as_str())
-                        {
-                            return Some(name.to_string());
-                        }
+                    {
+                        return Some(name.to_string());
+                    }
                 } else if *filename == "package.json"
                     && let Ok(value) = serde_json::from_str::<serde_json::Value>(&content)
-                        && let Some(name) = value.get("name").and_then(|v| v.as_str()) {
-                            return Some(name.to_string());
-                        }
+                    && let Some(name) = value.get("name").and_then(|v| v.as_str())
+                {
+                    return Some(name.to_string());
+                }
             }
         }
 
         if current.join("__init__.py").exists()
-            && let Some(name) = current.file_name().and_then(|n| n.to_str()) {
-                return Some(name.to_string());
-            }
+            && let Some(name) = current.file_name().and_then(|n| n.to_str())
+        {
+            return Some(name.to_string());
+        }
 
         if let Some(parent) = current.parent() {
             if parent == current || current == Path::new("") {
@@ -240,12 +242,12 @@ pub fn compute_cross_service_edges(
         if let (Some(caller_svc), Some(callee_svc)) = (
             symbol_to_service.get(&edge.caller_name),
             symbol_to_service.get(&edge.callee_name),
-        )
-            && caller_svc != callee_svc {
-                *edges
-                    .entry((caller_svc.clone(), callee_svc.clone()))
-                    .or_insert(0) += 1;
-            }
+        ) && caller_svc != callee_svc
+        {
+            *edges
+                .entry((caller_svc.clone(), callee_svc.clone()))
+                .or_insert(0) += 1;
+        }
     }
 
     let mut result: Vec<_> = edges

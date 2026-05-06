@@ -1,10 +1,10 @@
 use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
 use miette::{IntoDiagnostic, Result};
+use serde::Serialize;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
-use serde::Serialize;
 
 #[derive(Serialize)]
 struct VizNode {
@@ -27,19 +27,26 @@ pub fn execute_viz(output_path: Option<PathBuf>) -> Result<()> {
     let layout = Layout::new(current_dir.to_string_lossy().as_ref());
     let db_path = layout.state_subdir().join("ledger.db");
     let storage = StorageManager::init(db_path.as_std_path())?;
-    
-    let cozo = storage.cozo.as_ref().ok_or_else(|| miette::miette!("CozoDB not initialized. Run 'index' first."))?;
-    
+
+    let cozo = storage
+        .cozo
+        .as_ref()
+        .ok_or_else(|| miette::miette!("CozoDB not initialized. Run 'index' first."))?;
+
     // 1. Run Louvain community detection
     let louvain_script = "
         edges[src, dst] := *edge[src, dst, _, _, _]
         ?[node, community_id] <~ CommunityDetectionLouvain(edges[src, dst])
     ";
-    
+
     let mut communities = std::collections::HashMap::new();
     if let Ok(res) = cozo.run_script(louvain_script) {
         for row in res.rows {
-            if let (Some(cozo::DataValue::Str(node)), Some(cozo::DataValue::Num(cozo::Num::Int(comm)))) = (row.get(0), row.get(1)) {
+            if let (
+                Some(cozo::DataValue::Str(node)),
+                Some(cozo::DataValue::Num(cozo::Num::Int(comm))),
+            ) = (row.first(), row.get(1))
+            {
                 communities.insert(node.to_string(), *comm);
             }
         }
@@ -48,14 +55,18 @@ pub fn execute_viz(output_path: Option<PathBuf>) -> Result<()> {
     }
 
     // Fetch nodes
-    let nodes_res = cozo.run_script("?[id, label, category, risk_score] := *node{id, label, category, risk_score}")?;
+    let nodes_res = cozo.run_script(
+        "?[id, label, category, risk_score] := *node{id, label, category, risk_score}",
+    )?;
     let mut nodes = Vec::new();
     for row in nodes_res.rows {
-        if let (Some(cozo::DataValue::Str(id)),
-                Some(cozo::DataValue::Str(label)),
-                Some(cozo::DataValue::Str(category)),
-                Some(cozo::DataValue::Num(cozo::Num::Float(risk)))) = (row.get(0), row.get(1), row.get(2), row.get(3)) {
-            
+        if let (
+            Some(cozo::DataValue::Str(id)),
+            Some(cozo::DataValue::Str(label)),
+            Some(cozo::DataValue::Str(category)),
+            Some(cozo::DataValue::Num(cozo::Num::Float(risk))),
+        ) = (row.first(), row.get(1), row.get(2), row.get(3))
+        {
             let community = communities.get(id.as_str()).copied();
             nodes.push(VizNode {
                 id: id.to_string(),
@@ -66,14 +77,18 @@ pub fn execute_viz(output_path: Option<PathBuf>) -> Result<()> {
             });
         }
     }
-    
+
     // Fetch edges
-    let edges_res = cozo.run_script("?[source, target, relation] := *edge{source, target, relation}")?;
+    let edges_res =
+        cozo.run_script("?[source, target, relation] := *edge{source, target, relation}")?;
     let mut edges = Vec::new();
     for row in edges_res.rows {
-        if let (Some(cozo::DataValue::Str(source)),
-                Some(cozo::DataValue::Str(target)),
-                Some(cozo::DataValue::Str(relation))) = (row.get(0), row.get(1), row.get(2)) {
+        if let (
+            Some(cozo::DataValue::Str(source)),
+            Some(cozo::DataValue::Str(target)),
+            Some(cozo::DataValue::Str(relation)),
+        ) = (row.first(), row.get(1), row.get(2))
+        {
             edges.push(VizEdge {
                 from: source.to_string(),
                 to: target.to_string(),
@@ -81,12 +96,12 @@ pub fn execute_viz(output_path: Option<PathBuf>) -> Result<()> {
             });
         }
     }
-    
+
     let html = generate_html(&nodes, &edges);
-    
+
     let out = output_path.unwrap_or_else(|| layout.reports_dir().join("graph.html").into());
     fs::write(&out, html).into_diagnostic()?;
-    
+
     println!("Visualization generated at {}", out.display());
     Ok(())
 }
@@ -94,8 +109,9 @@ pub fn execute_viz(output_path: Option<PathBuf>) -> Result<()> {
 fn generate_html(nodes: &[VizNode], edges: &[VizEdge]) -> String {
     let nodes_json = serde_json::to_string(nodes).unwrap_or_else(|_| "[]".to_string());
     let edges_json = serde_json::to_string(edges).unwrap_or_else(|_| "[]".to_string());
-    
-    format!(r#"<!DOCTYPE html>
+
+    format!(
+        r#"<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -339,10 +355,10 @@ fn generate_html(nodes: &[VizNode], edges: &[VizEdge]) -> String {
         }}
     </script>
 </body>
-</html>"#, 
-    node_count = nodes.len(),
-    edge_count = edges.len(),
-    nodes_json = nodes_json,
-    edges_json = edges_json
+</html>"#,
+        node_count = nodes.len(),
+        edge_count = edges.len(),
+        nodes_json = nodes_json,
+        edges_json = edges_json
     )
 }

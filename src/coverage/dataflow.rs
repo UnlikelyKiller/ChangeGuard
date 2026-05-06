@@ -46,9 +46,7 @@ pub fn compute_data_flow_coupling(
 
         // Requirement: >= threshold change AND at least one data model in chain
         if change_pct >= _min_change_pct && has_data_model {
-            let risk = if chain.nodes.len() > 5 {
-                RiskLevel::High
-            } else if changed_nodes.len() >= 3 {
+            let risk = if chain.nodes.len() > 5 || changed_nodes.len() >= 3 {
                 RiskLevel::High
             } else {
                 RiskLevel::Medium
@@ -248,7 +246,7 @@ mod tests {
         // 1/2 = 50%
         // threshold 0.6 -> no match
         let matches =
-            compute_data_flow_coupling(&[chain.clone()], &changed_files, &[], 0.6, Path::new("."));
+            compute_data_flow_coupling(std::slice::from_ref(&chain), &changed_files, &[], 0.6, Path::new("."));
         assert_eq!(matches.len(), 0);
 
         // threshold 0.4 -> match

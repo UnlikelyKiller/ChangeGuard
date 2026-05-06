@@ -15,7 +15,7 @@ impl CozoStorage {
         } else {
             "sled"
         };
-        
+
         let db = DbInstance::new(engine, db_path, Default::default())
             .map_err(|e| miette::miette!("Failed to initialize CozoDB: {:?}", e))?;
 
@@ -33,7 +33,7 @@ impl CozoStorage {
     }
     pub fn setup_schema(&self) -> Result<()> {
         let existing = self.get_relations()?;
-        
+
         if !existing.contains(&"node".to_string()) {
             self.run_script(":create node { id: String => label: String, category: String, risk_score: Float, metadata: Json }")?;
         }
@@ -56,7 +56,7 @@ impl CozoStorage {
         let res = self.run_script("::relations")?;
         let mut relations = Vec::new();
         for row in res.rows {
-            if let Some(DataValue::Str(name)) = row.get(0) {
+            if let Some(DataValue::Str(name)) = row.first() {
                 relations.push(name.to_string());
             }
         }
@@ -81,12 +81,14 @@ mod tests {
     #[test]
     fn test_cozo_insert_query() {
         let storage = CozoStorage::new(&PathBuf::from("")).unwrap();
-        
+
         // Insert a node
         storage.run_script("?[id, label, category, risk_score, metadata] <- [['node_1', 'Test Node', 'code', 0.5, {}]] :put node").unwrap();
-        
+
         // Query the node
-        let res = storage.run_script("?[label] := *node{id: 'node_1', label: label}").unwrap();
+        let res = storage
+            .run_script("?[label] := *node{id: 'node_1', label: label}")
+            .unwrap();
         assert_eq!(res.rows.len(), 1);
         assert_eq!(res.rows[0][0], DataValue::Str("Test Node".into()));
     }
@@ -94,26 +96,38 @@ mod tests {
     #[test]
     fn test_cozo_reachability() {
         let storage = CozoStorage::new(&PathBuf::from("")).unwrap();
-        
+
         // Setup nodes
-        storage.run_script("
+        storage
+            .run_script(
+                "
             ?[id, label, category, risk_score, metadata] <- [
                 ['A', 'Node A', 'code', 0.0, {}],
                 ['B', 'Node B', 'code', 0.0, {}],
                 ['C', 'Node C', 'code', 0.0, {}]
             ] :put node
-        ").unwrap();
+        ",
+            )
+            .unwrap();
 
         // Setup edges
-        storage.run_script("
+        storage
+            .run_script(
+                "
             ?[source, target, relation, confidence, provenance_id] <- [
                 ['A', 'B', 'calls', 1.0, 'tx1'],
                 ['B', 'C', 'calls', 1.0, 'tx1']
             ] :put edge
-        ").unwrap();
-        
+        ",
+            )
+            .unwrap();
+
         // 2-hop reachability query
-        let res = storage.run_script("?[target] := *edge{source: 'A', target: t}, *edge{source: t, target: target}").unwrap();
+        let res = storage
+            .run_script(
+                "?[target] := *edge{source: 'A', target: t}, *edge{source: t, target: target}",
+            )
+            .unwrap();
         assert_eq!(res.rows.len(), 1);
         assert_eq!(res.rows[0][0], DataValue::Str("C".into()));
     }

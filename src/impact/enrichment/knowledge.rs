@@ -96,9 +96,10 @@ impl EnrichmentProvider for KnowledgeProvider {
                 let full_path = PathBuf::from(chunk.file_path.clone());
                 if let Ok(metadata) = fs::metadata(&full_path)
                     && let Ok(modified) = metadata.modified()
-                        && let Ok(elapsed) = modified.elapsed() {
-                            staleness_days = Some((elapsed.as_secs() / 86400) as u32);
-                        }
+                    && let Ok(elapsed) = modified.elapsed()
+                {
+                    staleness_days = Some((elapsed.as_secs() / 86400) as u32);
+                }
 
                 RelevantDecision {
                     file_path: PathBuf::from(chunk.file_path),
