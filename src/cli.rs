@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use miette::Result;
 
 #[derive(Parser)]
@@ -60,6 +60,9 @@ pub enum Commands {
         /// Show rationale for predicted verification targets
         #[arg(long)]
         explain: bool,
+        /// Emit ledger health warnings even on clean verify passes
+        #[arg(long)]
+        health: bool,
     },
     /// Ask Gemini or a local model for assistance based on the current context
     Ask {
@@ -145,6 +148,8 @@ pub enum Commands {
     },
     /// Manage the ChangeGuard Ledger (transactional provenance)
     Ledger {
+        #[command(flatten)]
+        global_opts: LedgerGlobalOpts,
         #[command(subcommand)]
         command: LedgerCommands,
     },
@@ -193,6 +198,19 @@ pub enum ConfigCommands {
     Verify,
 }
 
+/// Shared flags available to all ledger subcommands.
+#[derive(Args)]
+pub struct LedgerGlobalOpts {
+    /// Simulate the operation without making changes
+    #[arg(long)]
+    pub dry_run: bool,
+}
+
+/// Ledger subcommands follow a single schema rule:
+/// **Mandatory primary subject** (entity, tx_id, query) is positional;
+/// **all other mandatory fields** (summary, reason, message) are required named flags.
+/// Optional identifiers and metadata always use named flags.
+/// No command has more than one mandatory positional argument.
 #[derive(Subcommand)]
 pub enum LedgerCommands {
     /// Start a new transaction
@@ -234,6 +252,15 @@ pub enum LedgerCommands {
         /// Skip verification gate enforcement (use with caution)
         #[arg(long)]
         force: bool,
+        /// Also create a git commit after ledger commit succeeds
+        #[arg(long)]
+        with_git: bool,
+        /// Override the auto-generated git commit message
+        #[arg(long)]
+        git_message: Option<String>,
+        /// Do not add Signed-off-by to the git commit
+        #[arg(long)]
+        no_signoff: bool,
     },
     /// Roll back a PENDING transaction
     Rollback {
@@ -269,9 +296,9 @@ pub enum LedgerCommands {
         /// Adopt all UNAUDITED drift
         #[arg(long)]
         all: bool,
-        /// Reason for adopting the drift
+        /// Reason for adopting the drift (required, for audit provenance)
         #[arg(long, short)]
-        reason: Option<String>,
+        reason: String,
     },
     /// Atomically start and commit a change
     Atomic {
@@ -291,8 +318,12 @@ pub enum LedgerCommands {
     Note {
         /// The entity (path/symbol)
         entity: String,
-        /// The note or lesson learned
-        note: String,
+        /// The note or lesson learned (required)
+        #[arg(long, short)]
+        message: Option<String>,
+        /// DEPRECATED: Use --message instead. Accepted as a positional for grace period.
+        #[arg(verbatim_doc_comment)]
+        note: Option<String>,
     },
     /// Show the current status of the ledger and pending transactions
     Status {
@@ -384,7 +415,8 @@ pub fn run() -> Result<()> {
             timeout,
             no_predict,
             explain,
-        } => crate::commands::verify::execute_verify(command, timeout, no_predict, explain),
+            health,
+        } => crate::commands::verify::execute_verify(command, timeout, no_predict, explain, health),
         Commands::Ask {
             query,
             mode,
@@ -441,7 +473,10 @@ pub fn run() -> Result<()> {
             FederateCommands::Scan => crate::commands::federate::execute_federate_scan(),
             FederateCommands::Status => crate::commands::federate::execute_federate_status(),
         },
-        Commands::Ledger { command } => match command {
+        Commands::Ledger {
+            command,
+            global_opts,
+        } => match command {
             LedgerCommands::Start {
                 entity,
                 category,
@@ -457,6 +492,9 @@ pub fn run() -> Result<()> {
                 auto_reconcile,
                 no_auto_reconcile,
                 force,
+                with_git,
+                git_message,
+                no_signoff,
             } => crate::commands::ledger::execute_ledger_commit(
                 tx_id,
                 summary,
@@ -466,6 +504,10 @@ pub fn run() -> Result<()> {
                 auto_reconcile,
                 no_auto_reconcile,
                 force,
+                with_git,
+                git_message,
+                no_signoff,
+                global_opts.dry_run,
             ),
             LedgerCommands::Rollback { tx_id, reason } => {
                 crate::commands::ledger::execute_ledger_rollback(tx_id, reason)
@@ -488,9 +530,11 @@ pub fn run() -> Result<()> {
                 reason,
                 category,
             } => crate::commands::ledger::execute_ledger_atomic(entity, summary, reason, category),
-            LedgerCommands::Note { entity, note } => {
-                crate::commands::ledger::execute_ledger_note(entity, note)
-            }
+            LedgerCommands::Note {
+                entity,
+                message,
+                note,
+            } => crate::commands::ledger::execute_ledger_note(entity, message, note),
             LedgerCommands::Status {
                 entity,
                 compact,

@@ -23,6 +23,7 @@ pub fn execute_verify(
     timeout_secs: u64,
     no_predict: bool,
     explain: bool,
+    health: bool,
 ) -> Result<()> {
     let current_dir = env::current_dir()
         .map_err(|e| miette::miette!("Failed to get current directory: {}", e))?;
@@ -264,6 +265,21 @@ pub fn execute_verify(
 
     let report = VerificationReport::new(plan.clone(), persisted_results.clone())
         .with_warnings(current_warnings);
+
+    // Query ledger status for fix suggestions
+    let ledger_status = query_ledger_status(&layout);
+    let suggestions = if health {
+        crate::verify::suggestions::generate_health_suggestions(&ledger_status)
+    } else {
+        crate::verify::suggestions::generate_suggestions(&report, &ledger_status)
+    };
+
+    // Print suggested actions for human readers (json consumers get them in the report)
+    if !suggestions.is_empty() {
+        print_suggested_actions(&suggestions, std::env::var("NO_COLOR").is_ok());
+    }
+
+    let report = report.with_suggested_actions(suggestions);
     write_verify_report(&layout, &report)?;
     persist_verify_report(&layout, &report);
 
@@ -563,6 +579,109 @@ fn scan_imports_recursive(
     }
 
     Ok(())
+}
+
+/// Query the ledger database for the status snapshot needed by the suggestion engine.
+fn query_ledger_status(layout: &Layout) -> crate::verify::suggestions::LedgerStatus {
+    let db_path = layout.state_subdir().join("ledger.db");
+    let storage = match StorageManager::init(db_path.as_std_path()) {
+        Ok(s) => s,
+        Err(_) => {
+            // No db means no packets — flag it
+            return crate::verify::suggestions::LedgerStatus {
+                no_impact_report: true,
+                ..Default::default()
+            };
+        }
+    };
+
+    let conn = storage.get_connection();
+    let ledger = crate::ledger::db::LedgerDb::new(conn);
+
+    let unaudited_count = ledger.get_all_unaudited().map(|v| v.len()).unwrap_or(0);
+
+    let has_stale_pending = ledger
+        .get_all_pending()
+        .map(|pending| {
+            pending.iter().any(|tx| {
+                // Check if pending since > 24h
+                is_stale_pending(&tx.started_at)
+            })
+        })
+        .unwrap_or(false);
+
+    let no_impact_report = storage.get_latest_packet().ok().flatten().is_none();
+
+    crate::verify::suggestions::LedgerStatus {
+        unaudited_count,
+        has_stale_pending,
+        no_impact_report,
+    }
+}
+
+/// Returns true when the given ISO-8601 start timestamp is > 24 hours ago.
+fn is_stale_pending(started_at: &str) -> bool {
+    use chrono::{DateTime, Duration, Utc};
+    let Ok(start) = DateTime::parse_from_rfc3339(started_at) else {
+        return false;
+    };
+    let now = Utc::now();
+    let since = now.signed_duration_since(start.with_timezone(&Utc));
+    since > Duration::hours(24)
+}
+
+/// Print suggested actions in human-readable format with severity-based coloring.
+fn print_suggested_actions(suggestions: &[crate::verify::suggestions::Suggestion], no_color: bool) {
+    use crate::output::diagnostics::print_header;
+    use owo_colors::OwoColorize;
+
+    print_header("Suggested Actions");
+
+    for s in suggestions {
+        let severity_icon = match s.severity {
+            crate::verify::suggestions::SuggestionSeverity::ActionRequired => {
+                if no_color {
+                    "!!".to_string()
+                } else {
+                    "!!".red().bold().to_string()
+                }
+            }
+            crate::verify::suggestions::SuggestionSeverity::Warning => {
+                if no_color {
+                    "!".to_string()
+                } else {
+                    "!".yellow().bold().to_string()
+                }
+            }
+            crate::verify::suggestions::SuggestionSeverity::Info => {
+                if no_color {
+                    "i".to_string()
+                } else {
+                    "i".cyan().to_string()
+                }
+            }
+        };
+
+        let description = if no_color {
+            s.description.clone()
+        } else {
+            match s.severity {
+                crate::verify::suggestions::SuggestionSeverity::ActionRequired => {
+                    s.description.red().to_string()
+                }
+                crate::verify::suggestions::SuggestionSeverity::Warning => {
+                    s.description.yellow().to_string()
+                }
+                crate::verify::suggestions::SuggestionSeverity::Info => {
+                    s.description.dimmed().to_string()
+                }
+            }
+        };
+
+        println!("{} {}", severity_icon, description);
+        println!("   → {}", s.command);
+        println!();
+    }
 }
 
 fn fetch_test_mapping_data(

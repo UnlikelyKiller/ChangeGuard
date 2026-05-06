@@ -28,6 +28,8 @@ pub struct VerificationReport {
     pub results: Vec<VerificationResult>,
     #[serde(default)]
     pub prediction_warnings: Vec<String>,
+    #[serde(default)]
+    pub suggested_actions: Vec<crate::verify::suggestions::Suggestion>,
     pub overall_pass: bool,
     pub timestamp: String,
 }
@@ -39,6 +41,7 @@ impl VerificationReport {
             plan,
             results,
             prediction_warnings: Vec::new(),
+            suggested_actions: Vec::new(),
             overall_pass,
             timestamp: Utc::now().to_rfc3339(),
         }
@@ -46,6 +49,14 @@ impl VerificationReport {
 
     pub fn with_warnings(mut self, warnings: Vec<String>) -> Self {
         self.prediction_warnings = warnings;
+        self
+    }
+
+    pub fn with_suggested_actions(
+        mut self,
+        suggestions: Vec<crate::verify::suggestions::Suggestion>,
+    ) -> Self {
+        self.suggested_actions = suggestions;
         self
     }
 }

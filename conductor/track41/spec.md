@@ -5,14 +5,17 @@ Fix a production panic in `src/docs/chunker.rs` that occurs when indexing Markdo
 
 ## Objectives
 - Eliminate all byte-index slicing in `split_at_paragraphs` and `split_into_sections`.
+- Use `str::floor_char_boundary` (Rust 1.75+) as the primary boundary tool for all string slicing operations.
 - Use Unicode-aware character boundary checks (`char_indices`, `floor_char_boundary`, or equivalent) for all string slicing operations.
-- Ensure the chunker correctly handles CJK characters, emoji, combining marks, and box-drawing symbols without panic or data loss.
+- Ensure the chunker correctly handles CJK characters, emoji, combining marks, RTL text, and box-drawing symbols without panic or data loss.
+- Prevent infinite loops when overlap or budget math produces zero advance.
+- Document that grapheme cluster integrity is best-effort (char-boundary safety prevents panics; grapheme splitting may still occur for ZWJ sequences).
 
 ## Success Criteria
 - `chunk_markdown` never panics on valid UTF-8 input, regardless of Unicode character class.
 - Chunk boundaries always fall on valid character boundaries.
 - Existing tests continue to pass with identical output.
-- New unit tests cover box-drawing chars, emoji, and CJK text.
+- New unit tests cover box-drawing chars, emoji, CJK text, RTL text, and infinite-loop edge cases.
 - CI gate (`cargo fmt`, `cargo clippy`, `cargo test`) passes.
 
 ## Architecture

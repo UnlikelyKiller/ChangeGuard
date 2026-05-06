@@ -12,6 +12,12 @@ fn estimate_tokens(text: &str) -> usize {
     text.len().div_ceil(4)
 }
 
+/// Return a prefix of `text` at a valid UTF-8 character boundary at or before `max_bytes`.
+fn safe_byte_prefix(text: &str, max_bytes: usize) -> &str {
+    let end = text.floor_char_boundary(max_bytes);
+    &text[..end]
+}
+
 /// Chunk markdown content into semantic chunks based on heading boundaries.
 /// `overlap_tokens` controls the overlap between consecutive chunks — the last
 /// ~overlap_tokens of chunk N appear at the start of chunk N+1 for context continuity.
@@ -133,11 +139,7 @@ fn split_at_paragraphs(text: &str, max_tokens: usize, overlap_tokens: usize) -> 
             break;
         }
 
-        let slice = if remaining.len() <= max_chars {
-            remaining
-        } else {
-            &remaining[..max_chars]
-        };
+        let slice = safe_byte_prefix(remaining, max_chars);
 
         // Try paragraph break
         let (chunk, consumed) = if let Some(pos) = slice.rfind("\n\n") {
@@ -145,7 +147,7 @@ fn split_at_paragraphs(text: &str, max_tokens: usize, overlap_tokens: usize) -> 
         } else if let Some(pos) = slice.rfind('\n') {
             (&remaining[..pos], pos + 1)
         } else if remaining.len() > max_chars {
-            (&remaining[..max_chars], max_chars)
+            (slice, max_chars.min(slice.len()))
         } else {
             (remaining, remaining.len())
         };
@@ -154,11 +156,16 @@ fn split_at_paragraphs(text: &str, max_tokens: usize, overlap_tokens: usize) -> 
 
         // Apply overlap: rewind `consumed - overlap_chars` to include overlap text
         let overlap_chars = (overlap_tokens * 4).min(consumed);
-        let advance = if consumed > overlap_chars {
+        let mut advance = if consumed > overlap_chars {
             consumed - overlap_chars
         } else {
             1
         };
+        // Ensure advance falls on a valid char boundary and never zero
+        advance = remaining.floor_char_boundary(advance);
+        if advance == 0 {
+            advance = remaining.floor_char_boundary(1);
+        }
         remaining = &remaining[advance..];
     }
 
@@ -293,6 +300,109 @@ mod tests {
             chunks_with_overlap.len(),
             chunks_no_overlap.len()
         );
+    }
+
+    #[test]
+    fn test_box_drawing_characters() {
+        // Tree-diagram ASCII art with multi-byte box-drawing chars + enough text for min token threshold
+        let filler = "Some explanatory text about the project structure. ".repeat(10);
+        let md = format!(
+            "## Tree\n\n{filler}\n\n```\nroot\n├── src\n│   ├── main.rs\n│   └── lib.rs\n└── tests\n```\n\n{filler}\n"
+        );
+        let chunks = chunk_markdown(&md, "tree.md", 512, 0);
+        assert!(!chunks.is_empty(), "Should produce at least one chunk");
+        // All box-drawing chars must be preserved in the combined output
+        let combined: String = chunks.iter().map(|c| c.content.as_str()).collect();
+        assert!(
+            combined.contains("├──"),
+            "Should contain U+251C box drawing"
+        );
+        assert!(combined.contains("│"), "Should contain U+2502 box drawing");
+        assert!(
+            combined.contains("└──"),
+            "Should contain U+2514 box drawing"
+        );
+    }
+
+    #[test]
+    fn test_emoji_boundary() {
+        let md = "## Emoji\n\nHello \u{1F600}\u{1F3FD} world! \u{1F469}\u{200D}\u{1F4BB} developer here.\n\nMore text ".repeat(20);
+        let chunks = chunk_markdown(&md, "emoji.md", 60, 0);
+        assert!(!chunks.is_empty(), "Should produce chunks without panic");
+        for chunk in &chunks {
+            assert!(
+                estimate_tokens(&chunk.content) <= 60,
+                "Chunk should be within budget"
+            );
+        }
+    }
+
+    #[test]
+    fn test_cjk_characters() {
+        let filler = "More text for budget. ".repeat(30);
+        let md = format!(
+            "## CJK\n\n日本語のテストです。各文字は複数バイトを使用します。\
+             中文测试。每个字符使用多个字节。\
+             한국어 테스트. 각 문자는 여러 바이트를 사용합니다.\n\n{filler}"
+        );
+        let chunks = chunk_markdown(&md, "cjk.md", 60, 0);
+        assert!(!chunks.is_empty(), "Should produce chunks without panic");
+        for chunk in &chunks {
+            let content = &chunk.content;
+            assert!(
+                std::str::from_utf8(content.as_bytes()).is_ok(),
+                "Chunk content must be valid UTF-8"
+            );
+        }
+    }
+
+    #[test]
+    fn test_combining_marks() {
+        let filler = "More filler text here. ".repeat(25);
+        let md = format!(
+            "## Combining\n\nCafe\u{0301} résumé na\u{0308}ive \u{0915}\u{093E}\u{092E}.\n\n{filler}"
+        );
+        let chunks = chunk_markdown(&md, "combining.md", 60, 0);
+        assert!(!chunks.is_empty(), "Should produce chunks without panic");
+    }
+
+    #[test]
+    fn test_rtl_text() {
+        let filler = "More filler text here. ".repeat(25);
+        let md = format!(
+            "## RTL\n\nمرحبا بالعالم! هذا نص عربي للاختبار. \
+             שלום עולם! זהו טקסט עברי לבדיקה.\n\n{filler}"
+        );
+        let chunks = chunk_markdown(&md, "rtl.md", 60, 0);
+        assert!(!chunks.is_empty(), "Should produce chunks without panic");
+        for chunk in &chunks {
+            assert!(
+                std::str::from_utf8(chunk.content.as_bytes()).is_ok(),
+                "Chunk must be valid UTF-8"
+            );
+        }
+    }
+
+    #[test]
+    fn test_infinite_loop_prevention() {
+        // A single 4-byte emoji exceeding the budget — must terminate
+        let md = "## Tiny\n\n\u{1F600}\n\n";
+        let chunks = chunk_markdown(md, "tiny.md", 1, 0);
+        // Should complete without infinite loop
+        assert!(
+            chunks.is_empty() || chunks.iter().all(|c| estimate_tokens(&c.content) <= 1),
+            "Must terminate without looping; produced {} chunks",
+            chunks.len()
+        );
+    }
+
+    #[test]
+    fn test_empty_after_section_split() {
+        // All paragraphs under budget — split_at_paragraphs should emit them whole
+        let body = "Short para one.\n\nShort para two.\n\nShort para three.";
+        let subs = split_at_paragraphs(body, 512, 0);
+        assert_eq!(subs.len(), 1, "Single chunk when all fits budget");
+        assert_eq!(subs[0], body, "Whole body preserved when under budget");
     }
 
     #[test]

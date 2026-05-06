@@ -1,4 +1,5 @@
 pub mod classify;
+pub mod commit;
 pub mod diff;
 pub mod ignore;
 pub mod repo;

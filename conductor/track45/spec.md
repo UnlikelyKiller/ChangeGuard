@@ -16,16 +16,22 @@ When `changeguard verify` fails — for example because UNAUDITED drift is detec
 ## Architecture
 - `src/verify/suggestions.rs` [NEW] — Suggestion engine.
   - `generate_suggestions(results: &VerifyResults, ledger_status: &LedgerStatus) -> Vec<Suggestion>`
-  - `Suggestion { description: String, command: String, severity: SuggestionSeverity }`
+  - `Suggestion { id: String, description: String, command: String, severity: SuggestionSeverity }`
+  - Output is **deterministically sorted** by `severity` descending, then `description` ascending.
+  - All logic is stateless; no randomness, no timestamps in sorting keys.
+  - `SuggestionSeverity` derives `PartialOrd`/`Ord` for stable ordering: `Info < Warning < ActionRequired`.
 - `src/verify/runner.rs` — Update `execute_verify` to collect ledger status alongside verification results.
-- `src/commands/verify.rs` — Render suggestions in human output and inject into JSON output.
+- `src/commands/verify.rs` — Render suggestions in human output (respecting `NO_COLOR` and `--color` global flag) and inject into JSON output.
+- `src/verify/results.rs` — Add `#[serde(default)] suggested_actions: Vec<Suggestion>` to `VerificationReport` for backward-compatible schema evolution.
 
 ## Success Criteria
 - Running `changeguard verify` on a repo with `UNAUDITED` drift prints a suggestion to run `ledger reconcile`.
 - Running `changeguard verify` after a test command failure prints a suggestion to re-run `impact --summary`.
-- Suggestions are included in `latest-verify.json` under `suggested_actions`.
-- No suggestions are printed when verify passes cleanly.
-- New unit tests for every mapped failure pattern.
+- Suggestions are deterministically sorted and included in `latest-verify.json` under `suggested_actions`.
+- No suggestions are printed when verify passes cleanly and ledger is clean.
+- `NO_COLOR` env var and `--color` global flag are respected in human suggestion output.
+- New unit tests for every mapped failure pattern, plus property-based safety invariants (no `--force`, no empty commands, deterministic order).
+- Health suggestions: Running `changeguard verify --health` on a clean pass with stale pending transactions still emits warnings.
 
 ## Testing Strategy
 - **Red commit**: Write tests asserting that specific failure states produce expected suggestion strings.

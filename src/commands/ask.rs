@@ -115,11 +115,13 @@ pub fn execute_ask(
 
     let system_prompt = build_system_prompt(mode);
 
+    // Extract query string before user_prompt construction consumes it
+    let query_string = query.clone().unwrap_or_default();
+
     let mut user_prompt = if mode == GeminiMode::Narrative {
         crate::gemini::narrative::NarrativeEngine::generate_risk_prompt(&latest_packet)
     } else {
-        let effective_query = query.unwrap_or_default();
-        build_user_prompt(mode, &latest_packet, &effective_query, diff.as_deref())
+        build_user_prompt(mode, &latest_packet, &query_string, diff.as_deref())
     };
 
     // Inject observability signals if available
@@ -167,13 +169,49 @@ pub fn execute_ask(
 
     match resolved {
         Backend::Local => {
+            use crate::local_model::pruner;
+
             let max_tokens = config.local_model.context_window;
+
+            // 1. Prune the impact packet (mode-aware field subset)
+            let pruned = pruner::prune_impact_packet(&latest_packet, mode);
+            let pruned_text = pruner::format_pruned_packet(&pruned);
+
+            // 2. Build effective user prompt: pruned packet + user query
+            let effective_user_prompt = format!("{pruned_text}\n\n{user_prompt}");
+
+            // 3. Query relevant chunks from indexed docs (graceful degradation built in)
+            let relevant_chunks = pruner::query_relevant_chunks(
+                &query_string,
+                &config.local_model,
+                storage.get_connection(),
+                config.local_model.chunk_top_k,
+                config.local_model.chunk_min_similarity,
+                config.local_model.chunk_dedup_threshold,
+            )
+            .unwrap_or_else(|e| {
+                tracing::warn!("Chunk retrieval failed: {e}, proceeding without chunks");
+                Vec::new()
+            });
+
+            // 4. Assemble context with budget enforcement
             let messages = crate::local_model::context::assemble_context(
                 &system_prompt,
-                &user_prompt,
-                &[],
+                &effective_user_prompt,
+                &relevant_chunks,
                 max_tokens,
             );
+
+            // 5. Token budget safety check: estimate total tokens in context
+            let estimated_tokens = crate::local_model::pruner::estimate_tokens(&system_prompt)
+                + crate::local_model::pruner::estimate_tokens(&effective_user_prompt)
+                + crate::local_model::pruner::estimate_chunks_tokens(&relevant_chunks);
+            if estimated_tokens > max_tokens {
+                tracing::warn!(
+                    "Context may exceed token budget: estimated {estimated_tokens} tokens vs {max_tokens} limit"
+                );
+            }
+
             match crate::local_model::client::complete(
                 &config.local_model,
                 &messages,

@@ -70,6 +70,10 @@ pub fn execute_ledger_commit(
     auto_reconcile: bool,
     no_auto_reconcile: bool,
     force: bool,
+    with_git: bool,
+    git_message: Option<String>,
+    no_signoff: bool,
+    dry_run: bool,
 ) -> Result<()> {
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
@@ -81,8 +85,11 @@ pub fn execute_ledger_commit(
     } else {
         config.ledger.auto_reconcile
     };
-    let mut tx_mgr =
-        TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
+    let mut tx_mgr = TransactionManager::new(
+        storage.get_connection_mut(),
+        layout.root.into(),
+        config.clone(),
+    );
 
     if should_auto_reconcile {
         let full_id = tx_mgr
@@ -101,6 +108,16 @@ pub fn execute_ledger_commit(
         }
     }
 
+    // Clone values needed for git commit message before they are moved
+    let tx_id_for_git = tx_id.clone();
+    let summary_for_git = summary.clone();
+    let full_id_resolved = tx_mgr
+        .resolve_tx_id(&tx_id_for_git)
+        .map_err(|e| miette::miette!("{}", e))?;
+    let tx_info = tx_mgr
+        .get_transaction(&full_id_resolved)
+        .map_err(|e| miette::miette!("{}", e))?;
+
     tx_mgr
         .commit_change(
             tx_id,
@@ -116,6 +133,75 @@ pub fn execute_ledger_commit(
         .map_err(|e| miette::miette!("{}", e))?;
 
     println!("{}", "Transaction committed.".green().bold());
+
+    if with_git {
+        let category_str = tx_info
+            .as_ref()
+            .map(|t| format!("{:?}", t.category))
+            .unwrap_or_else(|| "Unknown".to_string());
+
+        let msg = if let Some(ref gm) = git_message {
+            gm.clone()
+        } else {
+            let template = config
+                .ledger
+                .git_commit_template
+                .clone()
+                .unwrap_or_else(|| crate::git::commit::DEFAULT_COMMIT_MESSAGE_TEMPLATE.to_string());
+            crate::git::commit::format_commit_message(
+                &template,
+                &category_str,
+                &summary_for_git,
+                &full_id_resolved,
+            )
+        };
+
+        if dry_run {
+            let signoff_flag = if no_signoff { "" } else { " --signoff" };
+            println!(
+                "[DRY RUN] Would execute: git commit -m \"{}\"{}",
+                msg, signoff_flag
+            );
+            return Ok(());
+        }
+
+        // Pre-flight check
+        match crate::git::commit::can_commit() {
+            Ok(false) => {
+                eprintln!(
+                    "Warning: No staged changes detected. Stage files with `git add` first, then use `git commit --amend` if needed."
+                );
+            }
+            Err(e) => {
+                eprintln!("Warning: Cannot create git commit: {}", e);
+            }
+            Ok(true) => {
+                // Only attempt git commit if can_commit returns true
+                match crate::git::commit::git_commit(&msg, !no_signoff) {
+                    Ok(()) => {
+                        println!("{}", "Git commit created successfully.".green());
+                    }
+                    Err(ref e) => {
+                        let retry_msg = msg.replace('"', "\\\"");
+                        match e {
+                            crate::git::commit::GitCommitError::NothingToCommit => {
+                                eprintln!(
+                                    "Git commit skipped: nothing to commit. Ledger commit is complete."
+                                );
+                            }
+                            _ => {
+                                eprintln!(
+                                    "Git commit failed: {}. Ledger commit is complete. Retry with: git commit -m \"{}\"",
+                                    e, retry_msg
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -158,7 +244,7 @@ pub fn execute_ledger_adopt(
     tx_id: Option<String>,
     pattern: Option<String>,
     all: bool,
-    reason: Option<String>,
+    reason: String,
 ) -> Result<()> {
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
@@ -167,7 +253,7 @@ pub fn execute_ledger_adopt(
         TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
 
     tx_mgr
-        .adopt_drift(tx_id, pattern, all, reason)
+        .adopt_drift(tx_id, pattern, all, Some(reason))
         .map_err(|e| miette::miette!("{}", e))?;
 
     println!("{}", "Drift adopted into pending transactions.".green());
@@ -207,7 +293,36 @@ pub fn execute_ledger_atomic(
     Ok(())
 }
 
-pub fn execute_ledger_note(entity: String, note: String) -> Result<()> {
+pub fn execute_ledger_note(
+    entity: String,
+    message: Option<String>,
+    note: Option<String>,
+) -> Result<()> {
+    let note_text = match (message, note) {
+        (Some(msg), None) => msg,
+        (None, Some(pos)) => {
+            eprintln!(
+                "{}",
+                "warning: Note as a positional argument is deprecated. Use --message <note> instead."
+                    .yellow()
+            );
+            pos
+        }
+        (Some(msg), Some(_)) => {
+            eprintln!(
+                "{}",
+                "warning: Both --message and positional note provided; using --message. The positional note argument is deprecated."
+                    .yellow()
+            );
+            msg
+        }
+        (None, None) => {
+            return Err(miette::miette!(
+                "Missing required note text. Use --message <note>."
+            ));
+        }
+    };
+
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
     let config = load_ledger_config(&layout);
@@ -223,7 +338,7 @@ pub fn execute_ledger_note(entity: String, note: String) -> Result<()> {
             },
             CommitRequest {
                 change_type: ChangeType::Modify,
-                summary: note,
+                summary: note_text,
                 reason: "Lightweight note".to_string(),
                 ..Default::default()
             },

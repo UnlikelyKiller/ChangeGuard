@@ -3,4 +3,5 @@ pub mod predict;
 pub mod results;
 pub mod runner;
 pub mod semantic_predictor;
+pub mod suggestions;
 pub mod timeouts;

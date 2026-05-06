@@ -72,6 +72,12 @@ pub struct LedgerConfig {
     /// Watcher patterns for drift detection (supplements hardcoded list)
     #[serde(default)]
     pub watcher_patterns: Vec<WatcherPattern>,
+
+    /// Template for git commit messages when using --with-git.
+    /// Supports placeholders: {category}, {summary}, {tx_id}.
+    /// Default: "[{category}] {summary}\n\nLedger: {tx_id}".
+    #[serde(default)]
+    pub git_commit_template: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -96,6 +102,7 @@ impl Default for LedgerConfig {
             stale_threshold_hours: default_stale_threshold_hours(),
             category_mappings: Vec::new(),
             watcher_patterns: Vec::new(),
+            git_commit_template: None,
         }
     }
 }
@@ -306,6 +313,12 @@ pub struct LocalModelConfig {
     pub timeout_secs: u64,
     #[serde(default)]
     pub prefer_local: bool,
+    #[serde(default = "default_chunk_top_k")]
+    pub chunk_top_k: usize,
+    #[serde(default = "default_chunk_min_similarity")]
+    pub chunk_min_similarity: f32,
+    #[serde(default = "default_chunk_dedup_threshold")]
+    pub chunk_dedup_threshold: f32,
 }
 
 fn default_context_window_local() -> usize {
@@ -313,6 +326,16 @@ fn default_context_window_local() -> usize {
 }
 fn default_local_timeout() -> u64 {
     60
+}
+
+fn default_chunk_top_k() -> usize {
+    10
+}
+fn default_chunk_min_similarity() -> f32 {
+    0.3
+}
+fn default_chunk_dedup_threshold() -> f32 {
+    0.95
 }
 
 impl Default for LocalModelConfig {
@@ -326,6 +349,9 @@ impl Default for LocalModelConfig {
             context_window: default_context_window_local(),
             timeout_secs: default_local_timeout(),
             prefer_local: false,
+            chunk_top_k: default_chunk_top_k(),
+            chunk_min_similarity: default_chunk_min_similarity(),
+            chunk_dedup_threshold: default_chunk_dedup_threshold(),
         }
     }
 }
@@ -1124,6 +1150,9 @@ mod tests {
             context_window: 38000,
             timeout_secs: 60,
             prefer_local: false,
+            chunk_top_k: 10,
+            chunk_min_similarity: 0.3,
+            chunk_dedup_threshold: 0.95,
         };
         let resolved = resolve_local_model_config_with(&raw, &env_reader, &dotenv_reader);
 
