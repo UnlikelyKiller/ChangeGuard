@@ -542,6 +542,36 @@
     *   Goal: Surface copy-paste-ready `changeguard` commands in `verify` output when failures or drift are detected.
     *   Key additions: `src/verify/suggestions.rs` with 5 failure pattern mappings, `--health` flag, deterministic severity-sorted output, property-based safety invariants (no `--force`, no empty commands), `suggested_actions` in JSON output.
 
+## Milestone V: M7-2 Codex Remediation (Planning)
+
+*   **Track 46: Preserve Enrichment Risk Signals in analyze_risk()**
+    *   Status: Planning
+    *   Spec: `conductor/track46/spec.md`
+    *   Plan: `conductor/track46/plan.md`
+    *   Goal: Prevent `analyze_risk()` from overwriting `packet.risk_level` when enrichment providers (service-map, KG) have already elevated it.
+    *   Key additions: Guard `packet.risk_level` assignment in `src/impact/analysis.rs`, test that enrichment-elevated scores survive.
+
+*   **Track 47: Harden Service Detection**
+    *   Status: Planning
+    *   Spec: `conductor/track47/spec.md`
+    *   Plan: `conductor/track47/plan.md`
+    *   Goal: Close three service-detection gaps: deleted-file `old_path` capture, root-level service containment, and cross-service edge name collisions.
+    *   Key additions: `ChangeType::Deleted` captures `old_path` in `src/commands/impact.rs`, `(service_name, symbol_name)` tuple keys in `src/coverage/services.rs`, 4 integration tests.
+
+*   **Track 48: Wire coverage.services Config + Fix Unused Parameters**
+    *   Status: Planning
+    *   Spec: `conductor/track48/spec.md`
+    *   Plan: `conductor/track48/plan.md`
+    *   Goal: Connect `ServicesConfig` fields to pipelines: `enabled` gates inference, `cross_service_elevation_threshold` controls risk elevation, topology-only ServiceRoot services.
+    *   Key additions: Config gates in `src/commands/index.rs` and `src/commands/impact.rs`, threshold wiring in `src/impact/analysis.rs`, early-return fix in `src/coverage/services.rs`.
+
+*   **Track 49: Bound service_map_delta in truncate_for_context()**
+    *   Status: Planning
+    *   Spec: `conductor/track49/spec.md`
+    *   Plan: `conductor/track49/plan.md`
+    *   Goal: Clear `service_map_delta` during context truncation to prevent large service snapshots from blowing through the truncation budget.
+    *   Key additions: One-line addition of `self.service_map_delta = None` in `src/impact/packet.rs::truncate_for_context()`, confirming test.
+
 ## Workflow
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.
