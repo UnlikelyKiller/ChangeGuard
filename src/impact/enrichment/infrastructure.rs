@@ -24,7 +24,7 @@ impl EnrichmentProvider for InfrastructureProvider {
         let conn = context.storage.get_connection();
 
         let mut stmt = conn
-            .prepare("SELECT directory_path FROM project_topology WHERE role = 'Infrastructure'")
+            .prepare("SELECT dir_path FROM project_topology WHERE role = 'INFRASTRUCTURE'")
             .into_diagnostic()?;
 
         let dirs = stmt
@@ -36,5 +36,45 @@ impl EnrichmentProvider for InfrastructureProvider {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::migrations::get_migrations;
+    use crate::state::storage::StorageManager;
+    use rusqlite::Connection;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn enrich_reads_current_topology_schema() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        get_migrations().to_latest(&mut conn).unwrap();
+        conn.execute(
+            "INSERT INTO project_topology (dir_path, role, confidence, evidence, last_indexed_at)
+             VALUES ('.github/workflows', 'INFRASTRUCTURE', 1.0, 'ci', '2026-01-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+
+        let storage = StorageManager::init_from_conn(conn);
+        let config = crate::config::model::Config::default();
+        let context = EnrichmentContext {
+            storage: &storage,
+            config: &config,
+            file_id_map: HashMap::new(),
+            project_root: PathBuf::new(),
+            warnings: Arc::new(Mutex::new(Vec::new())),
+        };
+        let mut packet = ImpactPacket::default();
+
+        InfrastructureProvider
+            .enrich(&context, &mut packet)
+            .unwrap();
+
+        assert_eq!(packet.infrastructure_dirs, vec![".github/workflows"]);
     }
 }

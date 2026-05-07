@@ -729,6 +729,7 @@ impl ProjectIndexer {
 
     fn mark_file_deleted(&mut self, file_path: &str) -> Result<()> {
         let conn = self.storage.get_connection_mut();
+        delete_file_index_dependents(conn, file_path)?;
         conn.execute(
             "UPDATE project_files SET parse_status = 'DELETED' WHERE file_path = ?1",
             [file_path],
@@ -745,6 +746,7 @@ impl ProjectIndexer {
 
     fn delete_file_symbols(&mut self, file_path: &str) -> Result<()> {
         let conn = self.storage.get_connection_mut();
+        delete_file_index_dependents(conn, file_path)?;
         conn.execute(
             "DELETE FROM project_symbols WHERE file_id IN \
              (SELECT id FROM project_files WHERE file_path = ?1)",
@@ -1512,6 +1514,40 @@ fn get_file_id_by_path(conn: &Connection, file_path: &str) -> Result<i64> {
     .into_diagnostic()
 }
 
+fn delete_file_index_dependents(conn: &Connection, file_path: &str) -> Result<()> {
+    let file_id_subquery = "SELECT id FROM project_files WHERE file_path = ?1";
+    let symbol_id_subquery = "SELECT id FROM project_symbols WHERE file_id IN (SELECT id FROM project_files WHERE file_path = ?1)";
+
+    let statements = [
+        format!(
+            "DELETE FROM symbol_centrality WHERE file_id IN ({file_id_subquery}) OR symbol_id IN ({symbol_id_subquery})"
+        ),
+        format!(
+            "DELETE FROM structural_edges WHERE caller_file_id IN ({file_id_subquery}) OR callee_file_id IN ({file_id_subquery}) OR caller_symbol_id IN ({symbol_id_subquery}) OR callee_symbol_id IN ({symbol_id_subquery})"
+        ),
+        format!(
+            "DELETE FROM api_routes WHERE handler_file_id IN ({file_id_subquery}) OR handler_symbol_id IN ({symbol_id_subquery})"
+        ),
+        format!("DELETE FROM data_models WHERE model_file_id IN ({file_id_subquery})"),
+        format!("DELETE FROM observability_patterns WHERE file_id IN ({file_id_subquery})"),
+        format!(
+            "DELETE FROM test_mapping WHERE test_file_id IN ({file_id_subquery}) OR tested_file_id IN ({file_id_subquery}) OR test_symbol_id IN ({symbol_id_subquery}) OR tested_symbol_id IN ({symbol_id_subquery})"
+        ),
+        format!("DELETE FROM ci_gates WHERE ci_file_id IN ({file_id_subquery})"),
+        format!(
+            "DELETE FROM env_references WHERE file_id IN ({file_id_subquery}) OR symbol_id IN ({symbol_id_subquery})"
+        ),
+        format!("DELETE FROM env_declarations WHERE source_file_id IN ({file_id_subquery})"),
+        format!("DELETE FROM project_docs WHERE file_id IN ({file_id_subquery})"),
+    ];
+
+    for statement in statements {
+        conn.execute(&statement, [file_path]).into_diagnostic()?;
+    }
+
+    Ok(())
+}
+
 fn insert_symbol_row(conn: &Connection, ps: &ProjectSymbol, file_id: i64) -> Result<()> {
     conn.execute(
         "INSERT INTO project_symbols \
@@ -1761,6 +1797,88 @@ mod tests {
 
         let result = indexer.file_for_path("src/deleted.rs").unwrap().unwrap();
         assert_eq!(result.parse_status, "DELETED");
+    }
+
+    #[test]
+    fn test_delete_file_symbols_clears_dependent_index_rows() {
+        let storage = in_memory_storage();
+        let mut indexer = ProjectIndexer::new(storage, Utf8PathBuf::from("/tmp/test_repo"));
+
+        let pf = ProjectFile {
+            id: None,
+            file_path: "src/changed.rs".to_string(),
+            language: Some("Rust".to_string()),
+            content_hash: Some("hash789".to_string()),
+            git_blob_oid: None,
+            file_size: Some(300),
+            mtime_ns: None,
+            parser_version: PARSER_VERSION.to_string(),
+            parse_status: "OK".to_string(),
+            last_indexed_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+
+        let conn = indexer.storage.get_connection();
+        let tx = conn.unchecked_transaction().unwrap();
+        insert_file_row(&tx, &pf).unwrap();
+        let file_id = tx.last_insert_rowid();
+        let ps = ProjectSymbol {
+            id: None,
+            file_id,
+            qualified_name: "changed::handler".to_string(),
+            symbol_name: "handler".to_string(),
+            symbol_kind: "Function".to_string(),
+            visibility: Some("public".to_string()),
+            entrypoint_kind: "HANDLER".to_string(),
+            is_public: true,
+            cognitive_complexity: Some(1),
+            cyclomatic_complexity: Some(1),
+            line_start: Some(1),
+            line_end: Some(5),
+            byte_start: None,
+            byte_end: None,
+            signature_hash: None,
+            confidence: 1.0,
+            evidence: None,
+            last_indexed_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        insert_symbol_row(&tx, &ps, file_id).unwrap();
+        let symbol_id = tx.last_insert_rowid();
+        tx.execute(
+            "INSERT INTO structural_edges (caller_symbol_id, caller_file_id, callee_symbol_id, callee_file_id, call_kind, resolution_status)
+             VALUES (?1, ?2, ?1, ?2, 'DIRECT', 'RESOLVED')",
+            rusqlite::params![symbol_id, file_id],
+        )
+        .unwrap();
+        tx.execute(
+            "INSERT INTO api_routes (method, path_pattern, handler_symbol_id, handler_symbol_name, handler_file_id, framework, route_source, last_indexed_at)
+             VALUES ('GET', '/changed', ?1, 'handler', ?2, 'axum', 'MACRO', '2026-01-01T00:00:00Z')",
+            rusqlite::params![symbol_id, file_id],
+        )
+        .unwrap();
+        tx.execute(
+            "INSERT INTO env_references (file_id, symbol_id, var_name, reference_kind, last_indexed_at)
+             VALUES (?1, ?2, 'DATABASE_URL', 'READ', '2026-01-01T00:00:00Z')",
+            rusqlite::params![file_id, symbol_id],
+        )
+        .unwrap();
+        tx.commit().unwrap();
+
+        indexer.delete_file_symbols("src/changed.rs").unwrap();
+
+        let conn = indexer.storage.get_connection();
+        for table in [
+            "project_symbols",
+            "structural_edges",
+            "api_routes",
+            "env_references",
+        ] {
+            let count: i64 = conn
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(count, 0, "{table} should be cleaned");
+        }
     }
 
     #[test]
