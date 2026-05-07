@@ -3,12 +3,10 @@ use std::path::Path;
 
 pub fn normalize_event_path(path: &Path, root: &Path) -> Option<Utf8PathBuf> {
     let relative = path.strip_prefix(root).unwrap_or(path);
-    let mut normalized = relative.to_string_lossy().replace('\\', "/");
+    let normalized = relative.to_string_lossy().replace('\\', "/");
 
     #[cfg(target_os = "windows")]
-    {
-        normalized = normalized.to_lowercase();
-    }
+    let normalized = normalized.to_lowercase();
 
     if normalized.is_empty() {
         None

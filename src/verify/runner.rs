@@ -219,18 +219,29 @@ mod tests {
 
     #[test]
     fn execute_step_direct_process_succeeds() {
+        let (executable, args) = if cfg!(target_os = "windows") {
+            (
+                "cmd".to_string(),
+                vec!["/C".to_string(), "echo direct-ok".to_string()],
+            )
+        } else {
+            (
+                "sh".to_string(),
+                vec!["-c".to_string(), "printf direct-ok".to_string()],
+            )
+        };
         let prepared = PreparedStep {
-            display_command: "rustc --version".to_string(),
-            executable: "rustc".to_string(),
-            args: vec!["--version".to_string()],
-            timeout_secs: 5,
+            display_command: "direct echo".to_string(),
+            executable,
+            args,
+            timeout_secs: 10,
             description: "test".to_string(),
             execution_mode: ExecutionMode::Direct,
         };
 
         let result = execute_step(&prepared, &ProcessPolicy::default()).unwrap();
         assert_eq!(result.exit_code, 0);
-        assert!(result.stdout.to_ascii_lowercase().contains("rustc"));
+        assert!(result.stdout.contains("direct-ok"));
     }
 
     #[test]

@@ -39,9 +39,15 @@ mod tests {
 
     #[test]
     fn test_shell_detection() {
-        let shell = detect_shell();
+        #[cfg(not(target_os = "windows"))]
+        assert!(matches!(
+            detect_shell(),
+            ShellType::Bash | ShellType::Zsh | ShellType::Unknown
+        ));
+
         #[cfg(target_os = "windows")]
         {
+            let shell = detect_shell();
             // Usually we are in powershell in this env
             if env::var("PSModulePath").is_ok() {
                 assert_eq!(shell, ShellType::Powershell);
