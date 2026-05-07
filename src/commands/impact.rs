@@ -152,7 +152,7 @@ fn map_snapshot_to_packet(snapshot: RepoSnapshot, base_dir: &Path) -> Result<Imp
             let (status, old_path) = match c.change_type {
                 ChangeType::Added => ("Added".to_string(), None),
                 ChangeType::Modified => ("Modified".to_string(), None),
-                ChangeType::Deleted => ("Deleted".to_string(), None),
+                ChangeType::Deleted => ("Deleted".to_string(), Some(c.path.clone())),
                 ChangeType::Renamed { ref old_path } => {
                     ("Renamed".to_string(), Some(old_path.clone()))
                 }
@@ -193,3 +193,58 @@ fn map_snapshot_to_packet(snapshot: RepoSnapshot, base_dir: &Path) -> Result<Imp
 }
 
 // analyze_changed_file moved to crate::index::analysis::analyze_file
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::git::FileChange;
+
+    fn make_deleted(path: &str) -> FileChange {
+        FileChange {
+            path: std::path::PathBuf::from(path),
+            change_type: ChangeType::Deleted,
+            is_staged: true,
+        }
+    }
+
+    fn make_added(path: &str) -> FileChange {
+        FileChange {
+            path: std::path::PathBuf::from(path),
+            change_type: ChangeType::Added,
+            is_staged: true,
+        }
+    }
+
+    #[test]
+    fn test_deleted_file_old_path() {
+        let snapshot = RepoSnapshot {
+            head_hash: Some("abc123".to_string()),
+            branch_name: Some("main".to_string()),
+            is_clean: false,
+            changes: vec![
+                make_deleted("src/api/users/handler.rs"),
+                make_added("src/api/users/new.rs"),
+            ],
+        };
+        let temp = tempfile::tempdir().unwrap();
+        let packet = map_snapshot_to_packet(snapshot, temp.path()).unwrap();
+        let deleted = packet
+            .changes
+            .iter()
+            .find(|c| c.status == "Deleted")
+            .expect("Deleted file not found");
+        assert_eq!(
+            deleted
+                .old_path
+                .as_ref()
+                .map(|p| p.to_string_lossy().to_string()),
+            Some("src/api/users/handler.rs".to_string())
+        );
+        let added = packet
+            .changes
+            .iter()
+            .find(|c| c.status == "Added")
+            .expect("Added file not found");
+        assert!(added.old_path.is_none());
+    }
+}

@@ -37,6 +37,10 @@ pub fn execute_index(
     let db_path = layout.state_subdir().join("ledger.db");
     let storage = StorageManager::init(db_path.as_std_path())?;
     let repo_path = layout.root.clone();
+    let config = load_config(&layout).unwrap_or_else(|err| {
+        warn!("Failed to load config: {err}. Using defaults.");
+        crate::config::model::Config::default()
+    });
 
     if docs {
         return execute_docs_index(&layout, storage);
@@ -109,7 +113,15 @@ pub fn execute_index(
     let env_stats = indexer.extract_env_schema()?;
 
     // Infer service boundaries
-    let service_stats = indexer.infer_services()?;
+    let service_stats = if config.coverage.enabled && config.coverage.services.enabled {
+        indexer.infer_services()?
+    } else {
+        info!("Service inference disabled by coverage.services config.");
+        crate::index::project_index::ServiceIndexStats {
+            services_inferred: 0,
+            files_assigned: 0,
+        }
+    };
 
     // Compute centrality if requested
     let cent_stats = if analyze_graph {

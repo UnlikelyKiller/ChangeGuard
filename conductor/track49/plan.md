@@ -29,7 +29,7 @@ Ensure `service_map_delta` is cleared during context truncation to prevent promp
 - `cargo test --workspace`
 
 ## Definition of Done (DoD)
-- [ ] **service_map_delta Cleared**: Truncation clears `service_map_delta` alongside other enrichment fields.
-- [ ] **Test Coverage**: New test confirms clearing behavior.
-- [ ] **Zero Regression**: Existing truncation tests pass.
-- [ ] **Clean CI**: `cargo fmt`, `cargo clippy`, full test suite pass.
+- [x] **service_map_delta Cleared**: Truncation clears `service_map_delta` alongside other enrichment fields.
+- [x] **Test Coverage**: New test confirms clearing behavior.
+- [x] **Zero Regression**: Existing truncation tests pass.
+- [x] **Clean CI**: `cargo fmt`, `cargo clippy`, full test suite pass.

@@ -1315,4 +1315,75 @@ mod tests {
         assert!(truncated);
         assert!(packet.affected_contracts.is_empty());
     }
+
+    #[test]
+    fn test_truncate_clears_service_map_delta() {
+        let mut packet = ImpactPacket {
+            changes: vec![ChangedFile {
+                path: PathBuf::from("src/main.rs"),
+                status: "Modified".to_string(),
+                old_path: None,
+                is_staged: true,
+                symbols: None,
+                imports: None,
+                runtime_usage: None,
+                analysis_status: FileAnalysisStatus::default(),
+                analysis_warnings: Vec::new(),
+                api_routes: Vec::new(),
+                data_models: Vec::new(),
+                ci_gates: Vec::new(),
+            }],
+            service_map_delta: Some(ServiceMapDelta {
+                services: vec![
+                    Service {
+                        name: "users".to_string(),
+                        directory: PathBuf::from("services/users"),
+                        routes: vec!["/api/v1/users".to_string()],
+                        data_models: vec!["User".to_string()],
+                    },
+                    Service {
+                        name: "orders".to_string(),
+                        directory: PathBuf::from("services/orders"),
+                        routes: vec!["/api/v1/orders".to_string()],
+                        data_models: vec!["Order".to_string()],
+                    },
+                ],
+                affected_services: vec!["users".to_string(), "orders".to_string()],
+                cross_service_edges: vec![("orders".to_string(), "users".to_string(), 3)],
+                total_services: 2,
+            }),
+            temporal_couplings: vec![TemporalCoupling {
+                file_a: PathBuf::from("src/a.rs"),
+                file_b: PathBuf::from("src/b.rs"),
+                score: 0.9,
+            }],
+            ..ImpactPacket::default()
+        };
+
+        let truncated = packet.truncate_for_context(100);
+        assert!(truncated);
+        assert!(packet.service_map_delta.is_none());
+    }
+
+    #[test]
+    fn test_truncate_preserves_service_map_delta_when_budget_not_exceeded() {
+        let mut packet = ImpactPacket {
+            service_map_delta: Some(ServiceMapDelta {
+                services: vec![Service {
+                    name: "users".to_string(),
+                    directory: PathBuf::from("services/users"),
+                    routes: vec!["/api/v1/users".to_string()],
+                    data_models: vec!["User".to_string()],
+                }],
+                affected_services: vec!["users".to_string()],
+                cross_service_edges: Vec::new(),
+                total_services: 1,
+            }),
+            ..ImpactPacket::default()
+        };
+
+        let truncated = packet.truncate_for_context(1_000_000);
+        assert!(!truncated);
+        assert!(packet.service_map_delta.is_some());
+    }
 }

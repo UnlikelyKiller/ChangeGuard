@@ -42,7 +42,7 @@ Fix `analyze_risk()` so enrichment-elevated risk levels and reasons are never si
 - `cargo test --workspace`
 
 ## Definition of Done (DoD)
-- [ ] **Risk Level Preservation**: `analyze_risk()` never downgrades a High set by enrichment.
-- [ ] **End-to-End Test**: Test proves service-map elevation survives analysis.
-- [ ] **Zero Regression**: All existing tests pass with identical scoring.
-- [ ] **Clean CI**: `cargo fmt`, `cargo clippy`, full test suite pass.
+- [x] **Risk Level Preservation**: `analyze_risk()` never downgrades a High set by enrichment.
+- [x] **End-to-End Test**: Test proves service-map elevation survives analysis.
+- [x] **Zero Regression**: All existing tests pass with identical scoring.
+- [x] **Clean CI**: `cargo fmt`, `cargo clippy`, full test suite pass.

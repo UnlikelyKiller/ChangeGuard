@@ -46,9 +46,9 @@ Close three service-detection gaps: renames/deletes, root-level LIKE '%', and cr
 - `cargo test --workspace`
 
 ## Definition of Done (DoD)
-- [ ] **Deleted File Tracing**: Deleted files contribute to `affected_services` via `old_path`.
-- [ ] **Root Service Containment**: Root-level services don't claim files in subdirectories.
-- [ ] **Edge Name Uniqueness**: Symbol name collisions between services don't cause edge misattribution.
-- [ ] **Test Coverage**: 4+ new integration tests covering the three gaps.
-- [ ] **Zero Regression**: All existing tests pass.
-- [ ] **Clean CI**: `cargo fmt`, `cargo clippy`, full test suite pass.
+- [x] **Deleted File Tracing**: Deleted files contribute to `affected_services` via `old_path`.
+- [x] **Root Service Containment**: Root-level services don't claim files in subdirectories.
+- [x] **Edge Name Uniqueness**: Symbol name collisions between services don't cause edge misattribution.
+- [x] **Test Coverage**: 4+ new integration tests covering the three gaps.
+- [x] **Zero Regression**: All existing tests pass.
+- [x] **Clean CI**: `cargo fmt`, `cargo clippy`, full test suite pass.

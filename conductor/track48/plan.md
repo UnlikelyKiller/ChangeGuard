@@ -59,9 +59,9 @@ Connect the existing but unused `ServicesConfig` fields (`enabled`, `cross_servi
 - `cargo test --workspace`
 
 ## Definition of Done (DoD)
-- [ ] **Config Gate**: `coverage.services.enabled = false` skips service inference in both index and impact.
-- [ ] **Threshold Wired**: `cross_service_elevation_threshold` controls risk elevation trigger.
-- [ ] **Topology Fix**: ServiceRoot directories create services without routes.
-- [ ] **Test Coverage**: 4+ new tests.
-- [ ] **Zero Regression**: All existing tests pass.
-- [ ] **Clean CI**: `cargo fmt`, `cargo clippy`, full test suite pass.
+- [x] **Config Gate**: `coverage.services.enabled = false` skips service inference in both index and impact.
+- [x] **Threshold Wired**: `cross_service_elevation_threshold` controls risk elevation trigger.
+- [x] **Topology Fix**: ServiceRoot directories create services without routes.
+- [x] **Test Coverage**: 4+ new tests.
+- [x] **Zero Regression**: All existing tests pass.
+- [x] **Clean CI**: `cargo fmt`, `cargo clippy`, full test suite pass.

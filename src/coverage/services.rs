@@ -21,7 +21,7 @@ pub fn infer_services(
     call_graph: &CallGraph,
     topology: &DirectoryTopology,
 ) -> Vec<Service> {
-    if routes.is_empty() && call_graph.edges.is_empty() {
+    if routes.is_empty() && call_graph.edges.is_empty() && topology.classifications.is_empty() {
         return Vec::new();
     }
 
@@ -225,28 +225,15 @@ pub fn compute_cross_service_edges(
     services: &[Service],
     call_graph: &CallGraph,
 ) -> Vec<(String, String, usize)> {
-    let mut symbol_to_service: std::collections::HashMap<String, String> =
-        std::collections::HashMap::new();
-    for service in services {
-        for route in &service.routes {
-            symbol_to_service.insert(route.clone(), service.name.clone());
-        }
-        for model in &service.data_models {
-            symbol_to_service.insert(model.clone(), service.name.clone());
-        }
-    }
-
     let mut edges: std::collections::HashMap<(String, String), usize> =
         std::collections::HashMap::new();
     for edge in &call_graph.edges {
         if let (Some(caller_svc), Some(callee_svc)) = (
-            symbol_to_service.get(&edge.caller_name),
-            symbol_to_service.get(&edge.callee_name),
+            service_for_symbol(services, &edge.caller_name, Some(&edge.caller_file)),
+            service_for_symbol(services, &edge.callee_name, edge.callee_file.as_deref()),
         ) && caller_svc != callee_svc
         {
-            *edges
-                .entry((caller_svc.clone(), callee_svc.clone()))
-                .or_insert(0) += 1;
+            *edges.entry((caller_svc, callee_svc)).or_insert(0) += 1;
         }
     }
 
@@ -257,6 +244,55 @@ pub fn compute_cross_service_edges(
 
     result.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
     result
+}
+
+fn service_for_symbol(
+    services: &[Service],
+    symbol_name: &str,
+    file_path: Option<&Path>,
+) -> Option<String> {
+    if let Some(file_path) = file_path {
+        let mut matches: Vec<&Service> = services
+            .iter()
+            .filter(|service| path_belongs_to_service(file_path, &service.directory))
+            .collect();
+        matches.sort_by(|a, b| {
+            b.directory
+                .components()
+                .count()
+                .cmp(&a.directory.components().count())
+        });
+        for service in matches {
+            if service.routes.iter().any(|route| route == symbol_name)
+                || service.data_models.iter().any(|model| model == symbol_name)
+            {
+                return Some(service.name.clone());
+            }
+        }
+    }
+
+    let mut matching_services: Vec<&Service> = services
+        .iter()
+        .filter(|service| {
+            service.routes.iter().any(|route| route == symbol_name)
+                || service.data_models.iter().any(|model| model == symbol_name)
+        })
+        .collect();
+    matching_services.sort_by(|a, b| a.name.cmp(&b.name));
+    if matching_services.len() == 1 {
+        Some(matching_services[0].name.clone())
+    } else {
+        None
+    }
+}
+
+fn path_belongs_to_service(file_path: &Path, service_dir: &Path) -> bool {
+    if service_dir.as_os_str().is_empty() || service_dir == Path::new(".") {
+        return file_path
+            .parent()
+            .is_none_or(|parent| parent.as_os_str().is_empty());
+    }
+    file_path == service_dir || file_path.starts_with(service_dir)
 }
 
 #[cfg(test)]
@@ -332,6 +368,24 @@ mod tests {
             },
         );
         assert!(services.is_empty());
+    }
+
+    #[test]
+    fn test_infer_services_topology_only_service_root() {
+        let topology = DirectoryTopology {
+            classifications: vec![DirectoryClassification {
+                dir_path: "services/billing".to_string(),
+                role: DirectoryRole::ServiceRoot,
+                confidence: 1.0,
+                evidence: "test".to_string(),
+            }],
+        };
+
+        let services = infer_services(&[], &[], &CallGraph { edges: Vec::new() }, &topology);
+
+        assert_eq!(services.len(), 1);
+        assert_eq!(services[0].name, "billing");
+        assert_eq!(services[0].directory, PathBuf::from("services/billing"));
     }
 
     #[test]
@@ -505,5 +559,54 @@ mod tests {
         let edges = compute_cross_service_edges(&services, &call_graph);
         assert_eq!(edges.len(), 1);
         assert_eq!(edges[0], ("users".to_string(), "billing".to_string(), 2));
+    }
+
+    #[test]
+    fn test_compute_cross_service_edges_uses_file_path_for_duplicate_symbols() {
+        let services = vec![
+            Service {
+                name: "frontend".to_string(),
+                routes: vec!["index".to_string(), "render".to_string()],
+                data_models: vec![],
+                directory: PathBuf::from("src/frontend"),
+            },
+            Service {
+                name: "backend".to_string(),
+                routes: vec!["index".to_string(), "serve".to_string()],
+                data_models: vec![],
+                directory: PathBuf::from("src/backend"),
+            },
+        ];
+
+        let call_graph = CallGraph {
+            edges: vec![
+                CallEdge {
+                    caller_name: "render".to_string(),
+                    caller_file: PathBuf::from("src/frontend/render.rs"),
+                    callee_name: "index".to_string(),
+                    callee_file: Some(PathBuf::from("src/backend/index.rs")),
+                    call_kind: CallKind::Direct,
+                    resolution_status: ResolutionStatus::Resolved,
+                    confidence: 1.0,
+                    evidence: "test".to_string(),
+                },
+                CallEdge {
+                    caller_name: "serve".to_string(),
+                    caller_file: PathBuf::from("src/backend/serve.rs"),
+                    callee_name: "index".to_string(),
+                    callee_file: Some(PathBuf::from("src/frontend/index.rs")),
+                    call_kind: CallKind::Direct,
+                    resolution_status: ResolutionStatus::Resolved,
+                    confidence: 1.0,
+                    evidence: "test".to_string(),
+                },
+            ],
+        };
+
+        let edges = compute_cross_service_edges(&services, &call_graph);
+
+        assert_eq!(edges.len(), 2);
+        assert!(edges.contains(&("backend".to_string(), "frontend".to_string(), 1)));
+        assert!(edges.contains(&("frontend".to_string(), "backend".to_string(), 1)));
     }
 }

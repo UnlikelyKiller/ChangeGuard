@@ -475,7 +475,10 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules, config: &Config) -
     // 4d. Cross-Service Impact (Service-Map)
     if let Some(ref delta) = packet.service_map_delta {
         let count = delta.affected_services.len();
-        let svc_weight = if count >= 5 {
+        let threshold = config.coverage.services.cross_service_elevation_threshold as usize;
+        let svc_weight = if count < threshold {
+            0
+        } else if count >= 5 {
             config.coverage.services.risk_weight_5plus
         } else if count >= 3 {
             config.coverage.services.risk_weight_3to4
@@ -647,13 +650,18 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules, config: &Config) -
     total_weight += runtime_config_total;
 
     // 4. Scoring
-    packet.risk_level = if total_weight > 50 {
+    let rule_level = if total_weight > 50 {
         RiskLevel::High
     } else if total_weight > 20 {
         RiskLevel::Medium
     } else {
         RiskLevel::Low
     };
+    let has_prior_risk_signal =
+        packet.risk_level == RiskLevel::High || !packet.risk_reasons.is_empty();
+    if !has_prior_risk_signal || rule_level > packet.risk_level {
+        packet.risk_level = rule_level;
+    }
 
     if reasons.is_empty() && packet.risk_reasons.is_empty() {
         packet
@@ -2442,6 +2450,57 @@ mod tests {
         );
         // 3 services -> weight 6
         assert_eq!(packet.risk_level, RiskLevel::Low);
+    }
+
+    #[test]
+    fn test_analyze_risk_preserves_enrichment_elevated_risk_level() {
+        let mut packet = ImpactPacket {
+            risk_level: RiskLevel::High,
+            risk_reasons: vec!["Enrichment elevated risk".to_string()],
+            ..ImpactPacket::default()
+        };
+
+        let rules = Rules::default();
+        let config = Config::default();
+        analyze_risk(&mut packet, &rules, &config).unwrap();
+
+        assert_eq!(packet.risk_level, RiskLevel::High);
+        assert!(
+            packet
+                .risk_reasons
+                .contains(&"Enrichment elevated risk".to_string())
+        );
+    }
+
+    #[test]
+    fn test_analyze_risk_respects_cross_service_elevation_threshold() {
+        use crate::impact::packet::ServiceMapDelta;
+
+        let mut packet = ImpactPacket::default();
+        packet.service_map_delta = Some(ServiceMapDelta {
+            affected_services: vec![
+                "users".to_string(),
+                "billing".to_string(),
+                "auth".to_string(),
+                "notifications".to_string(),
+            ],
+            services: vec![],
+            cross_service_edges: vec![],
+            total_services: 4,
+        });
+
+        let rules = Rules::default();
+        let mut config = Config::default();
+        config.coverage.services.cross_service_elevation_threshold = 5;
+        analyze_risk(&mut packet, &rules, &config).unwrap();
+
+        assert_eq!(packet.risk_level, RiskLevel::Low);
+        assert!(
+            !packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Cross-service change affecting"))
+        );
     }
 
     #[test]

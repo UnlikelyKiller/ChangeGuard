@@ -15,6 +15,11 @@ impl EnrichmentProvider for ServiceProvider {
     }
 
     fn enrich(&self, context: &EnrichmentContext, packet: &mut ImpactPacket) -> Result<()> {
+        if !context.config.coverage.enabled || !context.config.coverage.services.enabled {
+            info!("Skipping service enrichment: coverage.services is disabled.");
+            return Ok(());
+        }
+
         if !context.storage.table_exists_and_has_data("project_files")? {
             info!("Skipping service enrichment: project_files table is empty or missing.");
             return Ok(());
