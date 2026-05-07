@@ -1792,4 +1792,78 @@ mod tests {
         assert!(json.contains("total_files"));
         assert!(json.contains("stale_files"));
     }
+
+    #[test]
+    fn test_root_service_containment() {
+        let storage = in_memory_storage();
+        let file_paths = [
+            "src/main.rs",
+            "README.md",
+            "src/api/users/handler.rs",
+            "src/api/users/models.rs",
+            "src/api/billing/mod.rs",
+        ];
+        let conn = storage.get_connection();
+        let tx = conn.unchecked_transaction().unwrap();
+        for path in &file_paths {
+            insert_file_row(
+                &tx,
+                &ProjectFile {
+                    id: None,
+                    file_path: path.to_string(),
+                    language: path.ends_with(".rs").then(|| "Rust".to_string()),
+                    content_hash: None,
+                    git_blob_oid: None,
+                    file_size: None,
+                    mtime_ns: None,
+                    parser_version: PARSER_VERSION.to_string(),
+                    parse_status: "OK".to_string(),
+                    last_indexed_at: "2026-01-01T00:00:00Z".to_string(),
+                },
+            )
+            .unwrap();
+        }
+
+        tx.execute(
+            "UPDATE project_files SET service_name = ?1 WHERE (file_path LIKE ?2 OR file_path = ?3) AND service_name IS NULL",
+            rusqlite::params!["users", "src/api/users/%", "src/api/users"],
+        )
+        .unwrap();
+        tx.execute(
+            "UPDATE project_files SET service_name = ?1 WHERE file_path NOT LIKE '%/%' AND service_name IS NULL",
+            rusqlite::params!["root-svc"],
+        )
+        .unwrap();
+        tx.commit().unwrap();
+
+        let conn = storage.get_connection();
+        let mut stmt = conn
+            .prepare("SELECT file_path, service_name FROM project_files ORDER BY file_path")
+            .unwrap();
+        let rows: Vec<(String, Option<String>)> = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+            })
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+
+        let readme = rows.iter().find(|(p, _)| p == "README.md").unwrap();
+        assert_eq!(readme.1.as_deref(), Some("root-svc"));
+
+        let main_rs = rows.iter().find(|(p, _)| p == "src/main.rs").unwrap();
+        assert!(main_rs.1.is_none());
+
+        let handler = rows
+            .iter()
+            .find(|(p, _)| p == "src/api/users/handler.rs")
+            .unwrap();
+        assert_eq!(handler.1.as_deref(), Some("users"));
+
+        let billing = rows
+            .iter()
+            .find(|(p, _)| p == "src/api/billing/mod.rs")
+            .unwrap();
+        assert!(billing.1.is_none());
+    }
 }
