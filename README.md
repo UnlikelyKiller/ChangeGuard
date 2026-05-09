@@ -35,6 +35,7 @@ See [docs/installation.md](docs/installation.md) for installer options, release 
 ```powershell
 changeguard init
 changeguard doctor
+changeguard index
 changeguard scan
 changeguard impact
 changeguard verify
@@ -46,16 +47,19 @@ changeguard ask "What should I verify next?"
 
 - `init`: create `.changeguard/`, starter config, starter rules, and `.gitignore` wiring.
 - `doctor`: report platform, shell, path, and tool health.
+- `index`: parse source code to build structural, entrypoint, call-graph, data-model, observability, and semantic vector indices. Supports SCIP ingestion.
 - `scan`: summarize staged and unstaged git changes.
 - `watch`: debounce file-system events into persisted batches.
-- `impact`: generate `latest-impact.json` with symbols, imports, runtime usage, complexity, temporal coupling, hotspots, and federated impact.
-- `verify`: build and run a deterministic verification plan, including predictive files from current imports, temporal coupling, and packet history.
-- `ask`: send sanitized impact context to Gemini in `analyze`, `suggest`, `review-patch`, or narrative mode.
+- `impact`: generate `latest-impact.json` with symbols, imports, runtime usage, complexity, temporal coupling, hotspots, CI predictions, and federated impact.
+- `verify`: build and run a deterministic verification plan using structural impact, temporal coupling, CI predictions, and Bayesian failure probability ordering. Includes `--explain` for LLM failure rationales.
+- `ask`: send sanitized impact context to Gemini or a local LLM. Supports natural-language `--semantic` codebase search.
+- `search`: sub-millisecond regex search via Tantivy trigrams and ranked BM25 codebase queries.
 - `hotspots`: rank files by temporal change frequency multiplied by complexity.
+- `viz`: export an interactive HTML Knowledge Graph visualization of codebase dependencies and risk heatmaps.
 - `federate`: export public interfaces, scan sibling repositories, and show known federated links.
 - `ledger`: transactional architectural memory (start, commit, rollback, audit, search, adr).
 - `daemon`: optional LSP server with diagnostics, Hover, CodeLens, stale-data handling, and lifecycle management.
-- `reset`: remove derived local state, with opt-in flags for config/rules or the full `.changeguard/` tree. Preserves `ledger.db` by default; use `--include-ledger` to remove provenance data.
+- `reset`: remove derived local state. Preserves `ledger.db` by default; use `--include-ledger` to remove provenance data.
 
 ## Common Workflows
 
