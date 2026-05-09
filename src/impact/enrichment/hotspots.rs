@@ -42,3 +42,34 @@ impl EnrichmentProvider for HotspotProvider {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::migrations::get_migrations;
+    use crate::state::storage::StorageManager;
+    use rusqlite::Connection;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn enrich_calculates_hotspots() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        get_migrations().to_latest(&mut conn).unwrap();
+        let storage = StorageManager::init_from_conn(conn);
+        let config = crate::config::model::Config::default();
+        let context = EnrichmentContext {
+            storage: &storage,
+            config: &config,
+            file_id_map: HashMap::new(),
+            project_root: PathBuf::from(r"C:\dev\changeguard"),
+            warnings: Arc::new(Mutex::new(Vec::new())),
+        };
+        let mut packet = ImpactPacket::default();
+
+        HotspotProvider.enrich(&context, &mut packet).unwrap();
+
+        assert!(packet.hotspots.len() <= config.hotspots.limit);
+    }
+}

@@ -116,3 +116,112 @@ impl CouplingProvider {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::impact::packet::{ChangedFile, FileAnalysisStatus};
+    use crate::index::symbols::{Symbol, SymbolKind};
+    use crate::state::migrations::get_migrations;
+    use crate::state::storage::StorageManager;
+    use rusqlite::Connection;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn enrich_structural_couplings() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        get_migrations().to_latest(&mut conn).unwrap();
+        conn.execute(
+            "INSERT INTO project_files (file_path, language, content_hash, file_size, last_indexed_at)
+             VALUES ('src/caller.rs', 'Rust', 'hash1', 1, '2026-01-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+        let caller_file_id = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO project_files (file_path, language, content_hash, file_size, last_indexed_at)
+             VALUES ('src/callee.rs', 'Rust', 'hash2', 1, '2026-01-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+        let callee_file_id = conn.last_insert_rowid();
+
+        conn.execute(
+            "INSERT INTO project_symbols (file_id, qualified_name, symbol_name, symbol_kind, last_indexed_at)
+             VALUES (?1, 'crate::caller_fn', 'caller_fn', 'Function', '2026-01-01T00:00:00Z')",
+            [caller_file_id],
+        )
+        .unwrap();
+        let caller_symbol_id = conn.last_insert_rowid();
+
+        conn.execute(
+            "INSERT INTO project_symbols (file_id, qualified_name, symbol_name, symbol_kind, last_indexed_at)
+             VALUES (?1, 'crate::callee_fn', 'callee_fn', 'Function', '2026-01-01T00:00:00Z')",
+            [callee_file_id],
+        )
+        .unwrap();
+        let callee_symbol_id = conn.last_insert_rowid();
+
+        conn.execute(
+            "INSERT INTO structural_edges (caller_symbol_id, caller_file_id, callee_symbol_id, callee_file_id, call_kind, resolution_status, confidence)
+             VALUES (?1, ?2, ?3, ?4, 'DIRECT', 'RESOLVED', 1.0)",
+            [caller_symbol_id, caller_file_id, callee_symbol_id, callee_file_id],
+        )
+        .unwrap();
+
+        let storage = StorageManager::init_from_conn(conn);
+        let mut file_id_map = HashMap::new();
+        file_id_map.insert(PathBuf::from("src/callee.rs"), callee_file_id);
+        let config = crate::config::model::Config::default();
+        let context = EnrichmentContext {
+            storage: &storage,
+            config: &config,
+            file_id_map,
+            project_root: PathBuf::from(r"C:\dev\changeguard"),
+            warnings: Arc::new(Mutex::new(Vec::new())),
+        };
+        let mut packet = ImpactPacket {
+            changes: vec![ChangedFile {
+                path: PathBuf::from("src/callee.rs"),
+                status: "Modified".to_string(),
+                old_path: None,
+                is_staged: false,
+                symbols: Some(vec![Symbol {
+                    name: "callee_fn".into(),
+                    kind: SymbolKind::Function,
+                    is_public: true,
+                    cognitive_complexity: None,
+                    cyclomatic_complexity: None,
+                    line_start: None,
+                    line_end: None,
+                    qualified_name: Some("crate::callee_fn".into()),
+                    byte_start: None,
+                    byte_end: None,
+                    entrypoint_kind: None,
+                }]),
+                imports: None,
+                runtime_usage: None,
+                analysis_status: FileAnalysisStatus::default(),
+                analysis_warnings: Vec::new(),
+                api_routes: Vec::new(),
+                data_models: Vec::new(),
+                ci_gates: Vec::new(),
+            }],
+            ..Default::default()
+        };
+
+        CouplingProvider.enrich(&context, &mut packet).unwrap();
+
+        assert_eq!(packet.structural_couplings.len(), 1);
+        assert_eq!(
+            packet.structural_couplings[0].caller_symbol_name,
+            "caller_fn"
+        );
+        assert_eq!(
+            packet.structural_couplings[0].callee_symbol_name,
+            "callee_fn"
+        );
+    }
+}

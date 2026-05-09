@@ -75,6 +75,13 @@ impl Ord for ApiRoute {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "camelCase")]
+pub enum StalenessTier {
+    Warning,
+    Critical,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "camelCase")]
 pub enum RiskLevel {
@@ -251,6 +258,8 @@ pub struct RelevantDecision {
     pub rerank_score: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub staleness_days: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub staleness_tier: Option<StalenessTier>,
 }
 
 impl PartialEq for RelevantDecision {
@@ -494,23 +503,52 @@ pub struct SdkDependency {
     pub import_statement: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ManifestType {
     Dockerfile,
     DockerCompose,
     Kubernetes,
     Terraform,
     Helm,
+    CiWorkflow,
     Unknown,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeployManifestChange {
     pub file: PathBuf,
     pub manifest_type: ManifestType,
-    pub risk_weight: u8,
-    pub is_deleted: bool,
+    pub risk_tier: u8,
+    pub coupled_files: Vec<String>,
+    pub high_blast_resources: Vec<String>,
+}
+
+impl PartialEq for DeployManifestChange {
+    fn eq(&self, other: &Self) -> bool {
+        self.file == other.file
+            && self.manifest_type == other.manifest_type
+            && self.risk_tier == other.risk_tier
+            && self.coupled_files == other.coupled_files
+            && self.high_blast_resources == other.high_blast_resources
+    }
+}
+
+impl Eq for DeployManifestChange {}
+
+impl PartialOrd for DeployManifestChange {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for DeployManifestChange {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other
+            .risk_tier
+            .cmp(&self.risk_tier)
+            .then_with(|| self.file.cmp(&other.file))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -950,6 +988,7 @@ mod tests {
                 similarity: 0.85,
                 rerank_score: Some(0.92),
                 staleness_days: None,
+                staleness_tier: None,
             },
             RelevantDecision {
                 file_path: PathBuf::from("docs/api.md"),
@@ -958,6 +997,7 @@ mod tests {
                 similarity: 0.6,
                 rerank_score: None,
                 staleness_days: None,
+                staleness_tier: None,
             },
         ];
 
@@ -981,6 +1021,62 @@ mod tests {
     }
 
     #[test]
+    fn test_relevant_decision_serialization_roundtrip_with_staleness_populated() {
+        let decisions = vec![RelevantDecision {
+            file_path: PathBuf::from("docs/old.md"),
+            heading: Some("Legacy".to_string()),
+            excerpt: "Old decision".to_string(),
+            similarity: 0.75,
+            rerank_score: None,
+            staleness_days: Some(400),
+            staleness_tier: Some(StalenessTier::Warning),
+        }];
+
+        let packet = ImpactPacket {
+            relevant_decisions: decisions,
+            ..ImpactPacket::default()
+        };
+
+        let json = serde_json::to_string_pretty(&packet).unwrap();
+        assert!(json.contains("stalenessDays"));
+        assert!(json.contains("stalenessTier"));
+        assert!(json.contains("warning"));
+
+        let parsed: ImpactPacket = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.relevant_decisions[0].staleness_days, Some(400));
+        assert_eq!(
+            parsed.relevant_decisions[0].staleness_tier,
+            Some(StalenessTier::Warning)
+        );
+    }
+
+    #[test]
+    fn test_relevant_decision_serialization_roundtrip_with_staleness_none() {
+        let decisions = vec![RelevantDecision {
+            file_path: PathBuf::from("docs/new.md"),
+            heading: None,
+            excerpt: "New decision".to_string(),
+            similarity: 0.5,
+            rerank_score: None,
+            staleness_days: None,
+            staleness_tier: None,
+        }];
+
+        let packet = ImpactPacket {
+            relevant_decisions: decisions,
+            ..ImpactPacket::default()
+        };
+
+        let json = serde_json::to_string_pretty(&packet).unwrap();
+        assert!(!json.contains("stalenessDays"));
+        assert!(!json.contains("stalenessTier"));
+
+        let parsed: ImpactPacket = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.relevant_decisions[0].staleness_days, None);
+        assert_eq!(parsed.relevant_decisions[0].staleness_tier, None);
+    }
+
+    #[test]
     fn test_relevant_decision_empty_absent_from_json() {
         let packet = ImpactPacket::default();
         let json = serde_json::to_string_pretty(&packet).unwrap();
@@ -998,6 +1094,7 @@ mod tests {
                     similarity: 0.5,
                     rerank_score: None,
                     staleness_days: None,
+                    staleness_tier: None,
                 },
                 RelevantDecision {
                     file_path: PathBuf::from("docs/a.md"),
@@ -1006,6 +1103,7 @@ mod tests {
                     similarity: 0.9,
                     rerank_score: None,
                     staleness_days: None,
+                    staleness_tier: None,
                 },
                 RelevantDecision {
                     file_path: PathBuf::from("docs/b.md"),
@@ -1014,6 +1112,7 @@ mod tests {
                     similarity: 0.5,
                     rerank_score: None,
                     staleness_days: None,
+                    staleness_tier: None,
                 },
             ],
             ..ImpactPacket::default()
@@ -1064,6 +1163,7 @@ mod tests {
                 similarity: 0.9,
                 rerank_score: None,
                 staleness_days: None,
+                staleness_tier: None,
             }],
             ..ImpactPacket::default()
         };
@@ -1385,5 +1485,150 @@ mod tests {
         let truncated = packet.truncate_for_context(1_000_000);
         assert!(!truncated);
         assert!(packet.service_map_delta.is_some());
+    }
+
+    #[test]
+    fn test_data_flow_match_serialization_roundtrip() {
+        let original = DataFlowMatch {
+            chain_label: "A -> B -> C".to_string(),
+            changed_nodes: vec!["A".to_string(), "C".to_string()],
+            total_nodes: 3,
+            change_pct: 0.67,
+            risk: RiskLevel::High,
+        };
+
+        let json = serde_json::to_string(&original).unwrap();
+        let deserialized: DataFlowMatch = serde_json::from_str(&json).unwrap();
+        assert_eq!(original, deserialized);
+    }
+
+    #[test]
+    fn test_finalize_sorts_data_flow_matches() {
+        let mut packet = ImpactPacket {
+            data_flow_matches: vec![
+                DataFlowMatch {
+                    chain_label: "low".to_string(),
+                    changed_nodes: vec![],
+                    total_nodes: 2,
+                    change_pct: 0.1,
+                    risk: RiskLevel::Low,
+                },
+                DataFlowMatch {
+                    chain_label: "high".to_string(),
+                    changed_nodes: vec![],
+                    total_nodes: 2,
+                    change_pct: 0.9,
+                    risk: RiskLevel::High,
+                },
+                DataFlowMatch {
+                    chain_label: "mid".to_string(),
+                    changed_nodes: vec![],
+                    total_nodes: 2,
+                    change_pct: 0.5,
+                    risk: RiskLevel::Medium,
+                },
+            ],
+            ..ImpactPacket::default()
+        };
+
+        packet.finalize();
+
+        assert_eq!(packet.data_flow_matches[0].change_pct, 0.9);
+        assert_eq!(packet.data_flow_matches[1].change_pct, 0.5);
+        assert_eq!(packet.data_flow_matches[2].change_pct, 0.1);
+    }
+
+    #[test]
+    fn test_truncate_clears_data_flow_matches() {
+        let mut packet = ImpactPacket {
+            changes: vec![ChangedFile {
+                path: PathBuf::from("src/main.rs"),
+                status: "Modified".to_string(),
+                old_path: None,
+                is_staged: true,
+                symbols: None,
+                imports: None,
+                runtime_usage: None,
+                analysis_status: FileAnalysisStatus::default(),
+                analysis_warnings: Vec::new(),
+                api_routes: Vec::new(),
+                data_models: Vec::new(),
+                ci_gates: Vec::new(),
+            }],
+            data_flow_matches: vec![DataFlowMatch {
+                chain_label: "test".to_string(),
+                changed_nodes: vec![],
+                total_nodes: 2,
+                change_pct: 0.5,
+                risk: RiskLevel::Medium,
+            }],
+            ..ImpactPacket::default()
+        };
+
+        let truncated = packet.truncate_for_context(100);
+        assert!(truncated);
+        assert!(packet.data_flow_matches.is_empty());
+    }
+
+    #[test]
+    fn test_deploy_manifest_change_serialization_roundtrip() {
+        let original = DeployManifestChange {
+            file: PathBuf::from("Dockerfile"),
+            manifest_type: ManifestType::Dockerfile,
+            risk_tier: 2,
+            coupled_files: vec!["src/".to_string()],
+            high_blast_resources: vec![],
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let parsed: DeployManifestChange = serde_json::from_str(&json).unwrap();
+        assert_eq!(original, parsed);
+    }
+
+    #[test]
+    fn test_finalize_sorts_deploy_manifest_changes_by_risk_tier_descending() {
+        let mut packet = ImpactPacket {
+            deploy_manifest_changes: vec![
+                DeployManifestChange {
+                    file: PathBuf::from("Dockerfile"),
+                    manifest_type: ManifestType::Dockerfile,
+                    risk_tier: 1,
+                    coupled_files: Vec::new(),
+                    high_blast_resources: Vec::new(),
+                },
+                DeployManifestChange {
+                    file: PathBuf::from("main.tf"),
+                    manifest_type: ManifestType::Terraform,
+                    risk_tier: 3,
+                    coupled_files: Vec::new(),
+                    high_blast_resources: Vec::new(),
+                },
+                DeployManifestChange {
+                    file: PathBuf::from("docker-compose.yml"),
+                    manifest_type: ManifestType::DockerCompose,
+                    risk_tier: 2,
+                    coupled_files: Vec::new(),
+                    high_blast_resources: Vec::new(),
+                },
+            ],
+            ..ImpactPacket::default()
+        };
+
+        packet.finalize();
+
+        assert_eq!(packet.deploy_manifest_changes[0].risk_tier, 3);
+        assert_eq!(
+            packet.deploy_manifest_changes[0].file,
+            PathBuf::from("main.tf")
+        );
+        assert_eq!(packet.deploy_manifest_changes[1].risk_tier, 2);
+        assert_eq!(
+            packet.deploy_manifest_changes[1].file,
+            PathBuf::from("docker-compose.yml")
+        );
+        assert_eq!(packet.deploy_manifest_changes[2].risk_tier, 1);
+        assert_eq!(
+            packet.deploy_manifest_changes[2].file,
+            PathBuf::from("Dockerfile")
+        );
     }
 }

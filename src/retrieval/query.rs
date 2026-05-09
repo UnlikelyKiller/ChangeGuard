@@ -2,7 +2,13 @@ use crate::config::model::LocalModelConfig;
 use crate::embed::client::embed_long_text;
 use crate::embed::similarity::pairwise_cosine;
 use crate::embed::storage::load_candidates;
+use crate::impact::packet::StalenessTier;
+use chrono::NaiveDate;
 use rusqlite::Connection;
+use std::fs;
+use std::path::Path;
+use std::process::Command;
+use std::time::SystemTime;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RetrievedChunk {
@@ -83,6 +89,112 @@ pub fn retrieve_top_k(
     });
 
     Ok(results)
+}
+
+/// Compute the staleness (age in days) of an ADR file.
+///
+/// Uses multi-source age detection in priority order, taking the **most recent** date found.
+/// Sources: file mtime → YAML frontmatter `date:` → `created:` metadata line → git log.
+///
+/// Recently-updated exemption: if file mtime is within 30 days, returns `None`.
+pub fn compute_staleness(file_path: &Path, _threshold_days: u32) -> Option<u32> {
+    const EXEMPTION_DAYS: u64 = 30;
+    const SECS_PER_DAY: u64 = 86400;
+
+    let now = SystemTime::now();
+
+    // 1. Check mtime first for exemption
+    let mtime_opt = fs::metadata(file_path)
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|m| now.duration_since(m).ok());
+
+    if let Some(elapsed) = mtime_opt
+        && elapsed.as_secs() / SECS_PER_DAY < EXEMPTION_DAYS
+    {
+        return None;
+    }
+
+    let mut most_recent: Option<SystemTime> = mtime_opt.map(|_| {
+        fs::metadata(file_path)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .unwrap_or(SystemTime::UNIX_EPOCH)
+    });
+
+    // 2. Parse YAML frontmatter `date:` field
+    if let Ok(content) = fs::read_to_string(file_path) {
+        if let Some(stripped) = content.strip_prefix("---")
+            && let Some(end) = stripped.find("---")
+        {
+            let frontmatter = &stripped[..end];
+            for line in frontmatter.lines() {
+                let line = line.trim();
+                if let Some(val) = line.strip_prefix("date:") {
+                    let val = val.trim();
+                    if let Ok(naive) = NaiveDate::parse_from_str(val, "%Y-%m-%d") {
+                        let date_time = naive.and_hms_opt(0, 0, 0).unwrap_or_default();
+                        let ts = SystemTime::UNIX_EPOCH
+                            + std::time::Duration::from_secs(date_time.and_utc().timestamp() as u64);
+                        most_recent = most_recent.map(|m| m.max(ts)).or(Some(ts));
+                    }
+                    break;
+                }
+            }
+        }
+
+        // 3. Parse `created:` metadata line in body
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if let Some(rest) = trimmed.strip_prefix("created:") {
+                let val = rest.trim();
+                if let Ok(naive) = NaiveDate::parse_from_str(val, "%Y-%m-%d") {
+                    let date_time = naive.and_hms_opt(0, 0, 0).unwrap_or_default();
+                    let ts = SystemTime::UNIX_EPOCH
+                        + std::time::Duration::from_secs(date_time.and_utc().timestamp() as u64);
+                    most_recent = most_recent.map(|m| m.max(ts)).or(Some(ts));
+                }
+                break;
+            }
+        }
+    }
+
+    // 4. Git-based fallback
+    let git_ts = git_last_commit_timestamp(file_path);
+    if let Some(ts) = git_ts {
+        most_recent = most_recent.map(|m| m.max(ts)).or(Some(ts));
+    }
+
+    let most_recent = most_recent?;
+    let age = now.duration_since(most_recent).ok()?;
+    let days = age.as_secs() / SECS_PER_DAY;
+    Some(days as u32)
+}
+
+fn git_last_commit_timestamp(file_path: &Path) -> Option<SystemTime> {
+    let output = Command::new("git")
+        .args(["log", "-1", "--format=%ct", "--", file_path.to_str()?])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8(output.stdout).ok()?;
+    let timestamp_secs: u64 = stdout.trim().parse().ok()?;
+
+    Some(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(timestamp_secs))
+}
+
+pub fn compute_staleness_tier(days: u32, threshold_days: u32) -> Option<StalenessTier> {
+    if days < threshold_days {
+        None
+    } else if days <= threshold_days.saturating_mul(2) {
+        Some(StalenessTier::Warning)
+    } else {
+        Some(StalenessTier::Critical)
+    }
 }
 
 fn resolve_doc_chunk(
@@ -282,5 +394,113 @@ mod tests {
             file_path: String::new(),
         };
         assert!(a < b); // entity_id a < b when similarity tied
+    }
+
+    #[test]
+    fn compute_staleness_exempt_when_mtime_within_30_days() {
+        use std::fs::OpenOptions;
+        use std::io::Write;
+        use std::time::{Duration, SystemTime};
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("adr.md");
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&path)
+            .unwrap();
+        file.write_all(b"content").unwrap();
+        let recent = SystemTime::now() - Duration::from_secs(5 * 86400);
+        file.set_modified(recent).unwrap();
+        let result = compute_staleness(&path, 365);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn compute_staleness_populated_when_mtime_older_than_threshold() {
+        use std::fs::OpenOptions;
+        use std::io::Write;
+        use std::time::{Duration, SystemTime};
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("adr.md");
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&path)
+            .unwrap();
+        file.write_all(b"content").unwrap();
+        let old = SystemTime::now() - Duration::from_secs(400 * 86400);
+        file.set_modified(old).unwrap();
+        let result = compute_staleness(&path, 365);
+        assert!(result.is_some());
+        assert!(result.unwrap() >= 399);
+    }
+
+    #[test]
+    fn compute_staleness_uses_frontmatter_date() {
+        use std::fs::OpenOptions;
+        use std::io::Write;
+        use std::time::{Duration, SystemTime};
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("adr.md");
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&path)
+            .unwrap();
+        let frontmatter = b"---\ndate: 2024-01-01\n---\nBody content\n";
+        file.write_all(frontmatter).unwrap();
+        let frontmatter_ts = SystemTime::UNIX_EPOCH + Duration::from_secs(1704067200);
+        file.set_modified(frontmatter_ts).unwrap();
+        let result = compute_staleness(&path, 365);
+        assert!(result.is_some());
+        let days = result.unwrap();
+        assert!(days >= 850);
+    }
+
+    #[test]
+    fn compute_staleness_uses_created_metadata_line() {
+        use std::fs::OpenOptions;
+        use std::io::Write;
+        use std::time::{Duration, SystemTime};
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("adr.md");
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&path)
+            .unwrap();
+        let content = b"created: 2024-01-01\n\nBody content\n";
+        file.write_all(content).unwrap();
+        let created_ts = SystemTime::UNIX_EPOCH + Duration::from_secs(1704067200);
+        file.set_modified(created_ts).unwrap();
+        let result = compute_staleness(&path, 365);
+        assert!(result.is_some());
+        assert!(result.unwrap() >= 850);
+    }
+
+    #[test]
+    fn compute_staleness_tier_none_when_below_threshold() {
+        let tier = compute_staleness_tier(100, 365);
+        assert_eq!(tier, None);
+    }
+
+    #[test]
+    fn compute_staleness_tier_warning_when_within_double_threshold() {
+        let tier = compute_staleness_tier(500, 365);
+        assert_eq!(tier, Some(StalenessTier::Warning));
+    }
+
+    #[test]
+    fn compute_staleness_tier_critical_when_exceeds_double_threshold() {
+        let tier = compute_staleness_tier(800, 365);
+        assert_eq!(tier, Some(StalenessTier::Critical));
     }
 }

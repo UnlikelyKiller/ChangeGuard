@@ -155,3 +155,121 @@ impl CoverageProvider {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::impact::packet::{ChangedFile, FileAnalysisStatus};
+    use crate::state::migrations::get_migrations;
+    use crate::state::storage::StorageManager;
+    use rusqlite::Connection;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn enrich_trace_config_drift() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        get_migrations().to_latest(&mut conn).unwrap();
+        let storage = StorageManager::init_from_conn(conn);
+        let mut config = crate::config::model::Config::default();
+        config.coverage.enabled = true;
+        config.coverage.traces.enabled = true;
+        let context = EnrichmentContext {
+            storage: &storage,
+            config: &config,
+            file_id_map: HashMap::new(),
+            project_root: PathBuf::new(),
+            warnings: Arc::new(Mutex::new(Vec::new())),
+        };
+        let mut packet = ImpactPacket {
+            changes: vec![ChangedFile {
+                path: PathBuf::from("otel-collector.yaml"),
+                status: "Modified".to_string(),
+                old_path: None,
+                is_staged: false,
+                symbols: None,
+                imports: None,
+                runtime_usage: None,
+                analysis_status: FileAnalysisStatus::default(),
+                analysis_warnings: Vec::new(),
+                api_routes: Vec::new(),
+                data_models: Vec::new(),
+                ci_gates: Vec::new(),
+            }],
+            ..Default::default()
+        };
+
+        CoverageProvider.enrich(&context, &mut packet).unwrap();
+
+        assert!(!packet.trace_config_drift.is_empty());
+        assert_eq!(
+            packet.trace_config_drift[0].config_type,
+            crate::impact::packet::TraceConfigType::OpenTelemetryCollector
+        );
+    }
+
+    #[test]
+    fn enrich_data_flow_with_empty_db() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        get_migrations().to_latest(&mut conn).unwrap();
+        let storage = StorageManager::init_from_conn(conn);
+        let mut config = crate::config::model::Config::default();
+        config.coverage.enabled = true;
+        config.coverage.data_flow.enabled = true;
+        let context = EnrichmentContext {
+            storage: &storage,
+            config: &config,
+            file_id_map: HashMap::new(),
+            project_root: PathBuf::new(),
+            warnings: Arc::new(Mutex::new(Vec::new())),
+        };
+        let mut packet = ImpactPacket::default();
+
+        CoverageProvider.enrich(&context, &mut packet).unwrap();
+
+        assert!(packet.data_flow_matches.is_empty());
+    }
+
+    #[test]
+    fn test_data_flow_disabled_returns_empty() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        get_migrations().to_latest(&mut conn).unwrap();
+        let storage = StorageManager::init_from_conn(conn);
+
+        // Seed DB with a route so that if data_flow were enabled it would run
+        let conn_ref = storage.get_connection();
+        conn_ref
+            .execute(
+                "INSERT INTO project_files (file_path, language, content_hash, file_size, last_indexed_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                ("src/routes.rs", "Rust", "hash1", 100, "2026-05-01T00:00:00Z"),
+            )
+            .unwrap();
+        let file_id = conn_ref.last_insert_rowid();
+        conn_ref
+            .execute(
+                "INSERT INTO api_routes (method, path_pattern, handler_symbol_name, handler_file_id, framework, route_source, is_dynamic, route_confidence, last_indexed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                ("GET", "/users", Some("get_users"), file_id, "Axum", "DECORATOR", 0, 1.0, "2026-05-01T00:00:00Z"),
+            )
+            .unwrap();
+
+        let mut config = crate::config::model::Config::default();
+        config.coverage.enabled = true;
+        config.coverage.data_flow.enabled = false;
+        let context = EnrichmentContext {
+            storage: &storage,
+            config: &config,
+            file_id_map: HashMap::new(),
+            project_root: PathBuf::new(),
+            warnings: Arc::new(Mutex::new(Vec::new())),
+        };
+        let mut packet = ImpactPacket::default();
+
+        CoverageProvider.enrich(&context, &mut packet).unwrap();
+
+        assert!(
+            packet.data_flow_matches.is_empty(),
+            "data_flow_matches should be empty when data_flow is disabled"
+        );
+    }
+}

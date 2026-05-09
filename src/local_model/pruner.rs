@@ -437,6 +437,7 @@ mod tests {
                 similarity: 0.88,
                 rerank_score: None,
                 staleness_days: None,
+                staleness_tier: None,
             }],
             observability: vec![ObservabilitySignal::new(
                 "error_rate",

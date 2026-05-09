@@ -518,45 +518,108 @@ pub fn analyze_risk(packet: &mut ImpactPacket, rules: &Rules, config: &Config) -
     total_weight += data_flow_total;
 
     // 4f. Deploy Manifest Changes
-    let deploy_weight_per_manifest = config.coverage.deploy.risk_weight_per_manifest;
     let deploy_weight_cap = config.coverage.deploy.risk_cap;
-    let mut deploy_total = 0;
+    let mut deploy_total = 0u32;
     for change in &packet.deploy_manifest_changes {
-        if deploy_total + deploy_weight_per_manifest <= deploy_weight_cap {
-            deploy_total += deploy_weight_per_manifest;
-            reasons.push(format!(
-                "Deployment manifest change: {}",
-                change.file.display()
-            ));
-            debug!(
-                "Risk Factor: Deploy manifest changed ({:?}) +{}",
-                change.file, deploy_weight_per_manifest
-            );
+        let weight = match change.risk_tier {
+            1 => 3u32,
+            2 => 5u32,
+            _ => 8u32,
+        };
+        let added = if deploy_total + weight <= deploy_weight_cap {
+            weight
+        } else {
+            deploy_weight_cap.saturating_sub(deploy_total)
+        };
+        deploy_total += added;
+
+        let mut reason = format!("Deployment manifest change: {}", change.file.display());
+        if change.risk_tier > 1 {
+            reason.push_str(&format!(" [tier {}]", change.risk_tier));
         }
+        if !change.coupled_files.is_empty() {
+            reason.push_str(&format!(" coupled: {:?}", change.coupled_files));
+        }
+        if !change.high_blast_resources.is_empty() {
+            reason.push_str(&format!(" high-blast: {:?}", change.high_blast_resources));
+        }
+        reasons.push(reason);
+        debug!(
+            "Risk Factor: Deploy manifest changed ({:?}) tier={} +{}",
+            change.file, change.risk_tier, added
+        );
     }
     total_weight += deploy_total;
 
     // 4g. CI Self-Awareness
-    let ci_config_changed = packet.changes.iter().any(|c| !c.ci_gates.is_empty());
-    let source_changed = packet
-        .changes
-        .iter()
-        .any(|c| c.symbols.is_some() || c.imports.is_some());
-    if ci_config_changed && config.coverage.ci_self_awareness.enabled {
-        let ci_weight = if source_changed {
-            config.coverage.ci_self_awareness.ci_plus_source_weight
-        } else {
-            config.coverage.ci_self_awareness.ci_changed_weight
-        };
+    if config.coverage.ci_self_awareness.enabled
+        && let Some(mut ci_change) = crate::index::ci_gates::is_ci_config_changed(&packet.changes)
+    {
+        ci_change.deploy_changed = !packet.deploy_manifest_changes.is_empty();
+
+        // Recompute source_changed: any non-CI file has symbols/imports
+        let ci_like_paths: std::collections::HashSet<String> = ci_change
+            .known_ci_files
+            .iter()
+            .chain(ci_change.unknown_ci_files.iter())
+            .chain(ci_change.pre_commit_files.iter())
+            .chain(ci_change.generated_ci_files.iter())
+            .cloned()
+            .collect();
+
+        let source_changed = packet.changes.iter().any(|c| {
+            let p = c.path.to_string_lossy().replace('\\', "/");
+            !ci_like_paths.contains(&p) && (c.symbols.is_some() || c.imports.is_some())
+        });
+        ci_change.source_changed = source_changed;
+
+        // Build risk reasons with deterministic ordering by file path
+        let mut ci_reasons: Vec<String> = Vec::new();
+
+        for file in &ci_change.known_ci_files {
+            ci_reasons.push(format!("CI pipeline config change: {}", file));
+        }
+
+        for file in &ci_change.pre_commit_files {
+            ci_reasons.push(format!(
+                "Pre-commit hooks modified — local checks may change: {}",
+                file
+            ));
+        }
+
+        for file in &ci_change.unknown_ci_files {
+            ci_reasons.push(format!("Unknown CI-like file changed: {}", file));
+        }
+
+        for file in &ci_change.generated_ci_files {
+            ci_reasons.push(format!("Generated CI file changed: {}", file));
+        }
+
+        ci_reasons.sort();
+
+        // Compute category weights
+        let mut ci_weight = 0u32;
+        if !ci_change.known_ci_files.is_empty() {
+            let known_weight = if ci_change.deploy_changed || ci_change.source_changed {
+                config.coverage.ci_self_awareness.ci_plus_source_weight
+            } else {
+                config.coverage.ci_self_awareness.ci_changed_weight
+            };
+            ci_weight += known_weight;
+        }
+        if !ci_change.pre_commit_files.is_empty() {
+            ci_weight += 2;
+        }
+        if !ci_change.unknown_ci_files.is_empty() {
+            ci_weight += 1;
+        }
+
         total_weight += ci_weight;
-        reasons.push(format!(
-            "CI pipeline config change{}",
-            if source_changed { " + source code" } else { "" }
-        ));
-        debug!(
-            "Risk Factor: CI self-awareness (source={}) +{}",
-            source_changed, ci_weight
-        );
+
+        for reason in &ci_reasons {
+            reasons.push(reason.clone());
+            debug!("Risk Factor: CI self-awareness ({})", reason);
+        }
     }
 
     // 4h. ADR Staleness Advisory
@@ -2121,7 +2184,7 @@ mod tests {
         config.coverage.ci_self_awareness.enabled = true;
         analyze_risk(&mut packet, &rules, &config).unwrap();
 
-        // Should have one CI pipeline reason (it's not per-file anymore, but global)
+        // Should have per-file CI pipeline reasons (deterministic, sorted)
         let ci_reasons: Vec<_> = packet
             .risk_reasons
             .iter()
@@ -2129,12 +2192,12 @@ mod tests {
             .collect();
         assert_eq!(
             ci_reasons.len(),
-            1,
-            "expected 1 CI pipeline config change reason, got {:?}",
+            2,
+            "expected 2 CI pipeline config change reasons, got {:?}",
             ci_reasons
         );
 
-        // 3 weight (alone) -> Low
+        // 3 weight (alone, category-capped) -> Low
         assert_eq!(packet.risk_level, RiskLevel::Low);
     }
 
@@ -2536,8 +2599,9 @@ mod tests {
         packet.deploy_manifest_changes.push(DeployManifestChange {
             file: PathBuf::from("Dockerfile"),
             manifest_type: ManifestType::Dockerfile,
-            risk_weight: 3,
-            is_deleted: false,
+            risk_tier: 1,
+            coupled_files: Vec::new(),
+            high_blast_resources: Vec::new(),
         });
 
         let rules = Rules::default();
@@ -2565,6 +2629,7 @@ mod tests {
             similarity: 0.9,
             rerank_score: None,
             staleness_days: Some(400),
+            staleness_tier: Some(crate::impact::packet::StalenessTier::Warning),
         });
 
         let rules = Rules::default();
@@ -2708,6 +2773,451 @@ mod tests {
                 .any(|r| r.contains("CI pipeline config change")),
             "expected CI pipeline risk reason when enabled, got {:?}",
             packet.risk_reasons
+        );
+    }
+
+    #[test]
+    fn test_data_flow_weight_capping() {
+        use crate::impact::packet::DataFlowMatch;
+
+        let mut packet = ImpactPacket::default();
+        for i in 0..6 {
+            packet.data_flow_matches.push(DataFlowMatch {
+                chain_label: format!("chain-{}", i),
+                changed_nodes: vec!["node".to_string()],
+                total_nodes: 2,
+                change_pct: 0.5,
+                risk: RiskLevel::Low,
+            });
+        }
+
+        let rules = Rules::default();
+        let mut config = Config::default();
+        config.coverage.data_flow.risk_weight_per_match = 4;
+        config.coverage.data_flow.risk_cap = 20;
+
+        analyze_risk(&mut packet, &rules, &config).unwrap();
+
+        // With cap 20 and weight 4, only 5 matches should contribute (20 total, not 24)
+        let df_reasons: Vec<_> = packet
+            .risk_reasons
+            .iter()
+            .filter(|r| r.contains("Data-flow coupling"))
+            .collect();
+        assert_eq!(
+            df_reasons.len(),
+            5,
+            "expected exactly 5 data-flow reasons (capped at 20), got {:?}",
+            df_reasons
+        );
+
+        // Total weight 20 means Low (threshold is >20 for Medium)
+        assert_eq!(
+            packet.risk_level,
+            RiskLevel::Low,
+            "expected Low risk when total weight is exactly 20 (capped), got {:?}",
+            packet.risk_level
+        );
+
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Data-flow coupling")),
+            "expected at least one data-flow coupling risk reason"
+        );
+    }
+
+    // --- M7-5 CI Self-Awareness Risk Weighting Tests ---
+
+    #[test]
+    fn test_analyze_risk_ci_alone_low() {
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from(".github/workflows/ci.yml"),
+            status: "Modified".to_string(),
+            old_path: None,
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+            ci_gates: Vec::new(),
+        });
+
+        let rules = Rules::default();
+        let mut config = Config::default();
+        config.coverage.ci_self_awareness.enabled = true;
+        analyze_risk(&mut packet, &rules, &config).unwrap();
+
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("CI pipeline config change")),
+            "expected CI pipeline reason, got {:?}",
+            packet.risk_reasons
+        );
+        assert_eq!(packet.risk_level, RiskLevel::Low);
+    }
+
+    #[test]
+    fn test_analyze_risk_ci_plus_source_medium() {
+        use crate::index::symbols::{Symbol, SymbolKind};
+
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from(".github/workflows/ci.yml"),
+            status: "Modified".to_string(),
+            old_path: None,
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+            ci_gates: Vec::new(),
+        });
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("src/main.rs"),
+            status: "Modified".to_string(),
+            old_path: None,
+            is_staged: true,
+            symbols: Some(vec![Symbol {
+                name: "helper".to_string(),
+                kind: SymbolKind::Function,
+                is_public: false,
+                cognitive_complexity: None,
+                cyclomatic_complexity: None,
+                line_start: None,
+                line_end: None,
+                qualified_name: None,
+                byte_start: None,
+                byte_end: None,
+                entrypoint_kind: None,
+            }]),
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+            ci_gates: Vec::new(),
+        });
+
+        let rules = Rules::default();
+        let mut config = Config::default();
+        config.coverage.ci_self_awareness.enabled = true;
+        analyze_risk(&mut packet, &rules, &config).unwrap();
+
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("CI pipeline config change")),
+            "expected CI pipeline reason, got {:?}",
+            packet.risk_reasons
+        );
+        // 5 weight from CI + source -> Low (<=20)
+        assert_eq!(packet.risk_level, RiskLevel::Low);
+    }
+
+    #[test]
+    fn test_analyze_risk_ci_plus_deploy_escalated() {
+        use crate::impact::packet::{DeployManifestChange, ManifestType};
+
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from(".github/workflows/ci.yml"),
+            status: "Modified".to_string(),
+            old_path: None,
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+            ci_gates: Vec::new(),
+        });
+        packet.deploy_manifest_changes.push(DeployManifestChange {
+            file: PathBuf::from("Dockerfile"),
+            manifest_type: ManifestType::Dockerfile,
+            risk_tier: 1,
+            coupled_files: Vec::new(),
+            high_blast_resources: Vec::new(),
+        });
+
+        let rules = Rules::default();
+        let mut config = Config::default();
+        config.coverage.ci_self_awareness.enabled = true;
+        analyze_risk(&mut packet, &rules, &config).unwrap();
+
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("CI pipeline config change")),
+            "expected CI pipeline reason, got {:?}",
+            packet.risk_reasons
+        );
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Deployment manifest change: Dockerfile")),
+            "expected deploy manifest reason, got {:?}",
+            packet.risk_reasons
+        );
+        // CI weight = 5 (escalated by deploy) + deploy weight 3 = 8, still Low
+        assert_eq!(packet.risk_level, RiskLevel::Low);
+    }
+
+    #[test]
+    fn test_analyze_risk_pre_commit_low() {
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from(".pre-commit-config.yaml"),
+            status: "Modified".to_string(),
+            old_path: None,
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+            ci_gates: Vec::new(),
+        });
+
+        let rules = Rules::default();
+        let mut config = Config::default();
+        config.coverage.ci_self_awareness.enabled = true;
+        analyze_risk(&mut packet, &rules, &config).unwrap();
+
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Pre-commit hooks modified")),
+            "expected pre-commit reason, got {:?}",
+            packet.risk_reasons
+        );
+        // 2 weight from pre-commit -> Low (<=20)
+        assert_eq!(packet.risk_level, RiskLevel::Low);
+    }
+
+    #[test]
+    fn test_analyze_risk_generated_ci_informational() {
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from(".github/workflows/generated-ci.yml"),
+            status: "Modified".to_string(),
+            old_path: None,
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+            ci_gates: Vec::new(),
+        });
+
+        let rules = Rules::default();
+        let mut config = Config::default();
+        config.coverage.ci_self_awareness.enabled = true;
+        analyze_risk(&mut packet, &rules, &config).unwrap();
+
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Generated CI file changed")),
+            "expected generated CI reason, got {:?}",
+            packet.risk_reasons
+        );
+        // Generated files are informational only (no weight)
+        assert_eq!(packet.risk_level, RiskLevel::Low);
+    }
+
+    #[test]
+    fn test_analyze_risk_unknown_ci_like_low() {
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from("ci/deploy.sh"),
+            status: "Modified".to_string(),
+            old_path: None,
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+            ci_gates: Vec::new(),
+        });
+
+        let rules = Rules::default();
+        let mut config = Config::default();
+        config.coverage.ci_self_awareness.enabled = true;
+        analyze_risk(&mut packet, &rules, &config).unwrap();
+
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Unknown CI-like file changed")),
+            "expected unknown CI-like reason, got {:?}",
+            packet.risk_reasons
+        );
+        // 1 weight from unknown CI-like -> Low (<=20)
+        assert_eq!(packet.risk_level, RiskLevel::Low);
+    }
+
+    #[test]
+    fn test_analyze_risk_ci_reasons_sorted() {
+        let mut packet = ImpactPacket::default();
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from(".github/workflows/b.yml"),
+            status: "Modified".to_string(),
+            old_path: None,
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+            ci_gates: Vec::new(),
+        });
+        packet.changes.push(ChangedFile {
+            path: PathBuf::from(".github/workflows/a.yml"),
+            status: "Modified".to_string(),
+            old_path: None,
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+            ci_gates: Vec::new(),
+        });
+
+        let rules = Rules::default();
+        let mut config = Config::default();
+        config.coverage.ci_self_awareness.enabled = true;
+        analyze_risk(&mut packet, &rules, &config).unwrap();
+
+        let ci_reasons: Vec<_> = packet
+            .risk_reasons
+            .iter()
+            .filter(|r| r.contains("CI pipeline config change"))
+            .cloned()
+            .collect();
+        assert_eq!(ci_reasons.len(), 2);
+        assert_eq!(
+            ci_reasons[0],
+            "CI pipeline config change: .github/workflows/a.yml"
+        );
+        assert_eq!(
+            ci_reasons[1],
+            "CI pipeline config change: .github/workflows/b.yml"
+        );
+    }
+
+    // --- M7-4 Deployment Manifest Awareness Tests ---
+
+    #[test]
+    fn test_analyze_risk_deploy_manifest_k8s_terraform_high_tier() {
+        use crate::impact::packet::{DeployManifestChange, ManifestType};
+        let mut packet = ImpactPacket::default();
+        packet.deploy_manifest_changes.push(DeployManifestChange {
+            file: PathBuf::from("k8s/deployment.yaml"),
+            manifest_type: ManifestType::Kubernetes,
+            risk_tier: 3,
+            coupled_files: Vec::new(),
+            high_blast_resources: Vec::new(),
+        });
+        packet.deploy_manifest_changes.push(DeployManifestChange {
+            file: PathBuf::from("main.tf"),
+            manifest_type: ManifestType::Terraform,
+            risk_tier: 3,
+            coupled_files: Vec::new(),
+            high_blast_resources: Vec::new(),
+        });
+
+        let rules = Rules::default();
+        let config = Config::default();
+        analyze_risk(&mut packet, &rules, &config).unwrap();
+
+        // Each tier-3 manifest contributes weight 8, total 16, cap at 15.
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Deployment manifest change: k8s/deployment.yaml")),
+            "expected k8s manifest reason, got {:?}",
+            packet.risk_reasons
+        );
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Deployment manifest change: main.tf")),
+            "expected terraform manifest reason, got {:?}",
+            packet.risk_reasons
+        );
+    }
+
+    #[test]
+    fn test_analyze_risk_deploy_manifest_weight_cap() {
+        use crate::impact::packet::{DeployManifestChange, ManifestType};
+        let mut packet = ImpactPacket::default();
+        for i in 0..6 {
+            packet.deploy_manifest_changes.push(DeployManifestChange {
+                file: PathBuf::from(format!("Dockerfile.{}", i)),
+                manifest_type: ManifestType::Dockerfile,
+                risk_tier: 1,
+                coupled_files: Vec::new(),
+                high_blast_resources: Vec::new(),
+            });
+        }
+
+        let rules = Rules::default();
+        let config = Config::default();
+        analyze_risk(&mut packet, &rules, &config).unwrap();
+
+        // 6 manifests at tier 1 (3 each) = 18, cap at 15.
+        let deploy_reasons: Vec<_> = packet
+            .risk_reasons
+            .iter()
+            .filter(|r| r.contains("Deployment manifest change"))
+            .collect();
+        assert_eq!(
+            deploy_reasons.len(),
+            6,
+            "expected 6 deploy reasons, got {:?}",
+            deploy_reasons
+        );
+        // Total weight 15 means Low (threshold is >20 for Medium)
+        assert_eq!(
+            packet.risk_level,
+            RiskLevel::Low,
+            "expected Low risk at cap 15, got {:?}",
+            packet.risk_level
         );
     }
 }

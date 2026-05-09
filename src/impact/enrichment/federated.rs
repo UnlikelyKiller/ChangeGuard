@@ -11,9 +11,7 @@ impl EnrichmentProvider for FederatedProvider {
     }
 
     fn enrich(&self, context: &EnrichmentContext, packet: &mut ImpactPacket) -> Result<()> {
-        // Refresh federated dependencies
-        // Note: calling into commands::impact for now, should be refactored later.
-        if let Err(e) = crate::commands::impact::refresh_federated_dependencies(
+        if let Err(e) = crate::federated::refresh::refresh_federated_dependencies(
             &context.project_root,
             packet,
             context.storage,
@@ -27,5 +25,34 @@ impl EnrichmentProvider for FederatedProvider {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::migrations::get_migrations;
+    use crate::state::storage::StorageManager;
+    use rusqlite::Connection;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn enrich_returns_ok_with_empty_db() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        get_migrations().to_latest(&mut conn).unwrap();
+        let storage = StorageManager::init_from_conn(conn);
+        let config = crate::config::model::Config::default();
+        let context = EnrichmentContext {
+            storage: &storage,
+            config: &config,
+            file_id_map: HashMap::new(),
+            project_root: PathBuf::new(),
+            warnings: Arc::new(Mutex::new(Vec::new())),
+        };
+        let mut packet = ImpactPacket::default();
+
+        FederatedProvider.enrich(&context, &mut packet).unwrap();
     }
 }

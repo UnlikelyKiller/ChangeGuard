@@ -50,3 +50,71 @@ impl EnrichmentProvider for ContractProvider {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::migrations::get_migrations;
+    use crate::state::storage::StorageManager;
+    use rusqlite::Connection;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn enrich_skips_when_no_spec_paths() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        get_migrations().to_latest(&mut conn).unwrap();
+        let storage = StorageManager::init_from_conn(conn);
+        let config = crate::config::model::Config::default();
+        let context = EnrichmentContext {
+            storage: &storage,
+            config: &config,
+            file_id_map: HashMap::new(),
+            project_root: PathBuf::new(),
+            warnings: Arc::new(Mutex::new(Vec::new())),
+        };
+        let mut packet = ImpactPacket::default();
+        ContractProvider.enrich(&context, &mut packet).unwrap();
+        assert!(packet.affected_contracts.is_empty());
+    }
+
+    #[test]
+    fn enrich_skips_when_no_embedding_model() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        get_migrations().to_latest(&mut conn).unwrap();
+        let storage = StorageManager::init_from_conn(conn);
+        let mut config = crate::config::model::Config::default();
+        config.contracts.spec_paths = vec!["openapi.yaml".to_string()];
+        let context = EnrichmentContext {
+            storage: &storage,
+            config: &config,
+            file_id_map: HashMap::new(),
+            project_root: PathBuf::new(),
+            warnings: Arc::new(Mutex::new(Vec::new())),
+        };
+        let mut packet = ImpactPacket::default();
+        ContractProvider.enrich(&context, &mut packet).unwrap();
+        assert!(packet.affected_contracts.is_empty());
+    }
+
+    #[test]
+    fn enrich_returns_empty_when_no_api_endpoints() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        get_migrations().to_latest(&mut conn).unwrap();
+        let storage = StorageManager::init_from_conn(conn);
+        let mut config = crate::config::model::Config::default();
+        config.contracts.spec_paths = vec!["openapi.yaml".to_string()];
+        config.local_model.embedding_model = "nomic-embed-text".to_string();
+        let context = EnrichmentContext {
+            storage: &storage,
+            config: &config,
+            file_id_map: HashMap::new(),
+            project_root: PathBuf::new(),
+            warnings: Arc::new(Mutex::new(Vec::new())),
+        };
+        let mut packet = ImpactPacket::default();
+        ContractProvider.enrich(&context, &mut packet).unwrap();
+        assert!(packet.affected_contracts.is_empty());
+    }
+}

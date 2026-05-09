@@ -1,9 +1,8 @@
 use crate::impact::enrichment::{EnrichmentContext, EnrichmentProvider};
 use crate::impact::packet::{ImpactPacket, RelevantDecision};
-use crate::retrieval::query::query_docs;
+use crate::retrieval::query::{compute_staleness, compute_staleness_tier, query_docs};
 use crate::retrieval::rerank::rerank;
 use miette::Result;
-use std::fs;
 use std::path::PathBuf;
 use tracing::{info, warn};
 
@@ -85,20 +84,23 @@ impl EnrichmentProvider for KnowledgeProvider {
         };
 
         // Map to RelevantDecision, taking top top_n
+        let adr_enabled = context.config.coverage.adr_staleness.enabled;
+        let threshold_days = context.config.coverage.adr_staleness.threshold_days;
+
         let decisions: Vec<RelevantDecision> = final_chunks
             .into_iter()
             .take(top_n)
             .map(|chunk| {
                 let excerpt: String = chunk.content.chars().take(200).collect();
                 let mut staleness_days = None;
+                let mut staleness_tier = None;
 
-                // Populate staleness_days from filesystem mtime
-                let full_path = PathBuf::from(chunk.file_path.clone());
-                if let Ok(metadata) = fs::metadata(&full_path)
-                    && let Ok(modified) = metadata.modified()
-                    && let Ok(elapsed) = modified.elapsed()
-                {
-                    staleness_days = Some((elapsed.as_secs() / 86400) as u32);
+                if adr_enabled {
+                    let full_path = PathBuf::from(chunk.file_path.clone());
+                    if let Some(days) = compute_staleness(&full_path, threshold_days) {
+                        staleness_days = Some(days);
+                        staleness_tier = compute_staleness_tier(days, threshold_days);
+                    }
                 }
 
                 RelevantDecision {
@@ -108,6 +110,7 @@ impl EnrichmentProvider for KnowledgeProvider {
                     similarity: chunk.similarity,
                     rerank_score: None,
                     staleness_days,
+                    staleness_tier,
                 }
             })
             .collect();
@@ -115,5 +118,54 @@ impl EnrichmentProvider for KnowledgeProvider {
         packet.relevant_decisions = decisions;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::migrations::get_migrations;
+    use crate::state::storage::StorageManager;
+    use rusqlite::Connection;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn enrich_skips_when_base_url_empty() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        get_migrations().to_latest(&mut conn).unwrap();
+        let storage = StorageManager::init_from_conn(conn);
+        let config = crate::config::model::Config::default();
+        let context = EnrichmentContext {
+            storage: &storage,
+            config: &config,
+            file_id_map: HashMap::new(),
+            project_root: PathBuf::new(),
+            warnings: Arc::new(Mutex::new(Vec::new())),
+        };
+        let mut packet = ImpactPacket::default();
+        KnowledgeProvider.enrich(&context, &mut packet).unwrap();
+        assert!(packet.relevant_decisions.is_empty());
+    }
+
+    #[test]
+    fn enrich_skips_when_doc_chunks_empty() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        get_migrations().to_latest(&mut conn).unwrap();
+        let storage = StorageManager::init_from_conn(conn);
+        let mut config = crate::config::model::Config::default();
+        config.local_model.base_url = "http://localhost:11434".to_string();
+        config.docs.include = vec!["docs/".to_string()];
+        let context = EnrichmentContext {
+            storage: &storage,
+            config: &config,
+            file_id_map: HashMap::new(),
+            project_root: PathBuf::new(),
+            warnings: Arc::new(Mutex::new(Vec::new())),
+        };
+        let mut packet = ImpactPacket::default();
+        KnowledgeProvider.enrich(&context, &mut packet).unwrap();
+        assert!(packet.relevant_decisions.is_empty());
     }
 }

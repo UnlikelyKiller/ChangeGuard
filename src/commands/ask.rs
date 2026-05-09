@@ -343,6 +343,8 @@ fn non_empty(value: Option<&str>) -> Option<&str> {
 }
 
 pub fn format_relevant_decisions(decisions: &[RelevantDecision]) -> String {
+    use crate::impact::packet::StalenessTier;
+
     if decisions.is_empty() {
         return String::new();
     }
@@ -352,6 +354,21 @@ pub fn format_relevant_decisions(decisions: &[RelevantDecision]) -> String {
         let heading = decision.heading.as_deref().unwrap_or("(untitled)");
         let file_path = decision.file_path.display();
         out.push_str(&format!("### {heading} ({file_path})\n"));
+        if let Some(days) = decision.staleness_days {
+            match decision.staleness_tier {
+                Some(StalenessTier::Warning) => {
+                    out.push_str(&format!(
+                        "**Warning:** ADR '{heading}' is {days} days old — may need review\n\n"
+                    ));
+                }
+                Some(StalenessTier::Critical) => {
+                    out.push_str(&format!(
+                        "**Critical:** ADR '{heading}' is {days} days old — significantly stale, may not reflect current architecture\n\n"
+                    ));
+                }
+                None => {}
+            }
+        }
         out.push_str(&decision.excerpt);
         out.push_str("\n---\n");
     }
@@ -604,6 +621,7 @@ mod tests {
                 similarity: 0.85,
                 rerank_score: None,
                 staleness_days: None,
+                staleness_tier: None,
             },
             RelevantDecision {
                 file_path: std::path::PathBuf::from("docs/api.md"),
@@ -612,6 +630,7 @@ mod tests {
                 similarity: 0.6,
                 rerank_score: Some(0.92),
                 staleness_days: None,
+                staleness_tier: None,
             },
         ];
 
@@ -634,10 +653,47 @@ mod tests {
             similarity: 0.5,
             rerank_score: None,
             staleness_days: None,
+            staleness_tier: None,
         }];
 
         let result = format_relevant_decisions(&decisions);
         assert!(result.contains("### (untitled) (docs/readme.md)"));
+    }
+
+    #[test]
+    fn format_relevant_decisions_includes_staleness_warning() {
+        use crate::impact::packet::StalenessTier;
+        let decisions = vec![RelevantDecision {
+            file_path: std::path::PathBuf::from("docs/old.md"),
+            heading: Some("Legacy".to_string()),
+            excerpt: "Old content".to_string(),
+            similarity: 0.7,
+            rerank_score: None,
+            staleness_days: Some(400),
+            staleness_tier: Some(StalenessTier::Warning),
+        }];
+
+        let result = format_relevant_decisions(&decisions);
+        assert!(result.contains("Warning:"));
+        assert!(result.contains("400 days old"));
+        assert!(result.contains("may need review"));
+    }
+
+    #[test]
+    fn format_relevant_decisions_omits_staleness_when_none() {
+        let decisions = vec![RelevantDecision {
+            file_path: std::path::PathBuf::from("docs/new.md"),
+            heading: Some("Current".to_string()),
+            excerpt: "New content".to_string(),
+            similarity: 0.8,
+            rerank_score: None,
+            staleness_days: None,
+            staleness_tier: None,
+        }];
+
+        let result = format_relevant_decisions(&decisions);
+        assert!(!result.contains("Warning:"));
+        assert!(!result.contains("Critical:"));
     }
 
     #[test]

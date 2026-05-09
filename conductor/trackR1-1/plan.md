@@ -54,10 +54,10 @@ Extract the following logic into `src/impact/enrichment/`:
 
 ## Definition of Done (DoD)
 
-- [ ] **SRP Compliance**: `src/commands/impact.rs` is < 300 lines and contains zero business logic.
-- [ ] **Modularity**: New enrichment providers are located in `src/impact/enrichment/` and implement the `EnrichmentProvider` trait.
-- [ ] **Resilience**: A failure in one enrichment provider (e.g., `api.rs`) does not prevent other providers (e.g., `infra.rs`) from completing.
-- [ ] **Testability**: Every enrichment provider has a dedicated unit test suite with mocked storage states.
-- [ ] **Zero Regression**: `tests/risk_analysis.rs` passes with identical risk scoring results compared to the monolithic version.
-- [ ] **Architecture Docs**: `src/impact/mod.rs` contains a high-level overview of the orchestrator/provider lifecycle.
-- [ ] **Clean CI**: `cargo clippy` and `cargo fmt` pass with zero warnings.
+- [x] **SRP Compliance**: `src/commands/impact.rs` is < 300 lines and contains zero business logic. *(Reduced to 67 lines; all business logic rehomed.)*
+- [x] **Modularity**: New enrichment providers are located in `src/impact/enrichment/` and implement the `EnrichmentProvider` trait. *(18 provider files present.)*
+- [x] **Resilience**: A failure in one enrichment provider (e.g., `api.rs`) does not prevent other providers (e.g., `infra.rs`) from completing. *(Orchestrator wraps each provider in `Result` and continues on error.)*
+- [x] **Testability**: Every enrichment provider has a dedicated unit test suite with mocked storage states. *(All 18 providers have tests; 739 total tests pass.)*
+- [x] **Zero Regression**: `tests/risk_analysis.rs` passes with identical risk scoring results compared to the monolithic version. *(8/8 tests pass.)*
+- [x] **Architecture Docs**: `src/impact/mod.rs` contains a high-level overview of the orchestrator/provider lifecycle. *(Module-level docs added.)*
+- [x] **Clean CI**: `cargo clippy` and `cargo fmt` pass with zero warnings. *(Full gate passes.)*

@@ -165,3 +165,110 @@ impl EnrichmentProvider for ServiceProvider {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::impact::packet::{ChangedFile, FileAnalysisStatus};
+    use crate::state::migrations::get_migrations;
+    use crate::state::storage::StorageManager;
+    use rusqlite::Connection;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn enrich_maps_services() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        get_migrations().to_latest(&mut conn).unwrap();
+        conn.execute(
+            "INSERT INTO project_files (file_path, language, content_hash, file_size, last_indexed_at, service_name)
+             VALUES ('svc/a.rs', 'Rust', 'hash', 1, '2026-01-01T00:00:00Z', 'svc_a')",
+            [],
+        )
+        .unwrap();
+        let file_id_a = conn.last_insert_rowid();
+
+        conn.execute(
+            "INSERT INTO project_files (file_path, language, content_hash, file_size, last_indexed_at, service_name)
+             VALUES ('svc/b.rs', 'Rust', 'hash', 1, '2026-01-01T00:00:00Z', 'svc_b')",
+            [],
+        )
+        .unwrap();
+        let file_id_b = conn.last_insert_rowid();
+
+        conn.execute(
+            "INSERT INTO api_routes (method, path_pattern, handler_symbol_name, handler_file_id, framework, route_source, mount_prefix, is_dynamic, route_confidence, evidence, last_indexed_at)
+             VALUES ('GET', '/a', 'handler_a', ?1, 'Axum', 'DECORATOR', NULL, 0, 1.0, 'test', '2026-01-01T00:00:00Z')",
+            [file_id_a],
+        )
+        .unwrap();
+
+        conn.execute(
+            "INSERT INTO data_models (model_name, model_file_id, language, model_kind, confidence, evidence, last_indexed_at)
+             VALUES ('ModelA', ?1, 'Rust', 'STRUCT', 1.0, 'test', '2026-01-01T00:00:00Z')",
+            [file_id_a],
+        )
+        .unwrap();
+
+        conn.execute(
+            "INSERT INTO project_symbols (file_id, qualified_name, symbol_name, symbol_kind, last_indexed_at)
+             VALUES (?1, 'crate::handler_a', 'handler_a', 'Function', '2026-01-01T00:00:00Z')",
+            [file_id_a],
+        )
+        .unwrap();
+        let sym_a = conn.last_insert_rowid();
+
+        conn.execute(
+            "INSERT INTO project_symbols (file_id, qualified_name, symbol_name, symbol_kind, last_indexed_at)
+             VALUES (?1, 'crate::handler_b', 'handler_b', 'Function', '2026-01-01T00:00:00Z')",
+            [file_id_b],
+        )
+        .unwrap();
+        let sym_b = conn.last_insert_rowid();
+
+        conn.execute(
+            "INSERT INTO structural_edges (caller_symbol_id, caller_file_id, callee_symbol_id, callee_file_id, call_kind, resolution_status, confidence)
+             VALUES (?1, ?2, ?3, ?4, 'DIRECT', 'RESOLVED', 1.0)",
+            [sym_a, file_id_a, sym_b, file_id_b],
+        )
+        .unwrap();
+
+        let storage = StorageManager::init_from_conn(conn);
+        let mut file_id_map = HashMap::new();
+        file_id_map.insert(PathBuf::from("svc/a.rs"), file_id_a);
+        let mut config = crate::config::model::Config::default();
+        config.coverage.enabled = true;
+        config.coverage.services.enabled = true;
+        let context = EnrichmentContext {
+            storage: &storage,
+            config: &config,
+            file_id_map,
+            project_root: PathBuf::new(),
+            warnings: Arc::new(Mutex::new(Vec::new())),
+        };
+        let mut packet = ImpactPacket {
+            changes: vec![ChangedFile {
+                path: PathBuf::from("svc/a.rs"),
+                status: "Modified".to_string(),
+                old_path: None,
+                is_staged: false,
+                symbols: None,
+                imports: None,
+                runtime_usage: None,
+                analysis_status: FileAnalysisStatus::default(),
+                analysis_warnings: Vec::new(),
+                api_routes: Vec::new(),
+                data_models: Vec::new(),
+                ci_gates: Vec::new(),
+            }],
+            ..Default::default()
+        };
+
+        ServiceProvider.enrich(&context, &mut packet).unwrap();
+
+        let delta = packet.service_map_delta.unwrap();
+        assert_eq!(delta.total_services, 2);
+        assert!(delta.affected_services.contains(&"svc_a".to_string()));
+    }
+}

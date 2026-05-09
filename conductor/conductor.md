@@ -289,31 +289,30 @@
     *   Key Additions: `src/coverage/services.rs`, migration M15, `service_map_delta` in `ImpactPacket`, Go support in extension lists.
 
 *   **Track M7-3: Data-Flow Coupling Risk**
-    *   Status: Planning
+    *   Status: Completed
     *   Dependencies: M7-2
-    *   Spec: `docs/observability-plan2.md` §6
+    *   Spec: `conductor/trackM7-3/spec.md`
     *   Plan: `conductor/trackM7-3/plan.md`
     *   Goal: Flag call chains where route handlers and their data models co-change, detect incomplete refactors.
-    *   Key additions: `src/coverage/dataflow.rs`, `DataFlowMatch` type, cycle detection, change-percentage threshold.
+    *   Key additions: `src/coverage/dataflow.rs`, `DataFlowMatch` type, cycle detection, change-percentage threshold, SQL table-name fallback.
 
 *   **Track M7-4: Deployment Manifest Awareness**
-    *   Status: Planning
-    *   Spec: `docs/observability-plan2.md` §7
+    *   Status: Active
+    *   Spec: `conductor/trackM7-4/spec.md`
     *   Plan: `conductor/trackM7-4/plan.md`
     *   Goal: Classify Dockerfile, docker-compose, k8s, terraform, and helm changes with tiered risk weighting.
     *   Key additions: `src/coverage/deploy.rs`, `ManifestType` enum, `DeployManifestChange` type, Dockerfile COPY/ADD scanning.
 
 *   **Track M7-5: CI Pipeline Self-Awareness**
-    *   Status: Planning
-    *   Spec: `docs/observability-plan2.md` §8
+    *   Status: Active
+    *   Spec: `conductor/trackM7-5/spec.md`
     *   Plan: `conductor/trackM7-5/plan.md`
     *   Goal: Surface risk when CI config itself changes in a diff, detect CI+source co-change patterns.
     *   Key additions: Extend `src/index/ci_gates.rs`, pre-commit hook awareness.
 
 *   **Track M7-6: ADR Staleness Detection**
-    *   Status: Planning
-    *   Dependencies: M2-2
-    *   Spec: `docs/observability-plan2.md` §9
+    *   Status: Active
+    *   Spec: `conductor/trackM7-6/spec.md`
     *   Plan: `conductor/trackM7-6/plan.md`
     *   Goal: Flag retrieved ADRs exceeding configurable age threshold with severity tiers and recently-updated exemption.
     *   Key additions: Extend `RelevantDecision` with `staleness_days`, multi-source age detection.
@@ -482,7 +481,7 @@
 ## Milestone R: System Architecture Refactoring (Active)
 
 *   **Track R1-1: Impact Orchestrator Extraction & Decomposition**
-    *   Status: Active
+    *   Status: Completed
     *   Spec: `conductor/trackR1-1/spec.md`
     *   Plan: `conductor/trackR1-1/plan.md`
     *   Goal: Decompose monolithic `impact.rs` into `ImpactOrchestrator` and modular enrichment providers in `src/impact/enrichment/`.
@@ -492,17 +491,20 @@
 
 *   **Track S1: High-Performance Global Code Search**
     *   Status: Planning
-    *   Plan: `docs/sourcebot-plan.md`
+    *   Spec: `conductor/trackS1/spec.md`
+    *   Plan: `conductor/trackS1/plan.md`
     *   Goal: Implement sub-millisecond trigram-based regex search across the federated codebase.
 
 *   **Track S2: Precise LSP-Based Indexing (SCIP/LSIF)**
     *   Status: Planning
-    *   Plan: `docs/sourcebot-plan.md`
+    *   Spec: `conductor/trackS2/spec.md`
+    *   Plan: `conductor/trackS2/plan.md`
     *   Goal: Ingest SCIP indices for compiler-grade precision in navigation and impact analysis.
 
 *   **Track S3: Semantic Discovery for "Code Snippets"**
     *   Status: Planning
-    *   Plan: `docs/sourcebot-plan.md`
+    *   Spec: `conductor/trackS3/spec.md`
+    *   Plan: `conductor/trackS3/plan.md`
     *   Goal: Implement local vector embedding and search for fine-grained code logic blocks.
 
 ## Milestone U: Usability & Robustness Hardening (Completed)

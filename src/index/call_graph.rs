@@ -693,6 +693,160 @@ mod tests {
         assert!(json.contains("resolved_edges"));
     }
 
+    #[test]
+    fn test_enumerate_from_route_handler() {
+        use crate::impact::packet::ApiRoute;
+
+        let graph = CallGraph {
+            edges: vec![
+                CallEdge {
+                    caller_name: "handler_a".to_string(),
+                    caller_file: PathBuf::from("src/routes.rs"),
+                    callee_name: "service_b".to_string(),
+                    callee_file: Some(PathBuf::from("src/service.rs")),
+                    call_kind: CallKind::Direct,
+                    resolution_status: ResolutionStatus::Resolved,
+                    confidence: 1.0,
+                    evidence: "".to_string(),
+                },
+                CallEdge {
+                    caller_name: "service_b".to_string(),
+                    caller_file: PathBuf::from("src/service.rs"),
+                    callee_name: "dao_c".to_string(),
+                    callee_file: Some(PathBuf::from("src/dao.rs")),
+                    call_kind: CallKind::Direct,
+                    resolution_status: ResolutionStatus::Resolved,
+                    confidence: 1.0,
+                    evidence: "".to_string(),
+                },
+            ],
+        };
+
+        let routes = vec![ApiRoute {
+            method: "GET".to_string(),
+            path_pattern: "/users".to_string(),
+            handler_symbol_name: Some("handler_a".to_string()),
+            framework: "Axum".to_string(),
+            route_source: "src/routes.rs".to_string(),
+            mount_prefix: None,
+            is_dynamic: false,
+            route_confidence: 1.0,
+            evidence: None,
+        }];
+
+        let chains = graph.enumerate_call_chains(&routes, 5);
+        assert!(!chains.is_empty());
+        assert_eq!(chains[0].nodes[0].symbol, "handler_a");
+        assert!(
+            chains
+                .iter()
+                .any(|c| c.nodes.len() == 3 && c.nodes[2].symbol == "dao_c"),
+            "expected a chain of length 3 ending at dao_c"
+        );
+    }
+
+    #[test]
+    fn test_cycle_terminates_at_max_depth() {
+        use crate::impact::packet::ApiRoute;
+
+        // Cyclic graph: A -> B -> A
+        let graph = CallGraph {
+            edges: vec![
+                CallEdge {
+                    caller_name: "A".to_string(),
+                    caller_file: PathBuf::from("a.rs"),
+                    callee_name: "B".to_string(),
+                    callee_file: Some(PathBuf::from("b.rs")),
+                    call_kind: CallKind::Direct,
+                    resolution_status: ResolutionStatus::Resolved,
+                    confidence: 1.0,
+                    evidence: "".to_string(),
+                },
+                CallEdge {
+                    caller_name: "B".to_string(),
+                    caller_file: PathBuf::from("b.rs"),
+                    callee_name: "A".to_string(),
+                    callee_file: Some(PathBuf::from("a.rs")),
+                    call_kind: CallKind::Direct,
+                    resolution_status: ResolutionStatus::Resolved,
+                    confidence: 1.0,
+                    evidence: "".to_string(),
+                },
+            ],
+        };
+
+        let routes = vec![ApiRoute {
+            method: "GET".to_string(),
+            path_pattern: "/".to_string(),
+            handler_symbol_name: Some("A".to_string()),
+            framework: "Axum".to_string(),
+            route_source: "a.rs".to_string(),
+            mount_prefix: None,
+            is_dynamic: false,
+            route_confidence: 1.0,
+            evidence: None,
+        }];
+
+        let chains = graph.enumerate_call_chains(&routes, 3);
+        assert!(
+            chains.iter().any(|c| c.has_cycle),
+            "expected at least one chain with has_cycle=true"
+        );
+        // Should terminate and not loop infinitely
+    }
+
+    #[test]
+    fn test_stdlib_excluded() {
+        use crate::impact::packet::ApiRoute;
+
+        let graph = CallGraph {
+            edges: vec![
+                CallEdge {
+                    caller_name: "handler".to_string(),
+                    caller_file: PathBuf::from("src/main.rs"),
+                    callee_name: "std::fs::read".to_string(),
+                    callee_file: Some(PathBuf::from("std")),
+                    call_kind: CallKind::Direct,
+                    resolution_status: ResolutionStatus::Resolved,
+                    confidence: 1.0,
+                    evidence: "".to_string(),
+                },
+                CallEdge {
+                    caller_name: "handler".to_string(),
+                    caller_file: PathBuf::from("src/main.rs"),
+                    callee_name: "user_fn".to_string(),
+                    callee_file: Some(PathBuf::from("src/lib.rs")),
+                    call_kind: CallKind::Direct,
+                    resolution_status: ResolutionStatus::Resolved,
+                    confidence: 1.0,
+                    evidence: "".to_string(),
+                },
+            ],
+        };
+
+        let routes = vec![ApiRoute {
+            method: "GET".to_string(),
+            path_pattern: "/".to_string(),
+            handler_symbol_name: Some("handler".to_string()),
+            framework: "Axum".to_string(),
+            route_source: "src/main.rs".to_string(),
+            mount_prefix: None,
+            is_dynamic: false,
+            route_confidence: 1.0,
+            evidence: None,
+        }];
+
+        let chains = graph.enumerate_call_chains(&routes, 5);
+        for chain in &chains {
+            for node in &chain.nodes {
+                assert_ne!(
+                    node.symbol, "std::fs::read",
+                    "stdlib symbol should be excluded from chains"
+                );
+            }
+        }
+    }
+
     /// E2E Test 1: Full pipeline — Rust call chain
     /// Creates a temp Rust project, seeds the DB with file/symbol rows,
     /// runs CallGraphBuilder::build(), and verifies structural_edges.

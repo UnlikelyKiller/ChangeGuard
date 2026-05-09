@@ -60,3 +60,71 @@ impl EnrichmentProvider for RuntimeUsageProvider {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::impact::packet::{ChangedFile, FileAnalysisStatus};
+    use crate::state::migrations::get_migrations;
+    use crate::state::storage::StorageManager;
+    use rusqlite::Connection;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn enrich_no_runtime_usage_when_no_changes() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        get_migrations().to_latest(&mut conn).unwrap();
+        let storage = StorageManager::init_from_conn(conn);
+        let config = crate::config::model::Config::default();
+        let context = EnrichmentContext {
+            storage: &storage,
+            config: &config,
+            file_id_map: HashMap::new(),
+            project_root: PathBuf::from(r"C:\dev\changeguard"),
+            warnings: Arc::new(Mutex::new(Vec::new())),
+        };
+        let mut packet = ImpactPacket::default();
+
+        RuntimeUsageProvider.enrich(&context, &mut packet).unwrap();
+
+        assert!(packet.runtime_usage_delta.is_empty());
+    }
+
+    #[test]
+    fn enrich_no_delta_when_counts_unchanged() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        get_migrations().to_latest(&mut conn).unwrap();
+        let storage = StorageManager::init_from_conn(conn);
+        let config = crate::config::model::Config::default();
+        let context = EnrichmentContext {
+            storage: &storage,
+            config: &config,
+            file_id_map: HashMap::new(),
+            project_root: PathBuf::from(r"C:\dev\changeguard"),
+            warnings: Arc::new(Mutex::new(Vec::new())),
+        };
+        let mut packet = ImpactPacket {
+            changes: vec![ChangedFile {
+                path: PathBuf::from("nonexistent.rs"),
+                status: "Modified".to_string(),
+                old_path: None,
+                is_staged: false,
+                symbols: None,
+                imports: None,
+                runtime_usage: None,
+                analysis_status: FileAnalysisStatus::default(),
+                analysis_warnings: Vec::new(),
+                api_routes: Vec::new(),
+                data_models: Vec::new(),
+                ci_gates: Vec::new(),
+            }],
+            ..Default::default()
+        };
+
+        RuntimeUsageProvider.enrich(&context, &mut packet).unwrap();
+
+        assert!(packet.runtime_usage_delta.is_empty());
+    }
+}

@@ -64,7 +64,7 @@ pub fn print_scan_summary(snapshot: &RepoSnapshot) {
     }
 }
 
-pub fn print_impact_summary(packet: &ImpactPacket, config: &crate::config::model::Config) {
+pub fn print_impact_summary(packet: &ImpactPacket, _config: &crate::config::model::Config) {
     print_header("ChangeGuard Impact Analysis");
 
     let risk_color = match packet.risk_level {
@@ -223,15 +223,16 @@ pub fn print_impact_summary(packet: &ImpactPacket, config: &crate::config::model
 
     if !packet.deploy_manifest_changes.is_empty() {
         println!("\n{}", "Deployment Manifest Changes:".bold());
-        let mut table = build_table(["Type", "File Path", "Status"]);
+        let mut table = build_table(["Type", "File Path", "Tier", "High-Blast Resources"]);
         for change in &packet.deploy_manifest_changes {
             table.add_row(vec![
                 format!("{:?}", change.manifest_type),
                 change.file.display().to_string(),
-                if change.is_deleted {
-                    "Deleted".red().to_string()
+                change.risk_tier.to_string(),
+                if change.high_blast_resources.is_empty() {
+                    "-".to_string()
                 } else {
-                    "Modified".yellow().to_string()
+                    change.high_blast_resources.join(", ")
                 },
             ]);
         }
@@ -242,13 +243,20 @@ pub fn print_impact_summary(packet: &ImpactPacket, config: &crate::config::model
         println!("\n{}", "Relevant Architectural Decisions:".bold());
         let mut table = build_table(["Decision File", "Staleness", "Similarity"]);
         for decision in &packet.relevant_decisions {
-            let threshold = config.coverage.adr_staleness.threshold_days;
-            let staleness = match decision.staleness_days {
-                Some(days) if days > threshold => {
-                    format!("{} days (STALE)", days).red().bold().to_string()
+            let staleness = match (decision.staleness_days, decision.staleness_tier) {
+                (Some(days), Some(crate::impact::packet::StalenessTier::Critical)) => {
+                    format!("[STALE: {} days — Critical]", days)
+                        .red()
+                        .bold()
+                        .to_string()
                 }
-                Some(days) => format!("{} days", days).dimmed().to_string(),
-                None => "Unknown".dimmed().to_string(),
+                (Some(days), Some(crate::impact::packet::StalenessTier::Warning)) => {
+                    format!("[STALE: {} days — Warning]", days)
+                        .yellow()
+                        .to_string()
+                }
+                (Some(days), None) => format!("{} days", days).dimmed().to_string(),
+                (None, _) => "Unknown".dimmed().to_string(),
             };
             table.add_row(vec![
                 decision.file_path.display().to_string(),
@@ -597,5 +605,24 @@ mod tests {
             }],
         };
         print_verify_plan(&plan);
+    }
+
+    #[test]
+    fn test_print_impact_summary_shows_critical_staleness() {
+        use crate::impact::packet::{RelevantDecision, StalenessTier};
+        let packet = ImpactPacket {
+            relevant_decisions: vec![RelevantDecision {
+                file_path: PathBuf::from("docs/adr.md"),
+                heading: Some("Architecture".to_string()),
+                excerpt: "ADR content".to_string(),
+                similarity: 0.9,
+                rerank_score: None,
+                staleness_days: Some(800),
+                staleness_tier: Some(StalenessTier::Critical),
+            }],
+            ..Default::default()
+        };
+        // Just verify no panic and the function accepts the new fields
+        print_impact_summary(&packet, &crate::config::model::Config::default());
     }
 }

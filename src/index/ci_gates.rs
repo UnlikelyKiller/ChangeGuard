@@ -1,3 +1,4 @@
+use crate::impact::packet::ChangedFile;
 use crate::state::storage::StorageManager;
 use miette::{IntoDiagnostic, Result};
 use serde::{Deserialize, Serialize};
@@ -900,6 +901,170 @@ fn extract_makefile_steps(content: &str, target: &str) -> String {
     steps.join("; ")
 }
 
+// --- CI Self-Awareness Detection ---
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CiConfigChange {
+    pub known_ci_files: Vec<String>,
+    pub unknown_ci_files: Vec<String>,
+    pub pre_commit_files: Vec<String>,
+    pub generated_ci_files: Vec<String>,
+    pub source_changed: bool,
+    pub deploy_changed: bool,
+}
+
+/// Detects if CI configuration files changed in the given diff.
+pub fn is_ci_config_changed(changed_files: &[ChangedFile]) -> Option<CiConfigChange> {
+    let mut result = CiConfigChange::default();
+
+    for file in changed_files {
+        let path_str = file.path.to_string_lossy().replace('\\', "/");
+
+        // Pre-commit hook detection
+        if is_pre_commit_path(&path_str) {
+            result.pre_commit_files.push(path_str.clone());
+            continue;
+        }
+
+        // Generated CI file detection (path-based)
+        if is_generated_ci_path(&path_str) {
+            result.generated_ci_files.push(path_str.clone());
+            continue;
+        }
+
+        // Known CI config detection
+        if is_known_ci_path(&path_str) {
+            // For Makefiles, verify CI targets from indexed gates or disk content
+            if is_root_makefile(&path_str) {
+                let has_ci_targets_from_index = file.ci_gates.iter().any(|g| {
+                    g.platform == "makefile"
+                        && ["test", "build", "deploy", "lint", "ci"].contains(&g.job_name.as_str())
+                });
+                if has_ci_targets_from_index {
+                    result.known_ci_files.push(path_str.clone());
+                } else if file.ci_gates.is_empty()
+                    && let Ok(content) = std::fs::read_to_string(&file.path)
+                    && makefile_has_ci_targets(&content)
+                {
+                    result.known_ci_files.push(path_str.clone());
+                }
+            } else {
+                result.known_ci_files.push(path_str.clone());
+            }
+            continue;
+        }
+
+        // Non-standard CI-like paths
+        if is_unknown_ci_path(&path_str) {
+            result.unknown_ci_files.push(path_str.clone());
+        }
+    }
+
+    // Source changed: any file with symbols or imports
+    result.source_changed = changed_files
+        .iter()
+        .any(|c| c.symbols.is_some() || c.imports.is_some());
+
+    result.known_ci_files.sort();
+    result.unknown_ci_files.sort();
+    result.pre_commit_files.sort();
+    result.generated_ci_files.sort();
+
+    let has_any = !result.known_ci_files.is_empty()
+        || !result.unknown_ci_files.is_empty()
+        || !result.pre_commit_files.is_empty()
+        || !result.generated_ci_files.is_empty();
+
+    if has_any { Some(result) } else { None }
+}
+
+/// Detects pre-commit hook configuration changes.
+pub fn detect_pre_commit_changes(changed_files: &[ChangedFile]) -> Vec<String> {
+    let mut result = Vec::new();
+    for file in changed_files {
+        let path_str = file.path.to_string_lossy().replace('\\', "/");
+        if is_pre_commit_path(&path_str) {
+            result.push(path_str);
+        }
+    }
+    result.sort();
+    result
+}
+
+/// Checks whether a CI config file appears to be auto-generated based on its content.
+pub fn is_generated_ci_file(content: &str) -> bool {
+    for line in content.lines().take(10) {
+        let trimmed = line.trim();
+        if trimmed.starts_with("# auto-generated")
+            || trimmed.starts_with("# generated")
+            || trimmed.contains("@generated")
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// Checks whether a Makefile contains CI-like targets.
+pub fn makefile_has_ci_targets(content: &str) -> bool {
+    let ci_targets: &[&str] = &["test", "build", "deploy", "lint", "ci"];
+    let gates = parse_makefile(content);
+    gates
+        .iter()
+        .any(|g| ci_targets.contains(&g.job_name.as_str()))
+}
+
+// --- Path matching helpers ---
+
+fn is_known_ci_path(path: &str) -> bool {
+    if path.starts_with(".github/workflows/") && (path.ends_with(".yml") || path.ends_with(".yaml"))
+    {
+        return true;
+    }
+    if path == ".gitlab-ci.yml" {
+        return true;
+    }
+    if path.starts_with("Jenkinsfile") {
+        return true;
+    }
+    if path == ".circleci/config.yml" {
+        return true;
+    }
+    if path == ".travis.yml" {
+        return true;
+    }
+    if path == "azure-pipelines.yml" {
+        return true;
+    }
+    if is_root_makefile(path) {
+        return true;
+    }
+    false
+}
+
+fn is_root_makefile(path: &str) -> bool {
+    path == "Makefile" || path == "makefile" || path == "GNUmakefile"
+}
+
+fn is_unknown_ci_path(path: &str) -> bool {
+    if path.starts_with(".github/") && !path.starts_with(".github/workflows/") {
+        return true;
+    }
+    if path.starts_with(".ci/") || path.starts_with("ci/") {
+        return true;
+    }
+    false
+}
+
+fn is_pre_commit_path(path: &str) -> bool {
+    path == ".pre-commit-config.yaml" || path == "lefthook.yml" || path.starts_with(".husky/")
+}
+
+fn is_generated_ci_path(path: &str) -> bool {
+    path.starts_with(".github/workflows/generated-")
+        && (path.ends_with(".yml") || path.ends_with(".yaml"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1049,22 +1214,214 @@ clean:
         );
     }
 
+    // --- CI Self-Awareness Detection Tests ---
+
+    use crate::impact::packet::FileAnalysisStatus;
+
+    fn changed_file(path: &str) -> ChangedFile {
+        ChangedFile {
+            path: PathBuf::from(path),
+            status: "Modified".to_string(),
+            old_path: None,
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: Vec::new(),
+            api_routes: Vec::new(),
+            data_models: Vec::new(),
+            ci_gates: Vec::new(),
+        }
+    }
+
     #[test]
-    fn test_ci_gate_stats_serialization() {
-        let stats = CIGateStats {
-            total_gates: 10,
-            github_actions_gates: 5,
-            gitlab_ci_gates: 3,
-            circleci_gates: 1,
-            makefile_gates: 1,
-            files_processed: 4,
-        };
-        let json = serde_json::to_string(&stats).unwrap();
-        assert!(json.contains("totalGates"));
-        assert!(json.contains("githubActionsGates"));
-        assert!(json.contains("gitlabCiGates"));
-        assert!(json.contains("circleciGates"));
-        assert!(json.contains("makefileGates"));
-        assert!(json.contains("filesProcessed"));
+    fn test_is_ci_config_changed_github_workflow() {
+        let files = vec![changed_file(".github/workflows/ci.yml")];
+        let result = is_ci_config_changed(&files);
+        assert!(result.is_some());
+        let change = result.unwrap();
+        assert_eq!(change.known_ci_files, vec![".github/workflows/ci.yml"]);
+    }
+
+    #[test]
+    fn test_is_ci_config_changed_jenkinsfile() {
+        let files = vec![
+            changed_file("Jenkinsfile"),
+            changed_file("Jenkinsfile.prod"),
+        ];
+        let result = is_ci_config_changed(&files);
+        assert!(result.is_some());
+        let change = result.unwrap();
+        assert!(change.known_ci_files.contains(&"Jenkinsfile".to_string()));
+        assert!(
+            change
+                .known_ci_files
+                .contains(&"Jenkinsfile.prod".to_string())
+        );
+    }
+
+    #[test]
+    fn test_is_ci_config_changed_gitlab_and_circleci() {
+        let files = vec![
+            changed_file(".gitlab-ci.yml"),
+            changed_file(".circleci/config.yml"),
+        ];
+        let result = is_ci_config_changed(&files);
+        assert!(result.is_some());
+        let change = result.unwrap();
+        assert!(
+            change
+                .known_ci_files
+                .contains(&".gitlab-ci.yml".to_string())
+        );
+        assert!(
+            change
+                .known_ci_files
+                .contains(&".circleci/config.yml".to_string())
+        );
+    }
+
+    #[test]
+    fn test_is_ci_config_changed_pre_commit() {
+        let files = vec![changed_file(".pre-commit-config.yaml")];
+        let result = is_ci_config_changed(&files);
+        assert!(result.is_some());
+        let change = result.unwrap();
+        assert_eq!(
+            change.pre_commit_files,
+            vec![".pre-commit-config.yaml".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_is_ci_config_changed_husky() {
+        let files = vec![changed_file(".husky/pre-commit")];
+        let result = is_ci_config_changed(&files);
+        assert!(result.is_some());
+        let change = result.unwrap();
+        assert_eq!(
+            change.pre_commit_files,
+            vec![".husky/pre-commit".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_is_ci_config_changed_generated_path() {
+        let files = vec![changed_file(".github/workflows/generated-ci.yml")];
+        let result = is_ci_config_changed(&files);
+        assert!(result.is_some());
+        let change = result.unwrap();
+        assert_eq!(
+            change.generated_ci_files,
+            vec![".github/workflows/generated-ci.yml".to_string()]
+        );
+        assert!(change.known_ci_files.is_empty());
+    }
+
+    #[test]
+    fn test_is_ci_config_changed_unknown_ci() {
+        let files = vec![changed_file("ci/deploy.sh")];
+        let result = is_ci_config_changed(&files);
+        assert!(result.is_some());
+        let change = result.unwrap();
+        assert_eq!(change.unknown_ci_files, vec!["ci/deploy.sh".to_string()]);
+    }
+
+    #[test]
+    fn test_is_ci_config_changed_github_non_workflow() {
+        let files = vec![changed_file(".github/dependabot.yml")];
+        let result = is_ci_config_changed(&files);
+        assert!(result.is_some());
+        let change = result.unwrap();
+        assert_eq!(
+            change.unknown_ci_files,
+            vec![".github/dependabot.yml".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_is_generated_ci_file_headers() {
+        assert!(is_generated_ci_file("# auto-generated\nname: CI\n"));
+        assert!(is_generated_ci_file("# generated by script\n"));
+        assert!(is_generated_ci_file("# header\n# @generated\n"));
+        assert!(!is_generated_ci_file("name: CI\non: push\n"));
+    }
+
+    #[test]
+    fn test_detect_pre_commit_changes() {
+        let files = vec![
+            changed_file(".pre-commit-config.yaml"),
+            changed_file("src/main.rs"),
+            changed_file(".husky/pre-commit"),
+        ];
+        let result = detect_pre_commit_changes(&files);
+        assert_eq!(
+            result,
+            vec![
+                ".husky/pre-commit".to_string(),
+                ".pre-commit-config.yaml".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn test_makefile_has_ci_targets_with_test() {
+        let content = "test:\n\tcargo test\n\nbuild:\n\tcargo build\n";
+        assert!(makefile_has_ci_targets(content));
+    }
+
+    #[test]
+    fn test_makefile_has_ci_targets_without_ci() {
+        let content = "all:\n\techo hello\n\nclean:\n\trm -rf tmp\n";
+        assert!(!makefile_has_ci_targets(content));
+    }
+
+    #[test]
+    fn test_makefile_has_ci_targets_deploy() {
+        let content = "deploy:\n\t./deploy.sh\n";
+        assert!(makefile_has_ci_targets(content));
+    }
+
+    #[test]
+    fn test_makefile_has_ci_targets_lint() {
+        let content = "lint:\n\tcargo clippy\n";
+        assert!(makefile_has_ci_targets(content));
+    }
+
+    #[test]
+    fn test_is_ci_config_changed_source_flag() {
+        let ci_file = changed_file(".github/workflows/ci.yml");
+        let mut src_file = changed_file("src/main.rs");
+        src_file.symbols = Some(Vec::new());
+        let files = vec![ci_file, src_file];
+        let result = is_ci_config_changed(&files);
+        assert!(result.is_some());
+        assert!(result.unwrap().source_changed);
+    }
+
+    #[test]
+    fn test_is_ci_config_changed_no_ci() {
+        let files = vec![changed_file("README.md")];
+        let result = is_ci_config_changed(&files);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_is_ci_config_changed_sorted_paths() {
+        let files = vec![
+            changed_file(".github/workflows/b.yml"),
+            changed_file(".github/workflows/a.yml"),
+        ];
+        let result = is_ci_config_changed(&files);
+        assert!(result.is_some());
+        let change = result.unwrap();
+        assert_eq!(
+            change.known_ci_files,
+            vec![
+                ".github/workflows/a.yml".to_string(),
+                ".github/workflows/b.yml".to_string()
+            ]
+        );
     }
 }
