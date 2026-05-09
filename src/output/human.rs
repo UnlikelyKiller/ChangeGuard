@@ -239,6 +239,48 @@ pub fn print_impact_summary(packet: &ImpactPacket, _config: &crate::config::mode
         println!("{table}");
     }
 
+    if let Some(ref ci) = packet.ci_config_change {
+        println!("\n{}", "CI Pipeline Impact:".bold());
+        if !ci.known_ci_files.is_empty() {
+            println!(
+                "  {} {}",
+                "Known CI files changed:".bold().cyan(),
+                ci.known_ci_files.join(", ")
+            );
+        }
+        if !ci.pre_commit_files.is_empty() {
+            println!(
+                "  {} {}",
+                "Pre-commit hooks changed:".bold().cyan(),
+                ci.pre_commit_files.join(", ")
+            );
+        }
+        if !ci.unknown_ci_files.is_empty() {
+            println!(
+                "  {} {}",
+                "Unknown CI-like files:".bold().cyan(),
+                ci.unknown_ci_files.join(", ")
+            );
+        }
+        if !ci.generated_ci_files.is_empty() {
+            println!(
+                "  {} {}",
+                "Generated CI files changed:".bold().cyan(),
+                ci.generated_ci_files.join(", ")
+            );
+        }
+        let mut flags = Vec::new();
+        if ci.source_changed {
+            flags.push("source files co-changed".yellow().to_string());
+        }
+        if ci.deploy_changed {
+            flags.push("deploy manifests co-changed".yellow().to_string());
+        }
+        if !flags.is_empty() {
+            println!("  {} {}", "Flags:".bold().cyan(), flags.join(" | "));
+        }
+    }
+
     if !packet.relevant_decisions.is_empty() {
         println!("\n{}", "Relevant Architectural Decisions:".bold());
         let mut table = build_table(["Decision File", "Staleness", "Similarity"]);

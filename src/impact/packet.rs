@@ -551,6 +551,23 @@ impl Ord for DeployManifestChange {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "camelCase")]
+pub struct CiConfigChange {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub known_ci_files: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unknown_ci_files: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pre_commit_files: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub generated_ci_files: Vec<String>,
+    #[serde(default)]
+    pub source_changed: bool,
+    #[serde(default)]
+    pub deploy_changed: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DataFlowMatch {
@@ -626,6 +643,8 @@ pub struct ImpactPacket {
     pub sdk_dependencies_delta: Option<SdkDependencyDelta>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub deploy_manifest_changes: Vec<DeployManifestChange>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ci_config_change: Option<CiConfigChange>,
     #[serde(default)]
     pub knowledge_graph: Vec<KGImpact>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -689,6 +708,7 @@ impl Default for ImpactPacket {
             trace_env_vars: Vec::new(),
             sdk_dependencies_delta: None,
             deploy_manifest_changes: Vec::new(),
+            ci_config_change: None,
             knowledge_graph: Vec::new(),
             analysis_warnings: Vec::new(),
         }
@@ -842,6 +862,7 @@ impl ImpactPacket {
         self.trace_env_vars.clear();
         self.sdk_dependencies_delta = None;
         self.deploy_manifest_changes.clear();
+        self.ci_config_change = None;
         self.service_map_delta = None;
 
         let current_json = serde_json::to_string(self).unwrap_or_default();
@@ -1630,5 +1651,73 @@ mod tests {
             packet.deploy_manifest_changes[2].file,
             PathBuf::from("Dockerfile")
         );
+    }
+
+    #[test]
+    fn test_ci_config_change_serialization_roundtrip() {
+        let original = CiConfigChange {
+            known_ci_files: vec![".github/workflows/ci.yml".to_string()],
+            unknown_ci_files: vec!["ci/deploy.sh".to_string()],
+            pre_commit_files: vec![".pre-commit-config.yaml".to_string()],
+            generated_ci_files: vec![".github/workflows/generated.yml".to_string()],
+            source_changed: true,
+            deploy_changed: false,
+        };
+
+        let packet = ImpactPacket {
+            ci_config_change: Some(original.clone()),
+            ..ImpactPacket::default()
+        };
+
+        let json = serde_json::to_string_pretty(&packet).unwrap();
+        assert!(json.contains("ciConfigChange"));
+        assert!(json.contains(".github/workflows/ci.yml"));
+        assert!(json.contains("sourceChanged"));
+
+        let parsed: ImpactPacket = serde_json::from_str(&json).unwrap();
+        assert!(parsed.ci_config_change.is_some());
+        let parsed_change = parsed.ci_config_change.unwrap();
+        assert_eq!(parsed_change.known_ci_files, original.known_ci_files);
+        assert_eq!(parsed_change.source_changed, original.source_changed);
+    }
+
+    #[test]
+    fn test_ci_config_change_empty_absent_from_json() {
+        let packet = ImpactPacket::default();
+        let json = serde_json::to_string_pretty(&packet).unwrap();
+        assert!(!json.contains("ciConfigChange"));
+    }
+
+    #[test]
+    fn test_truncate_clears_ci_config_change() {
+        let mut packet = ImpactPacket {
+            changes: vec![ChangedFile {
+                path: PathBuf::from("src/main.rs"),
+                status: "Modified".to_string(),
+                old_path: None,
+                is_staged: true,
+                symbols: None,
+                imports: None,
+                runtime_usage: None,
+                analysis_status: FileAnalysisStatus::default(),
+                analysis_warnings: Vec::new(),
+                api_routes: Vec::new(),
+                data_models: Vec::new(),
+                ci_gates: Vec::new(),
+            }],
+            ci_config_change: Some(CiConfigChange {
+                known_ci_files: vec![".github/workflows/ci.yml".to_string()],
+                unknown_ci_files: Vec::new(),
+                pre_commit_files: Vec::new(),
+                generated_ci_files: Vec::new(),
+                source_changed: false,
+                deploy_changed: false,
+            }),
+            ..ImpactPacket::default()
+        };
+
+        let truncated = packet.truncate_for_context(100);
+        assert!(truncated);
+        assert!(packet.ci_config_change.is_none());
     }
 }

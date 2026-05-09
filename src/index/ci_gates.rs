@@ -1,4 +1,4 @@
-use crate::impact::packet::ChangedFile;
+use crate::impact::packet::{ChangedFile, CiConfigChange};
 use crate::state::storage::StorageManager;
 use miette::{IntoDiagnostic, Result};
 use serde::{Deserialize, Serialize};
@@ -902,16 +902,6 @@ fn extract_makefile_steps(content: &str, target: &str) -> String {
 }
 
 // --- CI Self-Awareness Detection ---
-
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct CiConfigChange {
-    pub known_ci_files: Vec<String>,
-    pub unknown_ci_files: Vec<String>,
-    pub pre_commit_files: Vec<String>,
-    pub generated_ci_files: Vec<String>,
-    pub source_changed: bool,
-    pub deploy_changed: bool,
-}
 
 /// Detects if CI configuration files changed in the given diff.
 pub fn is_ci_config_changed(changed_files: &[ChangedFile]) -> Option<CiConfigChange> {

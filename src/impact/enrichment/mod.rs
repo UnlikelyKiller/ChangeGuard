@@ -2,6 +2,7 @@ use crate::config::model::Config;
 use crate::impact::packet::ImpactPacket;
 pub mod api;
 pub mod ci_gates;
+pub mod ci_self_awareness;
 pub mod contracts;
 pub mod coupling;
 pub mod coverage;

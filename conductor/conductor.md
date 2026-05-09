@@ -270,7 +270,7 @@
     *   Key additions: `src/ai/semantic_extractor.rs`, removal of `graphifyy` dependency.
 
 
-## Milestone M7: Engineering Coverage Deepening (Planning)
+## Milestone M7: Engineering Coverage Deepening (Completed)
 
 *   **Track M7-1: Trace Config & SDK Dependency Detection**
     *   Status: Completed
@@ -297,28 +297,28 @@
     *   Key additions: `src/coverage/dataflow.rs`, `DataFlowMatch` type, cycle detection, change-percentage threshold, SQL table-name fallback.
 
 *   **Track M7-4: Deployment Manifest Awareness**
-    *   Status: Active
+    *   Status: Completed
     *   Spec: `conductor/trackM7-4/spec.md`
     *   Plan: `conductor/trackM7-4/plan.md`
     *   Goal: Classify Dockerfile, docker-compose, k8s, terraform, and helm changes with tiered risk weighting.
     *   Key additions: `src/coverage/deploy.rs`, `ManifestType` enum, `DeployManifestChange` type, Dockerfile COPY/ADD scanning.
 
 *   **Track M7-5: CI Pipeline Self-Awareness**
-    *   Status: Active
+    *   Status: Completed
     *   Spec: `conductor/trackM7-5/spec.md`
     *   Plan: `conductor/trackM7-5/plan.md`
     *   Goal: Surface risk when CI config itself changes in a diff, detect CI+source co-change patterns.
     *   Key additions: Extend `src/index/ci_gates.rs`, pre-commit hook awareness.
 
 *   **Track M7-6: ADR Staleness Detection**
-    *   Status: Active
+    *   Status: Completed
     *   Spec: `conductor/trackM7-6/spec.md`
     *   Plan: `conductor/trackM7-6/plan.md`
     *   Goal: Flag retrieved ADRs exceeding configurable age threshold with severity tiers and recently-updated exemption.
     *   Key additions: Extend `RelevantDecision` with `staleness_days`, multi-source age detection.
 
 *   **Track M7-7: Impact Packet Extension & Enrichment Integration**
-    *   Status: Planning
+    *   Status: Completed
     *   Dependencies: M7-1..M7-6
     *   Spec: `docs/observability-plan2.md` §10
     *   Plan: `conductor/trackM7-7/plan.md`
