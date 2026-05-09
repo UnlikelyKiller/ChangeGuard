@@ -54,15 +54,33 @@ pub fn execute_doctor() -> Result<()> {
         }
     };
 
-    print_doctor_report(
-        &platform_str,
-        &shell_str,
-        &tools,
-        &current_dir.display().to_string(),
-        &kind_str,
-        path_kind == crate::platform::PathKind::WslMounted,
-        &local_model_status,
-    );
+    let cozo_path = layout.state_subdir().join("ledger.cozo");
+    let native_graph_status = if cozo_path.exists() {
+        match crate::state::storage_cozo::CozoStorage::new(cozo_path.as_std_path()) {
+            Ok(cozo) => match (cozo.node_count(), cozo.edge_count()) {
+                (Ok(nodes), Ok(edges)) => {
+                    format!("Ready (CozoDB active, {} nodes, {} edges)", nodes, edges)
+                }
+                _ => "Ready (CozoDB active)".to_string(),
+            },
+            Err(_) => "Unavailable".to_string(),
+        }
+    } else {
+        "Not initialized (run `changeguard index --analyze-graph`)".to_string()
+    };
+
+    let report = crate::output::human::DoctorReport {
+        platform: &platform_str,
+        shell: &shell_str,
+        tools: &tools,
+        path_display: &current_dir.display().to_string(),
+        path_kind: &kind_str,
+        is_wsl_mounted: path_kind == crate::platform::PathKind::WslMounted,
+        local_model_status: &local_model_status,
+        native_graph_status: &native_graph_status,
+    };
+
+    print_doctor_report(&report);
 
     Ok(())
 }

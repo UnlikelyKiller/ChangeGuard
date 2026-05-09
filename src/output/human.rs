@@ -375,15 +375,18 @@ pub fn print_impact_brief(packet: &ImpactPacket) {
     );
 }
 
-pub fn print_doctor_report(
-    platform: &str,
-    shell: &str,
-    tools: &[(String, crate::platform::ExecutableStatus)],
-    path_display: &str,
-    path_kind: &str,
-    is_wsl_mounted: bool,
-    local_model_status: &str,
-) {
+pub struct DoctorReport<'a> {
+    pub platform: &'a str,
+    pub shell: &'a str,
+    pub tools: &'a [(String, crate::platform::ExecutableStatus)],
+    pub path_display: &'a str,
+    pub path_kind: &'a str,
+    pub is_wsl_mounted: bool,
+    pub local_model_status: &'a str,
+    pub native_graph_status: &'a str,
+}
+
+pub fn print_doctor_report(report: &DoctorReport) {
     println!(
         "\n{}",
         "ChangeGuard Doctor - Environment Health Check"
@@ -392,11 +395,11 @@ pub fn print_doctor_report(
     );
     println!("{}", "=".repeat(50).cyan());
 
-    println!("{:<20} {}", "Environment:".bold(), platform);
-    println!("{:<20} {}", "Active Shell:".bold(), shell);
+    println!("{:<20} {}", "Environment:".bold(), report.platform);
+    println!("{:<20} {}", "Active Shell:".bold(), report.shell);
 
     println!("\n{}", "Tools:".bold().bright_cyan());
-    for (name, status) in tools {
+    for (name, status) in report.tools {
         match status {
             crate::platform::ExecutableStatus::Found(path) => {
                 println!(
@@ -412,10 +415,10 @@ pub fn print_doctor_report(
         }
     }
 
-    println!("\n{:<20} {}", "Current Path:".bold(), path_display);
-    println!("{:<20} {}", "Path Type:".bold(), path_kind);
+    println!("\n{:<20} {}", "Current Path:".bold(), report.path_display);
+    println!("{:<20} {}", "Path Type:".bold(), report.path_kind);
 
-    if is_wsl_mounted {
+    if report.is_wsl_mounted {
         println!(
             "\n{}",
             "Warning: Running on a WSL mounted drive may be slower due to cross-filesystem overhead."
@@ -424,7 +427,8 @@ pub fn print_doctor_report(
         );
     }
 
-    println!("\n{:<20} {}", "Local Model:".bold(), local_model_status);
+    println!("\n{:<20} {}", "Local Model:".bold(), report.local_model_status);
+    println!("{:<20} {}", "Native Graph:".bold(), report.native_graph_status);
 
     println!(
         "\n{}",

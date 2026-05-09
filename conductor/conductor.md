@@ -218,7 +218,7 @@
      *   Key additions: `src/contracts/matcher.rs`, `AffectedContract` type, contract matching in impact, human output table, ask context extension.
 
 
-## Milestone KG: Knowledge Graph & Semantic Intelligence (Active)
+## Milestone KG: Knowledge Graph & Semantic Intelligence (Completed)
 
 *   **Track G1: CozoDB Integration & Schema**
     *   Status: Completed
@@ -263,7 +263,7 @@
     *   Key additions: `src/languages/rust.rs`, `src/index/mod.rs` (LinkResolver).
 
 *   **Track G7: Native Semantic Extraction (De-coupling Part 2)**
-    *   Status: Active
+    *   Status: Completed
     *   Spec: `conductor/trackG7/spec.md`
     *   Plan: `conductor/trackG7/plan.md`
     *   Goal: Complete standalone independence by implementing native semantic extraction.
