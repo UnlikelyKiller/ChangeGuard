@@ -1,10 +1,10 @@
+use miette::{IntoDiagnostic, Result};
+use serde::{Deserialize, Serialize};
 use std::path::Path;
-use tantivy::schema::*;
-use tantivy::{Index, IndexWriter, IndexReader, ReloadPolicy};
-use tantivy::query::QueryParser;
 use tantivy::collector::TopDocs;
-use miette::{Result, IntoDiagnostic};
-use serde::{Serialize, Deserialize};
+use tantivy::query::QueryParser;
+use tantivy::schema::*;
+use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SearchResult {
@@ -33,8 +33,11 @@ impl TantivySearchEngine {
             std::fs::create_dir_all(path).into_diagnostic()?;
         }
 
-        let index = Index::open_or_create(tantivy::directory::MmapDirectory::open(path).into_diagnostic()?, schema.clone())
-            .into_diagnostic()?;
+        let index = Index::open_or_create(
+            tantivy::directory::MmapDirectory::open(path).into_diagnostic()?,
+            schema.clone(),
+        )
+        .into_diagnostic()?;
 
         let reader = index
             .reader_builder()
@@ -66,18 +69,20 @@ impl TantivySearchEngine {
         let query_parser = QueryParser::for_index(&self.index, vec![content_field, path_field]);
         let query = query_parser.parse_query(query_str).into_diagnostic()?;
 
-        let top_docs = searcher.search(&query, &TopDocs::with_limit(limit)).into_diagnostic()?;
+        let top_docs = searcher
+            .search(&query, &TopDocs::with_limit(limit))
+            .into_diagnostic()?;
 
         let mut results = Vec::new();
         for (score, doc_address) in top_docs {
             let retrieved_doc: TantivyDocument = searcher.doc(doc_address).into_diagnostic()?;
-            
+
             let path = retrieved_doc
                 .get_first(path_field)
                 .and_then(|v| v.as_str())
                 .unwrap_or_default()
                 .to_string();
-            
+
             let line_count = retrieved_doc
                 .get_first(line_count_field)
                 .and_then(|v| v.as_u64())
@@ -102,7 +107,8 @@ impl TantivySearchEngine {
         let trigrams_field = self.schema.get_field("trigrams").unwrap();
         let path_field = self.schema.get_field("path").unwrap();
 
-        let mut subqueries: Vec<(tantivy::query::Occur, Box<dyn tantivy::query::Query>)> = Vec::new();
+        let mut subqueries: Vec<(tantivy::query::Occur, Box<dyn tantivy::query::Query>)> =
+            Vec::new();
         for trigram in trigrams {
             let term = Term::from_field_text(trigrams_field, trigram);
             let query = TermQuery::new(term, IndexRecordOption::Basic);
@@ -114,7 +120,9 @@ impl TantivySearchEngine {
         }
 
         let query = BooleanQuery::new(subqueries);
-        let top_docs = searcher.search(&query, &TopDocs::with_limit(limit)).into_diagnostic()?;
+        let top_docs = searcher
+            .search(&query, &TopDocs::with_limit(limit))
+            .into_diagnostic()?;
 
         let mut results = Vec::new();
         for (_score, doc_address) in top_docs {
@@ -136,7 +144,9 @@ impl TantivySearchEngine {
         let searcher = self.reader.searcher();
         let path_field = self.schema.get_field("path").unwrap();
 
-        let top_docs = searcher.search(&AllQuery, &TopDocs::with_limit(limit)).into_diagnostic()?;
+        let top_docs = searcher
+            .search(&AllQuery, &TopDocs::with_limit(limit))
+            .into_diagnostic()?;
 
         let mut results = Vec::new();
         for (_score, doc_address) in top_docs {

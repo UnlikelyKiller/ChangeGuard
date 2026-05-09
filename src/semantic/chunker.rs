@@ -37,7 +37,7 @@ impl AstChunk {
         while start < embedding_text.len() {
             let end = std::cmp::min(start + max_chars, embedding_text.len());
             let chunk_text = embedding_text[start..end].to_string();
-            
+
             chunks.push(AstChunk {
                 file_path: self.file_path.clone(),
                 name: self.name.clone(),
@@ -112,7 +112,11 @@ impl AstChunker {
                 let capture_name = query.capture_names()[capture.index as usize];
                 match capture_name {
                     "name" => {
-                        name = capture.node.utf8_text(content.as_bytes()).into_diagnostic()?.to_string();
+                        name = capture
+                            .node
+                            .utf8_text(content.as_bytes())
+                            .into_diagnostic()?
+                            .to_string();
                     }
                     "symbol" => {
                         symbol_node = Some(capture.node);
@@ -127,7 +131,10 @@ impl AstChunker {
                                 let mut walk = capture.node.walk();
                                 for child in capture.node.children(&mut walk) {
                                     if child.kind() == "type_identifier" {
-                                        name = child.utf8_text(content.as_bytes()).into_diagnostic()?.to_string();
+                                        name = child
+                                            .utf8_text(content.as_bytes())
+                                            .into_diagnostic()?
+                                            .to_string();
                                         break;
                                     }
                                 }
@@ -144,14 +151,22 @@ impl AstChunker {
             }
 
             if let Some(node) = symbol_node {
-                let chunk_content = node.utf8_text(content.as_bytes()).into_diagnostic()?.to_string();
-                
+                let chunk_content = node
+                    .utf8_text(content.as_bytes())
+                    .into_diagnostic()?
+                    .to_string();
+
                 // Simple docstring extraction: look for comments immediately preceding the node
                 let mut docstring = Vec::new();
                 let mut prev = node.prev_sibling();
                 while let Some(p) = prev {
                     if p.kind() == "line_comment" || p.kind() == "block_comment" {
-                        docstring.push(p.utf8_text(content.as_bytes()).into_diagnostic()?.trim().to_string());
+                        docstring.push(
+                            p.utf8_text(content.as_bytes())
+                                .into_diagnostic()?
+                                .trim()
+                                .to_string(),
+                        );
                         prev = p.prev_sibling();
                     } else if p.kind() == "attribute_item" {
                         // Skip attributes but keep looking for comments
@@ -161,7 +176,11 @@ impl AstChunker {
                     }
                 }
                 docstring.reverse();
-                let docstring = if docstring.is_empty() { None } else { Some(docstring.join("\n")) };
+                let docstring = if docstring.is_empty() {
+                    None
+                } else {
+                    Some(docstring.join("\n"))
+                };
 
                 chunks.push(AstChunk {
                     file_path: file_path.clone(),
@@ -212,7 +231,11 @@ impl AstChunker {
                 let capture_name = query.capture_names()[capture.index as usize];
                 match capture_name {
                     "name" => {
-                        name = capture.node.utf8_text(content.as_bytes()).into_diagnostic()?.to_string();
+                        name = capture
+                            .node
+                            .utf8_text(content.as_bytes())
+                            .into_diagnostic()?
+                            .to_string();
                     }
                     "symbol" => {
                         symbol_node = Some(capture.node);
@@ -230,20 +253,32 @@ impl AstChunker {
             }
 
             if let Some(node) = symbol_node {
-                let chunk_content = node.utf8_text(content.as_bytes()).into_diagnostic()?.to_string();
-                
+                let chunk_content = node
+                    .utf8_text(content.as_bytes())
+                    .into_diagnostic()?
+                    .to_string();
+
                 let mut docstring = Vec::new();
                 let mut prev = node.prev_sibling();
                 while let Some(p) = prev {
                     if p.kind() == "comment" {
-                        docstring.push(p.utf8_text(content.as_bytes()).into_diagnostic()?.trim().to_string());
+                        docstring.push(
+                            p.utf8_text(content.as_bytes())
+                                .into_diagnostic()?
+                                .trim()
+                                .to_string(),
+                        );
                         prev = p.prev_sibling();
                     } else {
                         break;
                     }
                 }
                 docstring.reverse();
-                let docstring = if docstring.is_empty() { None } else { Some(docstring.join("\n")) };
+                let docstring = if docstring.is_empty() {
+                    None
+                } else {
+                    Some(docstring.join("\n"))
+                };
 
                 chunks.push(AstChunk {
                     file_path: file_path.clone(),
@@ -291,7 +326,11 @@ impl AstChunker {
                 let capture_name = query.capture_names()[capture.index as usize];
                 match capture_name {
                     "name" => {
-                        name = capture.node.utf8_text(content.as_bytes()).into_diagnostic()?.to_string();
+                        name = capture
+                            .node
+                            .utf8_text(content.as_bytes())
+                            .into_diagnostic()?
+                            .to_string();
                     }
                     "symbol" => {
                         symbol_node = Some(capture.node);
@@ -306,22 +345,29 @@ impl AstChunker {
             }
 
             if let Some(node) = symbol_node {
-                let chunk_content = node.utf8_text(content.as_bytes()).into_diagnostic()?.to_string();
-                
+                let chunk_content = node
+                    .utf8_text(content.as_bytes())
+                    .into_diagnostic()?
+                    .to_string();
+
                 // In Python, docstring is the first child if it's a string expression
                 let mut docstring = None;
-                if let Some(body) = node.child_by_field_name("body") {
-                    let mut body_walk = body.walk();
-                    for child in body.children(&mut body_walk) {
-                        if child.kind() == "expression_statement" {
-                            if let Some(expr) = child.child(0) {
-                                if expr.kind() == "string" {
-                                    docstring = Some(expr.utf8_text(content.as_bytes()).into_diagnostic()?.to_string());
-                                }
-                            }
+                let first_child = node
+                    .child_by_field_name("body")
+                    .and_then(|b| b.children(&mut b.walk()).next());
+
+                match first_child {
+                    Some(child) if child.kind() == "expression_statement" => match child.child(0) {
+                        Some(expr) if expr.kind() == "string" => {
+                            docstring = Some(
+                                expr.utf8_text(content.as_bytes())
+                                    .into_diagnostic()?
+                                    .to_string(),
+                            );
                         }
-                        break; // Only check the first child of the body
-                    }
+                        _ => {}
+                    },
+                    _ => {}
                 }
 
                 chunks.push(AstChunk {

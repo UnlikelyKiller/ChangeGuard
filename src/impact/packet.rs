@@ -830,7 +830,8 @@ impl ImpactPacket {
         }
 
         if self.risk_reasons.is_empty() {
-            self.risk_reasons.push("Minimal changes detected".to_string());
+            self.risk_reasons
+                .push("Minimal changes detected".to_string());
         }
     }
 

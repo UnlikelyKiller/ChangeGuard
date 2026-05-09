@@ -13,7 +13,12 @@ impl RiskProvider for ObservabilityProvider {
         "Observability & Error Handling Provider"
     }
 
-    fn analyze(&self, packet: &ImpactPacket, _rules: &Rules, config: &Config) -> Result<RiskImpact> {
+    fn analyze(
+        &self,
+        packet: &ImpactPacket,
+        _rules: &Rules,
+        config: &Config,
+    ) -> Result<RiskImpact> {
         let mut weight = 0;
         let mut reasons = Vec::new();
 
@@ -45,7 +50,8 @@ impl RiskProvider for ObservabilityProvider {
         let mut error_handling_total = 0;
         for delta in &packet.error_handling_delta {
             if delta.current_count < delta.previous_count
-                && error_handling_total + error_handling_weight_per_file <= error_handling_weight_cap
+                && error_handling_total + error_handling_weight_per_file
+                    <= error_handling_weight_cap
             {
                 error_handling_total += error_handling_weight_per_file;
                 let reduction = delta.previous_count - delta.current_count;

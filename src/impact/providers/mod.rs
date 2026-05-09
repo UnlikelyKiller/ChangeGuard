@@ -68,9 +68,8 @@ impl RiskRegistry {
         let mut total_weight = 0;
 
         // Capture state before providers run to handle "provisional baseline" logic correctly.
-        let has_prior_risk_signal =
-            packet.risk_level == crate::impact::packet::RiskLevel::High
-                || !packet.risk_reasons.is_empty();
+        let has_prior_risk_signal = packet.risk_level == crate::impact::packet::RiskLevel::High
+            || !packet.risk_reasons.is_empty();
 
         for provider in &self.providers {
             let impact = provider.analyze(packet, rules, config)?;

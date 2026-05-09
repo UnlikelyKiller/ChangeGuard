@@ -6,10 +6,10 @@ fn test_scip_cli_wiring() {
 
     // Running with a non-existent SCIP file should fail gracefully
     let output = Command::new(binary_path)
-        .args(&["index", "--scip", "non_existent.scip"])
+        .args(["index", "--scip", "non_existent.scip"])
         .output()
         .expect("Failed to execute changeguard index");
-    
+
     // It should fail with an error about the file not existing
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);

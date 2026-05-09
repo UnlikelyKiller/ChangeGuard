@@ -13,9 +13,7 @@ pub fn normalize_to_utf8(data: &[u8]) -> Cow<'_, str> {
 /// Keeps tab, newline, and carriage return.
 pub fn strip_control_characters(s: &str) -> String {
     s.chars()
-        .filter(|&c| {
-            !c.is_control() || c == '\n' || c == '\r' || c == '\t'
-        })
+        .filter(|&c| !c.is_control() || c == '\n' || c == '\r' || c == '\t')
         .collect()
 }
 

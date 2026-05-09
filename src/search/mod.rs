@@ -6,4 +6,4 @@ pub mod trigram;
 
 pub use regex_filter::{RegexFilter, RegexMatch};
 pub use stream_indexer::StreamIndexer;
-pub use tantivy_engine::{TantivySearchEngine, SearchResult};
+pub use tantivy_engine::{SearchResult, TantivySearchEngine};

@@ -12,7 +12,12 @@ impl crate::impact::providers::RiskProvider for AdvisoryProvider {
         "Advisory Provider"
     }
 
-    fn analyze(&self, packet: &ImpactPacket, _rules: &Rules, _config: &Config) -> Result<RiskImpact> {
+    fn analyze(
+        &self,
+        packet: &ImpactPacket,
+        _rules: &Rules,
+        _config: &Config,
+    ) -> Result<RiskImpact> {
         let mut reasons = Vec::new();
 
         // 3j. Test Coverage Advisory (informational, not risk weight)
@@ -30,9 +35,6 @@ impl crate::impact::providers::RiskProvider for AdvisoryProvider {
             }
         }
 
-        Ok(RiskImpact {
-            weight: 0,
-            reasons,
-        })
+        Ok(RiskImpact { weight: 0, reasons })
     }
 }

@@ -1,11 +1,11 @@
+use crate::search::encoding::{normalize_to_utf8, strip_control_characters};
 use crate::search::tantivy_engine::TantivySearchEngine;
 use crate::search::trigram::regex_to_trigrams;
-use crate::search::encoding::{normalize_to_utf8, strip_control_characters};
-use miette::{Result, IntoDiagnostic};
-use regex::Regex;
-use std::fs;
 use camino::Utf8Path;
-use serde::{Serialize, Deserialize};
+use miette::{IntoDiagnostic, Result};
+use regex::Regex;
+use serde::{Deserialize, Serialize};
+use std::fs;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RegexMatch {
@@ -25,7 +25,7 @@ impl<'a> RegexFilter<'a> {
 
     pub fn search(&self, root: &Utf8Path, pattern: &str, limit: usize) -> Result<Vec<RegexMatch>> {
         let regex = Regex::new(pattern).into_diagnostic()?;
-        
+
         // 1. Pre-filter using trigrams
         let candidates = if let Some(trigrams) = regex_to_trigrams(pattern) {
             self.engine.search_trigrams(&trigrams, 1000)? // Limit candidates
@@ -53,7 +53,8 @@ impl<'a> RegexFilter<'a> {
                 let clean_content = strip_control_characters(&content);
 
                 for (idx, line) in clean_content.lines().enumerate() {
-                    if line.len() > 1000 { // Skip very long lines
+                    if line.len() > 1000 {
+                        // Skip very long lines
                         continue;
                     }
 

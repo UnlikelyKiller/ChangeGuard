@@ -1,7 +1,5 @@
-﻿pub mod orchestrator;
-pub mod git_worker;
+pub mod analysis;
 pub mod ast_worker;
-pub mod graph_worker;
 pub mod call_graph;
 pub mod centrality;
 pub mod ci_gates;
@@ -9,19 +7,25 @@ pub mod data_models;
 pub mod docs;
 pub mod entrypoint;
 pub mod env_schema;
+pub mod git_worker;
 pub mod graph_loader;
+pub mod graph_worker;
 pub mod languages;
 pub mod metrics;
+pub mod normalize;
 pub mod observability;
+pub mod orchestrator;
+pub mod references;
 pub mod routes;
+pub mod runtime_usage;
+pub mod storage;
 pub mod symbols;
 pub mod test_mapping;
 pub mod topology;
-pub mod analysis;
-pub mod references;
-pub mod runtime_usage;
-pub mod storage;
-pub mod normalize;
 
-pub use orchestrator::{ProjectIndexer, ProjectFile, ProjectSymbol, IndexStats, IndexStatus, ServiceIndexStats};
-pub use orchestrator::{BINARY_EXTENSIONS, SUPPORTED_EXTENSIONS, PARSER_VERSION, MAX_FILES, BATCH_SIZE};
+pub use orchestrator::{
+    BATCH_SIZE, BINARY_EXTENSIONS, MAX_FILES, PARSER_VERSION, SUPPORTED_EXTENSIONS,
+};
+pub use orchestrator::{
+    IndexStats, IndexStatus, ProjectFile, ProjectIndexer, ProjectSymbol, ServiceIndexStats,
+};

@@ -14,7 +14,12 @@ impl RiskProvider for PathProvider {
         "Protected Path Provider"
     }
 
-    fn analyze(&self, packet: &ImpactPacket, rules: &Rules, _config: &Config) -> Result<RiskImpact> {
+    fn analyze(
+        &self,
+        packet: &ImpactPacket,
+        rules: &Rules,
+        _config: &Config,
+    ) -> Result<RiskImpact> {
         let mut weight = 0;
         let mut reasons = Vec::new();
 
@@ -25,7 +30,10 @@ impl RiskProvider for PathProvider {
                 let path_weight = 70; // Automatic High
                 weight += path_weight;
                 reasons.push(format!("Protected path hit: {}", path_str));
-                debug!("Risk Factor: Protected path hit ({}) +{}", path_str, path_weight);
+                debug!(
+                    "Risk Factor: Protected path hit ({}) +{}",
+                    path_str, path_weight
+                );
             }
         }
 

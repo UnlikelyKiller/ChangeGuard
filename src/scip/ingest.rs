@@ -1,8 +1,8 @@
-use std::path::Path;
-use std::fs;
 use miette::{IntoDiagnostic, Result};
-use scip::types::Index;
 use protobuf::Message;
+use scip::types::Index;
+use std::fs;
+use std::path::Path;
 
 pub struct ScipIndex {
     pub index: Index,
@@ -14,13 +14,13 @@ impl ScipIndex {
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
         let bytes = fs::read(path).into_diagnostic()?;
-        
+
         // Calculate BLAKE3 hash
         let hash = blake3::hash(&bytes).to_hex().to_string();
-        
+
         // Decode Protobuf using protobuf crate (scip uses protobuf, not prost)
         let index = Index::parse_from_bytes(&bytes).into_diagnostic()?;
-        
+
         Ok(Self {
             index,
             file_hash: hash,

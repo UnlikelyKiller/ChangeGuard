@@ -427,8 +427,16 @@ pub fn print_doctor_report(report: &DoctorReport) {
         );
     }
 
-    println!("\n{:<20} {}", "Local Model:".bold(), report.local_model_status);
-    println!("{:<20} {}", "Native Graph:".bold(), report.native_graph_status);
+    println!(
+        "\n{:<20} {}",
+        "Local Model:".bold(),
+        report.local_model_status
+    );
+    println!(
+        "{:<20} {}",
+        "Native Graph:".bold(),
+        report.native_graph_status
+    );
 
     println!(
         "\n{}",

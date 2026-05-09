@@ -89,11 +89,14 @@ pub fn execute_ask(
         let config = load_config(&layout)?;
         let cozo_path = layout.state_subdir().join("ledger.cozo");
         let cozo = crate::state::storage_cozo::CozoStorage::new(cozo_path.as_std_path())?;
-        let semantic_engine = crate::semantic::SemanticDiscovery::new(config.local_model.clone(), &cozo)?;
-        
-        let query_str = query.clone().ok_or_else(|| miette::miette!("Semantic search requires a query string"))?;
+        let semantic_engine =
+            crate::semantic::SemanticDiscovery::new(config.local_model.clone(), &cozo)?;
+
+        let query_str = query
+            .clone()
+            .ok_or_else(|| miette::miette!("Semantic search requires a query string"))?;
         info!("Performing semantic search for: {}", query_str);
-        
+
         let results = semantic_engine.query(&query_str, 5)?;
         if results.is_empty() {
             println!("No relevant code snippets found.");
@@ -102,10 +105,16 @@ pub fn execute_ask(
 
         println!("\n{}", "Semantic Search Results:".bold().cyan());
         for (path, name, offset, dist) in results {
-            println!("- {} ({} at offset {}) [dist: {:.4}]", name.bold(), path, offset, dist);
+            println!(
+                "- {} ({} at offset {}) [dist: {:.4}]",
+                name.bold(),
+                path,
+                offset,
+                dist
+            );
         }
         println!();
-        
+
         // If we have a query, we might want to ask Gemini about these snippets.
         // For now, let's just return the results or let the user decide.
         // The spec said "changeguard ask --semantic <query> returns relevant functions/classes"

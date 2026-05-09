@@ -10,7 +10,12 @@ impl crate::impact::providers::RiskProvider for ApiSurfaceProvider {
         "API Surface Provider"
     }
 
-    fn analyze(&self, packet: &ImpactPacket, _rules: &Rules, _config: &Config) -> Result<RiskImpact> {
+    fn analyze(
+        &self,
+        packet: &ImpactPacket,
+        _rules: &Rules,
+        _config: &Config,
+    ) -> Result<RiskImpact> {
         let mut total_weight = 0;
         let mut reasons = Vec::new();
 
@@ -56,7 +61,10 @@ impl crate::impact::providers::RiskProvider for ApiSurfaceProvider {
                                     symbol.name,
                                     file.path.display()
                                 ));
-                                debug!("Risk Factor: Handler changed ({}) +{}", symbol.name, weight);
+                                debug!(
+                                    "Risk Factor: Handler changed ({}) +{}",
+                                    symbol.name, weight
+                                );
                             }
                             "PUBLIC_API" => {
                                 let weight = 20;

@@ -13,7 +13,12 @@ impl RiskProvider for CiProvider {
         "CI/CD Risk Provider"
     }
 
-    fn analyze(&self, packet: &ImpactPacket, _rules: &Rules, config: &Config) -> Result<RiskImpact> {
+    fn analyze(
+        &self,
+        packet: &ImpactPacket,
+        _rules: &Rules,
+        config: &Config,
+    ) -> Result<RiskImpact> {
         let mut weight = 0;
         let mut reasons = Vec::new();
 

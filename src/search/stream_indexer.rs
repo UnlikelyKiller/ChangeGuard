@@ -2,7 +2,7 @@ use crate::search::encoding::{normalize_to_utf8, strip_control_characters};
 use crate::search::tantivy_engine::TantivySearchEngine;
 use crate::search::trigram::extract_trigrams;
 use camino::{Utf8Path, Utf8PathBuf};
-use crossbeam::channel::{bounded, Sender};
+use crossbeam::channel::{Sender, bounded};
 use miette::{IntoDiagnostic, Result};
 use std::fs;
 use std::thread;
@@ -29,28 +29,36 @@ impl StreamIndexer {
         let (job_tx, job_rx) = bounded::<IndexJob>(100);
         let num_workers = std::thread::available_parallelism()
             .map(|n| n.get())
-            .unwrap_or(1);
+            .unwrap_or(1)
+            .min(4); // Cap workers to avoid resource exhaustion
 
+        info!("Starting indexing with {} workers", num_workers);
         let writer = std::sync::Arc::new(self.engine.get_writer(100_000_000)?);
 
         let mut workers = Vec::new();
-        for _ in 0..num_workers {
+        for i in 0..num_workers {
             let rx = job_rx.clone();
             let engine = self.engine.clone();
             let writer = writer.clone();
             let worker = thread::spawn(move || {
                 let schema = engine.schema();
-                let path_field = schema.get_field("path").unwrap();
+                let path_field = match schema.get_field("path") {
+                    Ok(f) => f,
+                    Err(e) => {
+                        tracing::error!("Worker {}: missing path field: {}", i, e);
+                        return;
+                    }
+                };
                 let content_field = schema.get_field("content").unwrap();
                 let line_count_field = schema.get_field("line_count").unwrap();
                 let trigrams_field = schema.get_field("trigrams").unwrap();
 
                 for job in rx {
-                    info!("Indexing file: {}", job.path);
+                    info!("Worker {}: Indexing file: {}", i, job.path);
                     let utf8_content = normalize_to_utf8(&job.content);
                     let clean_content = strip_control_characters(&utf8_content);
                     let line_count = clean_content.lines().count();
-                    
+
                     // Extract trigrams and join with space for indexing
                     let trigrams = extract_trigrams(&clean_content);
                     let trigrams_str = trigrams.into_iter().collect::<Vec<String>>().join(" ");
@@ -61,7 +69,10 @@ impl StreamIndexer {
                     doc.add_u64(line_count_field, line_count as u64);
                     doc.add_text(trigrams_field, &trigrams_str);
 
-                    writer.add_document(doc).unwrap();
+                    if let Err(e) = writer.add_document(doc) {
+                        tracing::error!("Worker {}: failed to add document {}: {}", i, job.path, e);
+                        break;
+                    }
                 }
             });
             workers.push(worker);
@@ -93,7 +104,10 @@ impl StreamIndexer {
             let file_name = file_name.to_string_lossy();
 
             if path.is_dir() {
-                if matches!(file_name.as_ref(), ".git" | ".changeguard" | "target" | "node_modules") {
+                if matches!(
+                    file_name.as_ref(),
+                    ".git" | ".changeguard" | "target" | "node_modules"
+                ) {
                     continue;
                 }
                 self.walk_dir(root, &path, tx)?;

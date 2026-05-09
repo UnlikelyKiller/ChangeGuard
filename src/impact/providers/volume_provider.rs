@@ -13,7 +13,12 @@ impl RiskProvider for VolumeProvider {
         "Change Volume Provider"
     }
 
-    fn analyze(&self, packet: &ImpactPacket, _rules: &Rules, _config: &Config) -> Result<RiskImpact> {
+    fn analyze(
+        &self,
+        packet: &ImpactPacket,
+        _rules: &Rules,
+        _config: &Config,
+    ) -> Result<RiskImpact> {
         let mut weight = 0;
         let mut reasons = Vec::new();
 

@@ -1,5 +1,5 @@
-pub mod m1_to_m10;
 pub mod m11_to_m20;
+pub mod m1_to_m10;
 pub mod m21_to_m29;
 pub mod m30_scip;
 
@@ -11,7 +11,7 @@ pub fn get_migrations() -> Migrations<'static> {
     all_m.extend(m11_to_m20::m11_to_m20());
     all_m.extend(m21_to_m29::m21_to_m29());
     all_m.extend(m30_scip::m30_scip());
-    
+
     Migrations::new(all_m)
 }
 

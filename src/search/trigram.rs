@@ -1,5 +1,5 @@
-use std::collections::HashSet;
 use regex_syntax::hir::{Hir, HirKind};
+use std::collections::HashSet;
 
 /// Extracts all unique trigrams from a string.
 pub fn extract_trigrams(text: &str) -> HashSet<String> {

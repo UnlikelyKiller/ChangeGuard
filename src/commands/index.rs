@@ -25,16 +25,18 @@ fn get_layout() -> Result<Layout> {
     Ok(Layout::new(root))
 }
 
-pub fn execute_index(
-    incremental: bool,
-    check: bool,
-    json: bool,
-    analyze_graph: bool,
-    docs: bool,
-    contracts: bool,
-    semantic: bool,
-    scip: Option<std::path::PathBuf>,
-) -> Result<()> {
+pub struct IndexArgs {
+    pub incremental: bool,
+    pub check: bool,
+    pub json: bool,
+    pub analyze_graph: bool,
+    pub docs: bool,
+    pub contracts: bool,
+    pub semantic: bool,
+    pub scip: Option<std::path::PathBuf>,
+}
+
+pub fn execute_index(args: IndexArgs) -> Result<()> {
     let layout = get_layout()?;
     let db_path = layout.state_subdir().join("ledger.db");
     let storage = StorageManager::init(db_path.as_std_path())?;
@@ -44,19 +46,19 @@ pub fn execute_index(
         crate::config::model::Config::default()
     });
 
-    if let Some(scip_path) = scip {
+    if let Some(scip_path) = args.scip {
         return execute_scip_index(&layout, storage, scip_path);
     }
 
-    if semantic {
+    if args.semantic {
         return execute_semantic_index(&layout, storage, &config);
     }
 
-    if docs {
+    if args.docs {
         return execute_docs_index(&layout, storage);
     }
 
-    let contracts_db_path = if contracts {
+    let contracts_db_path = if args.contracts {
         Some(db_path.clone())
     } else {
         None
@@ -64,9 +66,9 @@ pub fn execute_index(
 
     let mut indexer = ProjectIndexer::new(storage, repo_path);
 
-    if check {
+    if args.check {
         let status = indexer.check_status()?;
-        if json {
+        if args.json {
             let output = serde_json::to_string_pretty(&status).into_diagnostic()?;
             println!("{}", output);
         } else {
@@ -86,7 +88,7 @@ pub fn execute_index(
         return Ok(());
     }
 
-    let stats = if incremental {
+    let stats = if args.incremental {
         indexer.incremental_index()?
     } else {
         indexer.full_index()?
@@ -134,7 +136,7 @@ pub fn execute_index(
     };
 
     // Compute centrality if requested
-    let cent_stats = if analyze_graph {
+    let cent_stats = if args.analyze_graph {
         indexer.build_kg_native()?;
         indexer.compute_centrality()?
     } else {
@@ -153,7 +155,7 @@ pub fn execute_index(
             None
         };
 
-    if json {
+    if args.json {
         let mut output = serde_json::to_value(&stats).into_diagnostic()?;
         let doc_obj = serde_json::to_value(&doc_stats).into_diagnostic()?;
         let topo_obj = serde_json::to_value(&topo_stats).into_diagnostic()?;
@@ -221,7 +223,7 @@ pub fn execute_index(
                 map.insert(format!("env_{}", k), v.clone());
             }
         }
-        if analyze_graph {
+        if args.analyze_graph {
             let cent_obj = serde_json::to_value(&cent_stats).into_diagnostic()?;
             if let (Some(map), Some(cent)) = (output.as_object_mut(), cent_obj.as_object()) {
                 for (k, v) in cent {
@@ -351,7 +353,7 @@ pub fn execute_index(
         println!("  Dotenv declarations: {}", env_stats.dotenv_declarations);
         println!("  Config declarations: {}", env_stats.config_declarations);
         println!("  Files processed: {}", env_stats.files_processed);
-        if analyze_graph {
+        if args.analyze_graph {
             println!();
             println!("Centrality:");
             println!("  Entry points:   {}", cent_stats.entry_points_count);
@@ -417,16 +419,22 @@ fn execute_semantic_index(
     let semantic = SemanticDiscovery::new(config.local_model.clone(), &cozo)?;
 
     info!("Indexing repository for semantic search...");
-    
+
     // We'll iterate over all source files from git
     let repo_root = layout.root.as_std_path();
     let discovered = gix::discover(repo_root).into_diagnostic()?;
-    let _workdir = discovered.workdir().ok_or_else(|| miette::miette!("No workdir"))?;
-    
+    let _workdir = discovered
+        .workdir()
+        .ok_or_else(|| miette::miette!("No workdir"))?;
+
     let mut files_indexed = 0usize;
-    
+
     // For simplicity, we'll walk the tree and filter by extension
-    fn walk_semantic(dir: &std::path::Path, semantic: &SemanticDiscovery, files_indexed: &mut usize) -> Result<()> {
+    fn walk_semantic(
+        dir: &std::path::Path,
+        semantic: &SemanticDiscovery,
+        files_indexed: &mut usize,
+    ) -> Result<()> {
         for entry in std::fs::read_dir(dir).into_diagnostic()? {
             let entry = entry.into_diagnostic()?;
             let path = entry.path();
@@ -449,8 +457,11 @@ fn execute_semantic_index(
     }
 
     walk_semantic(repo_root, &semantic, &mut files_indexed)?;
-    
-    println!("Semantic indexing complete: {} files processed.", files_indexed);
+
+    println!(
+        "Semantic indexing complete: {} files processed.",
+        files_indexed
+    );
     Ok(())
 }
 
@@ -459,8 +470,10 @@ fn execute_scip_index(
     mut storage: StorageManager,
     scip_path: std::path::PathBuf,
 ) -> Result<()> {
-    use crate::scip::{ScipIndex, ScipSymbolMapper, is_scip_stale, register_scip_index, normalize_scip_path};
     use crate::index::orchestrator::{get_file_id_by_path, insert_symbol_row};
+    use crate::scip::{
+        ScipIndex, ScipSymbolMapper, is_scip_stale, normalize_scip_path, register_scip_index,
+    };
 
     info!("Ingesting SCIP index from {:?}", scip_path);
     let scip_index = ScipIndex::load(&scip_path)?;
@@ -478,13 +491,17 @@ fn execute_scip_index(
     let mut files_skipped = 0usize;
 
     for document in &scip_index.index.documents {
-        let relative_path = match normalize_scip_path(layout.root.as_std_path(), &document.relative_path) {
-            Ok(p) => p.to_string_lossy().to_string(),
-            Err(e) => {
-                warn!("Failed to normalize SCIP path {}: {}", document.relative_path, e);
-                continue;
-            }
-        };
+        let relative_path =
+            match normalize_scip_path(layout.root.as_std_path(), &document.relative_path) {
+                Ok(p) => p.to_string_lossy().to_string(),
+                Err(e) => {
+                    warn!(
+                        "Failed to normalize SCIP path {}: {}",
+                        document.relative_path, e
+                    );
+                    continue;
+                }
+            };
 
         let file_id = match get_file_id_by_path(&tx, &relative_path) {
             Ok(id) => id,
@@ -497,7 +514,10 @@ fn execute_scip_index(
         };
 
         // Create a map of symbol name -> SymbolInformation for easy lookup
-        let symbol_info_map: std::collections::HashMap<_, _> = scip_index.index.external_symbols.iter()
+        let symbol_info_map: std::collections::HashMap<_, _> = scip_index
+            .index
+            .external_symbols
+            .iter()
             .chain(scip_index.index.documents.iter().flat_map(|d| &d.symbols))
             .map(|s| (&s.symbol, s))
             .collect();
@@ -508,7 +528,8 @@ fn execute_scip_index(
             }
 
             if let Some(symbol_info) = symbol_info_map.get(&occurrence.symbol) {
-                let project_symbol = ScipSymbolMapper::map_to_project_symbol(file_id, symbol_info, occurrence);
+                let project_symbol =
+                    ScipSymbolMapper::map_to_project_symbol(file_id, symbol_info, occurrence);
                 insert_symbol_row(&tx, &project_symbol, file_id)?;
                 symbols_ingested += 1;
             }

@@ -1,5 +1,5 @@
 use crate::config::model::LocalModelConfig;
-use crate::embed::client::{embed_batch, embed_long_text, MAX_BATCH_SIZE};
+use crate::embed::client::{MAX_BATCH_SIZE, embed_batch, embed_long_text};
 use miette::Result;
 
 pub struct SemanticEmbedder {
@@ -12,8 +12,7 @@ impl SemanticEmbedder {
     }
 
     pub fn embed(&self, text: &str) -> Result<Vec<f32>> {
-        embed_long_text(&self.config, text)
-            .map_err(|e| miette::miette!(e))
+        embed_long_text(&self.config, text).map_err(|e| miette::miette!(e))
     }
 
     pub fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
@@ -24,7 +23,8 @@ impl SemanticEmbedder {
                 &self.config.embedding_model,
                 chunk,
                 self.config.timeout_secs,
-            ).map_err(|e| miette::miette!(e))?;
+            )
+            .map_err(|e| miette::miette!(e))?;
             all_vectors.extend(batch_vectors);
         }
         Ok(all_vectors)

@@ -1,16 +1,11 @@
+use crate::search::{RegexFilter, StreamIndexer, TantivySearchEngine};
+use crate::state::layout::Layout;
 use camino::Utf8PathBuf;
 use miette::{IntoDiagnostic, Result};
 use std::env;
-use crate::state::layout::Layout;
-use crate::search::{TantivySearchEngine, StreamIndexer, RegexFilter};
 use tracing::info;
 
-pub fn execute_search(
-    query: String,
-    regex: bool,
-    limit: usize,
-    index: bool,
-) -> Result<()> {
+pub fn execute_search(query: String, regex: bool, limit: usize, index: bool) -> Result<()> {
     let root = get_repo_root()?;
     let layout = Layout::new(&root);
     layout.ensure_state_dir()?;

@@ -13,7 +13,12 @@ impl RiskProvider for ADRStalenessProvider {
         "ADR Staleness Provider"
     }
 
-    fn analyze(&self, packet: &ImpactPacket, _rules: &Rules, config: &Config) -> Result<RiskImpact> {
+    fn analyze(
+        &self,
+        packet: &ImpactPacket,
+        _rules: &Rules,
+        config: &Config,
+    ) -> Result<RiskImpact> {
         let weight = 0;
         let mut reasons = Vec::new();
 

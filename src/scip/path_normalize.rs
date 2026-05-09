@@ -1,5 +1,5 @@
-use std::path::{Path, PathBuf};
 use crate::util::path::normalize_relative_path;
+use std::path::{Path, PathBuf};
 
 /// Normalizes a SCIP document path to a local OS path relative to the repository root.
 /// SCIP paths are typically Unix-style and relative to the project root.
@@ -7,7 +7,7 @@ pub fn normalize_scip_path(repo_root: &Path, scip_relative_path: &str) -> Result
     // First, use the existing utility to clean and validate the path.
     // This also ensures it stays within the repo root.
     let normalized_str = normalize_relative_path(repo_root, scip_relative_path)?;
-    
+
     // Convert back to a PathBuf. On Windows, this will use backslashes.
     // On Unix, it will keep forward slashes.
     Ok(PathBuf::from(normalized_str))

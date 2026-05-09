@@ -1,7 +1,7 @@
 use crate::semantic::chunker::AstChunk;
 use crate::state::storage_cozo::CozoStorage;
 use cozo::{DataValue, Num};
-use miette::{miette, Result};
+use miette::{IntoDiagnostic, Result, miette};
 
 pub struct VectorStore<'a> {
     storage: &'a CozoStorage,
@@ -39,8 +39,8 @@ impl<'a> VectorStore<'a> {
         }
 
         let mut rows = Vec::new();
-        for (chunk, embedding) in chunks.into_iter().zip(embeddings.into_iter()) {
-            let embedding_json = serde_json::to_string(&embedding).unwrap();
+        for (chunk, embedding) in chunks.into_iter().zip(embeddings) {
+            let embedding_json = serde_json::to_string(&embedding).into_diagnostic()?;
             let row = format!(
                 "['{}', '{}', {}, <F32; {}> {}]",
                 chunk.file_path.replace("'", "''"),
@@ -69,7 +69,7 @@ impl<'a> VectorStore<'a> {
         query_vector: Vec<f32>,
         k: usize,
     ) -> Result<Vec<(String, String, usize, f32)>> {
-        let query_vec_json = serde_json::to_string(&query_vector).unwrap();
+        let query_vec_json = serde_json::to_string(&query_vector).into_diagnostic()?;
         let script = format!(
             "?[file_path, name, offset, dist] := ~snippet_embedding:snippet_idx {{ file_path, name, offset | query: <F32; {}> {}, k: {}, bind_distance: dist }}",
             self.dim, query_vec_json, k
@@ -83,7 +83,7 @@ impl<'a> VectorStore<'a> {
                 Some(DataValue::Str(name)),
                 Some(DataValue::Num(Num::Int(offset))),
                 Some(DataValue::Num(Num::Float(dist))),
-            ) = (row.get(0), row.get(1), row.get(2), row.get(3))
+            ) = (row.first(), row.get(1), row.get(2), row.get(3))
             {
                 results.push((
                     file_path.to_string(),

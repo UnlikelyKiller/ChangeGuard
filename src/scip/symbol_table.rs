@@ -1,7 +1,7 @@
 use crate::index::orchestrator::ProjectSymbol;
 use crate::index::symbols::SymbolKind as CGSymbolKind;
-use scip::types::{SymbolInformation, Occurrence, symbol_information::Kind};
 use chrono::Utc;
+use scip::types::{Occurrence, SymbolInformation, symbol_information::Kind};
 
 pub struct ScipSymbolMapper;
 
@@ -45,7 +45,9 @@ impl ScipSymbolMapper {
         };
 
         // Generate a deterministic signature hash
-        let signature_hash = blake3::hash(symbol_info.symbol.as_bytes()).to_hex().to_string();
+        let signature_hash = blake3::hash(symbol_info.symbol.as_bytes())
+            .to_hex()
+            .to_string();
 
         ProjectSymbol {
             id: None,
@@ -55,7 +57,7 @@ impl ScipSymbolMapper {
             symbol_kind: kind.as_str().to_string(),
             visibility: None, // SCIP has accessibility but it's complex to map
             entrypoint_kind: "Internal".to_string(), // Default
-            is_public: true, // SCIP symbols are usually public/exported
+            is_public: true,  // SCIP symbols are usually public/exported
             cognitive_complexity: None,
             cyclomatic_complexity: None,
             line_start,

@@ -469,7 +469,7 @@ pub fn run() -> Result<()> {
             contracts,
             semantic,
             scip,
-        } => crate::commands::index::execute_index(
+        } => crate::commands::index::execute_index(crate::commands::index::IndexArgs {
             incremental,
             check,
             json,
@@ -478,7 +478,7 @@ pub fn run() -> Result<()> {
             contracts,
             semantic,
             scip,
-        ),
+        }),
         Commands::Search {
             query,
             regex,
