@@ -27,6 +27,24 @@ These notes summarize dependency-specific cautions for ChangeGuard maintenance.
 - `2.x` removed some raw-identifier formatting behavior.
 - Prefer normal field names in formatted error messages.
 
+## `tantivy`
+
+- `0.22.x` introduces breaking changes to schema building and indexing APIs.
+- When upgrading, ensure the streaming batch indexer (`src/search/index.rs`) correctly respects the multi-threaded index writer memory limits.
+- Search queries rely on strict byte-offset alignment; test regex highlighting and snippet extraction thoroughly after a bump.
+
+## `cozo`
+
+- `0.7.x` is the core Knowledge Graph engine.
+- We rely on `storage-sled` and `graph-algo` features.
+- Future upgrades might alter the Datalog syntax or JSON return shapes; ensure `src/state/storage_cozo.rs` tests cover all native relations (`:create`, `<-`, etc.).
+
+## `scip` & `protobuf`
+
+- `scip 0.7` uses `protobuf 3.7`. Keep these tightly coupled.
+- Upgrading `protobuf` may require regenerating the SCIP Rust bindings if `scip` does not do it automatically.
+- Always run `cargo test --test scip_integration` after a bump to ensure symbol ingestion isn't dropping occurrences.
+
 ## `gix`
 
 - `gix` remains high-churn pre-1.0.
