@@ -263,7 +263,7 @@
     *   Key additions: `src/languages/rust.rs`, `src/index/mod.rs` (LinkResolver).
 
 *   **Track G7: Native Semantic Extraction (De-coupling Part 2)**
-    *   Status: Planning
+    *   Status: Active
     *   Spec: `conductor/trackG7/spec.md`
     *   Plan: `conductor/trackG7/plan.md`
     *   Goal: Complete standalone independence by implementing native semantic extraction.
