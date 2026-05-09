@@ -63,7 +63,8 @@ mod tests {
             storage: &storage,
             config: &config,
             file_id_map: HashMap::new(),
-            project_root: PathBuf::from(r"C:\dev\changeguard"),
+            project_root: std::env::current_dir()
+                .unwrap_or_else(|_| PathBuf::from(r"C:\dev\changeguard")),
             warnings: Arc::new(Mutex::new(Vec::new())),
         };
         let mut packet = ImpactPacket::default();

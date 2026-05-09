@@ -1,4 +1,5 @@
 .changeguard/
+.claude/
 .env
 .env.*
 !.env.example
