@@ -4,7 +4,7 @@ use std::env;
 
 use crate::config::load::load_config;
 use crate::docs::index::run_docs_index;
-use crate::index::project_index::ProjectIndexer;
+use crate::index::{ProjectIndexer, ServiceIndexStats};
 use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
 use tracing::{info, warn};
