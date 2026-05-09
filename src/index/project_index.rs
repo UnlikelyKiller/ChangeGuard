@@ -113,18 +113,87 @@ impl ProjectIndexer {
         Self { storage, repo_path }
     }
 
-    pub fn sync_to_kg(&self) -> Result<()> {
-        let graph_json = self.repo_path.join("graphify-out").join("graph.json");
-        if graph_json.exists()
-            && let Some(cozo) = &self.storage.cozo
-        {
-            crate::index::graph_loader::ingest_graphify_json(
-                graph_json.as_std_path(),
-                cozo,
-                "index_sync",
-            )?;
+    pub fn build_kg_native(&self) -> Result<()> {
+        let Some(cozo) = &self.storage.cozo else {
+            info!("CozoDB not available, skipping native KG build");
+            return Ok(());
+        };
+
+        let stats =
+            crate::index::graph_loader::build_native_graph(&self.storage, cozo, "native_kg")?;
+
+        // Optionally enrich with semantic extraction on a sample of files
+        match self.get_semantic_sample_files() {
+            Ok(sample_files) if !sample_files.is_empty() => {
+                let extractor = crate::ai::semantic_extractor::SemanticExtractor::new(
+                    crate::ai::semantic_extractor::SemanticExtractorConfig::default(),
+                );
+                let config = crate::config::model::LocalModelConfig::default();
+                match extractor.extract_batch(sample_files, &config) {
+                    Ok(result) => {
+                        if let Err(e) =
+                            crate::ai::semantic_extractor::SemanticExtractor::ingest_into_cozo(
+                                &result,
+                                cozo,
+                                "semantic_kg",
+                            )
+                        {
+                            warn!("Semantic extraction ingestion failed: {}", e);
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Semantic extraction failed: {}", e);
+                    }
+                }
+            }
+            Ok(_) => {}
+            Err(e) => {
+                warn!("Failed to collect semantic sample files: {}", e);
+            }
         }
+
+        let communities = crate::index::graph_loader::run_community_louvain(cozo)?;
+        let node_count = cozo.node_count()?;
+        let edge_count = cozo.edge_count()?;
+
+        info!(
+            "Native KG build complete: {} nodes, {} edges, {} communities ({} files, {} symbols)",
+            node_count,
+            edge_count,
+            communities.len(),
+            stats.files_indexed,
+            stats.symbols_indexed
+        );
+
         Ok(())
+    }
+
+    fn get_semantic_sample_files(&self) -> Result<Vec<(std::path::PathBuf, String)>> {
+        let conn = self.storage.get_connection();
+        let mut stmt = conn
+            .prepare(
+                "SELECT file_path FROM project_files \
+                 WHERE parse_status = 'OK' \
+                 AND language IN ('Rust', 'TypeScript', 'Python', 'Go') \
+                 LIMIT 10",
+            )
+            .into_diagnostic()?;
+
+        let rows: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .into_diagnostic()?
+            .collect::<Result<Vec<_>, _>>()
+            .into_diagnostic()?;
+        drop(stmt);
+
+        let mut files = Vec::new();
+        for path_str in rows {
+            let full_path = self.repo_path.join(&path_str);
+            if let Ok(content) = fs::read_to_string(&full_path) {
+                files.push((PathBuf::from(full_path.as_str()), content));
+            }
+        }
+        Ok(files)
     }
 
     /// Discover tracked files in the repository, filtering by supported language extensions

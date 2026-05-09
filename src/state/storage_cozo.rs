@@ -62,6 +62,45 @@ impl CozoStorage {
         }
         Ok(relations)
     }
+
+    pub fn node_count(&self) -> Result<usize> {
+        let res = self.run_script("?[count(id)] := *node{id}")?;
+        if let Some(DataValue::Num(Num::Int(n))) = res.rows.first().and_then(|r| r.first()) {
+            return Ok(*n as usize);
+        }
+        Ok(0)
+    }
+
+    pub fn edge_count(&self) -> Result<usize> {
+        let res = self.run_script("?[count(source)] := *edge{source}")?;
+        if let Some(DataValue::Num(Num::Int(n))) = res.rows.first().and_then(|r| r.first()) {
+            return Ok(*n as usize);
+        }
+        Ok(0)
+    }
+
+    /// Run Louvain community detection on the edge relation.
+    /// Note: CozoDB 0.7 does not include a Leiden implementation;
+    /// Louvain is used as the closest available alternative.
+    pub fn run_community_louvain(&self) -> Result<Vec<(String, i64)>> {
+        let script = "
+            edges[src, dst] := *edge{source: src, target: dst}
+            ?[node, community_id] <~ CommunityDetectionLouvain(edges[src, dst])
+        ";
+        let res = self.run_script(script)?;
+        let mut communities = Vec::new();
+        for row in &res.rows {
+            // CommunityDetectionLouvain returns [List(community_ids), node]
+            // where community_ids is a hierarchy (usually a single element).
+            if let (Some(DataValue::List(comm_list)), Some(DataValue::Str(node))) =
+                (row.first(), row.get(1))
+                && let Some(DataValue::Num(Num::Int(comm))) = comm_list.first()
+            {
+                communities.push((node.to_string(), *comm));
+            }
+        }
+        Ok(communities)
+    }
 }
 
 #[cfg(test)]
@@ -130,5 +169,70 @@ mod tests {
             .unwrap();
         assert_eq!(res.rows.len(), 1);
         assert_eq!(res.rows[0][0], DataValue::Str("C".into()));
+    }
+
+    #[test]
+    fn test_node_count_and_edge_count() {
+        let storage = CozoStorage::new(&PathBuf::from("")).unwrap();
+
+        assert_eq!(storage.node_count().unwrap(), 0);
+        assert_eq!(storage.edge_count().unwrap(), 0);
+
+        storage
+            .run_script(
+                "?[id, label, category, risk_score, metadata] <- [
+                    ['n1', 'Node 1', 'code', 0.0, {}],
+                    ['n2', 'Node 2', 'code', 0.0, {}]
+                ] :put node",
+            )
+            .unwrap();
+
+        storage
+            .run_script(
+                "?[source, target, relation, confidence, provenance_id] <- [
+                    ['n1', 'n2', 'calls', 1.0, 'tx1']
+                ] :put edge",
+            )
+            .unwrap();
+
+        assert_eq!(storage.node_count().unwrap(), 2);
+        assert_eq!(storage.edge_count().unwrap(), 1);
+    }
+
+    #[test]
+    fn test_run_community_louvain() {
+        let storage = CozoStorage::new(&PathBuf::from("")).unwrap();
+
+        // Two disconnected clusters
+        storage
+            .run_script(
+                "?[id, label, category, risk_score, metadata] <- [
+                    ['a1', 'A1', 'code', 0.0, {}],
+                    ['a2', 'A2', 'code', 0.0, {}],
+                    ['b1', 'B1', 'code', 0.0, {}],
+                    ['b2', 'B2', 'code', 0.0, {}]
+                ] :put node",
+            )
+            .unwrap();
+
+        storage
+            .run_script(
+                "?[source, target, relation, confidence, provenance_id] <- [
+                    ['a1', 'a2', 'calls', 1.0, 'tx1'],
+                    ['b1', 'b2', 'calls', 1.0, 'tx1']
+                ] :put edge",
+            )
+            .unwrap();
+
+        let communities = storage.run_community_louvain().unwrap();
+        assert!(!communities.is_empty());
+
+        let distinct: std::collections::HashSet<i64> =
+            communities.iter().map(|(_, c)| *c).collect();
+        assert!(
+            distinct.len() >= 2,
+            "Expected at least 2 communities, got {:?}",
+            distinct.len()
+        );
     }
 }
