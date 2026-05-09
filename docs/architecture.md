@@ -37,38 +37,48 @@ CLI
 
     - `commands/`: command orchestration only. This layer handles CLI-visible messages, fallback reporting, and composition of lower-level modules.
     - `git/`: repository discovery, status, history, and platform-sensitive git behavior.
-    - `index/`: language-aware extraction for symbols, imports/exports, runtime usage, and complexity scoring.      
-    - `impact/`: packet assembly, secret redaction, temporal coupling, hotspot ranking, and risk scoring.
-    - `verify/`: deterministic verification plan generation, predictive verification, subprocess execution, and report persistence.
-    - `federated/`: sibling schema parsing, path confinement, dependency discovery, and cross-repo impact checks.   
+    - `index/`: language-aware extraction for symbols, imports/exports, runtime usage, complexity scoring, and orchestrator for Phase 2 data models.
+    - `impact/`: packet assembly, secret redaction, temporal coupling, hotspot ranking, and modular risk scoring via enrichment providers.
+    - `verify/`: deterministic verification plan generation, predictive verification (semantic and probability-based), subprocess execution, and explanation generation.
+    - `federated/`: sibling schema parsing, path confinement, dependency discovery, and cross-repo impact checks.
     - `gemini/`: mode-specific prompts, narrative prompt construction, prompt sanitization, and subprocess invocation.
-    - `daemon/`: LSP server, read-only state access, diagnostics, Hover, CodeLens, and lifecycle/PID handling.      
-    - `state/`: repo-local layout, JSON report writing, SQLite migrations, and persistence APIs.
+    - `local_model/`: OpenAI-compatible HTTP client for local LLMs, context assembly, and fallback logic.
+    - `embed/`: unified HTTP client and SQLite vector storage for local embedding generation.
+    - `semantic/`: AST chunking, logic extraction, and local vector search powered by CozoDB HNSW indices.
+    - `search/`: streaming trigram indexing, Tantivy regex execution, and ranked BM25 search.
+    - `scip/`: Protobuf ingestion, symbol mapping, and stale index detection for precise compiler-grade graph integration.
+    - `docs/`: Markdown crawling, chunking, parsing, and indexing.
+    - `contracts/`: OpenAPI/Swagger YAML/JSON parsing, semantic alignment, and public contract risk matching.
+    - `coverage/`: domain extraction for CI configurations, Docker/Kubernetes manifests, service maps, data-flow coupling, and third-party SDK dependencies.
+    - `daemon/`: LSP server, read-only state access, diagnostics, Hover, CodeLens, and lifecycle/PID handling.
+    - `state/`: repo-local layout, JSON report writing, SQLite migrations, CozoDB Datalog management, and persistence APIs.
     - `watch/`: event filtering, normalization, batching, and callback dispatch.
     - `util/`: shared utilities including secure lexical path normalization (`normalize_relative_path`), clock abstraction, and process execution helpers.
     - `platform/`: host, shell, path, and process-policy seams.
-## State Layout
 
-```text
-.changeguard/
-  config.toml
-  rules.toml
-  daemon.pid
-  logs/
-  tmp/
-  reports/
-    latest-scan.json
-    latest-impact.json
-    latest-verify.json
-    fallback-impact.json
-  state/
-    current-batch.json
-    ledger.db
-    ledger.db-wal
-    ledger.db-shm
-    schema.json
-```
+    ## State Layout
 
+    ```text
+    .changeguard/
+      config.toml
+      rules.toml
+      daemon.pid
+      logs/
+      tmp/
+      reports/
+        latest-scan.json
+        latest-impact.json
+        latest-verify.json
+        fallback-impact.json
+      search_index/    (Tantivy directories)
+      state/
+        current-batch.json
+        ledger.db
+        ledger.db-wal
+        ledger.db-shm
+        ledger.cozo    (Knowledge Graph data)
+        schema.json
+    ```
 All generated state is rebuildable. `reset` removes derived state by default and only removes config/rules or the full tree when explicitly requested.
 
 ## Impact Packet Pipeline
