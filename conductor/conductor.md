@@ -279,8 +279,6 @@
     *   Goal: Detect observability pipeline config changes (otel-collector, Jaeger, DataDog, Grafana Agent) and third-party SDK import additions (Stripe, Auth0, Twilio, etc.).
     *   Key Additions: `src/coverage/traces.rs`, `src/coverage/sdk.rs`, Go support in `src/index/references.rs`, `CoverageConfig` in `src/config/model.rs`.
 
-    *   Key additions: `src/coverage/traces.rs`, `src/coverage/sdk.rs`, `TraceConfigChange` type, `SdkDependencyDelta` type.
-
 *   **Track M7-2: Service-Map Derivation**
     *   Status: Completed
     *   Spec: `docs/observability-plan2.md` §5
@@ -326,274 +324,58 @@
     *   Key additions: 5 new ImpactPacket fields, 7 enrichment hooks, 7 human output sections, per-dimension kill switches.
 
 
-## Milestone J: Phase 2 Final Remediation (Completed)
-
-*   **Track 36: Critical Remediation & Green CI**
-    *   Status: Completed
-    *   Spec: `conductor/track36/spec.md`
-    *   Plan: `conductor/track36/plan.md`
-    *   Goal: Restore `cargo fmt` and `cargo clippy`, fix silent hotspot row error dropping, and surface prediction degradation in `verify`.
-    *   Key additions: Green CI pipeline, visible SQLite hotspot errors, user-visible verification prediction warnings.
-
-*   **Track 37: LSP Daemon Functional Completion**
-    *   Status: Completed
-    *   Spec: `conductor/track37/spec.md`
-    *   Plan: `conductor/track37/plan.md`
-    *   Goal: Implement real Hover, CodeLens, real-time diagnostics, broken-stdin self-termination, and lifecycle tests, removing all placeholders.
-    *   Key additions: Fully functional LSP handlers, `data_stale` surface handling, stdin auto-termination, robust daemon lifecycle tests.
-
-*   **Track 38: Complexity & Temporal Hardening**
-    *   Status: Completed
-    *   Spec: `conductor/track38/spec.md`
-    *   Plan: `conductor/track38/plan.md`
-    *   Goal: Complete missing edge tests for complexity, add real temporal git fixtures, add dedicated hotspot tests, and document the arborist spike.
-    *   Key additions: Arborist ADR, TS/syntax/unsupported-language complexity tests, temporal git-fixture testing, hotspot scoring tests.
-
-*   **Track 39: Dependency & Federation Deepening**
-    *   Status: Completed
-    *   Spec: `conductor/track39/spec.md`
-    *   Plan: `conductor/track39/plan.md`
-    *   Goal: Upgrade structural prediction and dependency discovery to use current repo data, automate federation discovery, and use shared redaction.
-    *   Key additions: Current-repo structural analysis, automated federation discovery in `scan`/`impact`, shared redaction model usage, path confinement edge tests.
-
-*   **Track 40: Narrative Refinement**
-    *   Status: Completed
-    *   Spec: `conductor/track40/spec.md`
-    *   Plan: `conductor/track40/plan.md`
-    *   Goal: Rework narrative prompt construction to avoid nesting and ensure fallback write failures are visible.
-    *   Key additions: Flat, structured narrative prompts, robust error handling for fallback report persistence.
-
-## Milestone I: Phase 2 Remediation (Completed)
-
-*   **Track 30: Foundation & Safety Remediation**
-    *   Status: Completed
-    *   Spec: `conductor/track30/spec.md`
-    *   Plan: `conductor/track30/plan.md`
-    *   Goal: Restore green CI gates (fmt, clippy, tests), fix critical secret redaction/persistence issues, and remove production unwraps.
-    *   Key additions: Green CI suite, secured redact-before-save persistence, zero production unwraps in impact/hotspots.
-
-*   **Track 31: Intelligence & Determinism Hardening**
-    *   Status: Completed
-    *   Spec: `conductor/track31/spec.md`
-    *   Plan: `conductor/track31/plan.md`
-    *   Goal: Fix temporal first-parent traversal, add complexity degradation, and ensure deterministic sorting for hotspots.
-    *   Key additions: First-parent traversal by default, complexity AST degradation, multiplication-based hotspot scoring, hotspot JSON/filtering.
-
-*   **Track 32: Predictive Verification Completion**
-    *   Status: Completed
-    *   Spec: `conductor/track32/spec.md`
-    *   Plan: `conductor/track32/plan.md`
-    *   Goal: Implement structural prediction (removing placeholders) and add missing predictor tests and degradation warnings.
-    *   Key additions: Structural import-based prediction, placeholder cleanup, comprehensive predictor tests, merged plan descriptions.
-
-*   **Track 33: Federated Intelligence Completion**
-    *   Status: Completed
-    *   Spec: `conductor/track33/spec.md`
-    *   Plan: `conductor/track33/plan.md`
-    *   Goal: Implement real cross-repo impact resolution with dependency edges, schema validation, and path confinement.
-    *   Key additions: Path confinement security, schema validation, dependency insertion, cross-repo impact resolution tests.
-
-*   **Track 34: Narrative Reporting Completion**
-    *   Status: Completed
-    *   Spec: `conductor/track34/spec.md`
-    *   Plan: `conductor/track34/plan.md`
-    *   Goal: Wire token budgeting and truncation annotations into Gemini execution, and add golden prompt tests.
-    *   Key additions: Strict token budgeting (409,600 chars), truncation annotations, robust Gemini execution with fallback artifacts, byte-for-byte deterministic prompt tests.
-
-*   **Track 35: LSP Daemon Resolution**
-    *   Status: Completed
-    *   Spec: `conductor/track35/spec.md`
-    *   Plan: `conductor/track35/plan.md`
-    *   Goal: Replace the stub implementation with a fully-featured LSP server using `tower-lsp-server` and `tokio`.
-    *   Key additions: Real-time diagnostic reporting, robust lifecycle (PID management), read-only WAL SQLite access, and native async trait implementation.
-
-## Completed Tracks
-
-
-*   **Track 19: Reset and Recovery Completion**
-    *   Status: Completed
-    *   Spec: `conductor/track19/spec.md`
-    *   Plan: `conductor/track19/plan.md`
-    *   Audit2 findings: Functional finding 1, Phase 14 gap, Source-tree `reset` deficiency
-    *   Key additions: real `reset` command, `src/commands/reset.rs`, derived-state cleanup, optional config/rules removal, recovery path for broken local state
-
-*   **Track 20: Determinism and Error Visibility Hardening**
-    *   Status: Completed
-    *   Spec: `conductor/track20/spec.md`
-    *   Plan: `conductor/track20/plan.md`
-    *   Audit2 findings: Functional findings 3 and 4, Determinism gaps, Error Visibility gaps
-    *   Key additions: validated rule loading, no silent config/rules fallback, explicit partial-analysis warnings in impact packets, deterministic warning ordering
-
-*   **Track 21: Verification Process Hardening**
-    *   Status: Completed
-    *   Spec: `conductor/track21/spec.md`
-    *   Plan: `conductor/track21/plan.md`
-    *   Audit2 findings: Functional finding 2, Phase 12 and Phase 15 gaps
-    *   Key additions: `verify/runner.rs`, `verify/timeouts.rs`, process-policy enforcement, reduced shell dependence, dedicated platform verification tests
-
-*   **Track 22: Structural Completion and Plan Reconciliation**
-    *   Status: Completed
-    *   Spec: `conductor/track22/spec.md`
-    *   Plan: `conductor/track22/plan.md`
-    *   Audit2 findings: Functional findings 5, 6, 7, remaining source/doc/test layout gaps
-    *   Key additions: scan diff-summary integration, symbol persistence/storage seams, remaining planned modules or documented shims, missing docs artifacts, black-box CLI coverage, `cargo deny`
-
-## Milestone E: Historical Intelligence Tracks (Completed)
-
-*   **Track E4-4: Runtime Usage in Risk Scoring**
-    *   Status: Completed
-    *   Spec: `conductor/trackE4-4/spec.md`
-    *   Plan: `conductor/trackE4-4/plan.md`
-    *   Goal: Wire the extracted `runtime_usage` data into the risk scoring engine and verification predictor.
-    *   Key additions: `runtime_usage_delta` to `ImpactPacket`, env-var new dependency risk weight, config-key changes risk weight, runtime predictions.
-
-## Milestone F: Predictive Verification Tracks (Completed)
-
-## Milestone G: IDE Integration Tracks (Completed)
-
-## Milestone H: Cross-Repo and Narrative Reporting (Completed)
-
-## Completed Tracks (Phase 2 - Partial/Needs Remediation)
-
-*   **Track 29: Advanced Narrative Reporting (Gemini)** (Status: Partial)
-*   **Track 28: Federated Intelligence (Cross-Repo)** (Status: Partial)
-*   **Track 27: LSP-Lite ChangeGuard Daemon** (Status: Fail)
-*   **Track 26: Predictive Verification (Dependency-Aware)** (Status: Fail/Partial)
-*   **Track 25: Hotspot Identification (Risk Density)** (Status: Partial)
-*   **Track 24: Complexity Indexing (Spike & Implementation)** (Status: Partial Pass)
-*   **Track 23: Temporal Intelligence (History Extraction)** (Status: Partial Pass)
-
-*   **Track 13: Final Integration** (Status: Completed with follow-up required)
-*   **Track 12: UI/UX Refinement** (Status: Completed)
-*   **Track 11: Ask Gemini Baseline** (Status: Completed)
-*   **Track 10: State SQLite Persistence** (Status: Completed)
-*   **Track 9: Change Risk Analysis Engine** (Status: Completed)
-*   **Track 8: Determinism Contract and Subprocess Control** (Status: Completed)
-*   **Track 7: Language-Aware Symbol Extraction** (Status: Completed)
-*   **Track 6: Watch Mode and Batch Debouncing** (Status: Completed)
-*   **Track 5: Basic Impact Packet Shell** (Status: Completed)
-*   **Track 4: Git Scan Foundation** (Status: Completed)
-*   **Track 3: Config and Rule Loading** (Status: Completed)
-*   **Track 2: Doctor and Platform Detection** (Status: Completed)
-*   **Track 1: Repo-Local State Layout and Init** (Status: Completed)
-*   **Track 0: Bootstrap CLI Skeleton** (Status: Completed)
-
-## Milestone R: System Architecture Refactoring (Active)
+## Milestone R: System Architecture Refactoring (Completed)
 
 *   **Track R1-1: Impact Orchestrator Extraction & Decomposition**
     *   Status: Completed
     *   Spec: `conductor/trackR1-1/spec.md`
     *   Plan: `conductor/trackR1-1/plan.md`
     *   Goal: Decompose monolithic `impact.rs` into `ImpactOrchestrator` and modular enrichment providers in `src/impact/enrichment/`.
-    *   Key additions: `src/impact/orchestrator.rs`, `src/impact/enrichment/mod.rs`, `src/impact/enrichment/api.rs`, etc.
 
 *   **Track R1-2: Monolithic Analysis Decomposition**
     *   Status: Completed
     *   Spec: `conductor/trackR1-2/spec.md`
     *   Plan: `conductor/trackR1-2/plan.md`
     *   Goal: Decompose the ~3,000 line `src/impact/analysis.rs` into a registry of modular `RiskProvider` implementations.
-    *   Key additions: `src/impact/providers/mod.rs`, `path_provider.rs`, `volume_provider.rs`, `ci_provider.rs`, etc.
 
 *   **Track R1-3: State Migrations Decomposition**
-    *   Status: Active
+    *   Status: Completed
     *   Spec: `conductor/trackR1-3/spec.md`
     *   Plan: `conductor/trackR1-3/plan.md`
     *   Goal: Decompose monolithic `migrations.rs` into a modular `src/state/migrations/` directory.
-    *   Key additions: `src/state/migrations/mod.rs`, `m1_to_m5.rs`, `m6_to_m10.rs`, etc.
 
 *   **Track R1-4: Project Index Decomposition**
-    *   Status: Active
+    *   Status: Completed
     *   Spec: `conductor/trackR1-4/spec.md`
     *   Plan: `conductor/trackR1-4/plan.md`
     *   Goal: Decompose monolithic `project_index.rs` into orchestrator and modular workers.
-    *   Key additions: `src/index/orchestrator.rs`, `src/index/git_worker.rs`, `src/index/ast_worker.rs`, `src/index/graph_worker.rs`.
 
-## Milestone S: Global Intelligence & Precision Search (Planning)
+
+## Milestone S: Global Intelligence & Precision Search (Completed)
 
 *   **Track S1: High-Performance Global Code Search**
-    *   Status: Planning
+    *   Status: Completed
     *   Spec: `conductor/trackS1/spec.md`
     *   Plan: `conductor/trackS1/plan.md`
     *   Goal: Implement sub-millisecond trigram-based regex search across the federated codebase.
+    *   Key additions: Tantivy engine, Trigram pre-filtering, streaming indexer, UTF-8 normalization.
 
 *   **Track S2: Precise LSP-Based Indexing (SCIP/LSIF)**
-    *   Status: Planning
+    *   Status: Completed
     *   Spec: `conductor/trackS2/spec.md`
     *   Plan: `conductor/trackS2/plan.md`
     *   Goal: Ingest SCIP indices for compiler-grade precision in navigation and impact analysis.
+    *   Key additions: SCIP Protobuf ingestion, symbol mapping, stale detection, `--scip` flag.
 
 *   **Track S3: Semantic Discovery for "Code Snippets"**
-    *   Status: Planning
+    *   Status: Completed
     *   Spec: `conductor/trackS3/spec.md`
     *   Plan: `conductor/trackS3/plan.md`
     *   Goal: Implement local vector embedding and search for fine-grained code logic blocks.
+    *   Key additions: Tree-sitter AST chunking, local vector embeddings, CozoDB HNSW search, `ask --semantic`.
 
-## Milestone U: Usability & Robustness Hardening (Completed)
 
-*   **Track 41: Robust Doc Chunker**
-    *   Status: Completed
-    *   Spec: `conductor/track41/spec.md`
-    *   Plan: `conductor/track41/plan.md`
-    *   Goal: Fix Unicode boundary panic in `src/docs/chunker.rs` when indexing Markdown with multi-byte characters (box-drawing, emoji, CJK).
-    *   Key additions: `safe_byte_prefix` helper using `floor_char_boundary`, char-boundary-safe slicing in `split_at_paragraphs`, infinite-loop guard, 7 regression tests.
-
-*   **Track 42: Ledger CLI Schema Consistency**
-    *   Status: Completed
-    *   Spec: `conductor/track42/spec.md`
-    *   Plan: `conductor/track42/plan.md`
-    *   Goal: Align flag and positional argument usage across all `ledger` subcommands to eliminate "unexpected argument" errors.
-    *   Key additions: `LedgerGlobalOpts` struct, `ledger note` refactored to `--message` flag with deprecation grace period, `adopt` reason required, 50 CLI parsing integration tests.
-
-*   **Track 43: Smart Context Pruning for Local LLM**
-    *   Status: Completed
-    *   Spec: `conductor/track43/spec.md`
-    *   Plan: `conductor/track43/plan.md`
-    *   Goal: Make `ask --backend local` viable on large repositories by implementing relevance-based context pruning before sending to the local model.
-    *   Key additions: `src/local_model/pruner.rs` with `PrunedPacket`, `RankedChunk`, dedup, keyword fallback; config tunables (`chunk_top_k`, `chunk_min_similarity`, `chunk_dedup_threshold`); updated `assemble_context` with 85% budget; 22 unit tests.
-
-*   **Track 44: Atomic Commit-Commit**
-    *   Status: Completed
-    *   Spec: `conductor/track44/spec.md`
-    *   Plan: `conductor/track44/plan.md`
-    *   Goal: Add `--with-git` flag to `ledger commit` to perform both ChangeGuard ledger commit and `git commit` in a single operation.
-    *   Key additions: `src/git/commit.rs` with `git_commit()`, `can_commit()`, `GitCommitError` taxonomy; `--with-git`/`--git-message`/`--dry-run`/`--no-signoff` flags; `git_commit_template` config; mock-based integration tests.
-
-*   **Track 45: Interactive Fix Suggestions**
-    *   Status: Completed
-    *   Spec: `conductor/track45/spec.md`
-    *   Plan: `conductor/track45/plan.md`
-    *   Goal: Surface copy-paste-ready `changeguard` commands in `verify` output when failures or drift are detected.
-    *   Key additions: `src/verify/suggestions.rs` with 5 failure pattern mappings, `--health` flag, deterministic severity-sorted output, property-based safety invariants (no `--force`, no empty commands), `suggested_actions` in JSON output.
-
-## Milestone V: M7-2 Codex Remediation (Completed)
-
-*   **Track 46: Preserve Enrichment Risk Signals in analyze_risk()**
-    *   Status: Completed
-    *   Spec: `conductor/track46/spec.md`
-    *   Plan: `conductor/track46/plan.md`
-    *   Goal: Prevent `analyze_risk()` from overwriting `packet.risk_level` when enrichment providers (service-map, KG) have already elevated it.
-    *   Key additions: Guard `packet.risk_level` assignment in `src/impact/analysis.rs`, test that enrichment-elevated scores survive.
-
-*   **Track 47: Harden Service Detection**
-    *   Status: Completed
-    *   Spec: `conductor/track47/spec.md`
-    *   Plan: `conductor/track47/plan.md`
-    *   Goal: Close three service-detection gaps: deleted-file `old_path` capture, root-level service containment, and cross-service edge name collisions.
-    *   Key additions: `ChangeType::Deleted` captures `old_path` in `src/commands/impact.rs`, `(service_name, symbol_name)` tuple keys in `src/coverage/services.rs`, 4 integration tests.
-
-*   **Track 48: Wire coverage.services Config + Fix Unused Parameters**
-    *   Status: Completed
-    *   Spec: `conductor/track48/spec.md`
-    *   Plan: `conductor/track48/plan.md`
-    *   Goal: Connect `ServicesConfig` fields to pipelines: `enabled` gates inference, `cross_service_elevation_threshold` controls risk elevation, topology-only ServiceRoot services.
-    *   Key additions: Config gates in `src/commands/index.rs` and `src/commands/impact.rs`, threshold wiring in `src/impact/analysis.rs`, early-return fix in `src/coverage/services.rs`.
-
-*   **Track 49: Bound service_map_delta in truncate_for_context()**
-    *   Status: Completed
-    *   Spec: `conductor/track49/spec.md`
-    *   Plan: `conductor/track49/plan.md`
-    *   Goal: Clear `service_map_delta` during context truncation to prevent large service snapshots from blowing through the truncation budget.
-    *   Key additions: One-line addition of `self.service_map_delta = None` in `src/impact/packet.rs::truncate_for_context()`, confirming test.
+## Milestone T: Predictable Verification (Planning)
 
 ## Workflow
 

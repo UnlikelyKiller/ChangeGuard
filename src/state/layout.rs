@@ -8,6 +8,7 @@ pub const LOGS_DIR: &str = "logs";
 pub const TMP_DIR: &str = "tmp";
 pub const REPORTS_DIR: &str = "reports";
 pub const STATE_SUBDIR: &str = "state";
+pub const SEARCH_INDEX_DIR: &str = "search_index";
 pub const CONFIG_FILE: &str = "config.toml";
 pub const RULES_FILE: &str = "rules.toml";
 
@@ -39,6 +40,10 @@ impl Layout {
         self.state_dir.join(STATE_SUBDIR)
     }
 
+    pub fn search_index_dir(&self) -> Utf8PathBuf {
+        self.state_dir.join(SEARCH_INDEX_DIR)
+    }
+
     pub fn config_file(&self) -> Utf8PathBuf {
         self.state_dir.join(CONFIG_FILE)
     }
@@ -53,6 +58,7 @@ impl Layout {
         self.ensure_dir(&self.tmp_dir())?;
         self.ensure_dir(&self.reports_dir())?;
         self.ensure_dir(&self.state_subdir())?;
+        self.ensure_dir(&self.search_index_dir())?;
         Ok(())
     }
 

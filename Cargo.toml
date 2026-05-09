@@ -33,7 +33,12 @@ uuid = { version = "1.23", features = ["v4", "serde"] }
 gix = "0.81.0"
 
 regex = "1.12"
+regex-syntax = "0.8"
 parking_lot = "0.12"
+
+tantivy = "0.22"
+crossbeam = "0.8"
+encoding_rs = "0.8"
 
 tree-sitter = "0.26.8"
 tree-sitter-rust = "0.24.2"
@@ -56,6 +61,8 @@ dunce = "1.0.5"
 path-clean = "1.0.1"
 ureq = { version = "2", features = ["json"] }
 tree-sitter-go = "0.25.0"
+scip = "0.7"
+protobuf = "3.7"
 
 [features]
 default = []

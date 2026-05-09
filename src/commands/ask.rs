@@ -11,6 +11,7 @@ use crate::state::storage::StorageManager;
 use miette::Result;
 use owo_colors::OwoColorize;
 use std::env;
+use tracing::info;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum Backend {
@@ -72,6 +73,7 @@ fn has_gemini_api_key_with(
 
 pub fn execute_ask(
     query: Option<String>,
+    semantic: bool,
     mut mode: GeminiMode,
     narrative: bool,
     backend: Option<Backend>,
@@ -82,6 +84,33 @@ pub fn execute_ask(
 
     let db_path = layout.state_subdir().join("ledger.db");
     let storage = StorageManager::init(db_path.as_std_path())?;
+
+    if semantic {
+        let config = load_config(&layout)?;
+        let cozo_path = layout.state_subdir().join("ledger.cozo");
+        let cozo = crate::state::storage_cozo::CozoStorage::new(cozo_path.as_std_path())?;
+        let semantic_engine = crate::semantic::SemanticDiscovery::new(config.local_model.clone(), &cozo)?;
+        
+        let query_str = query.clone().ok_or_else(|| miette::miette!("Semantic search requires a query string"))?;
+        info!("Performing semantic search for: {}", query_str);
+        
+        let results = semantic_engine.query(&query_str, 5)?;
+        if results.is_empty() {
+            println!("No relevant code snippets found.");
+            return Ok(());
+        }
+
+        println!("\n{}", "Semantic Search Results:".bold().cyan());
+        for (path, name, offset, dist) in results {
+            println!("- {} ({} at offset {}) [dist: {:.4}]", name.bold(), path, offset, dist);
+        }
+        println!();
+        
+        // If we have a query, we might want to ask Gemini about these snippets.
+        // For now, let's just return the results or let the user decide.
+        // The spec said "changeguard ask --semantic <query> returns relevant functions/classes"
+        return Ok(());
+    }
 
     let mut latest_packet = storage.get_latest_packet()?.ok_or_else(|| {
         miette::miette!("No impact report found. Run 'changeguard impact' first.")

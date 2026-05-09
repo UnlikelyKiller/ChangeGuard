@@ -32,6 +32,8 @@ pub fn execute_index(
     analyze_graph: bool,
     docs: bool,
     contracts: bool,
+    semantic: bool,
+    scip: Option<std::path::PathBuf>,
 ) -> Result<()> {
     let layout = get_layout()?;
     let db_path = layout.state_subdir().join("ledger.db");
@@ -41,6 +43,14 @@ pub fn execute_index(
         warn!("Failed to load config: {err}. Using defaults.");
         crate::config::model::Config::default()
     });
+
+    if let Some(scip_path) = scip {
+        return execute_scip_index(&layout, storage, scip_path);
+    }
+
+    if semantic {
+        return execute_semantic_index(&layout, storage, &config);
+    }
 
     if docs {
         return execute_docs_index(&layout, storage);
@@ -389,6 +399,128 @@ fn execute_docs_index(layout: &Layout, storage: StorageManager) -> Result<()> {
     println!(
         "Docs indexed: {} files, {} new chunks, {} updated, {} deleted.",
         summary.files_crawled, summary.chunks_new, summary.chunks_updated, summary.chunks_deleted
+    );
+
+    Ok(())
+}
+
+fn execute_semantic_index(
+    layout: &Layout,
+    _storage: StorageManager,
+    config: &crate::config::model::Config,
+) -> Result<()> {
+    use crate::semantic::SemanticDiscovery;
+    use crate::state::storage_cozo::CozoStorage;
+
+    let cozo_path = layout.state_subdir().join("ledger.cozo");
+    let cozo = CozoStorage::new(cozo_path.as_std_path())?;
+    let semantic = SemanticDiscovery::new(config.local_model.clone(), &cozo)?;
+
+    info!("Indexing repository for semantic search...");
+    
+    // We'll iterate over all source files from git
+    let repo_root = layout.root.as_std_path();
+    let discovered = gix::discover(repo_root).into_diagnostic()?;
+    let _workdir = discovered.workdir().ok_or_else(|| miette::miette!("No workdir"))?;
+    
+    let mut files_indexed = 0usize;
+    
+    // For simplicity, we'll walk the tree and filter by extension
+    fn walk_semantic(dir: &std::path::Path, semantic: &SemanticDiscovery, files_indexed: &mut usize) -> Result<()> {
+        for entry in std::fs::read_dir(dir).into_diagnostic()? {
+            let entry = entry.into_diagnostic()?;
+            let path = entry.path();
+            if path.is_dir() {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if matches!(name, ".git" | ".changeguard" | "target" | "node_modules") {
+                    continue;
+                }
+                walk_semantic(&path, semantic, files_indexed)?;
+            } else {
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                if matches!(ext, "rs" | "ts" | "tsx" | "js" | "jsx" | "py") {
+                    let content = std::fs::read_to_string(&path).into_diagnostic()?;
+                    semantic.index_file(&path, &content)?;
+                    *files_indexed += 1;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    walk_semantic(repo_root, &semantic, &mut files_indexed)?;
+    
+    println!("Semantic indexing complete: {} files processed.", files_indexed);
+    Ok(())
+}
+
+fn execute_scip_index(
+    layout: &Layout,
+    mut storage: StorageManager,
+    scip_path: std::path::PathBuf,
+) -> Result<()> {
+    use crate::scip::{ScipIndex, ScipSymbolMapper, is_scip_stale, register_scip_index, normalize_scip_path};
+    use crate::index::orchestrator::{get_file_id_by_path, insert_symbol_row};
+
+    info!("Ingesting SCIP index from {:?}", scip_path);
+    let scip_index = ScipIndex::load(&scip_path)?;
+
+    let conn = storage.get_connection();
+    if !is_scip_stale(conn, &scip_path, &scip_index.file_hash)? {
+        info!("SCIP index is up to date, skipping ingestion.");
+        return Ok(());
+    }
+
+    let conn_mut = storage.get_connection_mut();
+    let tx = conn_mut.unchecked_transaction().into_diagnostic()?;
+
+    let mut symbols_ingested = 0usize;
+    let mut files_skipped = 0usize;
+
+    for document in &scip_index.index.documents {
+        let relative_path = match normalize_scip_path(layout.root.as_std_path(), &document.relative_path) {
+            Ok(p) => p.to_string_lossy().to_string(),
+            Err(e) => {
+                warn!("Failed to normalize SCIP path {}: {}", document.relative_path, e);
+                continue;
+            }
+        };
+
+        let file_id = match get_file_id_by_path(&tx, &relative_path) {
+            Ok(id) => id,
+            Err(_) => {
+                // If file not in project_files, we might want to skip or add it.
+                // For SCIP, we expect the file to be discovered by ProjectIndexer first.
+                files_skipped += 1;
+                continue;
+            }
+        };
+
+        // Create a map of symbol name -> SymbolInformation for easy lookup
+        let symbol_info_map: std::collections::HashMap<_, _> = scip_index.index.external_symbols.iter()
+            .chain(scip_index.index.documents.iter().flat_map(|d| &d.symbols))
+            .map(|s| (&s.symbol, s))
+            .collect();
+
+        for occurrence in &document.occurrences {
+            if occurrence.symbol.is_empty() || occurrence.symbol.starts_with("local ") {
+                continue;
+            }
+
+            if let Some(symbol_info) = symbol_info_map.get(&occurrence.symbol) {
+                let project_symbol = ScipSymbolMapper::map_to_project_symbol(file_id, symbol_info, occurrence);
+                insert_symbol_row(&tx, &project_symbol, file_id)?;
+                symbols_ingested += 1;
+            }
+        }
+    }
+
+    register_scip_index(&tx, &scip_path, &scip_index.file_hash)?;
+    tx.commit().into_diagnostic()?;
+
+    info!(
+        "SCIP ingestion complete: {} symbols ingested, {} files skipped (not in project index).",
+        symbols_ingested, files_skipped
     );
 
     Ok(())

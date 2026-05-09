@@ -16,6 +16,24 @@ pub enum SymbolKind {
     Module,
 }
 
+impl SymbolKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SymbolKind::Function => "Function",
+            SymbolKind::Method => "Method",
+            SymbolKind::Class => "Class",
+            SymbolKind::Struct => "Struct",
+            SymbolKind::Enum => "Enum",
+            SymbolKind::Trait => "Trait",
+            SymbolKind::Interface => "Interface",
+            SymbolKind::Type => "Type",
+            SymbolKind::Variable => "Variable",
+            SymbolKind::Constant => "Constant",
+            SymbolKind::Module => "Module",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "camelCase")]
 pub struct Symbol {

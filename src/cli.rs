@@ -68,6 +68,9 @@ pub enum Commands {
     Ask {
         /// The query to ask
         query: Option<String>,
+        /// Use semantic search for code snippets instead of full impact context
+        #[arg(long, short)]
+        semantic: bool,
         /// Gemini interaction mode
         #[arg(long, short, default_value = "analyze")]
         mode: crate::gemini::modes::GeminiMode,
@@ -116,6 +119,26 @@ pub enum Commands {
         /// Index API contract specs (OpenAPI/Swagger)
         #[arg(long)]
         contracts: bool,
+        /// Index code snippets for semantic search (local embeddings)
+        #[arg(long)]
+        semantic: bool,
+        /// Ingest an external SCIP index (Protobuf)
+        #[arg(long)]
+        scip: Option<std::path::PathBuf>,
+    },
+    /// Search the codebase using ranked BM25 or trigram-accelerated regex
+    Search {
+        /// The search query or regex pattern
+        query: String,
+        /// Use regex search instead of ranked full-text
+        #[arg(long, short)]
+        regex: bool,
+        /// Maximum number of results to return
+        #[arg(long, short, default_value_t = 10)]
+        limit: usize,
+        /// Force re-indexing before search
+        #[arg(long, short)]
+        index: bool,
     },
     /// Identify high-risk hotspots in the codebase
     Hotspots {
@@ -419,10 +442,11 @@ pub fn run() -> Result<()> {
         } => crate::commands::verify::execute_verify(command, timeout, no_predict, explain, health),
         Commands::Ask {
             query,
+            semantic,
             mode,
             narrative,
             backend,
-        } => crate::commands::ask::execute_ask(query, mode, narrative, backend),
+        } => crate::commands::ask::execute_ask(query, semantic, mode, narrative, backend),
         Commands::Reset {
             remove_config,
             remove_rules,
@@ -443,6 +467,8 @@ pub fn run() -> Result<()> {
             analyze_graph,
             docs,
             contracts,
+            semantic,
+            scip,
         } => crate::commands::index::execute_index(
             incremental,
             check,
@@ -450,7 +476,15 @@ pub fn run() -> Result<()> {
             analyze_graph,
             docs,
             contracts,
+            semantic,
+            scip,
         ),
+        Commands::Search {
+            query,
+            regex,
+            limit,
+            index,
+        } => crate::commands::search::execute_search(query, regex, limit, index),
         Commands::Hotspots {
             limit,
             commits,

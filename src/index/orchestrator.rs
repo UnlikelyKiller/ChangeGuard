@@ -1526,7 +1526,7 @@ fn create_progress_bar(total: usize) -> ProgressBar {
 
 // --- SQL helper functions ---
 
-fn insert_file_row(conn: &Connection, pf: &ProjectFile) -> Result<()> {
+pub fn insert_file_row(conn: &Connection, pf: &ProjectFile) -> Result<()> {
     conn.execute(
         "INSERT INTO project_files (file_path, language, content_hash, git_blob_oid, \
          file_size, mtime_ns, parser_version, parse_status, last_indexed_at) \
@@ -1547,7 +1547,7 @@ fn insert_file_row(conn: &Connection, pf: &ProjectFile) -> Result<()> {
     Ok(())
 }
 
-fn upsert_file_row(conn: &Connection, pf: &ProjectFile) -> Result<()> {
+pub fn upsert_file_row(conn: &Connection, pf: &ProjectFile) -> Result<()> {
     conn.execute(
         "INSERT INTO project_files \
          (file_path, language, content_hash, git_blob_oid, file_size, mtime_ns, \
@@ -1574,7 +1574,7 @@ fn upsert_file_row(conn: &Connection, pf: &ProjectFile) -> Result<()> {
     Ok(())
 }
 
-fn get_file_id_by_path(conn: &Connection, file_path: &str) -> Result<i64> {
+pub fn get_file_id_by_path(conn: &Connection, file_path: &str) -> Result<i64> {
     conn.query_row(
         "SELECT id FROM project_files WHERE file_path = ?1",
         [file_path],
@@ -1617,7 +1617,7 @@ fn delete_file_index_dependents(conn: &Connection, file_path: &str) -> Result<()
     Ok(())
 }
 
-fn insert_symbol_row(conn: &Connection, ps: &ProjectSymbol, file_id: i64) -> Result<()> {
+pub fn insert_symbol_row(conn: &Connection, ps: &ProjectSymbol, file_id: i64) -> Result<()> {
     conn.execute(
         "INSERT INTO project_symbols \
          (file_id, qualified_name, symbol_name, symbol_kind, visibility, \
