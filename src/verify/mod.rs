@@ -1,3 +1,5 @@
+pub mod ci_predictor;
+pub mod explanation;
 pub mod plan;
 pub mod predict;
 pub mod results;

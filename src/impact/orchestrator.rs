@@ -60,6 +60,9 @@ impl ImpactOrchestrator {
             crate::impact::enrichment::ci_self_awareness::CISelfAwarenessProvider,
         ));
         orch.register_provider(Box::new(
+            crate::impact::enrichment::ci_predictor::CIPredictorProvider,
+        ));
+        orch.register_provider(Box::new(
             crate::impact::enrichment::hotspots::HotspotProvider,
         ));
         orch.register_provider(Box::new(

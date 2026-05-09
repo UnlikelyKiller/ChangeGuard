@@ -377,6 +377,13 @@
 
 ## Milestone T: Predictable Verification (Planning)
 
+*   **Track T1: Predictive CI Gate Analysis & Failure Explanation**
+    *   Status: Completed
+    *   Spec: `conductor/trackT1/spec.md`
+    *   Plan: `conductor/trackT1/plan.md`
+    *   Goal: Predict CI gate failures and provide failure explanations using historical data and local LLM.
+    *   Key additions: `ci_outcome_history` table, `ExplanationEngine`, `--explain` flag for verify.
+
 ## Workflow
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.

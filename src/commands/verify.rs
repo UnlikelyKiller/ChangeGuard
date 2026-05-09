@@ -11,6 +11,7 @@ use crate::verify::runner::{execute_step, prepare_manual_step, prepare_rule_step
 use crate::verify::timeouts::{DEFAULT_AUTO_TIMEOUT_SECS, manual_timeout};
 use chrono::Utc;
 use miette::Result;
+use owo_colors::OwoColorize;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::env;
@@ -209,6 +210,60 @@ pub fn execute_verify(
                                     current_warnings.push(warning);
                                 }
                             }
+                        }
+                    }
+                }
+
+                // CI prediction enrichment
+                if !no_predict && semantic_weight > 0.0 && let Some(ref pkt) = packet && let Some(ref stg) = storage {
+                    let diff_text = crate::verify::semantic_predictor::build_diff_text(pkt);
+                    let default_embed_config = crate::config::model::LocalModelConfig::default();
+                    let embed_config = saved_config.as_ref().map(|c| &c.local_model).unwrap_or(&default_embed_config);
+
+                    if !embed_config.base_url.is_empty() && !diff_text.is_empty() {
+                        let conn = stg.get_connection();
+                        match crate::verify::ci_predictor::query_similar_ci_outcomes(conn, embed_config, &diff_text, 10) {
+                            Ok(similar_ci) => {
+                                if !similar_ci.is_empty() {
+                                    println!("\n{}", "Predicted CI Failures:".bold().bright_red());
+                                    let engine = if explain {
+                                        Some(crate::verify::explanation::ExplanationEngine::new(embed_config.clone()))
+                                    } else {
+                                        None
+                                    };
+
+                                    let mut table = crate::output::table::build_table(["Job Name", "Platform", "Probability"]);
+                                    let failure_scores = crate::verify::ci_predictor::compute_ci_failure_scores(&similar_ci);
+                                    
+                                    for (job_name, score) in &failure_scores {
+                                        let platform = similar_ci.iter().find(|(o, _)| &o.job_name == job_name).map(|(o, _)| o.platform.clone()).unwrap_or_else(|| "unknown".to_string());
+                                        let prob_color = if *score > 0.7 {
+                                            format!("{:.0}%", *score * 100.0).red().bold().to_string()
+                                        } else if *score > 0.4 {
+                                            format!("{:.0}%", *score * 100.0).yellow().to_string()
+                                        } else {
+                                            format!("{:.0}%", *score * 100.0).green().to_string()
+                                        };
+                                        table.add_row(vec![job_name.clone(), platform.clone(), prob_color]);
+                                    }
+                                    println!("{table}");
+
+                                    if let Some(engine) = engine {
+                                        for (job_name, score) in failure_scores {
+                                            if score > 0.4 {
+                                                let platform = similar_ci.iter().find(|(o, _)| o.job_name == job_name).map(|(o, _)| o.platform.clone()).unwrap_or_else(|| "unknown".to_string());
+                                                match engine.explain_ci_failure(&job_name, &platform, &diff_text.chars().take(200).collect::<String>(), &similar_ci) {
+                                                    Ok(explanation) => {
+                                                        println!("  {} {}: {}", "Rationale for".dimmed(), job_name.yellow(), explanation);
+                                                    }
+                                                    Err(e) => warn!("Failed to generate CI failure explanation: {e}"),
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => warn!("CI prediction failed: {e}"),
                         }
                     }
                 }

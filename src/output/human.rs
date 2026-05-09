@@ -281,6 +281,33 @@ pub fn print_impact_summary(packet: &ImpactPacket, _config: &crate::config::mode
         }
     }
 
+    if !packet.ci_predictions.is_empty() {
+        println!("\n{}", "Predicted CI Failures:".bold());
+        let mut table = build_table(["Job Name", "Platform", "Probability"]);
+        for pred in &packet.ci_predictions {
+            let prob_color = if pred.failure_probability > 0.7 {
+                format!("{:.0}%", pred.failure_probability * 100.0)
+                    .red()
+                    .bold()
+                    .to_string()
+            } else if pred.failure_probability > 0.4 {
+                format!("{:.0}%", pred.failure_probability * 100.0)
+                    .yellow()
+                    .to_string()
+            } else {
+                format!("{:.0}%", pred.failure_probability * 100.0)
+                    .green()
+                    .to_string()
+            };
+            table.add_row(vec![
+                pred.job_name.clone(),
+                pred.platform.clone(),
+                prob_color,
+            ]);
+        }
+        println!("{table}");
+    }
+
     if !packet.relevant_decisions.is_empty() {
         println!("\n{}", "Relevant Architectural Decisions:".bold());
         let mut table = build_table(["Decision File", "Staleness", "Similarity"]);

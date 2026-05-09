@@ -2,6 +2,7 @@ pub mod m11_to_m20;
 pub mod m1_to_m10;
 pub mod m21_to_m29;
 pub mod m30_scip;
+pub mod m31_ci_predict;
 
 use rusqlite_migration::Migrations;
 
@@ -11,6 +12,7 @@ pub fn get_migrations() -> Migrations<'static> {
     all_m.extend(m11_to_m20::m11_to_m20());
     all_m.extend(m21_to_m29::m21_to_m29());
     all_m.extend(m30_scip::m30_scip());
+    all_m.extend(m31_ci_predict::m31_ci_predict());
 
     Migrations::new(all_m)
 }
@@ -69,6 +71,7 @@ mod tests {
             "test_outcome_history",
             "observability_snapshots",
             "scip_indices",
+            "ci_outcome_history",
         ];
 
         for table in &expected_tables {

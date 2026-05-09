@@ -605,6 +605,15 @@ pub struct RiskImpact {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct CIPrediction {
+    pub job_name: String,
+    pub platform: String,
+    pub failure_probability: f32,
+    pub explanation: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct ImpactPacket {
     pub schema_version: String,
     pub timestamp_utc: String, // ISO 8601 string
@@ -652,6 +661,8 @@ pub struct ImpactPacket {
     pub deploy_manifest_changes: Vec<DeployManifestChange>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ci_config_change: Option<CiConfigChange>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ci_predictions: Vec<CIPrediction>,
     #[serde(default)]
     pub knowledge_graph: Vec<KGImpact>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -716,6 +727,7 @@ impl Default for ImpactPacket {
             sdk_dependencies_delta: None,
             deploy_manifest_changes: Vec::new(),
             ci_config_change: None,
+            ci_predictions: Vec::new(),
             knowledge_graph: Vec::new(),
             analysis_warnings: Vec::new(),
         }
@@ -787,6 +799,12 @@ impl ImpactPacket {
             sdk.modified.sort_unstable();
         }
         self.deploy_manifest_changes.sort_unstable();
+        self.ci_predictions.sort_unstable_by(|a, b| {
+            b.failure_probability
+                .partial_cmp(&a.failure_probability)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.job_name.cmp(&b.job_name))
+        });
     }
 
     /// Escalate risk_level by one tier for observability/contract signals.
@@ -896,6 +914,7 @@ impl ImpactPacket {
         self.sdk_dependencies_delta = None;
         self.deploy_manifest_changes.clear();
         self.ci_config_change = None;
+        self.ci_predictions.clear();
         self.service_map_delta = None;
 
         let current_json = serde_json::to_string(self).unwrap_or_default();
