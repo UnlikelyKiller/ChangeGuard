@@ -384,6 +384,13 @@
     *   Goal: Predict CI gate failures and provide failure explanations using historical data and local LLM.
     *   Key additions: `ci_outcome_history` table, `ExplanationEngine`, `--explain` flag for verify.
 
+*   **Track T2: Probabilistic Verification Reordering**
+    *   Status: Completed
+    *   Spec: `conductor/trackT2/spec.md`
+    *   Plan: `conductor/trackT2/plan.md`
+    *   Goal: Reorder verification execution to minimize time to first failure based on historical probability.
+    *   Key additions: `src/verify/probability.rs`, verification test reordering logic.
+
 ## Workflow
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.

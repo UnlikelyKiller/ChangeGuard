@@ -2,6 +2,7 @@ pub mod ci_predictor;
 pub mod explanation;
 pub mod plan;
 pub mod predict;
+pub mod probability;
 pub mod results;
 pub mod runner;
 pub mod semantic_predictor;

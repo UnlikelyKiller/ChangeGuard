@@ -19,6 +19,23 @@ pub struct VerificationPlan {
     pub steps: Vec<VerificationStep>,
 }
 
+impl VerificationPlan {
+    /// Reorder the verification steps based on historical failure probabilities.
+    /// Steps with a higher probability of failure are sorted to execute first.
+    pub fn apply_probability_ordering(&mut self, probabilities: &std::collections::HashMap<String, f64>) {
+        self.steps.sort_by(|a, b| {
+            let prob_a = probabilities.get(&a.command).copied().unwrap_or(0.0);
+            let prob_b = probabilities.get(&b.command).copied().unwrap_or(0.0);
+            
+            // Sort descending (higher probability first)
+            prob_b.partial_cmp(&prob_a)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                // Fallback to alphabetical sorting for deterministic ordering if probs are equal
+                .then(a.command.cmp(&b.command))
+        });
+    }
+}
+
 const DEFAULT_COMMAND: &str = "cargo test -j 1 -- --test-threads=1";
 
 pub fn build_plan(

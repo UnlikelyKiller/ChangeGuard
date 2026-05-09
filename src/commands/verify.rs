@@ -274,7 +274,7 @@ pub fn execute_verify(
                     }
                 }
 
-                let plan = match &packet {
+                let mut plan = match &packet {
                     Some(packet) => build_plan(packet, &rules, &prediction.files),
                     None => VerificationPlan {
                         steps: vec![manual_step(
@@ -283,6 +283,23 @@ pub fn execute_verify(
                         )],
                     },
                 };
+
+                if let Some(ref stg) = storage {
+                    let conn = stg.get_connection();
+                    match crate::verify::probability::extract_dataset(conn) {
+                        Ok(dataset) => {
+                            let probs = crate::verify::probability::calculate_probabilities(&dataset);
+                            plan.apply_probability_ordering(&probs);
+                            println!("  {} Probabilistic verification ordering applied ({} active models).", "✓".green(), probs.len());
+                        }
+                        Err(e) => {
+                            let warning = format!("Verification probability model bypassed: {e}");
+                            warn!("{warning}");
+                            current_warnings.push(warning.clone());
+                        }
+                    }
+                }
+
                 print_verify_plan(&plan);
                 let steps = plan.steps.clone();
                 saved_packet = packet.clone();
