@@ -14,9 +14,10 @@ ChangeGuard uses a structured delivery mechanism known as **Tracks**. Each track
 Track numbering:
 - **Tracks 0–40**: Original ChangeGuard v1 + Phase 2 features (Completed)
 - **Tracks L1-1 through L7-1**: Ledger Incorporation (Completed)
-- **Tracks G7**: Native Standalone Cord-Cut (Completed)
+- **Tracks G1-G7**: Native Standalone Cord-Cut / Knowledge Graph (Completed)
 - **Tracks R1-1 through R1-4**: Architectural Refactoring (Completed)
-- **Milestone S**: Global Intelligence & Precision Search (Planning)
+- **Tracks S1-S3**: Global Intelligence & Precision Search (Completed)
+- **Tracks T1-T2**: Predictable Verification (Completed)
 
 ## ChangeGuard Integration
 

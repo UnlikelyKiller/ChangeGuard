@@ -53,9 +53,17 @@ ChangeGuard uses a native indexing pipeline to build its intelligence:
 changeguard index --docs           # index markdown/text docs (crawl, chunk, embed)
 changeguard index --contracts      # index OpenAPI 3.x / Swagger 2.0 specs
 changeguard index --analyze-graph  # refresh structural graph and compute centrality
+changeguard index --semantic       # extract and embed code snippets for semantic search
+changeguard index --scip <PATH>    # ingest an external SCIP Protobuf index
 ```
 
-These populate the **CozoDB Knowledge Graph** and embedding store. Re-indexing skips unchanged files via content-addressed hashing.
+These populate the **CozoDB Knowledge Graph**, local embedding store, and Tantivy search indices. Re-indexing skips unchanged files via content-addressed hashing.
+
+## Predictive Verification & CI
+
+ChangeGuard uses Bayesian probability and semantic similarity to optimize verification:
+- `changeguard verify`: Reorders tests to minimize time-to-first-failure based on historical probabilities.
+- `changeguard verify --explain`: Queries past CI/test outcomes and uses the local LLM to generate technical failure rationales.
 
 ## AI Backend (Ask Command)
 

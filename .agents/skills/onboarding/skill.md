@@ -24,9 +24,13 @@ ChangeGuard turns repository changes into deterministic impact packets, risk sum
 
 **Milestone M (Observability Expansion):** **COMPLETED**. Local embedding client, doc crawler, semantic retrieval, Prometheus integration, and OpenAPI contract matching are fully functional.
 
-**Milestone KG (Knowledge Graph):** **ACTIVE (G7 Planning)**. CozoDB integration and structural extraction (G1–G6) are complete. The final track **G7 (Native Semantic Extraction)** is in planning to remove the `graphifyy` Python dependency.
+**Milestone KG (Knowledge Graph):** **COMPLETED**. CozoDB integration and structural extraction are complete.
 
-**Milestone R (Architecture Refactoring):** **ACTIVE (R1-1 Active)**. Currently decomposing the monolithic `impact.rs` into a modular `ImpactOrchestrator` and `EnrichmentProvider` architecture.
+**Milestone R (Architecture Refactoring):** **COMPLETED**. Decomposed monolithic logic into `ImpactOrchestrator` and `EnrichmentProvider` architecture.
+
+**Milestone S (Global Intelligence & Precision Search):** **COMPLETED**. Sub-millisecond Tantivy search, SCIP ingestion, and semantic snippet discovery.
+
+**Milestone T (Predictable Verification):** **COMPLETED**. Predictive CI Gate analysis, failure explanations via local LLM, and probabilistic verification reordering.
 
 ## The Conductor/Tracks System
 
