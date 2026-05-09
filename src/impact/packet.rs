@@ -596,6 +596,13 @@ impl Ord for DataFlowMatch {
     }
 }
 
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RiskImpact {
+    pub weight: u32,
+    pub reasons: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ImpactPacket {
@@ -799,6 +806,31 @@ impl ImpactPacket {
                 }
             }
             RiskElevation::None => {}
+        }
+    }
+
+    /// Apply a modular risk impact to the packet.
+    pub fn apply_risk_impact(&mut self, impact: RiskImpact, total_weight: &mut u32) {
+        *total_weight += impact.weight;
+        self.risk_reasons.extend(impact.reasons);
+    }
+
+    /// Finalize the risk level based on the accumulated weight.
+    pub fn finalize_risk_level(&mut self, total_weight: u32, has_prior_risk_signal: bool) {
+        let rule_level = if total_weight > 50 {
+            RiskLevel::High
+        } else if total_weight > 20 {
+            RiskLevel::Medium
+        } else {
+            RiskLevel::Low
+        };
+
+        if !has_prior_risk_signal || rule_level > self.risk_level {
+            self.risk_level = rule_level;
+        }
+
+        if self.risk_reasons.is_empty() {
+            self.risk_reasons.push("Minimal changes detected".to_string());
         }
     }
 
