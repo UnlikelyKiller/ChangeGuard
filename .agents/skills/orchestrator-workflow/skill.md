@@ -14,8 +14,9 @@ ChangeGuard uses a structured delivery mechanism known as **Tracks**. Each track
 Track numbering:
 - **Tracks 0–40**: Original ChangeGuard v1 + Phase 2 features (Completed)
 - **Tracks L1-1 through L7-1**: Ledger Incorporation (Completed)
-- **Tracks L*-R**: Ledger Remediation (Completed)
-- **Tracks M1-1 through M6-2**: Observability & Intelligence Expansion (Planning)
+- **Tracks G7**: Native Standalone Cord-Cut (Completed)
+- **Tracks R1-1 through R1-4**: Architectural Refactoring (Completed)
+- **Milestone S**: Global Intelligence & Precision Search (Planning)
 
 ## ChangeGuard Integration
 
@@ -83,7 +84,12 @@ Additional checks:
 
 ## Orchestrator Rules of Engagement
 
-- **SRP Boundaries**: Respect module ownership. `platform/` handles OS detection, not business logic. `impact/` handles scoring, not transaction lifecycle. `ledger/` handles lifecycle, not impact analysis.
+- **SRP Boundaries**: Respect module ownership. 
+    - `platform/`: OS detection, path classification.
+    - `state/migrations/`: One file per major schema version.
+    - `index/`: `orchestrator.rs` (coordinator), `*_worker.rs` (specialized logic).
+    - `impact/providers/`: Modular risk logic.
+    - `ledger/`: Lifecycle management and provenance.
 - **Determinism Contract**: Sort all emitted collections. Version schemas. Never suppress failures silently.
 - **No Unwrap/Expect**: All production code uses `Result` propagation with `?` or explicit `match`. `thiserror` + `miette::Diagnostic` for user-facing errors, `anyhow` for internal.
 - **YAGNI**: Do not add features beyond what the track spec requires. No single-implementation abstraction layers.

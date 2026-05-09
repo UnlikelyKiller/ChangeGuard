@@ -113,6 +113,18 @@ When configured, impact reports include these enrichment sections:
 
 All enrichment degrades gracefully. Risk elevation from observability/contract signals escalates `risk_level` (Low→Medium→High) without overwriting rule-based risk reasons.
 
+## Architecture & Modularity
+
+ChangeGuard follows a strict provider-based architecture to ensure maintainability:
+
+- **State Layer**: Decomposed into `src/state/migrations/` with version-based partitioning. All schema changes must be added as new files in this directory and registered in `mod.rs`.
+- **Indexing Engine**: Worker-based architecture in `src/index/`.
+    - `orchestrator.rs`: Primary API and phase coordination.
+    - `git_worker.rs`: Repository scanning and change detection.
+    - `ast_worker.rs`: Tree-sitter powered semantic extraction.
+    - `graph_worker.rs`: CozoDB graph maintenance and reachability.
+- **Risk Analysis**: Modular `RiskProvider` implementations in `src/impact/providers/`. New impact signals must be implemented as isolated providers.
+
 ## Native Knowledge Graph (CozoDB)
 
 ChangeGuard maintains a native Datalog graph in `.changeguard/state/ledger.cozo`. 
