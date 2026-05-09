@@ -487,6 +487,14 @@
     *   Goal: Decompose monolithic `impact.rs` into `ImpactOrchestrator` and modular enrichment providers in `src/impact/enrichment/`.
     *   Key additions: `src/impact/orchestrator.rs`, `src/impact/enrichment/mod.rs`, `src/impact/enrichment/api.rs`, etc.
 
+*   **Track R1-2: Monolithic Analysis Decomposition**
+    *   Status: Completed
+    *   Spec: `conductor/trackR1-2/spec.md`
+    *   Plan: `conductor/trackR1-2/plan.md`
+    *   Goal: Decompose the ~3,000 line `src/impact/analysis.rs` into a registry of modular `RiskProvider` implementations.
+    *   Key additions: `src/impact/providers/mod.rs`, `path_provider.rs`, `volume_provider.rs`, `ci_provider.rs`, etc.
+
+
 ## Milestone S: Global Intelligence & Precision Search (Planning)
 
 *   **Track S1: High-Performance Global Code Search**

@@ -61,5 +61,6 @@ pub mod enrichment;
 pub mod hotspots;
 pub mod orchestrator;
 pub mod packet;
+pub mod providers;
 pub mod redact;
 pub mod temporal;
