@@ -17,7 +17,7 @@ Avoid triggering ChangeGuard for:
 
 ## Availability & Fallback
 
-ChangeGuard is a **native binary** — invoke it as `changeguard <command>`. Do **not** use `npx changeguard`, `cargo run --`, `./changeguard`, or any other wrapper.
+ChangeGuard is a **native standalone binary** — invoke it as `changeguard <command>`. It has **zero external dependencies** (no Python, Node, or specific runtime required).
 
 Check if it is available and initialized in the current repository:
 
@@ -47,74 +47,49 @@ Evidence of successful validation is stored in `.changeguard/reports/latest-veri
 
 ## Indexing (Observability & Intelligence)
 
-ChangeGuard can index documentation and API specs for richer impact analysis:
+ChangeGuard uses a native indexing pipeline to build its intelligence:
 
 ```bash
-changeguard index --docs      # index markdown/text docs from configured paths
-changeguard index --contracts # index OpenAPI 3.x / Swagger 2.0 specs
+changeguard index --docs           # index markdown/text docs (crawl, chunk, embed)
+changeguard index --contracts      # index OpenAPI 3.x / Swagger 2.0 specs
+changeguard index --analyze-graph  # refresh structural graph and compute centrality
 ```
 
-These populate the embedding store used by semantic retrieval, contract matching, and test prediction. Re-indexing skips unchanged files via content-addressed hashing.
+These populate the **CozoDB Knowledge Graph** and embedding store. Re-indexing skips unchanged files via content-addressed hashing.
 
 ## AI Backend (Ask Command)
 
-The `ask` command supports two AI backends:
+The `ask` command supports two AI backends for narrative analysis:
 
 ```bash
 changeguard ask --backend local "review this change"   # local LLM (llama-server)
 changeguard ask --backend gemini "analyze the impact"  # Gemini API (default)
 ```
 
-Auto-selection: if `prefer_local = true` and a local base URL is configured, Local is used; otherwise Gemini. Set `GEMINI_API_KEY` for Gemini. The local backend uses an OpenAI-compatible `/v1/chat/completions` endpoint.
+Auto-selection: if `prefer_local = true` and a local base URL is configured, Local is used; otherwise Gemini. Set `GEMINI_API_KEY` for Gemini.
 
-## Configuration (New Sections)
+## Configuration (Key Sections)
 
 In `changeguard.toml`:
 
 ```toml
 [local_model]
 base_url = "http://localhost:8081"         # or CHANGEGUARD_LOCAL_MODEL_URL
-embedding_model = "bge-m3"                 # or CHANGEGUARD_EMBEDDING_MODEL
-generation_model = "qwen3.5-9b"            # or CHANGEGUARD_GENERATION_MODEL
-dimensions = 0                             # 0 = auto-detect; or CHANGEGUARD_EMBEDDING_DIMENSIONS
-timeout_secs = 30
 prefer_local = true
 
 [docs]
 include = [".changeguard/docs/*.md", "README.md"]
 chunk_tokens = 512
-chunk_overlap = 64
-retrieval_top_k = 5
 
 [observability]
 prometheus_url = ""                        # Prometheus API base URL
 log_paths = []                             # log file paths to scan
-error_rate_threshold = 0.05
-log_lookback_secs = 3600
-risk_threshold = 0.6
 
 [contracts]
 spec_paths = []                            # OpenAPI/Swagger spec file globs
-match_threshold = 0.5
 
 [coverage]
-enabled = true                             # Master toggle for M7 features
-[coverage.traces]
-enabled = true
-[coverage.sdk]
-enabled = true
-patterns = ["stripe", "auth0", "aws-sdk"] # SDK patterns to detect
-[coverage.services]
-enabled = true
-[coverage.data_flow]
-enabled = true
-[coverage.deploy]
-enabled = true
-[coverage.ci_self_awareness]
-enabled = true
-[coverage.adr_staleness]
-enabled = true
-threshold_days = 365
+enabled = true                             # Master toggle for enrichment features
 ```
 
 ## Impact Packet Enrichment
@@ -127,17 +102,23 @@ When configured, impact reports include these enrichment sections:
 | `observability` | Prometheus/Logs | Real-time production signals (latency, error rate, anomalies) |
 | `affected_contracts` | Contract Index | Public API endpoints potentially affected by the change |
 | `trace_config_drift` | Traces Provider | Changes to OTEL, Jaeger, or Datadog collector configurations |
-| `trace_env_vars` | Environment Provider | Changes to observability-related environment variables |
 | `sdk_dependencies_delta` | SDK Provider | New or modified third-party SDK integrations (Stripe, AWS, etc.) |
 | `service_map_delta` | Service Provider | Impact on inferred service topology and cross-service edges |
 | `data_flow_matches` | Coupling Provider | Semantic coupling between API handlers and data models |
 | `deploy_manifest_changes`| Deploy Provider | Changes to Dockerfiles, K8s, Terraform, or Helm charts |
-| `infrastructure_dirs` | Infrastructure Prov. | Detected infrastructure directories affected by the change |
 | `ci_gates` | CIGate Provider | CI pipeline gates and job triggers associated with changed files |
 | `hotspots` | Hotspot Provider | Historical instability and complexity scores for changed files |
 | `temporal_couplings` | Coupling Provider | Files that frequently change together (temporal affinity) |
+| `kg_reachability` | Knowledge Graph | Datalog-based reachability analysis for semantic side-effects |
 
-All enrichment degrades gracefully: if the local model is unreachable or configuration is absent, enrichment is a silent no-op. No blocking, no panics. Risk elevation from observability/contract signals escalates `risk_level` (Low→Medium→High) without overwriting rule-based risk reasons.
+All enrichment degrades gracefully. Risk elevation from observability/contract signals escalates `risk_level` (Low→Medium→High) without overwriting rule-based risk reasons.
+
+## Native Knowledge Graph (CozoDB)
+
+ChangeGuard maintains a native Datalog graph in `.changeguard/state/ledger.cozo`. 
+
+- Use `changeguard viz` to export an interactive HTML visualization of the graph.
+- Use `changeguard index --analyze-graph` to re-run community detection (Louvain) and centrality scoring.
 
 ## Root Cause & Test Prediction
 
@@ -147,47 +128,26 @@ When `semantic_weight > 0`, the `verify` command queries past test outcomes by d
 changeguard verify --explain   # show which past outcomes influenced each prediction
 ```
 
-Set `semantic_weight = 0` to disable (regression-safe identical output). The predictor shows "warming up" messages until 50 historical outcomes are recorded.
-
 ## Ledger Workflow (Provenance)
 
 For tracked changes, record the intent and outcome in the ledger.
 
 **Tracked Edit (Manual):**
-1. `changeguard ledger start <path> --category <CAT> --message "Intent"`
+1. `changeguard ledger start <entity> --category <CAT> --message "Intent"`
 2. *Perform edits...*
 3. `changeguard ledger commit <tx-id> --summary "Done" --reason "Why"`
 
 **Surgical Edit (Atomic):**
-Use this for single-file changes where the start and commit happen together:
 ```bash
-changeguard ledger atomic <path> --category <CAT> --summary "Task" --reason "Goal"
-```
-
-**Lightweight Note:**
-Use this to add metadata to a file without a formal transaction:
-```bash
-changeguard ledger note <path> "Metadata note"
+changeguard ledger atomic <entity> --category <CAT> --summary "Task" --reason "Goal"
 ```
 
 ## Strategic Reasoning
 
-Adjust your coding strategy based on ChangeGuard signals:
-
-1. **Temporal Coupling**: If a changed file has a high affinity (>70%) with an unchanged file, you **MUST** read that unchanged file. Logical dependencies often exist where imports do not.
-2. **Hotspots**: Files with high hotspot scores are brittle. Prioritize refactoring or higher test coverage when editing them. **Note**: When entering an unfamiliar codebase, `changeguard hotspots` serves as an orientation map of where complexity is concentrated.
-3. **Federated Impact**: If `federated_impact` warnings appear, your change may break a sibling repository. Explain this risk to the user.
-4. **Predictive Verification**: Trust the `verify` command's suggestions, even if they seem unrelated; they are often based on historical failure correlations.
-5. **Drift Detection**: If `ledger status` shows `UNAUDITED` entries, files were modified outside a transaction. Use `ledger reconcile` or `ledger adopt` before continuing.
-
-## Interpreting Results
-
-Use the `riskLevel` from impact reports to route your effort:
-- **Low**: Small/isolated change. Run suggested verification.
-- **Medium**: Inspect affected symbols and risk reasons before choosing tests.
-- **High**: Slow down. Inspect temporal couplings, public API changes, and cross-repo links before finalizing. If `riskLevel` was elevated by observability signals or contract risk, the elevation is additive — rule-based risk reasons are preserved alongside.
-
-For quick triage, use `changeguard impact --summary`.
+1. **Temporal Coupling**: If a changed file has a high affinity (>70%) with an unchanged file, you **MUST** read that unchanged file.
+2. **Hotspots**: Files with high hotspot scores are brittle. Prioritize refactoring when editing them.
+3. **KG Reachability**: If the Knowledge Graph flags downstream nodes as reachable from your change, inspect those nodes even if they aren't in your direct imports.
+4. **Drift Detection**: If `ledger status` shows `UNAUDITED` entries, use `ledger reconcile` or `ledger adopt` before continuing.
 
 ## Editing Rules
 
@@ -205,26 +165,7 @@ For quick triage, use `changeguard impact --summary`.
 
 ## Working on ChangeGuard Itself
 
-When editing ChangeGuard's own source code, the installed binary may be stale. Rebuild and reinstall after every change:
+When editing ChangeGuard's own source code, rebuild and reinstall after every change:
 ```bash
 cargo install --path .
-```
-
-The CI gate for ChangeGuard development is:
-```powershell
-cargo fmt --all -- --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --workspace
-cargo deny check
-```
-
-## Final Response Template (Optional)
-
-For substantive changes, summarize the evidence:
-```text
-ChangeGuard:
-- impact: <low|medium|high> (risk reasons)
-- hotspots/couplings: <findings or "none">
-- verification: <commands run and result>
-- ledger: <tx_id or "untracked">
 ```
