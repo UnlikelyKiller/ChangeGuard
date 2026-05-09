@@ -117,7 +117,7 @@ pub fn execute_index(
         indexer.infer_services()?
     } else {
         info!("Service inference disabled by coverage.services config.");
-        crate::index::project_index::ServiceIndexStats {
+        ServiceIndexStats {
             services_inferred: 0,
             files_assigned: 0,
         }
