@@ -494,6 +494,19 @@
     *   Goal: Decompose the ~3,000 line `src/impact/analysis.rs` into a registry of modular `RiskProvider` implementations.
     *   Key additions: `src/impact/providers/mod.rs`, `path_provider.rs`, `volume_provider.rs`, `ci_provider.rs`, etc.
 
+*   **Track R1-3: State Migrations Decomposition**
+    *   Status: Active
+    *   Spec: `conductor/trackR1-3/spec.md`
+    *   Plan: `conductor/trackR1-3/plan.md`
+    *   Goal: Decompose monolithic `migrations.rs` into a modular `src/state/migrations/` directory.
+    *   Key additions: `src/state/migrations/mod.rs`, `m1_to_m5.rs`, `m6_to_m10.rs`, etc.
+
+*   **Track R1-4: Project Index Decomposition**
+    *   Status: Active
+    *   Spec: `conductor/trackR1-4/spec.md`
+    *   Plan: `conductor/trackR1-4/plan.md`
+    *   Goal: Decompose monolithic `project_index.rs` into orchestrator and modular workers.
+    *   Key additions: `src/index/orchestrator.rs`, `src/index/git_worker.rs`, `src/index/ast_worker.rs`, `src/index/graph_worker.rs`.
 
 ## Milestone S: Global Intelligence & Precision Search (Planning)
 

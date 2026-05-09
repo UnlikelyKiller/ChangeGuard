@@ -1,4 +1,4 @@
-use crate::index::call_graph::{CallGraphBuilder, CallGraphStats};
+﻿use crate::index::call_graph::{CallGraphBuilder, CallGraphStats};
 use crate::index::centrality::{CentralityComputer, CentralityStats};
 use crate::index::ci_gates::CIGateExtractor;
 use crate::index::data_models::{DataModelExtractor, DataModelStats};
@@ -88,14 +88,14 @@ pub struct IndexStatus {
 pub const MAX_FILES: usize = 10_000;
 pub const BATCH_SIZE: usize = 500;
 
-const BINARY_EXTENSIONS: &[&str] = &[
+pub const BINARY_EXTENSIONS: &[&str] = &[
     "png", "jpg", "jpeg", "gif", "ico", "woff", "woff2", "ttf", "eot", "pdf", "zip", "tar", "gz",
     "exe", "dll", "so", "dylib", "wasm", "class", "jar", "pyc",
 ];
 
-const SUPPORTED_EXTENSIONS: &[&str] = &["rs", "ts", "tsx", "js", "jsx", "py", "go"];
+pub const SUPPORTED_EXTENSIONS: &[&str] = &["rs", "ts", "tsx", "js", "jsx", "py", "go"];
 
-const PARSER_VERSION: &str = "1";
+pub const PARSER_VERSION: &str = "1";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServiceIndexStats {
@@ -400,7 +400,7 @@ impl ProjectIndexer {
             .map(|p| p.strip_prefix(&self.repo_path).unwrap_or(p).to_string())
             .collect();
 
-        // Check if parser_version changed globally — force full re-index if so
+        // Check if parser_version changed globally â€” force full re-index if so
         let stored_parser_version = self.get_metadata_value("parser_version");
         if stored_parser_version.as_deref() != Some(PARSER_VERSION) {
             info!("Parser version changed, performing full re-index");
