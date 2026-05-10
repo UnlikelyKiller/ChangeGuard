@@ -391,6 +391,43 @@
     *   Goal: Reorder verification execution to minimize time to first failure based on historical probability.
     *   Key additions: `src/verify/probability.rs`, verification test reordering logic.
 
+## Milestone D: Documentation & Deep Intelligence (In Planning)
+
+*   **Track 50-1: Document Template Engine & Basic Exports**
+    *   Status: Completed
+    *   Spec: `conductor/track50-1/spec.md`
+    *   Plan: `conductor/track50-1/plan.md`
+    *   Goal: Create a system for querying the CozoDB KG and exporting structural data to Markdown/Mermaid formats.
+    *   Key additions: `src/docs/generator.rs`, `changeguard index --export-docs`.
+
+*   **Track 50-2: Advanced Passive Doc Types (13+ formats)**
+    *   Status: Completed
+    *   Spec: `conductor/track50-2/spec.md`
+    *   Plan: `conductor/track50-2/plan.md`
+    *   Goal: Implement specialized documentation types (Module maps, Service boundaries, Dependency health scoring).
+    *   Key additions: Datalog query templates for 13+ documentation types.
+
+*   **Track 51-1: Probabilistic Reachability & Dead Code Detection**
+    *   Status: Completed
+    *   Spec: `conductor/track51-1/spec.md`
+    *   Plan: `conductor/track51-1/plan.md`
+    *   Goal: Implement confidence-based dead code detection by blending Graph reachability with Git activity and test history.
+    *   Key additions: `src/impact/analysis/dead_code.rs`, `ConfidenceScorer`.
+
+*   **Track 52-1: Real-time Graph Sync (Watcher Bridge)**
+    *   Status: Completed
+    *   Spec: `conductor/track52-1/spec.md`
+    *   Plan: `conductor/track52-1/plan.md`
+    *   Goal: Extend the `watch` command to perform incremental AST parsing and update the CozoDB Knowledge Graph in real-time.
+    *   Key additions: `src/index/incremental.rs`, watcher-to-graph sync logic.
+
+*   **Track 52-2: Live Viz (Arc Diagram & WebSocket Server)**
+    *   Status: Completed
+    *   Spec: `conductor/track52-2/spec.md`
+    *   Plan: `conductor/track52-2/plan.md`
+    *   Goal: Build a local WebSocket server to push real-time graph deltas to an interactive Arc Diagram visualization.
+    *   Key additions: `src/commands/viz_server.rs`, D3.js Arc Diagram template.
+
 ## Workflow
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.

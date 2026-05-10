@@ -32,6 +32,23 @@ impl SymbolKind {
             SymbolKind::Module => "Module",
         }
     }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "Function" => Some(SymbolKind::Function),
+            "Method" => Some(SymbolKind::Method),
+            "Class" => Some(SymbolKind::Class),
+            "Struct" => Some(SymbolKind::Struct),
+            "Enum" => Some(SymbolKind::Enum),
+            "Trait" => Some(SymbolKind::Trait),
+            "Interface" => Some(SymbolKind::Interface),
+            "Type" => Some(SymbolKind::Type),
+            "Variable" => Some(SymbolKind::Variable),
+            "Constant" => Some(SymbolKind::Constant),
+            "Module" => Some(SymbolKind::Module),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]

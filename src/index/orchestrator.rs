@@ -1,4 +1,4 @@
-﻿use crate::index::call_graph::{CallGraphBuilder, CallGraphStats};
+use crate::index::call_graph::{CallGraphBuilder, CallGraphStats};
 use crate::index::centrality::{CentralityComputer, CentralityStats};
 use crate::index::ci_gates::CIGateExtractor;
 use crate::index::data_models::{DataModelExtractor, DataModelStats};
@@ -111,6 +111,18 @@ pub struct ProjectIndexer {
 impl ProjectIndexer {
     pub fn new(storage: StorageManager, repo_path: Utf8PathBuf) -> Self {
         Self { storage, repo_path }
+    }
+
+    pub fn cozo(&self) -> Option<&crate::state::storage_cozo::CozoStorage> {
+        self.storage.cozo.as_ref()
+    }
+
+    pub fn storage(&self) -> &StorageManager {
+        &self.storage
+    }
+
+    pub fn storage_mut(&mut self) -> &mut StorageManager {
+        &mut self.storage
     }
 
     pub fn build_kg_native(&self) -> Result<()> {
@@ -311,6 +323,60 @@ impl ProjectIndexer {
             .collect();
 
         Ok((project_file, project_symbols))
+    }
+
+    /// Parse a single file and also extract call edges using tree-sitter.
+    pub fn index_file_with_edges(
+        &self,
+        path: &Utf8Path,
+    ) -> Result<(
+        ProjectFile,
+        Vec<ProjectSymbol>,
+        Vec<crate::index::call_graph::CallEdge>,
+    )> {
+        let (project_file, project_symbols) = self.index_file(path)?;
+        if project_file.parse_status != "OK" {
+            return Ok((project_file, project_symbols, Vec::new()));
+        }
+
+        let content = match fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(e) => {
+                warn!("Failed to read file {} for call extraction: {}", path, e);
+                return Ok((project_file, project_symbols, Vec::new()));
+            }
+        };
+
+        let _ext = path.extension().unwrap_or("");
+        let symbols: Vec<crate::index::symbols::Symbol> = project_symbols
+            .iter()
+            .filter_map(|ps| {
+                Some(crate::index::symbols::Symbol {
+                    name: ps.symbol_name.clone(),
+                    kind: crate::index::symbols::SymbolKind::parse(&ps.symbol_kind)?,
+                    is_public: ps.is_public,
+                    cognitive_complexity: ps.cognitive_complexity,
+                    cyclomatic_complexity: ps.cyclomatic_complexity,
+                    line_start: ps.line_start,
+                    line_end: ps.line_end,
+                    qualified_name: Some(ps.qualified_name.clone()),
+                    byte_start: ps.byte_start,
+                    byte_end: ps.byte_end,
+                    entrypoint_kind: Some(ps.entrypoint_kind.clone()),
+                })
+            })
+            .collect();
+
+        let calls =
+            match crate::index::languages::extract_calls(path.as_std_path(), &content, &symbols) {
+                Ok(c) => c,
+                Err(e) => {
+                    warn!("Call extraction failed for {}: {}", path, e);
+                    Vec::new()
+                }
+            };
+
+        Ok((project_file, project_symbols, calls))
     }
 
     /// Full index: clear existing data, scan all files, index everything.
@@ -796,7 +862,7 @@ impl ProjectIndexer {
             .collect())
     }
 
-    fn mark_file_deleted(&mut self, file_path: &str) -> Result<()> {
+    pub fn mark_file_deleted(&mut self, file_path: &str) -> Result<()> {
         let conn = self.storage.get_connection_mut();
         delete_file_index_dependents(conn, file_path)?;
         conn.execute(
@@ -813,7 +879,7 @@ impl ProjectIndexer {
         Ok(())
     }
 
-    fn delete_file_symbols(&mut self, file_path: &str) -> Result<()> {
+    pub fn delete_file_symbols(&mut self, file_path: &str) -> Result<()> {
         let conn = self.storage.get_connection_mut();
         delete_file_index_dependents(conn, file_path)?;
         conn.execute(
@@ -1583,7 +1649,7 @@ pub fn get_file_id_by_path(conn: &Connection, file_path: &str) -> Result<i64> {
     .into_diagnostic()
 }
 
-fn delete_file_index_dependents(conn: &Connection, file_path: &str) -> Result<()> {
+pub fn delete_file_index_dependents(conn: &Connection, file_path: &str) -> Result<()> {
     let file_id_subquery = "SELECT id FROM project_files WHERE file_path = ?1";
     let symbol_id_subquery = "SELECT id FROM project_symbols WHERE file_id IN (SELECT id FROM project_files WHERE file_path = ?1)";
 

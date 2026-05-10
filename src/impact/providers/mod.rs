@@ -10,6 +10,7 @@ pub mod centrality_provider;
 pub mod ci_provider;
 pub mod coupling_provider;
 pub mod data_contract_provider;
+pub mod dead_code_provider;
 pub mod environment_provider;
 pub mod infra_provider;
 pub mod observability_provider;
@@ -47,6 +48,7 @@ impl Default for RiskRegistry {
         registry.register(Box::new(sdk_provider::SdkProvider));
         registry.register(Box::new(adr_staleness_provider::ADRStalenessProvider));
         registry.register(Box::new(advisory_provider::AdvisoryProvider));
+        registry.register(Box::new(dead_code_provider::DeadCodeProvider));
         registry
     }
 }

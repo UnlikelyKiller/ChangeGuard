@@ -1,6 +1,8 @@
 use changeguard::config::model::LocalModelConfig;
 use changeguard::state::storage::StorageManager;
-use changeguard::verify::ci_predictor::{CIJobOutcome, record_ci_outcomes, query_similar_ci_outcomes};
+use changeguard::verify::ci_predictor::{
+    CIJobOutcome, query_similar_ci_outcomes, record_ci_outcomes,
+};
 use changeguard::verify::semantic_predictor::TestStatus;
 use httpmock::prelude::*;
 use tempfile::tempdir;
@@ -17,7 +19,7 @@ fn test_ci_outcome_recording_and_query() {
         "INSERT INTO project_files (file_path, content_hash, file_size, last_indexed_at) VALUES (?1, 'hash', 100, 'now')",
         [".github/workflows/ci.yml"],
     ).unwrap();
-    let ci_file_id: i64 = conn.last_insert_rowid();
+    let _ci_file_id: i64 = conn.last_insert_rowid();
 
     let server = MockServer::start();
     let embed_config = LocalModelConfig {
@@ -47,11 +49,11 @@ fn test_ci_outcome_recording_and_query() {
     }];
 
     // Record
-    let count = record_ci_outcomes(&conn, &embed_config, &outcomes, diff_text).unwrap();
+    let count = record_ci_outcomes(conn, &embed_config, &outcomes, diff_text).unwrap();
     assert_eq!(count, 1);
 
     // Query
-    let similar = query_similar_ci_outcomes(&conn, &embed_config, diff_text, 5).unwrap();
+    let similar = query_similar_ci_outcomes(conn, &embed_config, diff_text, 5).unwrap();
     assert_eq!(similar.len(), 1);
     assert_eq!(similar[0].0.job_name, "test-linux");
     assert_eq!(similar[0].0.status, TestStatus::Failed);

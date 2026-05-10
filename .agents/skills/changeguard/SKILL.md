@@ -5,9 +5,21 @@ description: Use this skill when working in a repository initialized with `.chan
 
 # ChangeGuard
 
-Use ChangeGuard as the local safety layer for code changes. It provides impact
-analysis, hotspot and temporal-coupling signals, verification planning, and
-transactional provenance.
+Use ChangeGuard as the local safety layer and engineering intelligence engine for code changes. It provides impact analysis, hotspot and temporal-coupling signals, verification planning, and transactional provenance.
+
+## Core Capabilities
+
+- **Search & Discovery**: High-performance regex (Tantivy), precise LSP navigation (SCIP), and conceptual semantic search (local embeddings).
+- **Impact Analysis**: Deep "blast radius" analysis across 20+ specialized providers (Infra, Contracts, Observability, Temporal).
+- **Predictable Verification**: Bayesian test reordering and CI failure prediction.
+- **Transactional Ledger**: Record architectural intent and decisions as atomic transactions.
+- **Documentation Generation**: Export Knowledge Graph data to Markdown/Mermaid passive documentation (`index --export-docs`).
+- **Dead Code Detection**: Confidence-based dead code detection blending graph reachability, git activity, and test history (`dead-code` command).
+- **Live Visualization**: WebSocket-based Arc Diagram for real-time Knowledge Graph updates (`viz-server`, `viz-server --stop`).
+
+## Philosophy: CLI-First Intelligence
+
+ChangeGuard is a **CLI-first** tool and **explicitly rejects MCP/Server/Cloud architecture** for v1. It provides structured, "Gemini-ready" context directly via its CLI outputs. Use ChangeGuard commands as your primary discovery and safety tools.
 
 ## Default Workflow
 
@@ -96,6 +108,6 @@ cargo install --path .
 
 ## References
 
-- Command details: `references/commands.md`
+- Command details: `references/commands.md` (includes ledger, impact, dead-code, viz-server, doc generation, watch)
 - Install fallback: `references/install.md`
 - Architecture/internal notes: `references/internals.md`

@@ -89,7 +89,7 @@ impl ExplanationEngine {
 
     fn generate_explanation(&self, prompt: String) -> Result<String> {
         info!("Generating failure explanation using local model...");
-        
+
         let messages = vec![
             ChatMessage {
                 role: "system".to_string(),
@@ -106,8 +106,9 @@ impl ExplanationEngine {
             temperature: 0.1,
         };
 
-        let response = complete(&self.config, &messages, &options).map_err(|e| miette::miette!(e))?;
-        
+        let response =
+            complete(&self.config, &messages, &options).map_err(|e| miette::miette!(e))?;
+
         Ok(response.trim().to_string())
     }
 }

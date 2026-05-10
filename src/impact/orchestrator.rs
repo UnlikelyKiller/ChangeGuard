@@ -75,6 +75,9 @@ impl ImpactOrchestrator {
             crate::impact::enrichment::runtime_usage::RuntimeUsageProvider,
         ));
         orch.register_provider(Box::new(crate::impact::enrichment::risk::RiskProvider));
+        orch.register_provider(Box::new(
+            crate::impact::enrichment::dead_code::DeadCodeProvider,
+        ));
         orch.register_provider(Box::new(crate::impact::enrichment::kg_provider::KGProvider));
         orch
     }

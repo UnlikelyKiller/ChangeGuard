@@ -25,6 +25,7 @@ fn get_layout() -> Result<Layout> {
     Ok(Layout::new(root))
 }
 
+#[derive(Default)]
 pub struct IndexArgs {
     pub incremental: bool,
     pub check: bool,
@@ -34,6 +35,8 @@ pub struct IndexArgs {
     pub contracts: bool,
     pub semantic: bool,
     pub scip: Option<std::path::PathBuf>,
+    pub export_docs: bool,
+    pub doc_type: Option<String>,
 }
 
 pub fn execute_index(args: IndexArgs) -> Result<()> {
@@ -374,6 +377,44 @@ pub fn execute_index(args: IndexArgs) -> Result<()> {
         println!("Services:");
         println!("  Services inferred: {}", service_stats.services_inferred);
         println!("  Files assigned:    {}", service_stats.files_assigned);
+    }
+
+    if args.export_docs && !args.check {
+        if let Some(cozo) = indexer.cozo() {
+            match cozo.node_count() {
+                Ok(0) => {
+                    println!("Warning: Knowledge Graph is empty, skipping doc export.");
+                }
+                Ok(_) => {
+                    let docs_dir = layout.docs_dir();
+                    layout.ensure_dir(&docs_dir)?;
+                    let registry = crate::docs::generator::DocRegistry::default_registry();
+                    let doc_result = if let Some(ref dt) = args.doc_type {
+                        let types: Vec<String> =
+                            dt.split(',').map(|s| s.trim().to_string()).collect();
+                        registry.run_filtered(&types, cozo, &docs_dir)
+                    } else {
+                        registry.run_all(cozo, &docs_dir)
+                    };
+                    match doc_result {
+                        Ok(paths) => {
+                            for path in &paths {
+                                println!("Doc: {}", path);
+                            }
+                        }
+                        Err(e) => {
+                            warn!("Doc generation failed: {:#}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to query node count: {:#}", e);
+                    println!("Warning: Knowledge Graph unavailable, skipping doc export.");
+                }
+            }
+        } else {
+            println!("Warning: Knowledge Graph unavailable, skipping doc export.");
+        }
     }
 
     Ok(())

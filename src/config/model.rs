@@ -115,6 +115,55 @@ fn default_stale_threshold_hours() -> u64 {
     24
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DeadCodeConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_dead_code_confidence_threshold")]
+    pub confidence_threshold: f64,
+    #[serde(default = "default_git_inactivity_days")]
+    pub git_inactivity_days: u32,
+    #[serde(default = "default_reachability_weight")]
+    pub reachability_weight: f64,
+    #[serde(default = "default_git_activity_weight")]
+    pub git_activity_weight: f64,
+    #[serde(default = "default_test_coverage_weight")]
+    pub test_coverage_weight: f64,
+}
+
+fn default_dead_code_confidence_threshold() -> f64 {
+    0.75
+}
+
+fn default_git_inactivity_days() -> u32 {
+    90
+}
+
+fn default_reachability_weight() -> f64 {
+    1.0
+}
+
+fn default_git_activity_weight() -> f64 {
+    1.0
+}
+
+fn default_test_coverage_weight() -> f64 {
+    1.0
+}
+
+impl Default for DeadCodeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            confidence_threshold: default_dead_code_confidence_threshold(),
+            git_inactivity_days: default_git_inactivity_days(),
+            reachability_weight: default_reachability_weight(),
+            git_activity_weight: default_git_activity_weight(),
+            test_coverage_weight: default_test_coverage_weight(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Config {
     #[serde(default)]
@@ -141,6 +190,8 @@ pub struct Config {
     pub contracts: ContractsConfig,
     #[serde(default)]
     pub coverage: CoverageConfig,
+    #[serde(default)]
+    pub dead_code: DeadCodeConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -1211,5 +1262,47 @@ mod tests {
 
         assert_eq!(resolved.embedding_model, "dotenv-model");
         assert_eq!(resolved.base_url, "http://dotenv:5678");
+    }
+
+    #[test]
+    fn test_dead_code_config_defaults() {
+        let config = DeadCodeConfig::default();
+        assert!(!config.enabled);
+        assert!((config.confidence_threshold - 0.75).abs() < f64::EPSILON);
+        assert_eq!(config.git_inactivity_days, 90);
+        assert!((config.reachability_weight - 1.0).abs() < f64::EPSILON);
+        assert!((config.git_activity_weight - 1.0).abs() < f64::EPSILON);
+        assert!((config.test_coverage_weight - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_dead_code_config_deserialization() {
+        let toml_str = r#"
+            [dead_code]
+            enabled = true
+            confidence_threshold = 0.8
+            git_inactivity_days = 60
+            reachability_weight = 2.0
+            git_activity_weight = 1.5
+            test_coverage_weight = 0.5
+        "#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert!(config.dead_code.enabled);
+        assert!((config.dead_code.confidence_threshold - 0.8).abs() < f64::EPSILON);
+        assert_eq!(config.dead_code.git_inactivity_days, 60);
+        assert!((config.dead_code.reachability_weight - 2.0).abs() < f64::EPSILON);
+        assert!((config.dead_code.git_activity_weight - 1.5).abs() < f64::EPSILON);
+        assert!((config.dead_code.test_coverage_weight - 0.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_config_backward_compat_without_dead_code() {
+        let toml_str = r#"
+            [core]
+            strict = true
+        "#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert!(!config.dead_code.enabled);
+        assert!((config.dead_code.confidence_threshold - 0.75).abs() < f64::EPSILON);
     }
 }

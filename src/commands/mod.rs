@@ -2,6 +2,7 @@ pub mod ask;
 pub mod config;
 #[cfg(feature = "daemon")]
 pub mod daemon;
+pub mod dead_code;
 pub mod doctor;
 pub mod federate;
 pub mod hotspots;
@@ -19,6 +20,8 @@ pub mod scan;
 pub mod search;
 pub mod verify;
 pub mod viz;
+#[cfg(feature = "viz-server")]
+pub mod viz_server;
 pub mod watch;
 
 use miette::Diagnostic;

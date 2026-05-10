@@ -57,7 +57,12 @@ pub fn record_ci_outcomes(
                 rusqlite::params![outcome.ci_file_path],
                 |row| row.get(0),
             )
-            .map_err(|e| format!("CI file not found in project_files: {}. Error: {}", outcome.ci_file_path, e))?;
+            .map_err(|e| {
+                format!(
+                    "CI file not found in project_files: {}. Error: {}",
+                    outcome.ci_file_path, e
+                )
+            })?;
 
         conn.execute(
             "INSERT INTO ci_outcome_history (diff_embedding_id, ci_file_id, job_name, platform, outcome, commit_hash) \
@@ -171,7 +176,8 @@ pub fn query_similar_ci_outcomes(
             .map_err(|e| e.to_string())?;
 
         for outcome_row in outcome_rows {
-            let (ci_file_path, job_name, platform, outcome_str, commit_hash) = outcome_row.map_err(|e| e.to_string())?;
+            let (ci_file_path, job_name, platform, outcome_str, commit_hash) =
+                outcome_row.map_err(|e| e.to_string())?;
             let status = match outcome_str.as_str() {
                 "pass" => TestStatus::Passed,
                 "fail" => TestStatus::Failed,

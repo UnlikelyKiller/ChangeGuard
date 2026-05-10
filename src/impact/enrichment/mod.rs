@@ -8,6 +8,7 @@ pub mod contracts;
 pub mod coupling;
 pub mod coverage;
 pub mod data_models;
+pub mod dead_code;
 pub mod deploy;
 pub mod environment;
 pub mod federated;

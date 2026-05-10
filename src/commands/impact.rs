@@ -9,7 +9,12 @@ use miette::Result;
 use owo_colors::OwoColorize;
 use std::env;
 
-pub fn execute_impact(all_parents: bool, summary: bool, _telemetry_coverage: bool) -> Result<()> {
+pub fn execute_impact(
+    all_parents: bool,
+    summary: bool,
+    _telemetry_coverage: bool,
+    dead_code: bool,
+) -> Result<()> {
     let current_dir = env::current_dir()
         .map_err(|e| miette::miette!("Failed to get current directory: {}", e))?;
 
@@ -42,6 +47,9 @@ pub fn execute_impact(all_parents: bool, summary: bool, _telemetry_coverage: boo
     // CLI override
     if all_parents {
         config.temporal.all_parents = true;
+    }
+    if dead_code {
+        config.dead_code.enabled = true;
     }
 
     // Persist to SQLite and run Orchestrated Enrichment

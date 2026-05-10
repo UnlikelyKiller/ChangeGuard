@@ -667,6 +667,45 @@ pub struct ImpactPacket {
     pub knowledge_graph: Vec<KGImpact>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub analysis_warnings: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dead_code_findings: Vec<DeadCodeFinding>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "camelCase")]
+pub enum ConfidenceFactor {
+    UnreachableFromEntrypoints,
+    GitInactive { days_since_last_commit: u32 },
+    NoTestCoverage,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DeadCodeFinding {
+    pub symbol_name: String,
+    pub file_path: PathBuf,
+    pub confidence: f64,
+    pub factors: Vec<ConfidenceFactor>,
+    pub recommendation: String,
+}
+
+impl Eq for DeadCodeFinding {}
+
+impl PartialOrd for DeadCodeFinding {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for DeadCodeFinding {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other
+            .confidence
+            .partial_cmp(&self.confidence)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| self.file_path.cmp(&other.file_path))
+            .then_with(|| self.symbol_name.cmp(&other.symbol_name))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -730,6 +769,7 @@ impl Default for ImpactPacket {
             ci_predictions: Vec::new(),
             knowledge_graph: Vec::new(),
             analysis_warnings: Vec::new(),
+            dead_code_findings: Vec::new(),
         }
     }
 }
@@ -805,6 +845,7 @@ impl ImpactPacket {
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| a.job_name.cmp(&b.job_name))
         });
+        self.dead_code_findings.sort_unstable();
     }
 
     /// Escalate risk_level by one tier for observability/contract signals.
@@ -916,6 +957,7 @@ impl ImpactPacket {
         self.ci_config_change = None;
         self.ci_predictions.clear();
         self.service_map_delta = None;
+        self.dead_code_findings.clear();
 
         let current_json = serde_json::to_string(self).unwrap_or_default();
         if current_json.len() <= target_chars {
@@ -1771,5 +1813,118 @@ mod tests {
         let truncated = packet.truncate_for_context(100);
         assert!(truncated);
         assert!(packet.ci_config_change.is_none());
+    }
+
+    #[test]
+    fn test_dead_code_finding_serialization_roundtrip() {
+        let finding = DeadCodeFinding {
+            symbol_name: "unused_fn".to_string(),
+            file_path: PathBuf::from("src/lib.rs"),
+            confidence: 0.92,
+            factors: vec![
+                ConfidenceFactor::UnreachableFromEntrypoints,
+                ConfidenceFactor::GitInactive {
+                    days_since_last_commit: 120,
+                },
+                ConfidenceFactor::NoTestCoverage,
+            ],
+            recommendation: "Consider removing or adding tests".to_string(),
+        };
+
+        let packet = ImpactPacket {
+            dead_code_findings: vec![finding],
+            ..ImpactPacket::default()
+        };
+
+        let json = serde_json::to_string_pretty(&packet).unwrap();
+        assert!(json.contains("deadCodeFindings"));
+        assert!(json.contains("unreachableFromEntrypoints"));
+        assert!(json.contains("gitInactive"));
+        assert!(json.contains("noTestCoverage"));
+
+        let parsed: ImpactPacket = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.dead_code_findings.len(), 1);
+        assert_eq!(parsed.dead_code_findings[0].symbol_name, "unused_fn");
+        assert!((parsed.dead_code_findings[0].confidence - 0.92).abs() < 1e-6);
+        assert_eq!(parsed.dead_code_findings[0].factors.len(), 3);
+    }
+
+    #[test]
+    fn test_dead_code_findings_empty_absent_from_json() {
+        let packet = ImpactPacket::default();
+        let json = serde_json::to_string_pretty(&packet).unwrap();
+        assert!(!json.contains("deadCodeFindings"));
+    }
+
+    #[test]
+    fn test_finalize_sorts_dead_code_findings() {
+        let mut packet = ImpactPacket {
+            dead_code_findings: vec![
+                DeadCodeFinding {
+                    symbol_name: "c".to_string(),
+                    file_path: PathBuf::from("src/z.rs"),
+                    confidence: 0.5,
+                    factors: vec![ConfidenceFactor::NoTestCoverage],
+                    recommendation: "R1".to_string(),
+                },
+                DeadCodeFinding {
+                    symbol_name: "a".to_string(),
+                    file_path: PathBuf::from("src/a.rs"),
+                    confidence: 0.9,
+                    factors: vec![ConfidenceFactor::UnreachableFromEntrypoints],
+                    recommendation: "R2".to_string(),
+                },
+                DeadCodeFinding {
+                    symbol_name: "b".to_string(),
+                    file_path: PathBuf::from("src/a.rs"),
+                    confidence: 0.9,
+                    factors: vec![ConfidenceFactor::NoTestCoverage],
+                    recommendation: "R3".to_string(),
+                },
+            ],
+            ..ImpactPacket::default()
+        };
+
+        packet.finalize();
+
+        // Sorted by confidence descending, then path ascending, then symbol ascending
+        assert!((packet.dead_code_findings[0].confidence - 0.9).abs() < 1e-6);
+        assert_eq!(packet.dead_code_findings[0].symbol_name, "a");
+        assert!((packet.dead_code_findings[1].confidence - 0.9).abs() < 1e-6);
+        assert_eq!(packet.dead_code_findings[1].symbol_name, "b");
+        assert!((packet.dead_code_findings[2].confidence - 0.5).abs() < 1e-6);
+        assert_eq!(packet.dead_code_findings[2].symbol_name, "c");
+    }
+
+    #[test]
+    fn test_truncate_clears_dead_code_findings() {
+        let mut packet = ImpactPacket {
+            changes: vec![ChangedFile {
+                path: PathBuf::from("src/main.rs"),
+                status: "Modified".to_string(),
+                old_path: None,
+                is_staged: true,
+                symbols: None,
+                imports: None,
+                runtime_usage: None,
+                analysis_status: FileAnalysisStatus::default(),
+                analysis_warnings: Vec::new(),
+                api_routes: Vec::new(),
+                data_models: Vec::new(),
+                ci_gates: Vec::new(),
+            }],
+            dead_code_findings: vec![DeadCodeFinding {
+                symbol_name: "unused".to_string(),
+                file_path: PathBuf::from("src/main.rs"),
+                confidence: 0.8,
+                factors: vec![ConfidenceFactor::NoTestCoverage],
+                recommendation: "Remove".to_string(),
+            }],
+            ..ImpactPacket::default()
+        };
+
+        let truncated = packet.truncate_for_context(100);
+        assert!(truncated);
+        assert!(packet.dead_code_findings.is_empty());
     }
 }

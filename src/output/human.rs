@@ -308,6 +308,51 @@ pub fn print_impact_summary(packet: &ImpactPacket, _config: &crate::config::mode
         println!("{table}");
     }
 
+    if !packet.dead_code_findings.is_empty() {
+        println!("\n{}", "Dead Code Findings:".bold());
+        let mut table = build_table(["Symbol", "File", "Confidence", "Factors"]);
+        for finding in &packet.dead_code_findings {
+            let confidence_color = if finding.confidence > 0.9 {
+                format!("{:.0}%", finding.confidence * 100.0)
+                    .red()
+                    .bold()
+                    .to_string()
+            } else if finding.confidence > 0.75 {
+                format!("{:.0}%", finding.confidence * 100.0)
+                    .yellow()
+                    .to_string()
+            } else {
+                format!("{:.0}%", finding.confidence * 100.0)
+                    .green()
+                    .to_string()
+            };
+
+            let factors: Vec<String> = finding
+                .factors
+                .iter()
+                .map(|f| match f {
+                    crate::impact::packet::ConfidenceFactor::UnreachableFromEntrypoints => {
+                        "Unreachable".to_string()
+                    }
+                    crate::impact::packet::ConfidenceFactor::GitInactive {
+                        days_since_last_commit,
+                    } => format!("Inactive ({}d)", days_since_last_commit),
+                    crate::impact::packet::ConfidenceFactor::NoTestCoverage => {
+                        "No Tests".to_string()
+                    }
+                })
+                .collect();
+
+            table.add_row(vec![
+                finding.symbol_name.clone(),
+                finding.file_path.display().to_string(),
+                confidence_color,
+                factors.join(", "),
+            ]);
+        }
+        println!("{table}");
+    }
+
     if !packet.relevant_decisions.is_empty() {
         println!("\n{}", "Relevant Architectural Decisions:".bold());
         let mut table = build_table(["Decision File", "Staleness", "Similarity"]);
@@ -372,6 +417,68 @@ pub fn print_impact_summary(packet: &ImpactPacket, _config: &crate::config::mode
 
         println!("{table}");
     }
+}
+
+pub fn print_dead_code_summary(
+    findings: &[crate::impact::packet::DeadCodeFinding],
+    threshold: f64,
+) {
+    print_header("Dead Code Analysis");
+
+    if findings.is_empty() {
+        println!(
+            "No dead code findings above the {:.0}% confidence threshold.",
+            threshold * 100.0
+        );
+        return;
+    }
+
+    println!(
+        "Found {} symbol(s) with confidence >= {:.0}%:\n",
+        findings.len(),
+        threshold * 100.0
+    );
+
+    let mut table = build_table(["Symbol", "File", "Confidence", "Factors"]);
+    for finding in findings {
+        let confidence_color = if finding.confidence > 0.9 {
+            format!("{:.0}%", finding.confidence * 100.0)
+                .red()
+                .bold()
+                .to_string()
+        } else if finding.confidence > 0.75 {
+            format!("{:.0}%", finding.confidence * 100.0)
+                .yellow()
+                .to_string()
+        } else {
+            format!("{:.0}%", finding.confidence * 100.0)
+                .green()
+                .to_string()
+        };
+
+        let factors: Vec<String> = finding
+            .factors
+            .iter()
+            .map(|f| match f {
+                crate::impact::packet::ConfidenceFactor::UnreachableFromEntrypoints => {
+                    "Unreachable".to_string()
+                }
+                crate::impact::packet::ConfidenceFactor::GitInactive {
+                    days_since_last_commit,
+                } => format!("Inactive ({}d)", days_since_last_commit),
+                crate::impact::packet::ConfidenceFactor::NoTestCoverage => "No Tests".to_string(),
+            })
+            .collect();
+
+        table.add_row(vec![
+            finding.symbol_name.clone(),
+            finding.file_path.display().to_string(),
+            confidence_color,
+            factors.join(", "),
+        ]);
+    }
+
+    println!("{table}");
 }
 
 pub fn print_impact_brief(packet: &ImpactPacket) {

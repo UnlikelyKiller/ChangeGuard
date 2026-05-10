@@ -1,0 +1,40 @@
+use crate::config::model::Config;
+use crate::impact::analysis::dead_code::ConfidenceScorer;
+use crate::output::diagnostics::success_marker;
+use crate::state::layout::Layout;
+use miette::Result;
+use std::env;
+
+pub fn execute_dead_code(threshold: f64, limit: usize) -> Result<()> {
+    let current_dir = env::current_dir()
+        .map_err(|e| miette::miette!("Failed to get current directory: {}", e))?;
+
+    let layout = Layout::new(current_dir.to_string_lossy().as_ref());
+    let mut config = crate::config::load::load_config(&layout).unwrap_or_else(|e| {
+        tracing::warn!("Failed to load config: {e}. Using defaults.");
+        Config::default()
+    });
+
+    // CLI overrides
+    config.dead_code.enabled = true;
+    config.dead_code.confidence_threshold = threshold;
+
+    let db_path = layout.state_subdir().join("ledger.db");
+    let storage = crate::state::storage::StorageManager::init(db_path.as_std_path())?;
+
+    let cozo = storage.cozo.as_ref();
+    let scorer = ConfidenceScorer::new(cozo, &storage, &config.dead_code, &current_dir);
+
+    let findings = scorer.scan_repo(limit)?;
+
+    crate::output::human::print_dead_code_summary(&findings, threshold);
+
+    println!(
+        "\n{} Scanned repository for dead code (threshold: {:.0}%, limit: {})",
+        success_marker(),
+        threshold * 100.0,
+        limit
+    );
+
+    Ok(())
+}

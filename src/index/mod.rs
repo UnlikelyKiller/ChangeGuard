@@ -10,6 +10,7 @@ pub mod env_schema;
 pub mod git_worker;
 pub mod graph_loader;
 pub mod graph_worker;
+pub mod incremental;
 pub mod languages;
 pub mod metrics;
 pub mod normalize;

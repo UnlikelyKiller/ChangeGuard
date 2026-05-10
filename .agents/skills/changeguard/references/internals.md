@@ -12,6 +12,9 @@ This document describes the internal behaviors, safety mechanisms, and technical
 - **Glob Matching**: Validator and category glob patterns use `globset` for proper path matching rather than simple substring checks.
 - **Atomic Rollbacks**: The `atomic_change` command rolls back the started transaction if the commit fails, preventing orphaned `PENDING` entries.
 - **Federation Confinement**: Import/export logic uses secure path normalization to ensure sibling data cannot leak into unauthorized directories.
+- **Viz Server Process Management**: The server writes a PID file to `.changeguard/state/viz-server.pid` on startup and cleans it up on exit. `viz-server --stop` reads this file to terminate the process safely.
+- **Dead Code Scoring**: Blends three local signals (CozoDB reachability, git activity recency, test coverage) with configurable weights. Zero-weight advisory-only risk provider — does not affect risk level calculation.
+- **Document Generation Resilience**: Individual template failures are logged via `tracing::warn` and skipped; the export continues with remaining templates. Empty KG produces a warning, not a failure.
 
 ## CLI Behavior Details
 

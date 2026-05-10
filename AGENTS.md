@@ -67,7 +67,9 @@ rust{
 kg{
   backend:"CozoDB"
   state:".changeguard/state/ledger.cozo"
-  use[3]:
+  use[5]:
+    "changeguard search for high-precision regex/text discovery (prefer over grep)"
+    "changeguard ask --semantic for conceptual discovery (prefer over semantic search)"
     "changeguard ask for architecture/codebase questions"
     "changeguard index --analyze-graph to refresh structure"
     "changeguard viz for deep architecture review"

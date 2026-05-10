@@ -10,6 +10,7 @@ This document contains the full command catalog, flags, and category definitions
 changeguard scan --impact           # Before edits: full change intelligence
 changeguard impact --all-parents    # Include side-branch commits in coupling analysis
 changeguard impact --summary        # One-line triage: RISK | N changed | N couplings
+changeguard impact --dead-code      # Include dead-code confidence analysis
 ```
 
 ### Verification
@@ -55,6 +56,27 @@ changeguard ledger register --rule-type TYPE --payload JSON [--force]   # Add en
 changeguard ledger adr [--output-dir DIR] [--days N]        # Export decisions to MADR
 ```
 
+## Dead Code Detection
+
+```bash
+changeguard impact --dead-code                         # Include dead-code analysis in impact
+changeguard dead-code [--threshold 0.75] [--limit 50]  # Full-repo proactive dead code scan
+```
+
+## Live Visualization (feature: viz-server)
+
+```bash
+changeguard viz-server [--port 8765] [--bind 127.0.0.1] [--open]   # Start WebSocket Arc Diagram server
+changeguard viz-server --stop                                       # Stop a running viz server
+```
+
+## Watch
+
+```bash
+changeguard watch [--interval 1000] [--json]          # Watch repository for changes
+changeguard watch --no-graph-sync                     # Disable live KG updates during watch
+```
+
 ## Hotspots & Federation
 
 ```bash
@@ -66,9 +88,11 @@ changeguard federate status
 ### Indexing & Search
 
 ```bash
-changeguard index --docs        # Index markdown documentation
-changeguard index --contracts   # Index OpenAPI/Swagger contracts
-changeguard index --all         # Full re-index
+changeguard index --docs              # Index markdown documentation
+changeguard index --contracts         # Index OpenAPI/Swagger contracts
+changeguard index --export-docs       # Export KG data to Markdown/Mermaid docs
+changeguard index --export-docs --doc-type module_map --doc-type symbol_index  # Export specific doc types
+changeguard index --all               # Full re-index
 ```
 
 ## Gemini-Assisted Reporting

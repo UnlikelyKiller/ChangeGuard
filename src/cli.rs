@@ -33,6 +33,9 @@ pub enum Commands {
         /// Output events as line-delimited JSON
         #[arg(long)]
         json: bool,
+        /// Disable live Knowledge Graph updates
+        #[arg(long)]
+        no_graph_sync: bool,
     },
     /// Analyze the impact of changes and generate a report
     Impact {
@@ -45,6 +48,9 @@ pub enum Commands {
         /// Warn about files with API routes/handlers but no telemetry instrumentation
         #[arg(long)]
         telemetry_coverage: bool,
+        /// Enable dead code detection for changed files
+        #[arg(long)]
+        dead_code: bool,
     },
     /// Plan and run targeted verification
     Verify {
@@ -125,6 +131,12 @@ pub enum Commands {
         /// Ingest an external SCIP index (Protobuf)
         #[arg(long)]
         scip: Option<std::path::PathBuf>,
+        /// Export structural documentation from the Knowledge Graph
+        #[arg(long)]
+        export_docs: bool,
+        /// Generate only the specified doc type (comma-separated)
+        #[arg(long)]
+        doc_type: Option<String>,
     },
     /// Search the codebase using ranked BM25 or trigram-accelerated regex
     Search {
@@ -197,11 +209,36 @@ pub enum Commands {
         #[command(subcommand)]
         command: ConfigCommands,
     },
+    /// Detect likely dead code across the repository
+    DeadCode {
+        /// Minimum confidence threshold to report a finding
+        #[arg(long, default_value_t = 0.75)]
+        threshold: f64,
+        /// Maximum number of findings to display
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+    },
     /// Generate an interactive visualization of the knowledge graph
     Viz {
         /// Custom output path for the HTML file
         #[arg(long, short)]
         output: Option<std::path::PathBuf>,
+    },
+    /// Start a live WebSocket viz server with an Arc Diagram
+    #[cfg(feature = "viz-server")]
+    VizServer {
+        /// WebSocket server port
+        #[arg(long, short, default_value_t = 8765)]
+        port: u16,
+        /// Bind address
+        #[arg(long, short, default_value = "127.0.0.1")]
+        bind: String,
+        /// Automatically open the browser on startup
+        #[arg(long, short)]
+        open: bool,
+        /// Stop a running viz server (reads PID file and terminates process)
+        #[arg(long)]
+        stop: bool,
     },
 }
 
@@ -427,12 +464,22 @@ pub fn run() -> Result<()> {
         Commands::Init { no_gitignore } => crate::commands::init::execute_init(no_gitignore),
         Commands::Doctor => crate::commands::doctor::execute_doctor(),
         Commands::Scan { impact } => crate::commands::scan::execute_scan(impact),
-        Commands::Watch { interval, json } => crate::commands::watch::execute_watch(interval, json),
+        Commands::Watch {
+            interval,
+            json,
+            no_graph_sync,
+        } => crate::commands::watch::execute_watch(interval, json, no_graph_sync),
         Commands::Impact {
             all_parents,
             summary,
             telemetry_coverage,
-        } => crate::commands::impact::execute_impact(all_parents, summary, telemetry_coverage),
+            dead_code,
+        } => crate::commands::impact::execute_impact(
+            all_parents,
+            summary,
+            telemetry_coverage,
+            dead_code,
+        ),
         Commands::Verify {
             command,
             timeout,
@@ -469,6 +516,8 @@ pub fn run() -> Result<()> {
             contracts,
             semantic,
             scip,
+            export_docs,
+            doc_type,
         } => crate::commands::index::execute_index(crate::commands::index::IndexArgs {
             incremental,
             check,
@@ -478,6 +527,8 @@ pub fn run() -> Result<()> {
             contracts,
             semantic,
             scip,
+            export_docs,
+            doc_type,
         }),
         Commands::Search {
             query,
@@ -608,6 +659,9 @@ pub fn run() -> Result<()> {
         Commands::Config { command } => match command {
             ConfigCommands::Verify => crate::commands::config::execute_config_verify(),
         },
+        Commands::DeadCode { threshold, limit } => {
+            crate::commands::dead_code::execute_dead_code(threshold, limit)
+        }
         #[cfg(feature = "daemon")]
         Commands::Daemon { interval } => crate::commands::daemon::execute_daemon(interval),
         Commands::Audit {
@@ -615,5 +669,12 @@ pub fn run() -> Result<()> {
             include_unaudited,
         } => crate::commands::ledger_audit::execute_ledger_audit(entity, include_unaudited),
         Commands::Viz { output } => crate::commands::viz::execute_viz(output),
+        #[cfg(feature = "viz-server")]
+        Commands::VizServer {
+            port,
+            bind,
+            open,
+            stop,
+        } => crate::commands::viz_server::execute_viz_server(port, bind, open, stop),
     }
 }

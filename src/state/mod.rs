@@ -1,3 +1,4 @@
+pub mod delta;
 pub mod layout;
 pub mod locks;
 pub mod migration;

@@ -7,13 +7,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use crate::config::load::load_config;
+use crate::index::incremental::IncrementalSyncEngine;
+use crate::index::orchestrator::ProjectIndexer;
 use crate::ledger::drift::DriftManager;
 use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
 use crate::watch::batch::WatchBatch;
 use crate::watch::debounce::Watcher;
 
-pub fn execute_watch(interval_ms: u64, json_output: bool) -> Result<()> {
+pub fn execute_watch(interval_ms: u64, json_output: bool, no_graph_sync: bool) -> Result<()> {
     let current_dir = env::current_dir()
         .map_err(|e| miette::miette!("Failed to get current directory: {}", e))?;
     let path = Utf8PathBuf::from_path_buf(current_dir)
@@ -36,7 +38,7 @@ pub fn execute_watch(interval_ms: u64, json_output: bool) -> Result<()> {
 
     let batch_path = layout.state_subdir().join("current-batch.json");
     let db_path = layout.state_subdir().join("ledger.db");
-    let repo_root = path.as_std_path().to_path_buf();
+    let repo_root = path.clone();
     let callback = Box::new(move |batch: WatchBatch| {
         if !json_output {
             println!(
@@ -83,12 +85,33 @@ pub fn execute_watch(interval_ms: u64, json_output: bool) -> Result<()> {
             let drift_config = load_config(&layout).unwrap_or_default();
             let mut drift_mgr = DriftManager::new(
                 storage.get_connection_mut(),
-                repo_root.clone(),
+                repo_root.as_std_path().to_path_buf(),
                 drift_config,
             );
             for event in &batch.events {
                 if let Err(e) = drift_mgr.process_event(event.path.as_str()) {
                     tracing::warn!("Failed to process drift for {}: {:?}", event.path, e);
+                }
+            }
+
+            // Incremental graph sync
+            if !no_graph_sync {
+                let indexer = ProjectIndexer::new(storage, repo_root.clone());
+                let mut engine = IncrementalSyncEngine::new(indexer, repo_root.clone());
+                match engine.process_batch(&batch) {
+                    Ok(delta) => {
+                        tracing::info!(
+                            "Incremental sync: {} files, +{} nodes, -{} nodes, +{} edges, -{} edges",
+                            delta.files_processed,
+                            delta.nodes_added,
+                            delta.nodes_removed,
+                            delta.edges_added,
+                            delta.edges_removed,
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!("Incremental graph sync failed: {}", e);
+                    }
                 }
             }
         }

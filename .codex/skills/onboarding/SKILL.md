@@ -70,9 +70,10 @@ src/
 
 ## What to Do First
 
-1. **Read `conductor/conductor.md`** — see the current active track.
-2. **Check `changeguard doctor`** — verify toolchain health.
-3. **Run `changeguard ledger status`** — check if there is an active transaction.
+1. **Initialize Context (Antigravity only)** — Run `ai-brains preflight` to synchronize with the memory vault and safety signals.
+2. **Read `conductor/conductor.md`** — see the current active track.
+3. **Check `changeguard doctor`** — verify toolchain health.
+4. **Run `changeguard ledger status`** — check if there is an active transaction.
 
 ## Quick Reference: Commands
 

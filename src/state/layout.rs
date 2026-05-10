@@ -9,6 +9,7 @@ pub const TMP_DIR: &str = "tmp";
 pub const REPORTS_DIR: &str = "reports";
 pub const STATE_SUBDIR: &str = "state";
 pub const SEARCH_INDEX_DIR: &str = "search_index";
+pub const DOCS_DIR: &str = "docs";
 pub const CONFIG_FILE: &str = "config.toml";
 pub const RULES_FILE: &str = "rules.toml";
 
@@ -44,12 +45,20 @@ impl Layout {
         self.state_dir.join(SEARCH_INDEX_DIR)
     }
 
+    pub fn docs_dir(&self) -> Utf8PathBuf {
+        self.state_dir.join(DOCS_DIR)
+    }
+
     pub fn config_file(&self) -> Utf8PathBuf {
         self.state_dir.join(CONFIG_FILE)
     }
 
     pub fn rules_file(&self) -> Utf8PathBuf {
         self.state_dir.join(RULES_FILE)
+    }
+
+    pub fn pid_file(&self) -> Utf8PathBuf {
+        self.state_subdir().join("viz-server.pid")
     }
 
     pub fn ensure_state_dir(&self) -> Result<()> {
@@ -59,10 +68,11 @@ impl Layout {
         self.ensure_dir(&self.reports_dir())?;
         self.ensure_dir(&self.state_subdir())?;
         self.ensure_dir(&self.search_index_dir())?;
+        self.ensure_dir(&self.docs_dir())?;
         Ok(())
     }
 
-    fn ensure_dir(&self, path: &Utf8Path) -> Result<()> {
+    pub fn ensure_dir(&self, path: &Utf8Path) -> Result<()> {
         if !path.exists() {
             fs::create_dir_all(path).map_err(|e| StateError::MkdirFailed {
                 path: path.to_string(),

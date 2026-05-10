@@ -33,7 +33,9 @@ pub struct CommandStats {
     pub failures: i64,
 }
 
-pub fn extract_dataset(conn: &Connection) -> Result<HashMap<String, CommandStats>, ProbabilityError> {
+pub fn extract_dataset(
+    conn: &Connection,
+) -> Result<HashMap<String, CommandStats>, ProbabilityError> {
     let total_runs: i64 = conn
         .query_row(
             "SELECT COUNT(DISTINCT diff_embedding_id) FROM test_outcome_history",
@@ -77,7 +79,13 @@ pub fn extract_dataset(conn: &Connection) -> Result<HashMap<String, CommandStats
             let test_file: String = row.get(0)?;
             let runs: i64 = row.get(1)?;
             let fails: i64 = row.get(2)?;
-            Ok((test_file, CommandStats { total_runs: runs, failures: fails }))
+            Ok((
+                test_file,
+                CommandStats {
+                    total_runs: runs,
+                    failures: fails,
+                },
+            ))
         })
         .map_err(|e| ProbabilityError::DatabaseError(e.to_string()))?;
 
@@ -92,7 +100,7 @@ pub fn extract_dataset(conn: &Connection) -> Result<HashMap<String, CommandStats
 pub fn calculate_probabilities(dataset: &HashMap<String, CommandStats>) -> HashMap<String, f64> {
     let alpha = 1.0;
     let num_classes = 2.0;
-    
+
     let mut probs = HashMap::new();
     for (cmd, stats) in dataset {
         let p = (stats.failures as f64 + alpha) / (stats.total_runs as f64 + alpha * num_classes);
@@ -191,15 +199,27 @@ mod tests {
     #[test]
     fn test_calculate_probabilities() {
         let mut dataset = HashMap::new();
-        dataset.insert("cmd_a".to_string(), CommandStats { total_runs: 10, failures: 2 });
-        dataset.insert("cmd_b".to_string(), CommandStats { total_runs: 2, failures: 2 });
-        
+        dataset.insert(
+            "cmd_a".to_string(),
+            CommandStats {
+                total_runs: 10,
+                failures: 2,
+            },
+        );
+        dataset.insert(
+            "cmd_b".to_string(),
+            CommandStats {
+                total_runs: 2,
+                failures: 2,
+            },
+        );
+
         let probs = calculate_probabilities(&dataset);
-        
+
         // Laplace smoothing: P = (failures + 1) / (runs + 2)
         // cmd_a: (2 + 1) / (10 + 2) = 3 / 12 = 0.25
         assert!((probs["cmd_a"] - 0.25).abs() < 1e-6);
-        
+
         // cmd_b: (2 + 1) / (2 + 2) = 3 / 4 = 0.75
         assert!((probs["cmd_b"] - 0.75).abs() < 1e-6);
     }

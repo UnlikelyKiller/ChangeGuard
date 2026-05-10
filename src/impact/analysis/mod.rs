@@ -1,3 +1,5 @@
+pub mod dead_code;
+
 use crate::impact::packet::ImpactPacket;
 use crate::policy::rules::Rules;
 use miette::Result;

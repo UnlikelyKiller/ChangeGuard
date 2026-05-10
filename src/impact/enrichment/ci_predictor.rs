@@ -22,7 +22,7 @@ impl EnrichmentProvider for CIPredictorProvider {
         }
 
         let conn = context.storage.get_connection();
-        
+
         let similar_outcomes = match query_similar_ci_outcomes(
             conn,
             &context.config.local_model,
