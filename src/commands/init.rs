@@ -1,5 +1,5 @@
 use crate::config::ConfigError;
-use crate::config::defaults::DEFAULT_CONFIG;
+use crate::config::defaults::default_config_contents;
 use crate::git::ignore::add_to_gitignore;
 use crate::policy::defaults::DEFAULT_RULES;
 use crate::state::layout::Layout;
@@ -10,7 +10,7 @@ use std::io::Write as IoWrite;
 use tracing::info;
 
 const HOOK_MARKER: &str = "# changeguard-ledger-gate";
-const HOOK_BLOCK: &str = "\
+const HOOK_BLOCK_TEMPLATE: &str = "\
 # changeguard-ledger-gate: auto-installed by `changeguard init`
 if command -v changeguard &>/dev/null; then
     if ! changeguard ledger status --compact --exit-code 2>/dev/null; then
@@ -19,13 +19,13 @@ if command -v changeguard &>/dev/null; then
         echo \"    Pending tx:  changeguard ledger commit <tx-id> --summary '...' --reason '...'\"
         echo \"    Drift:       changeguard ledger reconcile --all --reason '...'\"
         echo \"\"
-        echo \"  Bypass (not recommended): git push --no-verify\"
+        echo \"  Bypass (not recommended): {bypass_command}\"
         exit 1
     fi
 fi
 ";
 
-fn install_pre_push_hook(root: &Utf8PathBuf) -> Result<bool> {
+fn install_git_hook(root: &Utf8PathBuf, hook_name: &str, bypass_command: &str) -> Result<bool> {
     let git_dir = root.join(".git");
     if !git_dir.exists() {
         return Ok(false);
@@ -34,7 +34,8 @@ fn install_pre_push_hook(root: &Utf8PathBuf) -> Result<bool> {
     let hooks_dir = git_dir.join("hooks");
     fs::create_dir_all(&hooks_dir).into_diagnostic()?;
 
-    let hook_path = hooks_dir.join("pre-push");
+    let hook_path = hooks_dir.join(hook_name);
+    let hook_block = HOOK_BLOCK_TEMPLATE.replace("{bypass_command}", bypass_command);
 
     // Idempotent: skip if our block is already present
     if hook_path.exists() {
@@ -47,11 +48,11 @@ fn install_pre_push_hook(root: &Utf8PathBuf) -> Result<bool> {
             .append(true)
             .open(&hook_path)
             .into_diagnostic()?;
-        let block = format!("\n{}\n", HOOK_BLOCK);
+        let block = format!("\n{}\n", hook_block);
         file.write_all(block.as_bytes()).into_diagnostic()?;
     } else {
         // Create new hook with shebang
-        let content = format!("#!/usr/bin/env bash\n\n{}\n", HOOK_BLOCK);
+        let content = format!("#!/usr/bin/env bash\n\n{}\n", hook_block);
         fs::write(&hook_path, content).into_diagnostic()?;
         // Set executable bit on Unix; no-op on Windows
         #[cfg(unix)]
@@ -64,6 +65,20 @@ fn install_pre_push_hook(root: &Utf8PathBuf) -> Result<bool> {
     }
 
     Ok(true)
+}
+
+fn install_ledger_gate_hooks(root: &Utf8PathBuf) -> Result<Vec<&'static str>> {
+    let mut installed = Vec::new();
+
+    if install_git_hook(root, "pre-commit", "git commit --no-verify")? {
+        installed.push("pre-commit");
+    }
+
+    if install_git_hook(root, "pre-push", "git push --no-verify")? {
+        installed.push("pre-push");
+    }
+
+    Ok(installed)
 }
 
 pub fn execute_init(no_gitignore: bool) -> Result<()> {
@@ -97,7 +112,8 @@ pub fn execute_init(no_gitignore: bool) -> Result<()> {
     // 3. Generate starter configurations
     let config_path = layout.config_file();
     if !config_path.exists() {
-        fs::write(&config_path, DEFAULT_CONFIG).map_err(|e| ConfigError::WriteFailed {
+        let config_contents = default_config_contents()?;
+        fs::write(&config_path, config_contents).map_err(|e| ConfigError::WriteFailed {
             path: config_path.to_string(),
             source: e,
         })?;
@@ -121,11 +137,16 @@ pub fn execute_init(no_gitignore: bool) -> Result<()> {
         }
     }
 
-    // 5. Install pre-push ledger gate hook
-    match install_pre_push_hook(&root) {
-        Ok(true) => println!("Installed pre-push ledger gate hook."),
-        Ok(false) => {}
-        Err(e) => eprintln!("Warning: could not install pre-push hook: {e}"),
+    // 5. Install Git ledger gate hooks
+    match install_ledger_gate_hooks(&root) {
+        Ok(installed) if !installed.is_empty() => {
+            println!(
+                "Installed ChangeGuard ledger gate hooks: {}.",
+                installed.join(", ")
+            );
+        }
+        Ok(_) => {}
+        Err(e) => eprintln!("Warning: could not install Git ledger gate hooks: {e}"),
     }
 
     info!("ChangeGuard initialized successfully!");

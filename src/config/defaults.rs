@@ -1,3 +1,7 @@
+use crate::config::ConfigError;
+use camino::Utf8PathBuf;
+use std::fs;
+
 pub const DEFAULT_CONFIG: &str = r#"[core]
 strict = false
 auto_fix = false
@@ -40,3 +44,30 @@ deep_model = "gemini-3.1-pro-preview"
 timeout_secs = 120
 context_window = 128000
 "#;
+
+pub const DEFAULT_CONFIG_TEMPLATE_ENV: &str = "CHANGEGUARD_DEFAULT_CONFIG";
+pub const USER_DEFAULT_CONFIG_FILE: &str = "default-config.toml";
+
+pub fn default_config_contents() -> Result<String, ConfigError> {
+    if let Some(path) = default_config_template_path()
+        && path.exists()
+    {
+        return fs::read_to_string(path.as_std_path()).map_err(|source| ConfigError::ReadFailed {
+            path: path.to_string(),
+            source,
+        });
+    }
+
+    Ok(DEFAULT_CONFIG.to_string())
+}
+
+fn default_config_template_path() -> Option<Utf8PathBuf> {
+    if let Some(path) = std::env::var_os(DEFAULT_CONFIG_TEMPLATE_ENV) {
+        return Utf8PathBuf::from_path_buf(path.into()).ok();
+    }
+
+    let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"))?;
+    Utf8PathBuf::from_path_buf(home.into())
+        .ok()
+        .map(|home| home.join(".changeguard").join(USER_DEFAULT_CONFIG_FILE))
+}

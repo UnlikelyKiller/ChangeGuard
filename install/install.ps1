@@ -75,6 +75,79 @@ function Install-FromCargo {
     }
 }
 
+function Install-DefaultConfig {
+    $configDir = Join-Path $HOME ".changeguard"
+    $defaultConfig = Join-Path $configDir "default-config.toml"
+
+    New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+
+    if (Test-Path $defaultConfig) {
+        Write-Step "Default init config already exists at $defaultConfig"
+        return
+    }
+
+    $checkoutConfig = Join-Path (Get-Location) ".changeguard\config.toml"
+    $exampleConfig = Join-Path (Get-Location) "docs\examples\config.toml"
+
+    if (Test-Path $checkoutConfig) {
+        Copy-Item -Path $checkoutConfig -Destination $defaultConfig -Force
+        Write-Step "Seeded default init config from current checkout: $defaultConfig"
+        return
+    }
+
+    if (Test-Path $exampleConfig) {
+        Copy-Item -Path $exampleConfig -Destination $defaultConfig -Force
+        Write-Step "Seeded default init config from docs example: $defaultConfig"
+        return
+    }
+
+    @'
+[core]
+strict = false
+auto_fix = false
+
+[watch]
+debounce_ms = 1000
+ignore_patterns = ["target/**", ".git/**", "node_modules/**"]
+
+[temporal]
+max_commits = 1000
+max_files_per_commit = 50
+coupling_threshold = 0.75
+min_shared_commits = 3
+min_revisions = 5
+decay_half_life = 100
+
+[hotspots]
+max_commits = 500
+limit = 10
+
+# [verify]
+# default_timeout_secs = 300
+# Steps to run when `changeguard verify` is invoked without -c.
+# Each step has a description, command, and optional timeout_secs (defaults to 300).
+# [[verify.steps]]
+# description = "Run project tests"
+# command = "cargo test -j 1 -- --test-threads=1"
+# timeout_secs = 300
+# [[verify.steps]]
+# description = "Check formatting"
+# command = "cargo fmt --check"
+
+[gemini]
+# Prefer GEMINI_API_KEY in the environment or local .env.
+# api_key = "..."
+# Optional override for every ask mode:
+# model = "gemini-3.1-pro-preview"
+fast_model = "gemini-3.1-flash-lite-preview"
+deep_model = "gemini-3.1-pro-preview"
+timeout_secs = 120
+context_window = 128000
+'@ | Set-Content -Path $defaultConfig -Encoding UTF8
+
+    Write-Step "Seeded starter default init config: $defaultConfig"
+}
+
 $binDir = Join-Path $InstallDir "bin"
 New-Item -ItemType Directory -Force -Path $binDir | Out-Null
 
@@ -90,6 +163,8 @@ if ($BuildFromSource) {
     }
 }
 
+Install-DefaultConfig
+
 if (-not $NoPathUpdate) {
     Add-UserPath $binDir
 }
@@ -104,3 +179,4 @@ Write-Step "Verifying installation"
 
 Write-Host ""
 Write-Host "ChangeGuard installed. AI agents can now run: changeguard doctor"
+Write-Host "Default init config: $HOME\.changeguard\default-config.toml"

@@ -78,6 +78,76 @@ install_from_cargo() {
   fi
 }
 
+install_default_config() {
+  config_dir="$HOME/.changeguard"
+  default_config="$config_dir/default-config.toml"
+
+  mkdir -p "$config_dir"
+
+  if [ -f "$default_config" ]; then
+    step "Default init config already exists at $default_config"
+    return
+  fi
+
+  if [ -f ".changeguard/config.toml" ]; then
+    cp ".changeguard/config.toml" "$default_config"
+    step "Seeded default init config from current checkout: $default_config"
+    return
+  fi
+
+  if [ -f "docs/examples/config.toml" ]; then
+    cp "docs/examples/config.toml" "$default_config"
+    step "Seeded default init config from docs example: $default_config"
+    return
+  fi
+
+  cat > "$default_config" <<'EOF'
+[core]
+strict = false
+auto_fix = false
+
+[watch]
+debounce_ms = 1000
+ignore_patterns = ["target/**", ".git/**", "node_modules/**"]
+
+[temporal]
+max_commits = 1000
+max_files_per_commit = 50
+coupling_threshold = 0.75
+min_shared_commits = 3
+min_revisions = 5
+decay_half_life = 100
+
+[hotspots]
+max_commits = 500
+limit = 10
+
+# [verify]
+# default_timeout_secs = 300
+# Steps to run when `changeguard verify` is invoked without -c.
+# Each step has a description, command, and optional timeout_secs (defaults to 300).
+# [[verify.steps]]
+# description = "Run project tests"
+# command = "cargo test -j 1 -- --test-threads=1"
+# timeout_secs = 300
+# [[verify.steps]]
+# description = "Check formatting"
+# command = "cargo fmt --check"
+
+[gemini]
+# Prefer GEMINI_API_KEY in the environment or local .env.
+# api_key = "..."
+# Optional override for every ask mode:
+# model = "gemini-3.1-pro-preview"
+fast_model = "gemini-3.1-flash-lite-preview"
+deep_model = "gemini-3.1-pro-preview"
+timeout_secs = 120
+context_window = 128000
+EOF
+
+  step "Seeded starter default init config: $default_config"
+}
+
 if [ "$BUILD_FROM_SOURCE" = "1" ]; then
   install_from_cargo
 else
@@ -86,6 +156,8 @@ else
     install_from_cargo
   fi
 fi
+
+install_default_config
 
 if [ "$NO_PATH_UPDATE" != "1" ]; then
   case ":$PATH:" in
@@ -116,3 +188,4 @@ step "Verifying installation"
 "$INSTALL_DIR/bin/changeguard" --help | sed -n '1,5p'
 
 printf '\nChangeGuard installed. AI agents can now run: changeguard doctor\n'
+printf 'Default init config: %s\n' "$HOME/.changeguard/default-config.toml"

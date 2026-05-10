@@ -104,6 +104,18 @@ If an AI agent is asked to use ChangeGuard in a repository, it should:
    changeguard verify
    ```
 
+## Default Init Template
+
+The installers seed a user-level default config template at:
+
+```text
+~/.changeguard/default-config.toml
+```
+
+When `changeguard init` creates a new repository config, it uses that template if
+present. Set `CHANGEGUARD_DEFAULT_CONFIG` to point at another template for
+one-off initialization.
+
 ## Release Assets
 
 Tagged releases publish these binary assets:
