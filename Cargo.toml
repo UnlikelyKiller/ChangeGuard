@@ -30,7 +30,7 @@ rusqlite = { version = "0.39.0", features = ["bundled"] }
 rusqlite_migration = "2.5.0"
 
 uuid = { version = "1.23", features = ["v4", "serde"] }
-gix = "0.81.0"
+gix = "0.83.0"
 
 regex = "1.12"
 regex-syntax = "0.8"
