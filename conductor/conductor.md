@@ -428,6 +428,13 @@
     *   Goal: Build a local WebSocket server to push real-time graph deltas to an interactive Arc Diagram visualization.
     *   Key additions: `src/commands/viz_server.rs`, D3.js Arc Diagram template.
 
+*   **Track 53-1: Storage Infrastructure Stabilization (CozoDB Fork Integration)**
+    *   Status: Completed
+    *   Spec: `conductor/track53-1/spec.md`
+    *   Plan: `conductor/track53-1/plan.md`
+    *   Goal: Stabilize the Knowledge Graph storage by migrating to a dedicated CozoDB fork and resolving platform-specific path-handling and query concurrency issues.
+    *   Key additions: `UnlikelyKiller/cozo-redux` dependency (Git), `sled` backend centralization, parameterized Cozo scripts, UTF-8 path normalization in `IncrementalSyncEngine`, 384-dimension runtime fallback.
+
 ## Workflow
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.
