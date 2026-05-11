@@ -18,6 +18,7 @@ pub mod ledger_stack;
 pub mod reset;
 pub mod scan;
 pub mod search;
+pub mod update;
 pub mod verify;
 pub mod viz;
 #[cfg(feature = "viz-server")]

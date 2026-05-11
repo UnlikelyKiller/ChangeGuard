@@ -224,6 +224,18 @@ pub enum Commands {
         #[arg(long, short)]
         output: Option<std::path::PathBuf>,
     },
+    /// Update ChangeGuard binary or migrate repository state
+    Update {
+        /// Perform repository state migration (re-index and schema upgrade)
+        #[arg(long, short)]
+        migrate: bool,
+        /// Update the ChangeGuard binary (runs cargo install --path .)
+        #[arg(long, short)]
+        binary: bool,
+        /// Force update without confirmation
+        #[arg(long, short)]
+        force: bool,
+    },
     /// Start a live WebSocket viz server with an Arc Diagram
     #[cfg(feature = "viz-server")]
     VizServer {
@@ -676,5 +688,10 @@ pub fn run() -> Result<()> {
             open,
             stop,
         } => crate::commands::viz_server::execute_viz_server(port, bind, open, stop),
+        Commands::Update {
+            migrate,
+            binary,
+            force,
+        } => crate::commands::update::execute_update(migrate, binary, force),
     }
 }
