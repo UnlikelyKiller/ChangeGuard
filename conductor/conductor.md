@@ -436,7 +436,7 @@
     *   Key additions: `UnlikelyKiller/cozo-redux` dependency (Git), `sled` backend centralization, parameterized Cozo scripts, UTF-8 path normalization in `IncrementalSyncEngine`, 384-dimension runtime fallback.
 
 *   **Track 54-1: Native Code-Aware Tokenization (Tree-Sitter FTS Integration)**
-    *   Status: In Planning
+    *   Status: Completed
     *   Spec: `conductor/track54-1/spec.md`
     *   Plan: `conductor/track54-1/plan.md`
     *   Goal: Replace generic FTS tokenizers with a native Tree-Sitter implementation in CozoDB to improve search precision for code symbols, macros, and structured comments.

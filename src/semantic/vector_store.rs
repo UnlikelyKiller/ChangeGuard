@@ -29,6 +29,9 @@ impl<'a> VectorStore<'a> {
                 self.dim
             );
             self.storage.run_script(&hnsw_script)?;
+
+            // --- Track 54-1: FTS Index for Snippets ---
+            self.storage.run_script("::fts create snippet_embedding:fts_idx {fields: [name]}")?;
         }
         Ok(())
     }

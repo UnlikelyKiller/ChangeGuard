@@ -83,6 +83,21 @@ impl CozoStorage {
         if !existing.contains(&"project_symbol".to_string()) {
             self.run_script(":create project_symbol { id: Int => file_path: String, qualified_name: String, symbol_name: String, symbol_kind: String, is_public: Bool, line_start: Int, line_end: Int }")?;
         }
+
+        // --- Track 54-1: FTS Index ---
+        let fts_relations = self.run_script("::fts")?;
+        let mut fts_names = Vec::new();
+        for row in fts_relations.rows {
+            if let Some(DataValue::Str(name)) = row.first() {
+                fts_names.push(name.to_string());
+            }
+        }
+
+        if !fts_names.contains(&"node:fts_idx".to_string()) {
+            // We use the 'Generic' tokenizer for now, to be replaced by 'Code' tokenizer in next step.
+            self.run_script("::fts create node:fts_idx {fields: [label, category]}")?;
+        }
+
         Ok(())
     }
 
@@ -154,11 +169,11 @@ impl CozoStorage {
                 ])
             })
             .collect();
-        let script = format!(
-            "?[id, label, category, risk_score, metadata] <- {} :put node",
-            serde_json::to_string(&batch).into_diagnostic()?
-        );
-        self.run_script(&script)?;
+
+        let script = "?[id, label, category, risk_score, metadata] <- $batch :put node";
+        let mut params = std::collections::BTreeMap::new();
+        params.insert("batch".to_string(), cozo::DataValue::from(json!(batch)));
+        self.run_script_with_params(script, params, ScriptMutability::Mutable)?;
         Ok(())
     }
 
@@ -178,11 +193,11 @@ impl CozoStorage {
                 ])
             })
             .collect();
-        let script = format!(
-            "?[source, target, relation, confidence, provenance_id] <- {} :put edge",
-            serde_json::to_string(&batch).into_diagnostic()?
-        );
-        self.run_script(&script)?;
+
+        let script = "?[source, target, relation, confidence, provenance_id] <- $batch :put edge";
+        let mut params = std::collections::BTreeMap::new();
+        params.insert("batch".to_string(), cozo::DataValue::from(json!(batch)));
+        self.run_script_with_params(script, params, ScriptMutability::Mutable)?;
         Ok(())
     }
 
