@@ -122,11 +122,16 @@ impl IncrementalSyncEngine {
 
             match event.kind {
                 WatchEventKind::Create | WatchEventKind::Modify => {
-                    if !event.path.exists() {
-                        warn!("File no longer exists, skipping: {}", event.path);
+                    let full_path = if event.path.is_absolute() {
+                        event.path.clone()
+                    } else {
+                        self.repo_path.join(&relative)
+                    };
+
+                    if !full_path.exists() {
+                        warn!("File no longer exists, skipping: {}", full_path);
                         continue;
                     }
-                    let full_path = self.repo_path.join(&relative);
                     match self.indexer.index_file_with_edges(&full_path) {
                         Ok((pf, ps, calls)) => {
                             if pf.parse_status == "PARSE_FAILED" {

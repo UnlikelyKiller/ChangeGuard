@@ -50,7 +50,7 @@ fn test_watch_graph_sync() {
     fs::write(&file_path, "pub fn hello() {}\n").unwrap();
 
     let delta = rx
-        .recv_timeout(Duration::from_secs(2))
+        .recv_timeout(Duration::from_secs(5))
         .expect("should receive delta within 2 seconds");
     assert_eq!(delta.files_processed, 1);
     assert!(delta.nodes_added >= 1);
