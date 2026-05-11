@@ -19,13 +19,13 @@ impl<'a> VectorStore<'a> {
         let relations = self.storage.get_relations()?;
         if !relations.contains(&"snippet_embedding".to_string()) {
             let script = format!(
-                ":create snippet_embedding {{ file_path: String, name: String, offset: Int => embedding: <F32; {}> }}",
+                ":create snippet_embedding {{file_path,name,line_offset=>embedding:<F32; {}>}}",
                 self.dim
             );
             self.storage.run_script(&script)?;
 
             let hnsw_script = format!(
-                "::hnsw create snippet_embedding:snippet_idx {{ dim: {}, fields: [embedding], distance: Cosine }}",
+                "::hnsw create snippet_embedding:snippet_idx {{dim:{},fields:[embedding],distance:Cosine,m:16,ef_construction:200}}",
                 self.dim
             );
             self.storage.run_script(&hnsw_script)?;
@@ -38,29 +38,29 @@ impl<'a> VectorStore<'a> {
             return Err(miette!("Mismatch between chunks and embeddings length"));
         }
 
-        let mut rows = Vec::new();
+        use std::collections::BTreeMap;
+        use cozo::ScriptMutability;
+
+        let mut data_rows = Vec::new();
         for (chunk, embedding) in chunks.into_iter().zip(embeddings) {
-            let embedding_json = serde_json::to_string(&embedding).into_diagnostic()?;
-            let row = format!(
-                "['{}', '{}', {}, <F32; {}> {}]",
-                chunk.file_path.replace("'", "''"),
-                chunk.name.replace("'", "''"),
-                chunk.offset,
-                self.dim,
-                embedding_json
-            );
-            rows.push(row);
+            let row = vec![
+                DataValue::from(chunk.file_path),
+                DataValue::from(chunk.name),
+                DataValue::from(chunk.offset as i64),
+                DataValue::Vec(Box::new(cozo::Vector::F32(embedding.into()))),
+            ];
+            data_rows.push(DataValue::from(row));
         }
 
-        if rows.is_empty() {
+        if data_rows.is_empty() {
             return Ok(());
         }
 
-        let script = format!(
-            "?[file_path, name, offset, embedding] <- [{}] :put snippet_embedding",
-            rows.join(", ")
-        );
-        self.storage.run_script(&script)?;
+        let mut params = BTreeMap::new();
+        params.insert("data".to_string(), DataValue::from(data_rows));
+
+        let script = "?[file_path, name, line_offset, embedding] <- $data :put snippet_embedding";
+        self.storage.run_script_with_params(script, params, ScriptMutability::Mutable)?;
         Ok(())
     }
 
@@ -69,12 +69,17 @@ impl<'a> VectorStore<'a> {
         query_vector: Vec<f32>,
         k: usize,
     ) -> Result<Vec<(String, String, usize, f32)>> {
-        let query_vec_json = serde_json::to_string(&query_vector).into_diagnostic()?;
+        use std::collections::BTreeMap;
+        use cozo::ScriptMutability;
+
+        let mut params = BTreeMap::new();
+        params.insert("query_vec".to_string(), DataValue::Vec(Box::new(cozo::Vector::F32(query_vector.into()))));
+
         let script = format!(
-            "?[file_path, name, offset, dist] := ~snippet_embedding:snippet_idx {{ file_path, name, offset | query: <F32; {}> {}, k: {}, bind_distance: dist }}",
-            self.dim, query_vec_json, k
+            "?[file_path,name,line_offset,dist]:=~snippet_embedding:snippet_idx{{file_path,name,line_offset|query:$query_vec,k:{},ef:100,bind_distance:dist}}",
+            k
         );
-        let res = self.storage.run_script(&script)?;
+        let res = self.storage.run_script_with_params(&script, params, ScriptMutability::Immutable)?;
 
         let mut results = Vec::new();
         for row in res.rows {

@@ -87,8 +87,10 @@ pub fn execute_ask(
 
     if semantic {
         let config = load_config(&layout)?;
-        let cozo_path = layout.state_subdir().join("ledger.cozo");
-        let cozo = crate::state::storage_cozo::CozoStorage::new(cozo_path.as_std_path())?;
+        let cozo = storage
+            .cozo
+            .as_ref()
+            .ok_or_else(|| miette::miette!("CozoDB storage not initialized"))?;
         let semantic_engine =
             crate::semantic::SemanticDiscovery::new(config.local_model.clone(), &cozo)?;
 

@@ -34,6 +34,7 @@ impl CozoStorage {
         } else {
             "sled"
         };
+        info!("CozoStorage selecting engine '{}' for path {:?}", engine, db_path);
 
         let db = DbInstance::new(engine, db_path, Default::default())
             .map_err(|e| miette::miette!("Failed to initialize CozoDB: {:?}", e))?;
@@ -48,6 +49,17 @@ impl CozoStorage {
     pub fn run_script(&self, script: &str) -> Result<NamedRows> {
         self.db
             .run_script(script, Default::default(), ScriptMutability::Mutable)
+            .map_err(|e| miette::miette!("CozoDB script error: {:?}", e))
+    }
+
+    pub fn run_script_with_params(
+        &self,
+        script: &str,
+        params: std::collections::BTreeMap<String, DataValue>,
+        mutability: ScriptMutability,
+    ) -> Result<NamedRows> {
+        self.db
+            .run_script(script, params, mutability)
             .map_err(|e| miette::miette!("CozoDB script error: {:?}", e))
     }
     pub fn setup_schema(&self) -> Result<()> {

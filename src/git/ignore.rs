@@ -40,13 +40,21 @@ pub fn add_to_gitignore(root: &Utf8Path, pattern: &str) -> Result<bool> {
         }
     }
 
-    // Append pattern, trying to respect existing line endings
-    let has_newline = content.ends_with('\n') || content.ends_with('\r');
+    // Append pattern, ensuring it starts on a new line if the file is not empty
     let line_ending = if content.contains("\r\n") {
         "\r\n"
     } else {
         "\n"
     };
+
+    let mut to_append = String::new();
+    if !content.is_empty() && !content.ends_with('\n') && !content.ends_with('\r') {
+        to_append.push_str(line_ending);
+    }
+    to_append.push_str(pattern);
+    if !pattern.ends_with('\n') && !pattern.ends_with('\r') {
+        to_append.push_str(line_ending);
+    }
 
     let mut file = fs::OpenOptions::new()
         .append(true)
@@ -55,12 +63,6 @@ pub fn add_to_gitignore(root: &Utf8Path, pattern: &str) -> Result<bool> {
             path: ignore_path.to_string(),
             source: e,
         })?;
-
-    let to_append = if has_newline {
-        format!("{}{}", pattern, line_ending)
-    } else {
-        format!("{}{}{}", line_ending, pattern, line_ending)
-    };
 
     file.write_all(to_append.as_bytes())
         .map_err(|e| GitError::WriteIgnoreFailed {

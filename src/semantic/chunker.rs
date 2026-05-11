@@ -28,31 +28,46 @@ impl AstChunk {
 
     pub fn split(&self, max_chars: usize, overlap: usize) -> Vec<AstChunk> {
         let embedding_text = self.to_embedding_text();
-        if embedding_text.len() <= max_chars {
+        let chars: Vec<(usize, char)> = embedding_text.char_indices().collect();
+        if chars.len() <= max_chars {
             return vec![self.clone()];
         }
 
         let mut chunks = Vec::new();
-        let mut start = 0;
-        while start < embedding_text.len() {
-            let end = std::cmp::min(start + max_chars, embedding_text.len());
-            let chunk_text = embedding_text[start..end].to_string();
+        let mut start_idx = 0;
+        while start_idx < chars.len() {
+            let end_idx = std::cmp::min(start_idx + max_chars, chars.len());
+            
+            let byte_start = chars[start_idx].0;
+            let byte_end = if end_idx < chars.len() {
+                chars[end_idx].0
+            } else {
+                embedding_text.len()
+            };
+
+            let chunk_text = embedding_text[byte_start..byte_end].to_string();
 
             chunks.push(AstChunk {
                 file_path: self.file_path.clone(),
                 name: self.name.clone(),
                 kind: self.kind.clone(),
                 content: chunk_text,
-                docstring: None, // docstring is already incorporated into content for split chunks
+                docstring: None,
                 range: self.range,
                 lines: self.lines,
-                offset: start,
+                offset: byte_start,
             });
 
-            if end == embedding_text.len() {
+            if end_idx == chars.len() {
                 break;
             }
-            start += max_chars - overlap;
+            
+            let step = if max_chars > overlap {
+                max_chars - overlap
+            } else {
+                1
+            };
+            start_idx += step;
         }
         chunks
     }

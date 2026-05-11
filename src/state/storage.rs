@@ -23,6 +23,7 @@ pub struct StorageManager {
 
 impl StorageManager {
     pub fn init(db_path: &Path) -> Result<Self> {
+        info!("StorageManager::init called with {:?}", db_path);
         let mut conn = Connection::open(db_path).into_diagnostic()?;
 
         conn.execute_batch(

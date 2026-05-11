@@ -449,14 +449,16 @@ fn execute_docs_index(layout: &Layout, storage: StorageManager) -> Result<()> {
 
 fn execute_semantic_index(
     layout: &Layout,
-    _storage: StorageManager,
+    storage: StorageManager,
     config: &crate::config::model::Config,
 ) -> Result<()> {
     use crate::semantic::SemanticDiscovery;
     use crate::state::storage_cozo::CozoStorage;
 
-    let cozo_path = layout.state_subdir().join("ledger.cozo");
-    let cozo = CozoStorage::new(cozo_path.as_std_path())?;
+    let cozo = storage
+        .cozo
+        .as_ref()
+        .ok_or_else(|| miette::miette!("CozoDB storage not initialized"))?;
     let semantic = SemanticDiscovery::new(config.local_model.clone(), &cozo)?;
 
     info!("Indexing repository for semantic search...");
