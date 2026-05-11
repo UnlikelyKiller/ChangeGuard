@@ -435,6 +435,13 @@
     *   Goal: Stabilize the Knowledge Graph storage by migrating to a dedicated CozoDB fork and resolving platform-specific path-handling and query concurrency issues.
     *   Key additions: `UnlikelyKiller/cozo-redux` dependency (Git), `sled` backend centralization, parameterized Cozo scripts, UTF-8 path normalization in `IncrementalSyncEngine`, 384-dimension runtime fallback.
 
+*   **Track 54-1: Native Code-Aware Tokenization (Tree-Sitter FTS Integration)**
+    *   Status: In Planning
+    *   Spec: `conductor/track54-1/spec.md`
+    *   Plan: `conductor/track54-1/plan.md`
+    *   Goal: Replace generic FTS tokenizers with a native Tree-Sitter implementation in CozoDB to improve search precision for code symbols, macros, and structured comments.
+    *   Key additions: `tree-sitter` integration in `cozo-redux` FTS, language-aware tokenization rules, `index --fts-mode code` flag.
+
 ## Workflow
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.
