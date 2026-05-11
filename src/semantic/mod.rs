@@ -4,11 +4,13 @@ pub mod hotspots;
 pub mod vector_store;
 
 use crate::config::model::LocalModelConfig;
+use crate::search::code_tokenizer::{
+    get_go_tokenizer, get_rust_tokenizer, get_typescript_tokenizer,
+};
 use crate::semantic::chunker::AstChunker;
 use crate::semantic::embedder::SemanticEmbedder;
 use crate::semantic::vector_store::VectorStore;
 use crate::state::storage_cozo::CozoStorage;
-use crate::search::code_tokenizer::{get_rust_tokenizer, get_typescript_tokenizer, get_go_tokenizer};
 use miette::Result;
 use std::path::Path;
 
@@ -47,7 +49,7 @@ impl<'a> SemanticDiscovery<'a> {
 
         if let Some(tokens) = tokens {
             // Index tokens in CozoDB FTS (or just use them to enrich the metadata)
-            // For now, we are just implementing the logic. 
+            // For now, we are just implementing the logic.
             // The VectorStore::index_chunks could be updated to accept tokens.
             tracing::info!("Extracted {} tokens from {}", tokens.len(), path.display());
         }

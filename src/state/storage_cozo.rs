@@ -85,17 +85,9 @@ impl CozoStorage {
         }
 
         // --- Track 54-1: FTS Index ---
-        let fts_relations = self.run_script("::fts")?;
-        let mut fts_names = Vec::new();
-        for row in fts_relations.rows {
-            if let Some(DataValue::Str(name)) = row.first() {
-                fts_names.push(name.to_string());
-            }
-        }
-
-        if !fts_names.contains(&"node:fts_idx".to_string()) {
-            // We use the 'Generic' tokenizer for now, to be replaced by 'Code' tokenizer in next step.
-            self.run_script("::fts create node:fts_idx {fields: [label, category]}")?;
+        if !existing.contains(&"node:fts_idx".to_string()) {
+            // We use the 'Simple' tokenizer for now, to be replaced by 'Code' tokenizer in next step.
+            self.run_script("::fts create node:fts_idx {extractor: label, tokenizer: Simple}")?;
         }
 
         Ok(())

@@ -223,7 +223,8 @@ impl SemanticExtractor {
         }
 
         if !edge_batch.is_empty() {
-            let script = "?[source, target, relation, confidence, provenance_id] <- $batch :put edge";
+            let script =
+                "?[source, target, relation, confidence, provenance_id] <- $batch :put edge";
             let mut params = std::collections::BTreeMap::new();
             params.insert(
                 "batch".to_string(),

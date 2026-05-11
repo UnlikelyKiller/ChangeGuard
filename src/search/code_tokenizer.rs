@@ -1,5 +1,5 @@
-use tree_sitter::{Parser, Language};
 use std::collections::HashSet;
+use tree_sitter::{Language, Parser};
 
 pub struct CodeTokenizer {
     language: Language,
@@ -12,7 +12,9 @@ impl CodeTokenizer {
 
     pub fn tokenize(&self, code: &str) -> Vec<String> {
         let mut parser = Parser::new();
-        parser.set_language(&self.language).expect("Error loading grammar");
+        parser
+            .set_language(&self.language)
+            .expect("Error loading grammar");
 
         let tree = parser.parse(code, None).expect("Error parsing code");
         let mut tokens = HashSet::new();
@@ -27,7 +29,11 @@ impl CodeTokenizer {
     fn traverse_nodes(&self, node: tree_sitter::Node, source: &str, tokens: &mut HashSet<String>) {
         // We only care about identifiers and related tokens
         let kind = node.kind();
-        if kind == "identifier" || kind == "type_identifier" || kind == "field_identifier" || kind == "function_item" {
+        if kind == "identifier"
+            || kind == "type_identifier"
+            || kind == "field_identifier"
+            || kind == "function_item"
+        {
             if let Ok(text) = node.utf8_text(source.as_bytes()) {
                 if text.len() > 1 {
                     tokens.insert(text.to_string());

@@ -98,10 +98,27 @@ changeguard ledger atomic <entity> --category <CAT> --summary "Task" --reason "G
 - If KG reachability identifies downstream nodes, inspect them before finalizing.
 - Treat hooks and CI gates as enforcement. Treat this skill as guidance.
 
+## Maintenance & Upgrades
+
+To keep your ChangeGuard environment synchronized with the latest engine features:
+
+```bash
+# Safely migrate repository state (clears indices, preserves ledger)
+changeguard update --migrate --force
+
+# Rebuild indices after migration
+changeguard index --semantic
+```
+
 ## Working On ChangeGuard Itself
 
-After changing ChangeGuard source code, rebuild and reinstall before relying on
-the `changeguard` command:
+After changing ChangeGuard source code, you can use the built-in update command to reinstall the global binary:
+
+```bash
+changeguard update --binary
+```
+
+Alternatively, run manually from the source root:
 
 ```bash
 cargo install --path .
