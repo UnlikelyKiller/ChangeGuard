@@ -17,12 +17,11 @@ pub struct SemanticDiscovery<'a> {
 }
 
 impl<'a> SemanticDiscovery<'a> {
-    pub fn new(config: LocalModelConfig, storage: &'a CozoStorage) -> Result<Self> {
-        let dim = if config.dimensions == 0 {
-            384
-        } else {
-            config.dimensions
-        };
+    pub fn new(mut config: LocalModelConfig, storage: &'a CozoStorage) -> Result<Self> {
+        if config.dimensions == 0 {
+            config.dimensions = 384;
+        }
+        let dim = config.dimensions;
         let embedder = SemanticEmbedder::new(config);
         let vector_store = VectorStore::new(storage, dim)?;
         Ok(Self {

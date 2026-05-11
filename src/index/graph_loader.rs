@@ -87,11 +87,13 @@ pub fn build_native_graph(
     }
 
     if !node_batch.is_empty() {
-        let script = format!(
-            "?[id, label, category, risk_score, metadata] <- {} :put node",
-            serde_json::to_string(&node_batch).into_diagnostic()?
+        let script = "?[id, label, category, risk_score, metadata] <- $batch :put node";
+        let mut params = std::collections::BTreeMap::new();
+        params.insert(
+            "batch".to_string(),
+            cozo::DataValue::from(serde_json::Value::Array(node_batch)),
         );
-        cozo.run_script(&script)?;
+        cozo.run_script_with_params(script, params, cozo::ScriptMutability::Mutable)?;
     }
 
     // --- 3. Read structural_edges → edge relations ---
@@ -138,11 +140,13 @@ pub fn build_native_graph(
     }
 
     if !edge_batch.is_empty() {
-        let script = format!(
-            "?[source, target, relation, confidence, provenance_id] <- {} :put edge",
-            serde_json::to_string(&edge_batch).into_diagnostic()?
+        let script = "?[source, target, relation, confidence, provenance_id] <- $batch :put edge";
+        let mut params = std::collections::BTreeMap::new();
+        params.insert(
+            "batch".to_string(),
+            cozo::DataValue::from(serde_json::Value::Array(edge_batch)),
         );
-        cozo.run_script(&script)?;
+        cozo.run_script_with_params(script, params, cozo::ScriptMutability::Mutable)?;
     }
 
     info!(
