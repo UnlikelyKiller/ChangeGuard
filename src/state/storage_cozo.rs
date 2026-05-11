@@ -34,7 +34,10 @@ impl CozoStorage {
         } else {
             "sled"
         };
-        info!("CozoStorage selecting engine '{}' for path {:?}", engine, db_path);
+        info!(
+            "CozoStorage selecting engine '{}' for path {:?}",
+            engine, db_path
+        );
 
         let db = DbInstance::new(engine, db_path, Default::default())
             .map_err(|e| miette::miette!("Failed to initialize CozoDB: {:?}", e))?;

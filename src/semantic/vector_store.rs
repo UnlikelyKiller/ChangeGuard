@@ -38,8 +38,8 @@ impl<'a> VectorStore<'a> {
             return Err(miette!("Mismatch between chunks and embeddings length"));
         }
 
-        use std::collections::BTreeMap;
         use cozo::ScriptMutability;
+        use std::collections::BTreeMap;
 
         let mut data_rows = Vec::new();
         for (chunk, embedding) in chunks.into_iter().zip(embeddings) {
@@ -60,7 +60,8 @@ impl<'a> VectorStore<'a> {
         params.insert("data".to_string(), DataValue::from(data_rows));
 
         let script = "?[file_path, name, line_offset, embedding] <- $data :put snippet_embedding";
-        self.storage.run_script_with_params(script, params, ScriptMutability::Mutable)?;
+        self.storage
+            .run_script_with_params(script, params, ScriptMutability::Mutable)?;
         Ok(())
     }
 
@@ -69,17 +70,22 @@ impl<'a> VectorStore<'a> {
         query_vector: Vec<f32>,
         k: usize,
     ) -> Result<Vec<(String, String, usize, f32)>> {
-        use std::collections::BTreeMap;
         use cozo::ScriptMutability;
+        use std::collections::BTreeMap;
 
         let mut params = BTreeMap::new();
-        params.insert("query_vec".to_string(), DataValue::Vec(Box::new(cozo::Vector::F32(query_vector.into()))));
+        params.insert(
+            "query_vec".to_string(),
+            DataValue::Vec(Box::new(cozo::Vector::F32(query_vector.into()))),
+        );
 
         let script = format!(
             "?[file_path,name,line_offset,dist]:=~snippet_embedding:snippet_idx{{file_path,name,line_offset|query:$query_vec,k:{},ef:100,bind_distance:dist}}",
             k
         );
-        let res = self.storage.run_script_with_params(&script, params, ScriptMutability::Immutable)?;
+        let res =
+            self.storage
+                .run_script_with_params(&script, params, ScriptMutability::Immutable)?;
 
         let mut results = Vec::new();
         for row in res.rows {

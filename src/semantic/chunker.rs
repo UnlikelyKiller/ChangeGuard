@@ -37,7 +37,7 @@ impl AstChunk {
         let mut start_idx = 0;
         while start_idx < chars.len() {
             let end_idx = std::cmp::min(start_idx + max_chars, chars.len());
-            
+
             let byte_start = chars[start_idx].0;
             let byte_end = if end_idx < chars.len() {
                 chars[end_idx].0
@@ -61,7 +61,7 @@ impl AstChunk {
             if end_idx == chars.len() {
                 break;
             }
-            
+
             let step = if max_chars > overlap {
                 max_chars - overlap
             } else {

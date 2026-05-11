@@ -396,7 +396,7 @@ impl Default for LocalModelConfig {
             embedding_model: String::new(),
             generation_model: String::new(),
             rerank_model: String::new(),
-            dimensions: 384,
+            dimensions: 0,
             context_window: default_context_window_local(),
             timeout_secs: default_local_timeout(),
             prefer_local: false,
