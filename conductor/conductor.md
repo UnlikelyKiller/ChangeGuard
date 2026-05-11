@@ -442,6 +442,13 @@
     *   Goal: Replace generic FTS tokenizers with a native Tree-Sitter implementation in CozoDB to improve search precision for code symbols, macros, and structured comments.
     *   Key additions: `tree-sitter` integration in `cozo-redux` FTS, language-aware tokenization rules, `index --fts-mode code` flag.
 
+*   **Track 55-1: Maintenance & Migration (Update Command)**
+    *   Status: In Planning
+    *   Spec: `conductor/track55-1/spec.md`
+    *   Plan: `conductor/track55-1/plan.md`
+    *   Goal: Implement an `update` command to handle repository-level state migration, schema upgrades, and optional binary self-updating.
+    *   Key additions: `update --migrate` (re-index state), `update --binary` (cargo install), and automated health checks.
+
 ## Workflow
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.

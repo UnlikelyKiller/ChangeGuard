@@ -10,9 +10,9 @@ Use ChangeGuard as the local safety layer and engineering intelligence engine fo
 ## Core Capabilities
 
 - **Search & Discovery**: High-performance regex (Tantivy), precise LSP navigation (SCIP), and conceptual semantic search (local embeddings) with parallel HNSW retrieval.
-- **Knowledge Graph**: Durable, billion-edge relational and vector storage (CozoDB-redux/Sled) for structural and semantic repository intelligence.
+- **Knowledge Graph**: Durable, billion-edge relational and vector storage (CozoDB-redux/Sled) with native code-aware tokenization (Tree-Sitter).
 - **Impact Analysis**: Deep "blast radius" analysis across 20+ specialized providers (Infra, Contracts, Observability, Temporal).
-- **Real-time Sync**: Incremental Knowledge Graph updates and AST re-parsing via the `watch` command.
+- **Real-time Sync**: Incremental Knowledge Graph updates, AST re-parsing, and code-aware symbol indexing via the `watch` command.
 - **Predictable Verification**: Bayesian test reordering and CI failure prediction.
 - **Documentation Generation**: Export Knowledge Graph data to Markdown/Mermaid passive documentation (`index --export-docs`).
 - **Dead Code Detection**: Confidence-based dead code detection blending graph reachability, git activity, and test history (`dead-code` command).
