@@ -4,6 +4,7 @@ yanked = "deny"
 ignore = [
     # Cozo 0.7.6 transitively pins these Sled/graph dependencies and no
     # compatible safe upgrade exists without replacing Cozo storage.
+    "RUSTSEC-2023-0089",
     "RUSTSEC-2024-0384",
     "RUSTSEC-2025-0056",
     "RUSTSEC-2025-0057",

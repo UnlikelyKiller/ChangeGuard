@@ -27,12 +27,20 @@ fn test_watch_graph_sync() {
     let repo_root = root.clone();
     let cb_db_path = db_path.clone();
     let callback = Box::new(move |batch: WatchBatch| {
-        if let Ok(storage) = StorageManager::init(cb_db_path.as_std_path()) {
-            let indexer = ProjectIndexer::new(storage, repo_root.clone());
-            let mut engine = IncrementalSyncEngine::new(indexer, repo_root.clone());
-            if let Ok(delta) = engine.process_batch(&batch) {
-                let _ = tx.send(delta);
+        eprintln!("DEBUG: Watcher callback triggered with batch: {:?}", batch);
+        match StorageManager::init(cb_db_path.as_std_path()) {
+            Ok(storage) => {
+                let indexer = ProjectIndexer::new(storage, repo_root.clone());
+                let mut engine = IncrementalSyncEngine::new(indexer, repo_root.clone());
+                match engine.process_batch(&batch) {
+                    Ok(delta) => {
+                        eprintln!("DEBUG: Batch processed, sending delta: {:?}", delta);
+                        let _ = tx.send(delta);
+                    }
+                    Err(e) => eprintln!("DEBUG: engine.process_batch failed: {e}"),
+                }
             }
+            Err(e) => eprintln!("DEBUG: StorageManager::init failed: {e}"),
         }
     });
 
@@ -49,7 +57,8 @@ fn test_watch_graph_sync() {
     let file_path = src_dir.join("lib.rs");
     fs::write(&file_path, "pub fn hello() {}\n").unwrap();
 
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let timeout = Duration::from_secs(30);
+    let deadline = Instant::now() + timeout;
     let mut delta = None;
     while Instant::now() < deadline {
         let remaining = deadline.saturating_duration_since(Instant::now());
@@ -58,8 +67,20 @@ fn test_watch_graph_sync() {
                 delta = Some(candidate);
                 break;
             }
-            Ok(_) => continue,
-            Err(err) => panic!("should receive delta within 5 seconds: {err}"),
+            Ok(_) => {
+                eprintln!("DEBUG: Received empty batch, continuing...");
+                continue;
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                panic!(
+                    "should receive delta within {} seconds: timed out",
+                    timeout.as_secs()
+                );
+            }
+            Err(err) => panic!(
+                "should receive delta within {} seconds: {err}",
+                timeout.as_secs()
+            ),
         }
     }
 

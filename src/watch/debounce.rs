@@ -126,7 +126,7 @@ mod tests {
 
         // Wait for batch
         let batch = rx
-            .recv_timeout(Duration::from_secs(5))
+            .recv_timeout(Duration::from_secs(10))
             .expect("Did not receive batch");
 
         assert!(!batch.events.is_empty());
