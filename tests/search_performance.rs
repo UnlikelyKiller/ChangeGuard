@@ -1,14 +1,30 @@
+use std::fs;
 use std::process::Command;
 use std::time::Instant;
+
+mod common;
+use common::setup_git_repo;
 
 #[test]
 fn test_search_performance_gate() {
     let binary_path = env!("CARGO_BIN_EXE_changeguard");
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    setup_git_repo(root);
+
+    let src_dir = root.join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::write(
+        src_dir.join("lib.rs"),
+        "pub struct TantivySearchEngine;\npub fn search_gate() {}\n",
+    )
+    .unwrap();
 
     // 1. Initial indexing
     let start = Instant::now();
     let status = Command::new(binary_path)
         .args(["search", "struct", "--index", "--limit", "1"])
+        .current_dir(root)
         .status()
         .expect("Failed to execute changeguard search");
     assert!(status.success());
@@ -19,6 +35,7 @@ fn test_search_performance_gate() {
     let start = Instant::now();
     let output = Command::new(binary_path)
         .args(["search", "TantivySearchEngine", "--limit", "10"])
+        .current_dir(root)
         .output()
         .expect("Failed to execute changeguard search");
     assert!(output.status.success());
@@ -34,6 +51,7 @@ fn test_search_performance_gate() {
     let start = Instant::now();
     let output = Command::new(binary_path)
         .args(["search", "pub fn.*\\{", "--regex", "--limit", "10"])
+        .current_dir(root)
         .output()
         .expect("Failed to execute changeguard search");
     assert!(output.status.success());

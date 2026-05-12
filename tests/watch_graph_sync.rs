@@ -6,7 +6,7 @@ use changeguard::watch::batch::WatchBatch;
 use changeguard::watch::debounce::Watcher;
 use std::fs;
 use std::sync::mpsc::channel;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 mod common;
 use common::setup_git_repo;
@@ -49,9 +49,21 @@ fn test_watch_graph_sync() {
     let file_path = src_dir.join("lib.rs");
     fs::write(&file_path, "pub fn hello() {}\n").unwrap();
 
-    let delta = rx
-        .recv_timeout(Duration::from_secs(5))
-        .expect("should receive delta within 2 seconds");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut delta = None;
+    while Instant::now() < deadline {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        match rx.recv_timeout(remaining) {
+            Ok(candidate) if candidate.files_processed > 0 => {
+                delta = Some(candidate);
+                break;
+            }
+            Ok(_) => continue,
+            Err(err) => panic!("should receive delta within 5 seconds: {err}"),
+        }
+    }
+
+    let delta = delta.expect("should receive a non-empty delta within 5 seconds");
     assert_eq!(delta.files_processed, 1);
     assert!(delta.nodes_added >= 1);
 }

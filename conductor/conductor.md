@@ -458,6 +458,15 @@
     *   Goal: Re-enable the HNSW index for `snippet_embedding` and route the fallback through native cozo-redux distance ops (`cos_dist`, `l2_dist`). Resolves `docs/help2.md`.
     *   Key additions: HNSW index restoration in `vector_store.rs`, Cozo-native `cos_dist` fallback, `CozoStorage::get_indices()`, regression tests in `tests/cozo_vector_ops.rs` and `tests/semantic_search.rs`.
 
+## Milestone H: Dependency Hygiene (In Planning)
+
+*   **Track 57-1: Dependency Alert Remediation**
+    *   Status: Completed
+    *   Spec: `conductor/track57-1/spec.md`
+    *   Plan: `conductor/track57-1/plan.md`
+    *   Goal: Resolve ChangeGuard's `tantivy -> lru` Dependabot alert and consume the CozoDB-redux-owned `swapvec -> lz4_flex` remediation.
+    *   Key additions: Dependency compatibility matrix, Tantivy upgrade, CozoDB-redux `6690fdac` lockfile update, ChangeGuard skill guidance, and verification evidence.
+
 ## Workflow
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.

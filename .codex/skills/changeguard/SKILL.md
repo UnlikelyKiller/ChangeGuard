@@ -77,6 +77,22 @@ If `changeguard verify` fails with "Command not found" or times out while the
 same command passes manually, fix the repo-local config before treating it as a
 code failure.
 
+## Dependency Alert Workflow
+
+For Dependabot or audit findings:
+
+- Identify whether the vulnerable crate is direct or transitive with
+  `cargo tree -i <crate>@<version>`.
+- If the vulnerable crate is transitive through a direct dependency, prefer
+  upgrading the direct dependency over adding a downstream patch.
+- If the vulnerable path enters through a git dependency, verify whether the
+  upstream fix is visible to downstream consumers. Workspace-level
+  `[patch.crates-io]` entries in the dependency repository are not transitive.
+- Record external remediation handoffs in a conductor track when another repo
+  owns the durable fix.
+- After dependency changes, run focused dependency checks plus `changeguard
+  verify`.
+
 ## When To Skip
 
 Skip ChangeGuard only for trivial formatting, simple dependency lockfile updates,

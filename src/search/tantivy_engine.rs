@@ -70,7 +70,7 @@ impl TantivySearchEngine {
         let query = query_parser.parse_query(query_str).into_diagnostic()?;
 
         let top_docs = searcher
-            .search(&query, &TopDocs::with_limit(limit))
+            .search(&query, &TopDocs::with_limit(limit).order_by_score())
             .into_diagnostic()?;
 
         let mut results = Vec::new();
@@ -121,7 +121,7 @@ impl TantivySearchEngine {
 
         let query = BooleanQuery::new(subqueries);
         let top_docs = searcher
-            .search(&query, &TopDocs::with_limit(limit))
+            .search(&query, &TopDocs::with_limit(limit).order_by_score())
             .into_diagnostic()?;
 
         let mut results = Vec::new();
@@ -145,7 +145,7 @@ impl TantivySearchEngine {
         let path_field = self.schema.get_field("path").unwrap();
 
         let top_docs = searcher
-            .search(&AllQuery, &TopDocs::with_limit(limit))
+            .search(&AllQuery, &TopDocs::with_limit(limit).order_by_score())
             .into_diagnostic()?;
 
         let mut results = Vec::new();
