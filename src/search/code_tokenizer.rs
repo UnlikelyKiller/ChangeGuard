@@ -26,6 +26,7 @@ impl CodeTokenizer {
         result
     }
 
+    #[allow(clippy::collapsible_if)]
     fn traverse_nodes(&self, node: tree_sitter::Node, source: &str, tokens: &mut HashSet<String>) {
         // We only care about identifiers and related tokens
         let kind = node.kind();

@@ -453,13 +453,12 @@ fn execute_semantic_index(
     config: &crate::config::model::Config,
 ) -> Result<()> {
     use crate::semantic::SemanticDiscovery;
-    use crate::state::storage_cozo::CozoStorage;
 
     let cozo = storage
         .cozo
         .as_ref()
         .ok_or_else(|| miette::miette!("CozoDB storage not initialized"))?;
-    let semantic = SemanticDiscovery::new(config.local_model.clone(), &cozo)?;
+    let semantic = SemanticDiscovery::new(config.local_model.clone(), cozo)?;
 
     info!("Indexing repository for semantic search...");
 

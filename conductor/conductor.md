@@ -449,6 +449,15 @@
     *   Goal: Implement an `update` command to handle repository-level state migration, schema upgrades, and optional binary self-updating.
     *   Key additions: `update --migrate` (re-index state), `update --binary` (cargo install), and automated health checks.
 
+## Milestone V: Semantic Search Restoration (In Planning)
+
+*   **Track 56-1: Restore Native Semantic Search Path**
+    *   Status: Completed
+    *   Spec: `conductor/track56-1/spec.md`
+    *   Plan: `conductor/track56-1/plan.md`
+    *   Goal: Re-enable the HNSW index for `snippet_embedding` and route the fallback through native cozo-redux distance ops (`cos_dist`, `l2_dist`). Resolves `docs/help2.md`.
+    *   Key additions: HNSW index restoration in `vector_store.rs`, Cozo-native `cos_dist` fallback, `CozoStorage::get_indices()`, regression tests in `tests/cozo_vector_ops.rs` and `tests/semantic_search.rs`.
+
 ## Workflow
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.

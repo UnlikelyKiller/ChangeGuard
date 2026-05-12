@@ -1,6 +1,7 @@
 use miette::Diagnostic;
 use std::io::Read;
 use std::process::{Command, Stdio};
+use std::thread;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use wait_timeout::ChildExt;
@@ -69,10 +70,22 @@ impl ExecutionBoundary {
             Err(e) => return Err(ProcessError::IoError(e)),
         };
 
+        let stdout_reader = child.stdout.take().map(|stdout| {
+            let max_output_bytes = options.max_output_bytes;
+            thread::spawn(move || read_capped(stdout, max_output_bytes))
+        });
+        let stderr_reader = child.stderr.take().map(|stderr| {
+            let max_output_bytes = options.max_output_bytes;
+            thread::spawn(move || read_capped(stderr, max_output_bytes))
+        });
+
         let status = match child.wait_timeout(options.timeout)? {
             Some(status) => status,
             None => {
                 child.kill().ok();
+                child.wait().ok();
+                join_reader(stdout_reader);
+                join_reader(stderr_reader);
                 return Err(ProcessError::Timeout {
                     timeout: options.timeout,
                 });
@@ -81,43 +94,60 @@ impl ExecutionBoundary {
 
         let duration = start.elapsed();
 
-        let mut stdout_str = String::new();
-        let mut stderr_str = String::new();
-        let mut truncated = false;
-
-        if let Some(stdout) = child.stdout.take() {
-            let mut buffer = Vec::new();
-            // Read with limit
-            let n = stdout
-                .take(options.max_output_bytes as u64)
-                .read_to_end(&mut buffer)?;
-            if n >= options.max_output_bytes {
-                truncated = true;
-            }
-            stdout_str = String::from_utf8_lossy(&buffer).to_string();
-        }
-
-        if let Some(stderr) = child.stderr.take() {
-            let mut buffer = Vec::new();
-            let n = stderr
-                .take(options.max_output_bytes as u64)
-                .read_to_end(&mut buffer)?;
-            if n >= options.max_output_bytes {
-                truncated = true;
-            }
-            stderr_str = String::from_utf8_lossy(&buffer).to_string();
-        }
+        let stdout = join_reader(stdout_reader);
+        let stderr = join_reader(stderr_reader);
+        let truncated = stdout.truncated || stderr.truncated;
 
         let exit_code = status.code().unwrap_or(-1);
 
         Ok(ExecutionResult {
             exit_code,
-            stdout: stdout_str,
-            stderr: stderr_str,
+            stdout: stdout.output,
+            stderr: stderr.output,
             duration,
             truncated,
         })
     }
+}
+
+#[derive(Debug, Default)]
+struct CapturedOutput {
+    output: String,
+    truncated: bool,
+}
+
+fn read_capped(mut reader: impl Read, max_output_bytes: usize) -> CapturedOutput {
+    let mut output = Vec::new();
+    let mut truncated = false;
+    let mut buffer = [0_u8; 8192];
+
+    loop {
+        let bytes_read = match reader.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(bytes_read) => bytes_read,
+            Err(_) => break,
+        };
+
+        let remaining = max_output_bytes.saturating_sub(output.len());
+        if remaining > 0 {
+            let bytes_to_store = bytes_read.min(remaining);
+            output.extend_from_slice(&buffer[..bytes_to_store]);
+        }
+        if bytes_read > remaining {
+            truncated = true;
+        }
+    }
+
+    CapturedOutput {
+        output: String::from_utf8_lossy(&output).to_string(),
+        truncated,
+    }
+}
+
+fn join_reader(reader: Option<thread::JoinHandle<CapturedOutput>>) -> CapturedOutput {
+    reader
+        .and_then(|handle| handle.join().ok())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -196,5 +226,34 @@ mod tests {
         {
             assert!(result.stdout.len() <= 1010);
         }
+    }
+
+    #[test]
+    fn test_large_output_does_not_deadlock() {
+        let cmd = if cfg!(target_os = "windows") {
+            let mut c = Command::new("powershell");
+            c.args([
+                "-NoProfile",
+                "-Command",
+                "1..20000 | ForEach-Object { 'A' * 200 }",
+            ]);
+            c
+        } else {
+            let mut c = Command::new("sh");
+            c.args([
+                "-c",
+                "yes AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA | head -n 20000",
+            ]);
+            c
+        };
+        let options = CommandOptions {
+            timeout: Duration::from_secs(10),
+            max_output_bytes: 1024,
+        };
+
+        let result = ExecutionBoundary::execute(cmd, &options).unwrap();
+        assert_eq!(result.exit_code, 0);
+        assert!(result.truncated);
+        assert!(result.stdout.len() <= 1024);
     }
 }

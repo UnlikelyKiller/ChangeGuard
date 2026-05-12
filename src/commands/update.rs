@@ -73,7 +73,11 @@ fn migrate_state(force: bool) -> Result<()> {
 
     if cozo_path.exists() {
         info!("Removing old Knowledge Graph at {:?}", cozo_path);
-        std::fs::remove_file(&cozo_path).into_diagnostic()?;
+        if cozo_path.is_dir() {
+            std::fs::remove_dir_all(&cozo_path).into_diagnostic()?;
+        } else {
+            std::fs::remove_file(&cozo_path).into_diagnostic()?;
+        }
     }
 
     let db_path = state_dir.join("ledger.db");
@@ -84,6 +88,10 @@ fn migrate_state(force: bool) -> Result<()> {
         "{}",
         "State cleared. You should now run 'changeguard index --semantic' to rebuild the indices."
             .green()
+    );
+    println!(
+        "{}",
+        "Note: HNSW snippet index will be rebuilt on next 'changeguard index --semantic'.".cyan()
     );
 
     Ok(())

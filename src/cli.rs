@@ -225,6 +225,7 @@ pub enum Commands {
         output: Option<std::path::PathBuf>,
     },
     /// Update ChangeGuard binary or migrate repository state
+    #[command(visible_alias = "upgrade")]
     Update {
         /// Perform repository state migration (re-index and schema upgrade)
         #[arg(long, short)]

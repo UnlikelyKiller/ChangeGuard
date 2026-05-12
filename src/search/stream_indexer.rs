@@ -106,7 +106,7 @@ impl StreamIndexer {
             if path.is_dir() {
                 if matches!(
                     file_name.as_ref(),
-                    ".git" | ".changeguard" | "target" | "node_modules"
+                    ".git" | ".changeguard" | ".claude" | ".codex" | "target" | "node_modules"
                 ) {
                     continue;
                 }

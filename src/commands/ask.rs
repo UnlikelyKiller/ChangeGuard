@@ -92,7 +92,7 @@ pub fn execute_ask(
             .as_ref()
             .ok_or_else(|| miette::miette!("CozoDB storage not initialized"))?;
         let semantic_engine =
-            crate::semantic::SemanticDiscovery::new(config.local_model.clone(), &cozo)?;
+            crate::semantic::SemanticDiscovery::new(config.local_model.clone(), cozo)?;
 
         let query_str = query
             .clone()

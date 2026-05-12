@@ -59,6 +59,24 @@ ChangeGuard is a **CLI-first** tool and **explicitly rejects MCP/Server/Cloud ar
 7. Report the outcome: impact/risk signals used, verification run, and any
    unresolved pending transactions, drift, or unavailable ChangeGuard command.
 
+## Repository Configuration
+
+ChangeGuard's `.changeguard/rules.toml` and `.changeguard/config.toml` are
+repo-local policy, not portable defaults. When installing or copying this skill
+into another repository, review and update:
+
+- `required_verifications`: use commands that actually exist in that repo
+  rather than aliases such as `lint`, `test`, or `build` unless the repo defines
+  those commands.
+- `verify.default_timeout_secs`: set a timeout that fits the repo's slowest
+  expected verification command.
+- `protected_paths`: keep enforcement scoped to paths that make sense for the
+  repository.
+
+If `changeguard verify` fails with "Command not found" or times out while the
+same command passes manually, fix the repo-local config before treating it as a
+code failure.
+
 ## When To Skip
 
 Skip ChangeGuard only for trivial formatting, simple dependency lockfile updates,

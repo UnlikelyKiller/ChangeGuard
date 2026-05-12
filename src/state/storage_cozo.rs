@@ -1,5 +1,5 @@
 use cozo::*;
-use miette::{IntoDiagnostic, Result};
+use miette::Result;
 use serde_json::json;
 use std::path::Path;
 use tracing::info;
@@ -104,6 +104,20 @@ impl CozoStorage {
         Ok(relations)
     }
 
+    /// Returns the list of indices on a given relation (e.g., HNSW, FTS).
+    /// Uses `::indices <relation>` to avoid blind duplicate creation.
+    pub fn get_indices(&self, relation: &str) -> Result<Vec<String>> {
+        let script = format!("::indices {}", relation);
+        let res = self.run_script(&script)?;
+        let mut indices = Vec::new();
+        for row in res.rows {
+            if let Some(DataValue::Str(name)) = row.first() {
+                indices.push(name.to_string());
+            }
+        }
+        Ok(indices)
+    }
+
     pub fn node_count(&self) -> Result<usize> {
         let res = self.run_script("?[count(id)] := *node{id}")?;
         if let Some(DataValue::Num(Num::Int(n))) = res.rows.first().and_then(|r| r.first()) {
@@ -124,10 +138,11 @@ impl CozoStorage {
         if ids.is_empty() {
             return Ok(());
         }
-        let tuples: Vec<Vec<&str>> = ids.iter().map(|id| vec![id.as_str()]).collect();
-        let id_json = serde_json::to_string(&tuples).into_diagnostic()?;
-        let script = format!("ids[] <- {}\n?[id] := ids[id]\n:rm node {{ id }}", id_json);
-        self.run_script(&script)?;
+        let batch: Vec<Vec<&str>> = ids.iter().map(|id| vec![id.as_str()]).collect();
+        let script = "ids[] <- $batch\n?[id] := ids[id]\n:rm node { id }";
+        let mut params = std::collections::BTreeMap::new();
+        params.insert("batch".to_string(), cozo::DataValue::from(json!(batch)));
+        self.run_script_with_params(script, params, ScriptMutability::Mutable)?;
         Ok(())
     }
 
@@ -135,13 +150,11 @@ impl CozoStorage {
         if source_ids.is_empty() {
             return Ok(());
         }
-        let tuples: Vec<Vec<&str>> = source_ids.iter().map(|id| vec![id.as_str()]).collect();
-        let source_json = serde_json::to_string(&tuples).into_diagnostic()?;
-        let script = format!(
-            "sources[] <- {}\n?[source, target, relation] := *edge{{source, target, relation}}, sources[source]\n:rm edge {{ source, target, relation }}",
-            source_json
-        );
-        self.run_script(&script)?;
+        let batch: Vec<Vec<&str>> = source_ids.iter().map(|id| vec![id.as_str()]).collect();
+        let script = "sources[] <- $batch\n?[source, target, relation] := *edge{source, target, relation}, sources[source]\n:rm edge { source, target, relation }";
+        let mut params = std::collections::BTreeMap::new();
+        params.insert("batch".to_string(), cozo::DataValue::from(json!(batch)));
+        self.run_script_with_params(script, params, ScriptMutability::Mutable)?;
         Ok(())
     }
 
