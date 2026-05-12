@@ -5,7 +5,7 @@ repo{
 }
 
 onboarding{
-  startup:"execute /.agents/workflows/onboarding.md at session start"
+  skill:".agents/skills/onboarding/SKILL.md"
 }
 
 changeguard{
