@@ -52,7 +52,7 @@ fn consistency_embeddings() -> Vec<Vec<f32>> {
 fn hnsw_query_returns_ordered_results() {
     let tmp = tempfile::tempdir().unwrap();
     let storage = sled_cozo(&tmp);
-    let store = VectorStore::new(&storage, 3).unwrap();
+    let store = VectorStore::new(&storage, 3, false).unwrap();
 
     let chunks = vec![
         make_chunk("a.rs", "fn_a", 0, "fn a"),
@@ -100,7 +100,7 @@ fn cos_dist_fallback_when_hnsw_missing() {
 fn hnsw_and_cos_dist_produce_same_ordering() {
     let hnsw_tmp = tempfile::tempdir().unwrap();
     let hnsw_storage = sled_cozo(&hnsw_tmp);
-    let store_hnsw = VectorStore::new(&hnsw_storage, 3).unwrap();
+    let store_hnsw = VectorStore::new(&hnsw_storage, 3, false).unwrap();
     store_hnsw
         .index_chunks(consistency_chunks(), consistency_embeddings())
         .unwrap();

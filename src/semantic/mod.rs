@@ -21,12 +21,25 @@ pub struct SemanticDiscovery<'a> {
 
 impl<'a> SemanticDiscovery<'a> {
     pub fn new(mut config: LocalModelConfig, storage: &'a CozoStorage) -> Result<Self> {
-        if config.dimensions == 0 {
+        if config.dimensions == 0 && !config.base_url.is_empty() {
+            match crate::embed::client::check_local_model(&config) {
+                Ok(dims) if dims.dimensions > 0 => {
+                    tracing::info!("Probed local model: {} dimensions", dims.dimensions);
+                    config.dimensions = dims.dimensions;
+                }
+                _ => {
+                    tracing::warn!("Failed to probe local model dimensions, defaulting to 384");
+                    config.dimensions = 384;
+                }
+            }
+        } else if config.dimensions == 0 {
             config.dimensions = 384;
         }
+
         let dim = config.dimensions;
+        let skip_hnsw = config.disable_hnsw;
         let embedder = SemanticEmbedder::new(config);
-        let vector_store = VectorStore::new(storage, dim)?;
+        let vector_store = VectorStore::new(storage, dim, skip_hnsw)?;
         Ok(Self {
             embedder,
             vector_store,

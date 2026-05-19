@@ -12,11 +12,11 @@ pub struct VectorStore<'a> {
 }
 
 impl<'a> VectorStore<'a> {
-    pub fn new(storage: &'a CozoStorage, dim: usize) -> Result<Self> {
+    pub fn new(storage: &'a CozoStorage, dim: usize, skip_hnsw: bool) -> Result<Self> {
         let store = Self {
             storage,
             dim,
-            skip_hnsw: false,
+            skip_hnsw,
         };
         store.setup_schema()?;
         Ok(store)
@@ -58,15 +58,21 @@ impl<'a> VectorStore<'a> {
             self.storage.run_script(
                 "::fts create snippet_embedding:fts_idx {extractor: name, tokenizer: Simple}",
             )?;
-        } else if !self.skip_hnsw {
-            let indices = self.storage.get_indices("snippet_embedding")?;
-            if !indices.contains(&"snippet_idx".to_string()) {
-                let hnsw_script = format!(
-                    "::hnsw create snippet_embedding:snippet_idx {{dim:{},dtype:F32,fields:[embedding],distance:L2,m:16,ef_construction:200}}",
-                    self.dim
-                );
-                self.storage.run_script(&hnsw_script)?;
-                info!("HNSW index snippet_embedding:snippet_idx created on existing relation");
+        } else {
+            // Verify existing dimension
+            self.storage
+                .verify_embedding_dimension("snippet_embedding", self.dim)?;
+
+            if !self.skip_hnsw {
+                let indices = self.storage.get_indices("snippet_embedding")?;
+                if !indices.contains(&"snippet_idx".to_string()) {
+                    let hnsw_script = format!(
+                        "::hnsw create snippet_embedding:snippet_idx {{dim:{},dtype:F32,fields:[embedding],distance:L2,m:16,ef_construction:200}}",
+                        self.dim
+                    );
+                    self.storage.run_script(&hnsw_script)?;
+                    info!("HNSW index snippet_embedding:snippet_idx created on existing relation");
+                }
             }
         }
         Ok(())

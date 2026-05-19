@@ -14,7 +14,11 @@ impl SemanticEmbedder {
     pub fn embed(&self, text: &str) -> Result<Vec<f32>> {
         match embed_long_text(&self.config, text) {
             Ok(v) => Ok(v),
-            Err(_) => Ok(vec![0.0f32; self.config.dimensions]),
+            Err(_e) if self.config.base_url.is_empty() => {
+                // Return zero vector only if unconfigured
+                Ok(vec![0.0f32; self.config.dimensions])
+            }
+            Err(e) => Err(miette::miette!(e)),
         }
     }
 
@@ -32,10 +36,12 @@ impl SemanticEmbedder {
                     vecs
                 }
                 Ok(vecs) if vecs.len() == chunk.len() => vecs,
-                _ => {
-                    // Return zero vectors if unconfigured or error (for testing)
+                _ if self.config.base_url.is_empty() => {
+                    // Return zero vectors if unconfigured
                     vec![vec![0.0f32; self.config.dimensions]; chunk.len()]
                 }
+                Err(e) => return Err(miette::miette!(e)),
+                _ => return Err(miette::miette!("Unknown embedding error")),
             };
             all_vectors.extend(batch_vectors);
         }

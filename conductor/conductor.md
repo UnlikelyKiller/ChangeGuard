@@ -467,6 +467,57 @@
     *   Goal: Resolve ChangeGuard's `tantivy -> lru` Dependabot alert and consume the CozoDB-redux-owned `swapvec -> lz4_flex` remediation.
     *   Key additions: Dependency compatibility matrix, Tantivy upgrade, CozoDB-redux `6690fdac` lockfile update, ChangeGuard skill guidance, and verification evidence.
 
+## Milestone B: AI-Brains Integration (Planning)
+
+*   **Track B1: BridgeRecord Data Model & Schema**
+    *   Status: Planning
+    *   Spec: `conductor/trackB1/spec.md`
+    *   Plan: `conductor/trackB1/plan.md`
+    *   Goal: Implement the foundational BridgeRecord data model (v0.2) for NDJSON-based communication.
+    *   Key additions: `src/bridge/model.rs`, NDJSON serialization/deserialization logic.
+
+*   **Track B2: bridge export Command**
+    *   Status: Planning
+    *   Spec: `conductor/trackB2/spec.md`
+    *   Plan: `conductor/trackB2/plan.md`
+    *   Goal: Implement `changeguard bridge export` to emit hotspots and ledger deltas as NDJSON.
+    *   Key additions: `src/bridge/export.rs`, `bridge export` CLI subcommand.
+
+*   **Track B3: bridge import Command & Impact Enrichment**
+    *   Status: Planning
+    *   Spec: `conductor/trackB3/spec.md`
+    *   Plan: `conductor/trackB3/plan.md`
+    *   Goal: Implement `changeguard bridge import` and enrich ImpactPacket with AI-Brains insights.
+    *   Key additions: `src/bridge/import.rs`, `ImpactPacket` enrichment, `bridge import` CLI subcommand.
+
+*   **Track B4: bridge query Command**
+    *   Status: Planning
+    *   Spec: `conductor/trackB4/spec.md`
+    *   Plan: `conductor/trackB4/plan.md`
+    *   Goal: Implement `changeguard bridge query` with shell execution fallback for AI-Brains recall.
+    *   Key additions: `src/bridge/client.rs`, `bridge query` CLI subcommand.
+
+*   **Track B5: Named Pipe IPC Integration**
+    *   Status: Planning
+    *   Spec: `conductor/trackB5/spec.md`
+    *   Plan: `conductor/trackB5/plan.md`
+    *   Goal: Implement synchronous Windows Named Pipe client for real-time communication with ai-brainsd.
+    *   Key additions: `src/bridge/ipc.rs`, hang-protected IPC connection logic.
+
+*   **Track B6: Unified Retrieval in Ask**
+    *   Status: Planning
+    *   Spec: `conductor/trackB6/spec.md`
+    *   Plan: `conductor/trackB6/plan.md`
+    *   Goal: Integrate AI-Brains memories into the `changeguard ask` context assembly.
+    *   Key additions: Dual-retrieval logic in `ask` command, context injection.
+
+*   **Track B7: Verification Feedback Loop**
+    *   Status: Planning
+    *   Spec: `conductor/trackB7/spec.md`
+    *   Plan: `conductor/trackB7/plan.md`
+    *   Goal: Push verification outcomes to AI-Brains via IPC.
+    *   Key additions: `src/bridge/notify.rs`, post-verification hooks.
+
 ## Workflow
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.

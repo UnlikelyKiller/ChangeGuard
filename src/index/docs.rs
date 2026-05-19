@@ -199,8 +199,12 @@ pub fn extract_summary(content: &str, max_lines: usize, max_chars: usize) -> Opt
     if result.is_empty() {
         None
     } else if result.len() > max_chars {
-        // Truncate at a word boundary near max_chars
-        let truncated = &result[..max_chars];
+        // Truncate at a character boundary near max_chars
+        let mut end = max_chars;
+        while !result.is_char_boundary(end) {
+            end -= 1;
+        }
+        let truncated = &result[..end];
         if let Some(last_space) = truncated.rfind(' ') {
             Some(format!("{}...", &result[..last_space]))
         } else {

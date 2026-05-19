@@ -17,15 +17,24 @@ pub fn find_semantic_hotspots(storage: &CozoStorage, threshold: f32) -> Result<V
     // Find snippets with high cosine similarity (> threshold).
     // Similarity = 1.0 - Cosine Distance.
     // We use a self-join on snippet_embedding.
+    // Note: snippet_embedding is a key-value relation, so we use {{...}} syntax.
     let script = format!(
         "?[f1, n1, o1, f2, n2, o2, similarity] := 
-            *snippet_embedding{{file_path: f1, name: n1, offset: o1, embedding: v1}},
-            *snippet_embedding{{file_path: f2, name: n2, offset: o2, embedding: v2}},
-            (f1 < f2) or (f1 == f2 and o1 < o2),
-            dist = vec_cosine_distance(v1, v2),
+            *snippet_embedding{{file_path: f1, name: n1, line_offset: o1, embedding: v1}},
+            *snippet_embedding{{file_path: f2, name: n2, line_offset: o2, embedding: v2}},
+            f1 < f2,
+            dist = cos_dist(v1, v2),
             similarity = 1.0 - dist,
-            similarity > {}",
-        threshold
+            similarity > {threshold}
+        ?[f1, n1, o1, f2, n2, o2, similarity] := 
+            *snippet_embedding{{file_path: f1, name: n1, line_offset: o1, embedding: v1}},
+            *snippet_embedding{{file_path: f2, name: n2, line_offset: o2, embedding: v2}},
+            f1 == f2,
+            o1 < o2,
+            dist = cos_dist(v1, v2),
+            similarity = 1.0 - dist,
+            similarity > {threshold}",
+        threshold = threshold
     );
 
     let res = storage.run_script(&script)?;

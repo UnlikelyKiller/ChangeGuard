@@ -1,14 +1,56 @@
+use crate::config::load_config;
 use crate::search::{RegexFilter, StreamIndexer, TantivySearchEngine};
 use crate::state::layout::Layout;
+use crate::state::storage::StorageManager;
 use camino::Utf8PathBuf;
 use miette::{IntoDiagnostic, Result};
+use owo_colors::OwoColorize;
 use std::env;
 use tracing::info;
 
-pub fn execute_search(query: String, regex: bool, limit: usize, index: bool) -> Result<()> {
+pub fn execute_search(
+    query: String,
+    regex: bool,
+    semantic: bool,
+    limit: usize,
+    index: bool,
+) -> Result<()> {
     let root = get_repo_root()?;
     let layout = Layout::new(&root);
     layout.ensure_state_dir()?;
+
+    if semantic {
+        let config = load_config(&layout)?;
+        let db_path = layout.state_subdir().join("ledger.db");
+        let storage = StorageManager::init(db_path.as_std_path())?;
+        let cozo = storage
+            .cozo
+            .as_ref()
+            .ok_or_else(|| miette::miette!("CozoDB storage not initialized"))?;
+
+        let semantic_engine =
+            crate::semantic::SemanticDiscovery::new(config.local_model.clone(), cozo)?;
+
+        info!("Performing semantic search for: {}", query);
+        let results = semantic_engine.query(&query, limit)?;
+
+        if results.is_empty() {
+            println!("No relevant code snippets found.");
+        } else {
+            println!("\n{}", "Semantic Search Results:".bold().cyan());
+            for (path, name, offset, dist) in results {
+                println!(
+                    "- {} ({} at offset {}) [dist: {:.4}]",
+                    name.bold(),
+                    path,
+                    offset,
+                    dist
+                );
+            }
+            println!();
+        }
+        return Ok(());
+    }
 
     let index_path = layout.search_index_dir();
     let engine = TantivySearchEngine::open_or_create(index_path.as_std_path())?;

@@ -46,8 +46,10 @@ pub fn check_local_model(config: &LocalModelConfig) -> Result<Dimensions, String
 }
 
 pub fn embed_long_text(config: &LocalModelConfig, text: &str) -> Result<Vec<f32>, String> {
-    let max_chars = config.context_window * 4;
-    let overlap_chars = 64 * 4;
+    // Cap chunk size to ~500 tokens (2000 chars) to avoid server batch limits.
+    // Even if context_window is larger, many servers have a smaller physical batch size.
+    let max_chars = std::cmp::min(config.context_window * 4, 2000);
+    let overlap_chars = 256;
 
     if text.len() <= max_chars {
         let vectors = embed_batch(
@@ -145,10 +147,17 @@ pub fn embed_batch(
         .map_err(|e| match e {
             ureq::Error::Status(code, response) => {
                 let msg = response.into_string().unwrap_or_default();
-                format!(
-                    "Embedding server returned {code}: {}",
-                    msg.chars().take(200).collect::<String>()
-                )
+                if code == 400 && msg.contains("pooling type none") {
+                    format!(
+                        "Embedding server returned 400: Model is using 'pooling type none'. \
+                         To use embeddings, start llama-server with --embedding or --pooling flags."
+                    )
+                } else {
+                    format!(
+                        "Embedding server returned {code}: {}",
+                        msg.chars().take(200).collect::<String>()
+                    )
+                }
             }
             ureq::Error::Transport(inner) => {
                 format!("Embedding server unreachable: {inner}")
@@ -350,5 +359,21 @@ mod tests {
         let result = embed_batch("http://127.0.0.1:1", "model", &["hello"], 1);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("unreachable"));
+    }
+
+    #[test]
+    fn test_embed_batch_pooling_none_error() {
+        let server = MockServer::start();
+
+        server.mock(|when, then| {
+            when.method(httpmock::Method::POST).path("/v1/embeddings");
+            then.status(400).body("the served model is using pooling type none, which is not compatible with OpenAI embeddings.");
+        });
+
+        let result = embed_batch(&server.base_url(), "test-model", &["hello"], 30);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("pooling type none"));
+        assert!(err.contains("--embedding or --pooling"));
     }
 }

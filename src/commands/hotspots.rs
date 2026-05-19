@@ -13,6 +13,7 @@ pub fn execute_hotspots(
     lang: Option<String>,
     all_parents: bool,
     centrality: bool,
+    semantic: bool,
 ) -> Result<()> {
     let current_dir = env::current_dir().into_diagnostic()?;
     let repo = open_repo(&current_dir)?;
@@ -20,6 +21,52 @@ pub fn execute_hotspots(
 
     let db_path = layout.state_subdir().join("ledger.db");
     let storage = StorageManager::init(db_path.as_std_path())?;
+
+    if semantic {
+        let cozo = storage
+            .cozo
+            .as_ref()
+            .ok_or_else(|| miette::miette!("CozoDB storage not initialized"))?;
+
+        if !json {
+            println!("Analyzing semantic similarity hotspots (duplication)...");
+        }
+
+        let matches = crate::semantic::hotspots::find_semantic_hotspots(cozo, 0.85)?;
+
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&matches).into_diagnostic()?
+            );
+        } else {
+            use owo_colors::OwoColorize;
+            if matches.is_empty() {
+                println!("No significant semantic duplication found.");
+            } else {
+                println!(
+                    "\n{}",
+                    "Semantic Duplication Hotspots (Similarity > 0.85):"
+                        .bold()
+                        .cyan()
+                );
+                for m in matches {
+                    println!(
+                        "- {} ({}:{}) <-> {} ({}:{}) [{:.2}% match]",
+                        m.name1.bold(),
+                        m.file1,
+                        m.offset1,
+                        m.name2.bold(),
+                        m.file2,
+                        m.offset2,
+                        m.similarity * 100.0
+                    );
+                }
+                println!();
+            }
+        }
+        return Ok(());
+    }
 
     if !json {
         println!("Analyzing {} commits for temporal hotspots...", commits);

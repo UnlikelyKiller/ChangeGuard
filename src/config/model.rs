@@ -370,6 +370,8 @@ pub struct LocalModelConfig {
     pub chunk_min_similarity: f32,
     #[serde(default = "default_chunk_dedup_threshold")]
     pub chunk_dedup_threshold: f32,
+    #[serde(default)]
+    pub disable_hnsw: bool,
 }
 
 fn default_context_window_local() -> usize {
@@ -403,6 +405,7 @@ impl Default for LocalModelConfig {
             chunk_top_k: default_chunk_top_k(),
             chunk_min_similarity: default_chunk_min_similarity(),
             chunk_dedup_threshold: default_chunk_dedup_threshold(),
+            disable_hnsw: false,
         }
     }
 }
@@ -834,6 +837,23 @@ fn resolve_local_model_config_with(
         0
     };
 
+    let resolve_bool = |configured: bool, env_var: &str| -> bool {
+        if configured {
+            return true;
+        }
+        if let Some(val) = env_reader(env_var)
+            && let Ok(parsed) = val.trim().to_lowercase().parse::<bool>()
+        {
+            return parsed;
+        }
+        if let Some(val) = dotenv_reader(env_var)
+            && let Ok(parsed) = val.to_lowercase().parse::<bool>()
+        {
+            return parsed;
+        }
+        false
+    };
+
     resolved.base_url = resolve_string(&config.base_url, "CHANGEGUARD_LOCAL_MODEL_URL");
     resolved.embedding_model =
         resolve_string(&config.embedding_model, "CHANGEGUARD_EMBEDDING_MODEL");
@@ -841,6 +861,7 @@ fn resolve_local_model_config_with(
         resolve_string(&config.generation_model, "CHANGEGUARD_GENERATION_MODEL");
     resolved.rerank_model = resolve_string(&config.rerank_model, "CHANGEGUARD_RERANK_MODEL");
     resolved.dimensions = resolve_usize(config.dimensions, "CHANGEGUARD_EMBEDDING_DIMENSIONS");
+    resolved.disable_hnsw = resolve_bool(config.disable_hnsw, "CHANGEGUARD_DISABLE_HNSW");
 
     resolved
 }
@@ -1204,6 +1225,7 @@ mod tests {
             chunk_top_k: 10,
             chunk_min_similarity: 0.3,
             chunk_dedup_threshold: 0.95,
+            disable_hnsw: false,
         };
         let resolved = resolve_local_model_config_with(&raw, &env_reader, &dotenv_reader);
 

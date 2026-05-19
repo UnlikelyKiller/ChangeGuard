@@ -1,4 +1,5 @@
 pub mod ai;
+pub mod bridge;
 pub mod cli;
 pub mod commands;
 pub mod config;

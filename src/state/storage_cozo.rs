@@ -118,6 +118,31 @@ impl CozoStorage {
         Ok(indices)
     }
 
+    /// Verifies that the 'embedding' column in the given relation has the expected dimension.
+    /// Returns an error if the dimension mismatches.
+    pub fn verify_embedding_dimension(&self, relation: &str, expected_dim: usize) -> Result<()> {
+        let script = format!("::columns {}", relation);
+        let res = self.run_script(&script)?;
+        for row in res.rows {
+            if let Some(DataValue::Str(name)) = row.first() {
+                if name == "embedding" {
+                    if let Some(DataValue::Str(typ)) = row.get(1) {
+                        let expected = format!("<F32; {}>", expected_dim);
+                        if typ != &expected {
+                            return Err(miette::miette!(
+                                "Dimension mismatch for relation '{}': expected {}, found {}. You may need to clear your ChangeGuard state with 'changeguard index --semantic --clear'.",
+                                relation,
+                                expected,
+                                typ
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn node_count(&self) -> Result<usize> {
         let res = self.run_script("?[count(id)] := *node{id}")?;
         if let Some(DataValue::Num(Num::Int(n))) = res.rows.first().and_then(|r| r.first()) {

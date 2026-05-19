@@ -145,6 +145,9 @@ pub enum Commands {
         /// Use regex search instead of ranked full-text
         #[arg(long, short)]
         regex: bool,
+        /// Use semantic search for code snippets
+        #[arg(long, short)]
+        semantic: bool,
         /// Maximum number of results to return
         #[arg(long, short, default_value_t = 10)]
         limit: usize,
@@ -175,6 +178,9 @@ pub enum Commands {
         /// Include centrality data (requires prior `index --analyze-graph`)
         #[arg(long)]
         centrality: bool,
+        /// Find semantically similar code clusters (duplication hotspots)
+        #[arg(long, short)]
+        semantic: bool,
     },
     /// Manage federated intelligence across multiple repositories
     Federate {
@@ -546,9 +552,10 @@ pub fn run() -> Result<()> {
         Commands::Search {
             query,
             regex,
+            semantic,
             limit,
             index,
-        } => crate::commands::search::execute_search(query, regex, limit, index),
+        } => crate::commands::search::execute_search(query, regex, semantic, limit, index),
         Commands::Hotspots {
             limit,
             commits,
@@ -557,6 +564,7 @@ pub fn run() -> Result<()> {
             lang,
             all_parents,
             centrality,
+            semantic,
         } => crate::commands::hotspots::execute_hotspots(
             limit,
             commits,
@@ -565,6 +573,7 @@ pub fn run() -> Result<()> {
             lang,
             all_parents,
             centrality,
+            semantic,
         ),
         Commands::Federate { command } => match command {
             FederateCommands::Export => crate::commands::federate::execute_federate_export(),
