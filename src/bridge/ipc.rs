@@ -48,10 +48,10 @@ impl IpcClient {
         // But for IPC, we might need a timeout here too.
 
         let mut line = String::new();
-        if reader.read_line(&mut line).into_diagnostic()? > 0 {
-            if let Ok(record) = deserialize_record(&line) {
-                records.push(record);
-            }
+        if reader.read_line(&mut line).into_diagnostic()? > 0
+            && let Ok(record) = deserialize_record(&line)
+        {
+            records.push(record);
         }
 
         Ok(records)

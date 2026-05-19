@@ -505,7 +505,7 @@
     *   Key additions: `src/bridge/ipc.rs`, hang-protected IPC connection logic.
 
 *   **Track B6: Unified Retrieval in Ask**
-    *   Status: Planning
+    *   Status: Completed
     *   Spec: `conductor/trackB6/spec.md`
     *   Plan: `conductor/trackB6/plan.md`
     *   Goal: Integrate AI-Brains memories into the `changeguard ask` context assembly.

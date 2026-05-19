@@ -408,6 +408,10 @@ pub fn execute_verify(
     }
 
     let report = report.with_suggested_actions(suggestions);
+
+    // Push results to AI-Brains
+    crate::bridge::notify::push_verify_results(&persisted_results);
+
     write_verify_report(&layout, &report)?;
     persist_verify_report(&layout, &report);
 
