@@ -5,6 +5,7 @@ use crate::state::storage::StorageManager;
 use miette::{IntoDiagnostic, Result};
 use std::env;
 
+#[allow(clippy::too_many_arguments)]
 pub fn execute_hotspots(
     limit: usize,
     commits: usize,

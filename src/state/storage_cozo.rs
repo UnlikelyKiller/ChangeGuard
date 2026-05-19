@@ -124,18 +124,19 @@ impl CozoStorage {
         let script = format!("::columns {}", relation);
         let res = self.run_script(&script)?;
         for row in res.rows {
-            if let Some(DataValue::Str(name)) = row.first() {
+            #[allow(clippy::collapsible_if)]
+            if let (Some(DataValue::Str(name)), Some(DataValue::Str(typ))) =
+                (row.first(), row.get(1))
+            {
                 if name == "embedding" {
-                    if let Some(DataValue::Str(typ)) = row.get(1) {
-                        let expected = format!("<F32; {}>", expected_dim);
-                        if typ != &expected {
-                            return Err(miette::miette!(
-                                "Dimension mismatch for relation '{}': expected {}, found {}. You may need to clear your ChangeGuard state with 'changeguard index --semantic --clear'.",
-                                relation,
-                                expected,
-                                typ
-                            ));
-                        }
+                    let expected = format!("<F32; {}>", expected_dim);
+                    if typ != &expected {
+                        return Err(miette::miette!(
+                            "Dimension mismatch for relation '{}': expected {}, found {}. You may need to clear your ChangeGuard state with 'changeguard index --semantic --clear'.",
+                            relation,
+                            expected,
+                            typ
+                        ));
                     }
                 }
             }

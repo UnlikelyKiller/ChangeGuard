@@ -1,3 +1,4 @@
+pub mod client;
 pub mod export;
 pub mod import;
 pub mod model;

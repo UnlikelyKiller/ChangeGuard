@@ -484,7 +484,7 @@
     *   Key additions: `src/bridge/export.rs`, `bridge export` CLI subcommand.
 
 *   **Track B3: bridge import Command & Impact Enrichment**
-    *   Status: Planning
+    *   Status: Completed
     *   Spec: `conductor/trackB3/spec.md`
     *   Plan: `conductor/trackB3/plan.md`
     *   Goal: Implement `changeguard bridge import` and enrich ImpactPacket with AI-Brains insights.

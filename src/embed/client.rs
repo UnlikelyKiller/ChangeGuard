@@ -148,10 +148,9 @@ pub fn embed_batch(
             ureq::Error::Status(code, response) => {
                 let msg = response.into_string().unwrap_or_default();
                 if code == 400 && msg.contains("pooling type none") {
-                    format!(
-                        "Embedding server returned 400: Model is using 'pooling type none'. \
+                    "Embedding server returned 400: Model is using 'pooling type none'. \
                          To use embeddings, start llama-server with --embedding or --pooling flags."
-                    )
+                        .to_string()
                 } else {
                     format!(
                         "Embedding server returned {code}: {}",
