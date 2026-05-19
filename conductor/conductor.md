@@ -498,7 +498,7 @@
     *   Key additions: `src/bridge/client.rs`, `bridge query` CLI subcommand.
 
 *   **Track B5: Named Pipe IPC Integration**
-    *   Status: Planning
+    *   Status: Completed
     *   Spec: `conductor/trackB5/spec.md`
     *   Plan: `conductor/trackB5/plan.md`
     *   Goal: Implement synchronous Windows Named Pipe client for real-time communication with ai-brainsd.

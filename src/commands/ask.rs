@@ -176,6 +176,12 @@ pub fn execute_ask(
         user_prompt = format!("{}\n\n{}", contracts_block, user_prompt);
     }
 
+    // Inject AI-Brains insights if available
+    if !latest_packet.ai_insights.is_empty() {
+        let insights_block = format_ai_insights(&latest_packet.ai_insights);
+        user_prompt = format!("{}\n\n{}", insights_block, user_prompt);
+    }
+
     // Inject relevant doc decisions into the prompt if available (common to both backends)
     if !latest_packet.relevant_decisions.is_empty() {
         let decisions_block = format_relevant_decisions(&latest_packet.relevant_decisions);
@@ -415,7 +421,22 @@ pub fn format_relevant_decisions(decisions: &[RelevantDecision]) -> String {
     out
 }
 
-pub fn format_observability_signals(signals: &[ObservabilitySignal]) -> String {
+pub fn format_ai_insights(insights: &[crate::impact::packet::AiInsight]) -> String {
+    if insights.is_empty() {
+        return String::new();
+    }
+
+    let mut output = String::from("### External AI-Brains Context\n\n");
+    for insight in insights {
+        output.push_str(&format!(
+            "- [{:.2}] {}\n",
+            insight.relevance, insight.content
+        ));
+    }
+    output
+}
+
+fn format_observability_signals(signals: &[ObservabilitySignal]) -> String {
     if signals.is_empty() {
         return String::new();
     }
