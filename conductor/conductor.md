@@ -470,7 +470,7 @@
 ## Milestone B: AI-Brains Integration (Planning)
 
 *   **Track B1: BridgeRecord Data Model & Schema**
-    *   Status: Planning
+    *   Status: Completed
     *   Spec: `conductor/trackB1/spec.md`
     *   Plan: `conductor/trackB1/plan.md`
     *   Goal: Implement the foundational BridgeRecord data model (v0.2) for NDJSON-based communication.

@@ -187,6 +187,11 @@ pub enum Commands {
         #[command(subcommand)]
         command: FederateCommands,
     },
+    /// Bridge to external AI memory vaults (AI-Brains)
+    Bridge {
+        #[command(subcommand)]
+        subcommand: BridgeCommands,
+    },
     /// Manage the ChangeGuard Ledger (transactional provenance)
     Ledger {
         #[command(flatten)]
@@ -258,6 +263,27 @@ pub enum Commands {
         /// Stop a running viz server (reads PID file and terminates process)
         #[arg(long)]
         stop: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum BridgeCommands {
+    /// Export hotspots and ledger deltas to NDJSON
+    Export {
+        /// The output file path
+        #[arg(long, short)]
+        out: String,
+    },
+    /// Import insights and enrich impact packets
+    Import {
+        /// The input file path
+        #[arg(long, short, name = "in")]
+        input: String,
+    },
+    /// Query external memories
+    Query {
+        /// The query string
+        query: String,
     },
 }
 
@@ -580,6 +606,7 @@ pub fn run() -> Result<()> {
             FederateCommands::Scan => crate::commands::federate::execute_federate_scan(),
             FederateCommands::Status => crate::commands::federate::execute_federate_status(),
         },
+        Commands::Bridge { subcommand } => crate::commands::bridge::execute(subcommand),
         Commands::Ledger {
             command,
             global_opts,
