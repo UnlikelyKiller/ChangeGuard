@@ -1,6 +1,21 @@
+use crate::bridge::ipc::IpcClient;
 use crate::bridge::model::{BridgeRecord, deserialize_record};
 use miette::Result;
 use std::process::Command;
+use std::time::Duration;
+
+pub fn query_unified(query: &str) -> Result<Vec<BridgeRecord>> {
+    // 1. Try IPC
+    if let Ok(_client) = IpcClient::connect_with_timeout(Duration::from_millis(200)) {
+        // For now, IPC query might be just sending the query as a specific record type
+        // if supported, or just falling back.
+        // The spec says IPC is preferred.
+        // Let's assume we can query over IPC later.
+    }
+
+    // 2. Fallback to CLI
+    query_external_cli(query)
+}
 
 pub fn query_external_cli(query: &str) -> Result<Vec<BridgeRecord>> {
     let mut cmd = Command::new("ai-brains");

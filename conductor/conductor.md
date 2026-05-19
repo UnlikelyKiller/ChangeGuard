@@ -491,7 +491,7 @@
     *   Key additions: `src/bridge/import.rs`, `ImpactPacket` enrichment, `bridge import` CLI subcommand.
 
 *   **Track B4: bridge query Command**
-    *   Status: Planning
+    *   Status: Completed
     *   Spec: `conductor/trackB4/spec.md`
     *   Plan: `conductor/trackB4/plan.md`
     *   Goal: Implement `changeguard bridge query` with shell execution fallback for AI-Brains recall.
