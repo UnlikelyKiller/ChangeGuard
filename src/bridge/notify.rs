@@ -1,26 +1,12 @@
 use crate::bridge::ipc::IpcClient;
-use crate::bridge::model::BridgeRecord;
-use crate::verify::results::VerificationResult;
+use crate::bridge::model::{BridgeRecord, BridgeVerifyOutcome};
 use std::thread;
 use std::time::Duration;
 
-pub fn push_verify_results(results: &[VerificationResult]) {
+pub fn push_verify_results(results: Vec<BridgeVerifyOutcome>) {
     let records: Vec<BridgeRecord> = results
-        .iter()
-        .map(|res| BridgeRecord::VerifyOutcome {
-            success: res.exit_code == 0,
-            command: res.command.clone(),
-            error_snippet: if res.exit_code != 0 {
-                let err = if !res.stderr_summary.is_empty() {
-                    &res.stderr_summary
-                } else {
-                    &res.stdout_summary
-                };
-                Some(err.chars().take(200).collect::<String>())
-            } else {
-                None
-            },
-        })
+        .into_iter()
+        .map(BridgeRecord::VerifyOutcome)
         .collect();
 
     // Fire and forget in a separate thread to avoid delaying CLI exit

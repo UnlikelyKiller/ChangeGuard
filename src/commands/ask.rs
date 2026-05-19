@@ -127,6 +127,28 @@ pub fn execute_ask(
         miette::miette!("No impact report found. Run 'changeguard impact' first.")
     })?;
 
+    // Integrate external AI-Brains context
+    if let Some(ref q) = query
+        && let Ok(bridge_records) = crate::bridge::client::query_unified(q)
+    {
+        for record in bridge_records {
+            if let crate::bridge::model::BridgeRecord::Insight {
+                memory_id,
+                relevance,
+                content,
+            } = record
+            {
+                latest_packet
+                    .ai_insights
+                    .push(crate::impact::packet::AiInsight {
+                        memory_id,
+                        relevance,
+                        content,
+                    });
+            }
+        }
+    }
+
     if narrative {
         mode = GeminiMode::Narrative;
     }

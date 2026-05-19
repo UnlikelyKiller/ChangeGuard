@@ -512,11 +512,18 @@
     *   Key additions: Dual-retrieval logic in `ask` command, context injection.
 
 *   **Track B7: Verification Feedback Loop**
-    *   Status: Planning
+    *   Status: Completed
     *   Spec: `conductor/trackB7/spec.md`
     *   Plan: `conductor/trackB7/plan.md`
     *   Goal: Push verification outcomes to AI-Brains via IPC.
     *   Key additions: `src/bridge/notify.rs`, post-verification hooks.
+
+*   **Track R-B: Milestone B Remediation**
+    *   Status: In Progress
+    *   Spec: `conductor/trackRB/spec.md`
+    *   Plan: `conductor/trackRB/plan.md`
+    *   Goal: Address Codex findings: hang protection, thread leak prevention, and completed dual-retrieval.
+    *   Key additions: Process timeouts, schema validation, decoupled DTOs.
 
 ## Workflow
 

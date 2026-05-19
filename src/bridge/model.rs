@@ -18,11 +18,15 @@ pub enum BridgeRecord {
         relevance: f64,
         content: String,
     },
-    VerifyOutcome {
-        success: bool,
-        command: String,
-        error_snippet: Option<String>,
-    },
+    VerifyOutcome(BridgeVerifyOutcome),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BridgeVerifyOutcome {
+    pub success: bool,
+    pub command: String,
+    pub error_snippet: Option<String>,
 }
 
 impl BridgeRecord {
@@ -46,6 +50,16 @@ pub fn serialize_record(record: &BridgeRecord) -> Result<String, serde_json::Err
 }
 
 pub fn deserialize_record(json: &str) -> Result<BridgeRecord, serde_json::Error> {
+    let raw: serde_json::Value = serde_json::from_str(json)?;
+    if let Some(version) = raw.get("version").and_then(|v| v.as_str())
+        && version != BridgeRecord::VERSION
+    {
+        tracing::warn!(
+            "Bridge record version mismatch: expected {}, found {}. Attempting best-effort parsing.",
+            BridgeRecord::VERSION,
+            version
+        );
+    }
     // We can deserialize directly into BridgeRecord because it ignores extra fields like "version"
-    serde_json::from_str(json)
+    serde_json::from_value(raw)
 }

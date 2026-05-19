@@ -3,7 +3,7 @@ use std::process::Command;
 #[test]
 fn test_bridge_query_subcommand_exists() {
     let output = Command::new("cargo")
-        .args(&["run", "--", "bridge", "query", "--help"])
+        .args(["run", "--", "bridge", "query", "--help"])
         .output()
         .expect("failed to execute process");
 

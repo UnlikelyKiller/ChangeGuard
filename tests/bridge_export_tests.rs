@@ -5,7 +5,7 @@ use tempfile::tempdir;
 #[test]
 fn test_bridge_export_subcommand_exists() {
     let output = Command::new("cargo")
-        .args(&["run", "--", "bridge", "export", "--help"])
+        .args(["run", "--", "bridge", "export", "--help"])
         .output()
         .expect("failed to execute process");
 
@@ -20,7 +20,7 @@ fn test_bridge_export_file_creation() {
     let out_path = dir.path().join("export.ndjson");
 
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--",
             "bridge",

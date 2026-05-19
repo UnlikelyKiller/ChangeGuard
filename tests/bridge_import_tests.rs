@@ -23,7 +23,7 @@ fn test_bridge_import_enrichment() {
     fs::write(&in_path, insight).unwrap();
 
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--",
             "bridge",

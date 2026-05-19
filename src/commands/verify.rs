@@ -410,7 +410,24 @@ pub fn execute_verify(
     let report = report.with_suggested_actions(suggestions);
 
     // Push results to AI-Brains
-    crate::bridge::notify::push_verify_results(&persisted_results);
+    let bridge_outcomes = persisted_results
+        .iter()
+        .map(|res| crate::bridge::model::BridgeVerifyOutcome {
+            success: res.exit_code == 0,
+            command: res.command.clone(),
+            error_snippet: if res.exit_code != 0 {
+                let err = if !res.stderr_summary.is_empty() {
+                    &res.stderr_summary
+                } else {
+                    &res.stdout_summary
+                };
+                Some(err.chars().take(200).collect::<String>())
+            } else {
+                None
+            },
+        })
+        .collect();
+    crate::bridge::notify::push_verify_results(bridge_outcomes);
 
     write_verify_report(&layout, &report)?;
     persist_verify_report(&layout, &report);

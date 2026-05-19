@@ -35,11 +35,23 @@ pub fn execute_export(out_path: String) -> Result<()> {
     let entries = ledger_db
         .get_all_committed_ledger_entries()
         .into_diagnostic()?;
+
+    let mut tx_groups: std::collections::HashMap<
+        String,
+        (String, std::collections::HashSet<String>),
+    > = std::collections::HashMap::new();
     for entry in entries {
+        let group = tx_groups
+            .entry(entry.tx_id.clone())
+            .or_insert((entry.summary.clone(), std::collections::HashSet::new()));
+        group.1.insert(entry.entity_normalized.clone());
+    }
+
+    for (tx_id, (summary, files)) in tx_groups {
         records.push(BridgeRecord::LedgerDelta {
-            tx_id: entry.tx_id.clone(),
-            intent: entry.summary.clone(),
-            files_changed: 1, // LedgerEntry is per-entity
+            tx_id,
+            intent: summary,
+            files_changed: files.len(),
         });
     }
 

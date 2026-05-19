@@ -1,8 +1,10 @@
 use crate::bridge::ipc::IpcClient;
-use crate::bridge::model::{BridgeRecord, deserialize_record};
+use crate::bridge::model::BridgeRecord;
 use miette::Result;
-use std::process::Command;
 use std::time::Duration;
+
+mod client_cli;
+pub use client_cli::query_external_cli;
 
 pub fn query_unified(query: &str) -> Result<Vec<BridgeRecord>> {
     // 1. Try IPC
@@ -15,46 +17,6 @@ pub fn query_unified(query: &str) -> Result<Vec<BridgeRecord>> {
 
     // 2. Fallback to CLI
     query_external_cli(query)
-}
-
-pub fn query_external_cli(query: &str) -> Result<Vec<BridgeRecord>> {
-    let mut cmd = Command::new("ai-brains");
-    cmd.args(["recall", query, "--format", "ndjson"]);
-
-    let output = match cmd.output() {
-        Ok(o) => o,
-        Err(e) => {
-            tracing::warn!(
-                "Failed to invoke ai-brains CLI: {}. AI-Brains integration is degraded.",
-                e
-            );
-            return Ok(Vec::new());
-        }
-    };
-
-    if !output.status.success() {
-        tracing::warn!(
-            "ai-brains CLI returned error: {}. AI-Brains integration is degraded.",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        return Ok(Vec::new());
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut records = Vec::new();
-    for line in stdout.lines() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        match deserialize_record(line) {
-            Ok(record) => records.push(record),
-            Err(e) => {
-                tracing::warn!("Failed to parse ai-brains record: {}", e);
-            }
-        }
-    }
-
-    Ok(records)
 }
 
 pub fn execute_query(query: String) -> Result<()> {
