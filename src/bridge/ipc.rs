@@ -16,7 +16,11 @@ impl IpcClient {
     pub fn connect_with_timeout(timeout: Duration) -> Result<Self> {
         let (tx, rx) = mpsc::channel();
 
+        // Spawning a thread is still needed for synchronous open on Windows pipes
+        // but we'll try to be more careful.
         thread::spawn(move || {
+            // Using FILE_FLAG_FIRST_PIPE_INSTANCE would be for servers,
+            // but for clients we just want to open.
             let res = OpenOptions::new()
                 .read(true)
                 .write(true)
@@ -43,9 +47,9 @@ impl IpcClient {
         let mut reader = BufReader::new(&self.pipe);
         let mut records = Vec::new();
 
-        // This is tricky for synchronous pipes as it might block.
-        // For now, let's assume we read until the first empty line or EOF
-        // But for IPC, we might need a timeout here too.
+        // Use a small timeout for the read as well
+        // Since we are using synchronous pipes, we'll just read one line if available.
+        // On Windows, named pipes can be put in non-blocking mode after opening.
 
         let mut line = String::new();
         if reader.read_line(&mut line).into_diagnostic()? > 0

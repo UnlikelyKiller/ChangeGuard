@@ -1,5 +1,4 @@
 use changeguard::commands::ask::execute_ask;
-use changeguard::gemini::modes::GeminiMode;
 use changeguard::impact::packet::ImpactPacket;
 use changeguard::state::layout::Layout;
 use changeguard::state::storage::StorageManager;
@@ -19,8 +18,6 @@ fn test_ask_command_no_packet() {
     // Should fail because no .changeguard/state/ledger.db exists
     let result = execute_ask(
         Some("What's up?".into()),
-        false,
-        GeminiMode::Analyze,
         false,
         None,
     );
@@ -44,8 +41,6 @@ fn test_ask_invalid_config_fails_before_query_execution() {
 
     let err = execute_ask(
         Some("What's up?".into()),
-        false,
-        GeminiMode::Analyze,
         false,
         None,
     )

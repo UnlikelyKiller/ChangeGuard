@@ -1,11 +1,11 @@
-use std::fs;
 use std::process::Command;
+use std::fs;
 use tempfile::tempdir;
 
 #[test]
 fn test_bridge_import_subcommand_exists() {
     let output = Command::new("cargo")
-        .args(&["run", "--", "bridge", "import", "--help"])
+        .args(["run", "--", "bridge", "import", "--help"])
         .output()
         .expect("failed to execute process");
 
@@ -18,19 +18,12 @@ fn test_bridge_import_subcommand_exists() {
 fn test_bridge_import_enrichment() {
     let dir = tempdir().unwrap();
     let in_path = dir.path().join("import.ndjson");
-
+    
     let insight = r#"{"type":"Insight","version":"0.2","memory_id":"mem-123","relevance":0.95,"content":"Architecture note: Use trait-based dispatch for bridge providers."}"#;
     fs::write(&in_path, insight).unwrap();
-
+    
     let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "bridge",
-            "import",
-            "--in",
-            in_path.to_str().unwrap(),
-        ])
+        .args(["run", "--", "bridge", "import", "--in", in_path.to_str().unwrap()])
         .output()
         .expect("failed to execute process");
 
@@ -39,7 +32,7 @@ fn test_bridge_import_enrichment() {
         eprintln!("STDERR: {}", String::from_utf8_lossy(&output.stderr));
     }
     assert!(output.status.success());
-
+    
     // ImpactPacket should now be enriched (stored in latest-impact.json)
     let impact_path = std::path::Path::new(".changeguard/reports/latest-impact.json");
     if impact_path.exists() {

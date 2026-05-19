@@ -19,6 +19,9 @@ pub enum BridgeRecord {
         content: String,
     },
     VerifyOutcome(BridgeVerifyOutcome),
+    Query {
+        text: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,15 +54,19 @@ pub fn serialize_record(record: &BridgeRecord) -> Result<String, serde_json::Err
 
 pub fn deserialize_record(json: &str) -> Result<BridgeRecord, serde_json::Error> {
     let raw: serde_json::Value = serde_json::from_str(json)?;
-    if let Some(version) = raw.get("version").and_then(|v| v.as_str())
-        && version != BridgeRecord::VERSION
-    {
-        tracing::warn!(
-            "Bridge record version mismatch: expected {}, found {}. Attempting best-effort parsing.",
+    let version = raw
+        .get("version")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| serde::de::Error::custom("Missing 'version' field in bridge record"))?;
+
+    if version != BridgeRecord::VERSION {
+        return Err(serde::de::Error::custom(format!(
+            "Bridge record version mismatch: expected {}, found {}",
             BridgeRecord::VERSION,
             version
-        );
+        )));
     }
+
     // We can deserialize directly into BridgeRecord because it ignores extra fields like "version"
     serde_json::from_value(raw)
 }

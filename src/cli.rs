@@ -1,3 +1,4 @@
+use crate::commands::ask::Backend;
 use clap::{Args, Parser, Subcommand};
 use miette::Result;
 
@@ -85,7 +86,7 @@ pub enum Commands {
         narrative: bool,
         /// Backend to use (local, gemini, or auto)
         #[arg(long)]
-        backend: Option<crate::commands::ask::Backend>,
+        backend: Option<Backend>,
     },
     /// Reset the local state
     Reset {
@@ -534,11 +535,10 @@ pub fn run() -> Result<()> {
         } => crate::commands::verify::execute_verify(command, timeout, no_predict, explain, health),
         Commands::Ask {
             query,
-            semantic,
-            mode,
             narrative,
             backend,
-        } => crate::commands::ask::execute_ask(query, semantic, mode, narrative, backend),
+            ..
+        } => crate::commands::ask::execute_ask(query, narrative, backend),
         Commands::Reset {
             remove_config,
             remove_rules,

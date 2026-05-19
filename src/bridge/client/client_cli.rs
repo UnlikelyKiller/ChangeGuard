@@ -1,45 +1,62 @@
-use crate::bridge::model::{BridgeRecord, deserialize_record};
+use crate::bridge::model::{deserialize_record, BridgeRecord};
 use miette::Result;
-use std::process::Command;
-use std::sync::mpsc;
-use std::thread;
+use std::io::Read;
+use std::process::{Command, Stdio};
 use std::time::Duration;
+use wait_timeout::ChildExt;
 
 pub fn query_external_cli(query: &str) -> Result<Vec<BridgeRecord>> {
-    let (tx, rx) = mpsc::channel();
-    let query_owned = query.to_string();
+    let timeout = Duration::from_secs(5);
 
-    thread::spawn(move || {
-        let mut cmd = Command::new("ai-brains");
-        cmd.args(["recall", &query_owned, "--format", "ndjson"]);
-        let res = cmd.output();
-        let _ = tx.send(res);
-    });
-
-    let output = match rx.recv_timeout(Duration::from_secs(5)) {
-        Ok(Ok(o)) => o,
-        Ok(Err(e)) => {
+    let mut child = match Command::new("ai-brains")
+        .args(["recall", query, "--format", "ndjson"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
             tracing::warn!(
-                "Failed to invoke ai-brains CLI: {}. AI-Brains integration is degraded.",
+                "Failed to spawn ai-brains CLI: {}. AI-Brains integration is degraded.",
                 e
             );
             return Ok(Vec::new());
         }
-        Err(_) => {
-            tracing::warn!("ai-brains CLI query timed out. AI-Brains integration is degraded.");
+    };
+
+    let status = match child.wait_timeout(timeout) {
+        Ok(Some(status)) => status,
+        Ok(None) => {
+            tracing::warn!("ai-brains query timed out. Killing process.");
+            let _ = child.kill();
+            let _ = child.wait();
+            return Ok(Vec::new());
+        }
+        Err(e) => {
+            tracing::warn!("Error waiting for ai-brains: {}", e);
+            let _ = child.kill();
+            let _ = child.wait();
             return Ok(Vec::new());
         }
     };
 
-    if !output.status.success() {
+    if !status.success() {
+        let mut stderr = String::new();
+        if let Some(mut err) = child.stderr.take() {
+            let _ = err.read_to_string(&mut stderr);
+        }
         tracing::warn!(
             "ai-brains CLI returned error: {}. AI-Brains integration is degraded.",
-            String::from_utf8_lossy(&output.stderr)
+            stderr
         );
         return Ok(Vec::new());
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut stdout = String::new();
+    if let Some(mut out) = child.stdout.take() {
+        let _ = out.read_to_string(&mut stdout);
+    }
+
     let mut records = Vec::new();
     for line in stdout.lines() {
         if line.trim().is_empty() {

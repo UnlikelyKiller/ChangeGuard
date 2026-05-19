@@ -960,6 +960,7 @@ impl ImpactPacket {
         // CRITICAL: Clear observability signals which can contain unbounded log excerpts
         self.observability.clear();
         self.affected_contracts.clear();
+        self.ai_insights.clear();
         self.data_flow_matches.clear();
         self.trace_config_drift.clear();
         self.trace_env_vars.clear();

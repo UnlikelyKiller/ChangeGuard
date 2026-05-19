@@ -8,19 +8,23 @@ pub use client_cli::query_external_cli;
 
 pub fn query_unified(query: &str) -> Result<Vec<BridgeRecord>> {
     // 1. Try IPC
-    if let Ok(_client) = IpcClient::connect_with_timeout(Duration::from_millis(200)) {
-        // For now, IPC query might be just sending the query as a specific record type
-        // if supported, or just falling back.
-        // The spec says IPC is preferred.
-        // Let's assume we can query over IPC later.
+    if let Ok(mut client) = IpcClient::connect_with_timeout(Duration::from_millis(200)) {
+        let req = BridgeRecord::Query {
+            text: query.to_string(),
+        };
+        if client.send_record(&req).is_ok()
+            && let Ok(records) = client.receive_records()
+            && !records.is_empty()
+        {
+            return Ok(records);
+        }
     }
 
     // 2. Fallback to CLI
     query_external_cli(query)
 }
-
 pub fn execute_query(query: String) -> Result<()> {
-    let records = query_external_cli(&query)?;
+    let records = query_unified(&query)?;
     if records.is_empty() {
         println!("No memories recalled from AI-Brains.");
     } else {

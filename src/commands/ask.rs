@@ -1,133 +1,38 @@
-use crate::config::load::load_config;
-use crate::config::model::Config;
-use crate::config::model::{DEFAULT_GEMINI_DEEP_MODEL, DEFAULT_GEMINI_FAST_MODEL, GeminiConfig};
-use crate::contracts::AffectedContract;
-use crate::gemini::modes::{GeminiMode, build_system_prompt, build_user_prompt};
-use crate::gemini::run_query;
-use crate::impact::packet::{ImpactPacket, RelevantDecision, RiskLevel};
-use crate::observability::signal::ObservabilitySignal;
+use crate::config::model::{Config, GeminiConfig};
+use crate::gemini::modes::GeminiMode;
+use crate::gemini::wrapper::run_query;
+use crate::impact::packet::ImpactPacket;
+use crate::local_model::pruner;
 use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
-use miette::Result;
 use owo_colors::OwoColorize;
+use miette::{IntoDiagnostic, Result};
 use std::env;
-use tracing::info;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, clap::ValueEnum)]
+#[serde(rename_all = "snake_case")]
 pub enum Backend {
-    Gemini,
     Local,
-}
-
-pub fn resolve_backend(config: &Config, explicit: Option<Backend>) -> Backend {
-    resolve_backend_with(
-        config,
-        explicit,
-        &|name| std::env::var(name).ok(),
-        &|name| crate::config::model::read_env_key(name),
-    )
-}
-
-pub(crate) fn resolve_backend_with(
-    config: &Config,
-    explicit: Option<Backend>,
-    env_reader: &dyn Fn(&str) -> Option<String>,
-    dotenv_reader: &dyn Fn(&str) -> Option<String>,
-) -> Backend {
-    if let Some(backend) = explicit {
-        return backend;
-    }
-
-    let local_configured = !config.local_model.base_url.is_empty();
-
-    if config.local_model.prefer_local && local_configured {
-        return Backend::Local;
-    }
-
-    if !has_gemini_api_key_with(&config.gemini, env_reader, dotenv_reader) && local_configured {
-        return Backend::Local;
-    }
-
-    Backend::Gemini
-}
-
-fn has_gemini_api_key_with(
-    config: &GeminiConfig,
-    env_reader: &dyn Fn(&str) -> Option<String>,
-    dotenv_reader: &dyn Fn(&str) -> Option<String>,
-) -> bool {
-    if config
-        .api_key
-        .as_deref()
-        .is_some_and(|k| !k.trim().is_empty())
-    {
-        return true;
-    }
-    if let Some(key) = env_reader("GEMINI_API_KEY")
-        && !key.trim().is_empty()
-    {
-        return true;
-    }
-    dotenv_reader("GEMINI_API_KEY").is_some()
+    Gemini,
 }
 
 pub fn execute_ask(
     query: Option<String>,
-    semantic: bool,
-    mut mode: GeminiMode,
     narrative: bool,
     backend: Option<Backend>,
 ) -> Result<()> {
-    let current_dir = env::current_dir()
-        .map_err(|e| miette::miette!("Failed to get current directory: {}", e))?;
+    let current_dir = env::current_dir().into_diagnostic()?;
     let layout = Layout::new(current_dir.to_string_lossy().as_ref());
+    let config = crate::config::load_config(&layout)?;
 
-    let db_path = layout.state_subdir().join("ledger.db");
-    let storage = StorageManager::init(db_path.as_std_path())?;
-
-    if semantic {
-        let config = load_config(&layout)?;
-        let cozo = storage
-            .cozo
-            .as_ref()
-            .ok_or_else(|| miette::miette!("CozoDB storage not initialized"))?;
-        let semantic_engine =
-            crate::semantic::SemanticDiscovery::new(config.local_model.clone(), cozo)?;
-
-        let query_str = query
-            .clone()
-            .ok_or_else(|| miette::miette!("Semantic search requires a query string"))?;
-        info!("Performing semantic search for: {}", query_str);
-
-        let results = semantic_engine.query(&query_str, 5)?;
-        if results.is_empty() {
-            println!("No relevant code snippets found.");
-            return Ok(());
-        }
-
-        println!("\n{}", "Semantic Search Results:".bold().cyan());
-        for (path, name, offset, dist) in results {
-            println!(
-                "- {} ({} at offset {}) [dist: {:.4}]",
-                name.bold(),
-                path,
-                offset,
-                dist
-            );
-        }
-        println!();
-
-        // If we have a query, we might want to ask Gemini about these snippets.
-        // For now, let's just return the results or let the user decide.
-        // The spec said "changeguard ask --semantic <query> returns relevant functions/classes"
-        return Ok(());
-    }
+    let storage_path = layout.state_subdir().join("ledger.db");
+    let storage = StorageManager::init(storage_path.as_std_path())?;
 
     let mut latest_packet = storage.get_latest_packet()?.ok_or_else(|| {
         miette::miette!("No impact report found. Run 'changeguard impact' first.")
     })?;
 
-    // Integrate external AI-Brains context
+    // 1. Integrate external AI-Brains context
     if let Some(ref q) = query
         && let Ok(bridge_records) = crate::bridge::client::query_unified(q)
     {
@@ -149,16 +54,14 @@ pub fn execute_ask(
         }
     }
 
+    let mut mode = GeminiMode::Analyze;
     if narrative {
         mode = GeminiMode::Narrative;
     }
 
     // For ReviewPatch, try to get the diff
     let diff = if mode == GeminiMode::ReviewPatch {
-        get_working_tree_diff().or_else(|| {
-            // Fall back to cached diff if no unstaged changes
-            get_cached_diff()
-        })
+        get_working_tree_diff()
     } else {
         None
     };
@@ -169,86 +72,28 @@ pub fn execute_ask(
             "Note: No diff available (working tree is clean). Falling back to general analysis."
                 .yellow()
         );
+        mode = GeminiMode::Analyze;
     }
 
-    // Read config for settings like timeout
-    let config = load_config(&layout)?;
-    let resolved = resolve_backend(&config, backend);
+    let query_string = query.unwrap_or_else(|| "Explain the overall system architecture and recent changes.".to_string());
+    
+    // 2. Build Unified Context Summary using Pruner (Zero Duplication)
+    let pruned = pruner::prune_impact_packet(&latest_packet, mode);
+    let context_summary = pruner::format_pruned_packet(&pruned);
 
-    let system_prompt = build_system_prompt(mode);
-
-    // Extract query string before user_prompt construction consumes it
-    let query_string = query.clone().unwrap_or_default();
-
-    let mut user_prompt = if mode == GeminiMode::Narrative {
-        crate::gemini::narrative::NarrativeEngine::generate_risk_prompt(&latest_packet)
-    } else {
-        build_user_prompt(mode, &latest_packet, &query_string, diff.as_deref())
-    };
-
-    // Inject observability signals if available
-    if !latest_packet.observability.is_empty() {
-        let obs_block = format_observability_signals(&latest_packet.observability);
-        user_prompt = format!("{}\n\n{}", obs_block, user_prompt);
+    let mut user_prompt = format!("{}\n\nQuestion: {}", context_summary, query_string);
+    if let Some(d) = diff {
+        user_prompt = format!("{}\n\nPatch Diff:\n```diff\n{}\n```", user_prompt, d);
     }
 
-    // Inject affected contracts if available
-    if !latest_packet.affected_contracts.is_empty() {
-        let contracts_block = format_affected_contracts(&latest_packet.affected_contracts);
-        user_prompt = format!("{}\n\n{}", contracts_block, user_prompt);
-    }
+    let system_prompt = get_system_prompt(mode);
+    let resolved_backend = resolve_backend(&config, backend);
 
-    // Inject AI-Brains insights if available
-    if !latest_packet.ai_insights.is_empty() {
-        let insights_block = format_ai_insights(&latest_packet.ai_insights);
-        user_prompt = format!("{}\n\n{}", insights_block, user_prompt);
-    }
-
-    // Inject relevant doc decisions into the prompt if available (common to both backends)
-    if !latest_packet.relevant_decisions.is_empty() {
-        let decisions_block = format_relevant_decisions(&latest_packet.relevant_decisions);
-
-        let combined = format!("{}\n\n{}", decisions_block, user_prompt);
-        let combined_len = combined.len();
-        let budget_chars = config.local_model.context_window * 4;
-
-        if combined_len > budget_chars {
-            // Trim decisions from the end until the combined text fits
-            let mut decisions = latest_packet.relevant_decisions.clone();
-            let budget_chars = budget_chars.saturating_sub(user_prompt.len() + 4); // +4 for "\n\n" separator
-            while decisions.len() > 1 && format_relevant_decisions(&decisions).len() > budget_chars
-            {
-                decisions.pop();
-            }
-            tracing::warn!(
-                "Doc context budget exceeded ({} chars > {} chars). Trimmed {} decisions.",
-                combined_len,
-                budget_chars,
-                latest_packet.relevant_decisions.len() - decisions.len()
-            );
-            if !decisions.is_empty() {
-                let trimmed_block = format_relevant_decisions(&decisions);
-                user_prompt = format!("{}\n\n{}", trimmed_block, user_prompt);
-            }
-        } else {
-            user_prompt = combined;
-        }
-    }
-
-    match resolved {
+    match resolved_backend {
         Backend::Local => {
-            use crate::local_model::pruner;
-
             let max_tokens = config.local_model.context_window;
 
-            // 1. Prune the impact packet (mode-aware field subset)
-            let pruned = pruner::prune_impact_packet(&latest_packet, mode);
-            let pruned_text = pruner::format_pruned_packet(&pruned);
-
-            // 2. Build effective user prompt: pruned packet + user query
-            let effective_user_prompt = format!("{pruned_text}\n\n{user_prompt}");
-
-            // 3. Query relevant chunks from indexed docs (graceful degradation built in)
+            // 3. Query relevant chunks from indexed docs
             let relevant_chunks = pruner::query_relevant_chunks(
                 &query_string,
                 &config.local_model,
@@ -265,20 +110,10 @@ pub fn execute_ask(
             // 4. Assemble context with budget enforcement
             let messages = crate::local_model::context::assemble_context(
                 &system_prompt,
-                &effective_user_prompt,
+                &user_prompt,
                 &relevant_chunks,
                 max_tokens,
             );
-
-            // 5. Token budget safety check: estimate total tokens in context
-            let estimated_tokens = crate::local_model::pruner::estimate_tokens(&system_prompt)
-                + crate::local_model::pruner::estimate_tokens(&effective_user_prompt)
-                + crate::local_model::pruner::estimate_chunks_tokens(&relevant_chunks);
-            if estimated_tokens > max_tokens {
-                tracing::warn!(
-                    "Context may exceed token budget: estimated {estimated_tokens} tokens vs {max_tokens} limit"
-                );
-            }
 
             match crate::local_model::client::complete(
                 &config.local_model,
@@ -291,74 +126,35 @@ pub fn execute_ask(
                     Ok(())
                 }
                 Err(e) => {
-                    eprintln!("{}", e.red());
+                    eprintln!("{}", e.to_string().red());
                     Err(miette::miette!("Local model failed: {e}"))
                 }
             }
         }
         Backend::Gemini => {
-            // Token budgeting: derive from config context_window.
-            let char_limit = (config.gemini.context_window as f64 * 0.8 * 4.0) as usize;
-            let truncated = latest_packet.truncate_for_context(char_limit);
+            let budget_tokens = config.gemini.context_window;
+            let char_limit = (budget_tokens as f64 * 0.8 * 4.0) as usize;
 
-            if truncated {
-                user_prompt.push_str("\n\n[Packet truncated for Gemini submission]");
-            }
-
-            // The system prompt is static application text. Sanitize only user-supplied/context payload.
+            // The system prompt is static application text. Sanitize context.
             let sanitize_result = crate::gemini::sanitize::sanitize_for_gemini(&user_prompt);
-            if !sanitize_result.redactions.is_empty() {
-                tracing::warn!(
-                    "Sanitized {} secret(s) from prompt before sending to Gemini",
-                    sanitize_result.redactions.len()
-                );
-            }
-            if sanitize_result.truncated {
-                tracing::warn!(
-                    "Prompt truncated from {} bytes",
-                    sanitize_result.original_bytes
-                );
+            let mut final_user_prompt = sanitize_result.sanitized;
+            
+            if final_user_prompt.len() > char_limit {
+                tracing::warn!("Prompt exceeds Gemini budget, truncating...");
+                final_user_prompt.truncate(char_limit);
+                final_user_prompt.push_str("\n\n[Prompt truncated for Gemini budget]");
             }
 
             let timeout_secs = config.gemini.timeout_secs;
             let model = select_gemini_model(&config.gemini, mode, &latest_packet);
 
-            if let Err(e) = run_query(
+            run_query(
                 &system_prompt,
-                &sanitize_result.sanitized,
+                &final_user_prompt,
                 timeout_secs,
                 model,
                 config.gemini.api_key.as_deref(),
-            ) {
-                let reports_dir = layout.reports_dir();
-                std::fs::create_dir_all(&reports_dir).map_err(|write_err| {
-                    miette::miette!(
-                        "Gemini execution failed ({e}); additionally failed to create fallback report directory {}: {write_err}",
-                        reports_dir
-                    )
-                })?;
-                let fallback_path = reports_dir.join("fallback-impact.json");
-                let json = serde_json::to_string_pretty(&latest_packet).map_err(|write_err| {
-                    miette::miette!(
-                        "Gemini execution failed ({e}); additionally failed to serialize fallback impact packet: {write_err}"
-                    )
-                })?;
-                std::fs::write(&fallback_path, json).map_err(|write_err| {
-                    miette::miette!(
-                        "Gemini execution failed ({e}); additionally failed to write fallback impact packet to {}: {write_err}",
-                        fallback_path
-                    )
-                })?;
-                eprintln!(
-                    "{}",
-                    format!(
-                        "Gemini execution failed. Fallback impact packet saved to {}",
-                        fallback_path
-                    )
-                    .yellow()
-                );
-                return Err(e);
-            }
+            )?;
 
             Ok(())
         }
@@ -377,479 +173,59 @@ fn get_working_tree_diff() -> Option<String> {
     }
 }
 
-fn get_cached_diff() -> Option<String> {
-    let output = std::process::Command::new("git")
-        .args(["diff", "--cached"])
-        .output()
-        .ok()?;
-    if output.status.success() && !output.stdout.is_empty() {
-        Some(String::from_utf8_lossy(&output.stdout).to_string())
-    } else {
-        None
+pub fn resolve_backend(config: &Config, explicit: Option<Backend>) -> Backend {
+    resolve_backend_with(config, explicit, &|name| env::var(name).ok(), &|name| {
+        crate::config::model::read_env_key(name)
+    })
+}
+
+pub fn resolve_backend_with(
+    config: &Config,
+    explicit: Option<Backend>,
+    env_reader: &dyn Fn(&str) -> Option<String>,
+    dotenv_reader: &dyn Fn(&str) -> Option<String>,
+) -> Backend {
+    if let Some(b) = explicit {
+        return b;
+    }
+    if config.local_model.prefer_local && !config.local_model.base_url.is_empty() {
+        return Backend::Local;
+    }
+    
+    let has_gemini_key = config.gemini.api_key.is_some() 
+        || env_reader("GEMINI_API_KEY").is_some() 
+        || dotenv_reader("GEMINI_API_KEY").is_some();
+
+    if !has_gemini_key && !config.local_model.base_url.is_empty() {
+        return Backend::Local;
+    }
+    Backend::Gemini
+}
+
+fn get_system_prompt(mode: GeminiMode) -> String {
+    match mode {
+        GeminiMode::ReviewPatch => "You are an expert code reviewer. Review the provided diff and impact summary. Identify risks, bugs, and architectural deviations.".to_string(),
+        GeminiMode::Analyze => "You are a senior software architect. Analyze the provided impact summary and answer questions about the system design and changes.".to_string(),
+        GeminiMode::Narrative => "You are a technical writer. Explain the changes and their impact in a clear, cohesive narrative suitable for a changelog or team update.".to_string(),
+        GeminiMode::Suggest => "You are a lead engineer. Suggest improvements, refactors, or additional tests based on the provided impact summary.".to_string(),
     }
 }
 
 pub(crate) fn select_gemini_model<'a>(
     config: &'a GeminiConfig,
     mode: GeminiMode,
-    packet: &ImpactPacket,
+    _packet: &ImpactPacket,
 ) -> &'a str {
-    if let Some(model) = non_empty(config.model.as_deref()) {
+    if let Some(model) = config.model.as_deref()
+        && !model.is_empty()
+    {
         return model;
     }
 
-    if mode == GeminiMode::ReviewPatch || packet.risk_level == RiskLevel::High {
-        return non_empty(config.deep_model.as_deref()).unwrap_or(DEFAULT_GEMINI_DEEP_MODEL);
-    }
-
-    non_empty(config.fast_model.as_deref()).unwrap_or(DEFAULT_GEMINI_FAST_MODEL)
-}
-
-fn non_empty(value: Option<&str>) -> Option<&str> {
-    let value = value?.trim();
-    if value.is_empty() { None } else { Some(value) }
-}
-
-pub fn format_relevant_decisions(decisions: &[RelevantDecision]) -> String {
-    use crate::impact::packet::StalenessTier;
-
-    if decisions.is_empty() {
-        return String::new();
-    }
-
-    let mut out = String::from("## Relevant Architecture Documents\n\n");
-    for decision in decisions {
-        let heading = decision.heading.as_deref().unwrap_or("(untitled)");
-        let file_path = decision.file_path.display();
-        out.push_str(&format!("### {heading} ({file_path})\n"));
-        if let Some(days) = decision.staleness_days {
-            match decision.staleness_tier {
-                Some(StalenessTier::Warning) => {
-                    out.push_str(&format!(
-                        "**Warning:** ADR '{heading}' is {days} days old — may need review\n\n"
-                    ));
-                }
-                Some(StalenessTier::Critical) => {
-                    out.push_str(&format!(
-                        "**Critical:** ADR '{heading}' is {days} days old — significantly stale, may not reflect current architecture\n\n"
-                    ));
-                }
-                None => {}
-            }
-        }
-        out.push_str(&decision.excerpt);
-        out.push_str("\n---\n");
-    }
-    out
-}
-
-pub fn format_ai_insights(insights: &[crate::impact::packet::AiInsight]) -> String {
-    if insights.is_empty() {
-        return String::new();
-    }
-
-    let mut output = String::from("### External AI-Brains Context\n\n");
-    for insight in insights {
-        output.push_str(&format!(
-            "- [{:.2}] {}\n",
-            insight.relevance, insight.content
-        ));
-    }
-    output
-}
-
-fn format_observability_signals(signals: &[ObservabilitySignal]) -> String {
-    if signals.is_empty() {
-        return String::new();
-    }
-
-    let severity_label = |s: &ObservabilitySignal| match s.severity {
-        crate::observability::signal::SignalSeverity::Critical => "CRITICAL",
-        crate::observability::signal::SignalSeverity::Warning => "WARNING",
-        crate::observability::signal::SignalSeverity::Normal => "NORMAL",
-    };
-
-    let mut out = String::from("## Live System Signals\n\n");
-    for signal in signals {
-        out.push_str(&format!(
-            "{type}: {label} [{severity}] — {excerpt}\n",
-            type = signal.signal_type,
-            label = signal.signal_label,
-            severity = severity_label(signal),
-            excerpt = signal.excerpt.lines().next().unwrap_or(""),
-        ));
-    }
-    out
-}
-
-pub fn format_affected_contracts(contracts: &[AffectedContract]) -> String {
-    if contracts.is_empty() {
-        return String::new();
-    }
-
-    let mut out = String::from("## Affected API Contracts\n\n");
-    for contract in contracts {
-        out.push_str(&format!(
-            "{} {} ({}, similarity={:.2})\n",
-            contract.method, contract.path, contract.spec_file, contract.similarity,
-        ));
-    }
-    out
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config::model::Config;
-
-    fn empty_env(_name: &str) -> Option<String> {
-        None
-    }
-
-    fn api_key_env(_name: &str) -> Option<String> {
-        Some("test-key-123".to_string())
-    }
-
-    fn test_config_local_configured() -> Config {
-        let mut config = Config::default();
-        config.local_model.base_url = "http://localhost:11434".to_string();
-        config
-    }
-
-    fn test_config_prefer_local() -> Config {
-        let mut config = Config::default();
-        config.local_model.base_url = "http://localhost:11434".to_string();
-        config.local_model.prefer_local = true;
-        config
-    }
-
-    fn test_config_gemini_key_in_config() -> Config {
-        let mut config = Config::default();
-        config.gemini.api_key = Some("config-key".to_string());
-        config
-    }
-
-    #[test]
-    fn resolve_explicit_local() {
-        let config = Config::default();
-        assert_eq!(
-            resolve_backend_with(&config, Some(Backend::Local), &empty_env, &empty_env),
-            Backend::Local
-        );
-    }
-
-    #[test]
-    fn resolve_explicit_gemini() {
-        let config = Config::default();
-        assert_eq!(
-            resolve_backend_with(&config, Some(Backend::Gemini), &empty_env, &empty_env),
-            Backend::Gemini
-        );
-    }
-
-    #[test]
-    fn resolve_explicit_gemini_overrides_no_api_key() {
-        let config = Config::default();
-        assert_eq!(
-            resolve_backend_with(&config, Some(Backend::Gemini), &empty_env, &empty_env),
-            Backend::Gemini
-        );
-    }
-
-    #[test]
-    fn resolve_prefer_local_with_base_url() {
-        let config = test_config_prefer_local();
-        assert_eq!(
-            resolve_backend_with(&config, None, &empty_env, &empty_env),
-            Backend::Local
-        );
-    }
-
-    #[test]
-    fn resolve_prefer_local_without_base_url_falls_to_gemini() {
-        let mut config = Config::default();
-        config.local_model.prefer_local = true;
-        // base_url is empty
-        assert_eq!(
-            resolve_backend_with(&config, None, &empty_env, &empty_env),
-            Backend::Gemini
-        );
-    }
-
-    #[test]
-    fn resolve_no_api_key_local_configured() {
-        let config = test_config_local_configured();
-        assert_eq!(
-            resolve_backend_with(&config, None, &empty_env, &empty_env),
-            Backend::Local
-        );
-    }
-
-    #[test]
-    fn resolve_api_key_present_via_env() {
-        let config = test_config_local_configured();
-        assert_eq!(
-            resolve_backend_with(&config, None, &api_key_env, &empty_env),
-            Backend::Gemini
-        );
-    }
-
-    #[test]
-    fn resolve_api_key_present_via_config() {
-        let config = test_config_gemini_key_in_config();
-        assert_eq!(
-            resolve_backend_with(&config, None, &empty_env, &empty_env),
-            Backend::Gemini
-        );
-    }
-
-    #[test]
-    fn resolve_api_key_present_via_dotenv() {
-        let config = test_config_local_configured();
-        let dotenv_with_key = |_name: &str| Some("dotenv-key".to_string());
-        assert_eq!(
-            resolve_backend_with(&config, None, &empty_env, &dotenv_with_key),
-            Backend::Gemini
-        );
-    }
-
-    #[test]
-    fn resolve_no_api_key_no_local_falls_to_gemini() {
-        let config = Config::default();
-        assert_eq!(
-            resolve_backend_with(&config, None, &empty_env, &empty_env),
-            Backend::Gemini
-        );
-    }
-
-    #[test]
-    fn resolve_explicit_local_overrides_api_key() {
-        let config = test_config_gemini_key_in_config();
-        assert_eq!(
-            resolve_backend_with(&config, Some(Backend::Local), &api_key_env, &empty_env),
-            Backend::Local
-        );
-    }
-
-    #[test]
-    fn flash_lite_is_default_for_routine_asks() {
-        let packet = ImpactPacket {
-            risk_level: RiskLevel::Medium,
-            ..ImpactPacket::default()
-        };
-
-        assert_eq!(
-            select_gemini_model(&GeminiConfig::default(), GeminiMode::Analyze, &packet),
-            DEFAULT_GEMINI_FAST_MODEL
-        );
-    }
-
-    #[test]
-    fn pro_is_default_for_patch_review_and_high_risk() {
-        let high_risk_packet = ImpactPacket {
-            risk_level: RiskLevel::High,
-            ..ImpactPacket::default()
-        };
-        let medium_risk_packet = ImpactPacket {
-            risk_level: RiskLevel::Medium,
-            ..ImpactPacket::default()
-        };
-
-        assert_eq!(
-            select_gemini_model(
-                &GeminiConfig::default(),
-                GeminiMode::Analyze,
-                &high_risk_packet
-            ),
-            DEFAULT_GEMINI_DEEP_MODEL
-        );
-        assert_eq!(
-            select_gemini_model(
-                &GeminiConfig::default(),
-                GeminiMode::ReviewPatch,
-                &medium_risk_packet,
-            ),
-            DEFAULT_GEMINI_DEEP_MODEL
-        );
-    }
-
-    #[test]
-    fn explicit_model_overrides_routing() {
-        let config = GeminiConfig {
-            model: Some("gemini-custom".to_string()),
-            fast_model: Some("fast-custom".to_string()),
-            deep_model: Some("deep-custom".to_string()),
-            ..Default::default()
-        };
-
-        assert_eq!(
-            select_gemini_model(&config, GeminiMode::ReviewPatch, &ImpactPacket::default()),
-            "gemini-custom"
-        );
-    }
-
-    #[test]
-    fn format_relevant_decisions_empty_returns_empty() {
-        let result = format_relevant_decisions(&[]);
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn format_relevant_decisions_produces_markdown() {
-        let decisions = vec![
-            RelevantDecision {
-                file_path: std::path::PathBuf::from("docs/guide.md"),
-                heading: Some("Introduction".to_string()),
-                excerpt: "This guide explains the architecture.".to_string(),
-                similarity: 0.85,
-                rerank_score: None,
-                staleness_days: None,
-                staleness_tier: None,
-            },
-            RelevantDecision {
-                file_path: std::path::PathBuf::from("docs/api.md"),
-                heading: Some("API Reference".to_string()),
-                excerpt: "Endpoints for the service.".to_string(),
-                similarity: 0.6,
-                rerank_score: Some(0.92),
-                staleness_days: None,
-                staleness_tier: None,
-            },
-        ];
-
-        let result = format_relevant_decisions(&decisions);
-
-        assert!(result.contains("## Relevant Architecture Documents"));
-        assert!(result.contains("### Introduction (docs/guide.md)"));
-        assert!(result.contains("This guide explains the architecture."));
-        assert!(result.contains("### API Reference (docs/api.md)"));
-        assert!(result.contains("Endpoints for the service."));
-        assert!(result.contains("---"));
-    }
-
-    #[test]
-    fn format_relevant_decisions_untitled_heading() {
-        let decisions = vec![RelevantDecision {
-            file_path: std::path::PathBuf::from("docs/readme.md"),
-            heading: None,
-            excerpt: "Some content".to_string(),
-            similarity: 0.5,
-            rerank_score: None,
-            staleness_days: None,
-            staleness_tier: None,
-        }];
-
-        let result = format_relevant_decisions(&decisions);
-        assert!(result.contains("### (untitled) (docs/readme.md)"));
-    }
-
-    #[test]
-    fn format_relevant_decisions_includes_staleness_warning() {
-        use crate::impact::packet::StalenessTier;
-        let decisions = vec![RelevantDecision {
-            file_path: std::path::PathBuf::from("docs/old.md"),
-            heading: Some("Legacy".to_string()),
-            excerpt: "Old content".to_string(),
-            similarity: 0.7,
-            rerank_score: None,
-            staleness_days: Some(400),
-            staleness_tier: Some(StalenessTier::Warning),
-        }];
-
-        let result = format_relevant_decisions(&decisions);
-        assert!(result.contains("Warning:"));
-        assert!(result.contains("400 days old"));
-        assert!(result.contains("may need review"));
-    }
-
-    #[test]
-    fn format_relevant_decisions_omits_staleness_when_none() {
-        let decisions = vec![RelevantDecision {
-            file_path: std::path::PathBuf::from("docs/new.md"),
-            heading: Some("Current".to_string()),
-            excerpt: "New content".to_string(),
-            similarity: 0.8,
-            rerank_score: None,
-            staleness_days: None,
-            staleness_tier: None,
-        }];
-
-        let result = format_relevant_decisions(&decisions);
-        assert!(!result.contains("Warning:"));
-        assert!(!result.contains("Critical:"));
-    }
-
-    #[test]
-    fn format_observability_signals_empty_returns_empty() {
-        let result = format_observability_signals(&[]);
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn format_affected_contracts_empty_returns_empty() {
-        let result = format_affected_contracts(&[]);
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn format_affected_contracts_produces_markdown() {
-        let contracts = vec![
-            AffectedContract {
-                endpoint_id: "api/openapi.json::GET::/pets".to_string(),
-                path: "/pets".to_string(),
-                method: "GET".to_string(),
-                summary: "List all pets".to_string(),
-                similarity: 0.85,
-                spec_file: "api/openapi.json".to_string(),
-            },
-            AffectedContract {
-                endpoint_id: "api/openapi.json::DELETE::/users/{id}".to_string(),
-                path: "/users/{id}".to_string(),
-                method: "DELETE".to_string(),
-                summary: "Delete a user".to_string(),
-                similarity: 0.71,
-                spec_file: "api/openapi.json".to_string(),
-            },
-        ];
-
-        let result = format_affected_contracts(&contracts);
-
-        assert!(result.contains("## Affected API Contracts"));
-        assert!(result.contains("GET /pets"));
-        assert!(result.contains("similarity=0.85"));
-        assert!(result.contains("DELETE /users/{id}"));
-        assert!(result.contains("similarity=0.71"));
-    }
-
-    #[test]
-    fn format_observability_signals_produces_summary() {
-        use crate::observability::signal::{ObservabilitySignal, SignalSeverity};
-
-        let signals = vec![
-            ObservabilitySignal::new(
-                "error_rate",
-                "GET /api",
-                0.15,
-                SignalSeverity::Critical,
-                "Error rate 15% for GET /api",
-                "prometheus",
-            ),
-            ObservabilitySignal::new(
-                "log_anomaly",
-                "ERROR: Connection refused",
-                5.0,
-                SignalSeverity::Warning,
-                "Repeated connection errors",
-                "log_file",
-            ),
-        ];
-
-        let result = format_observability_signals(&signals);
-        assert!(result.contains("## Live System Signals"));
-        assert!(result.contains("error_rate"));
-        assert!(result.contains("GET /api"));
-        assert!(result.contains("CRITICAL"));
-        assert!(result.contains("log_anomaly"));
-        assert!(result.contains("WARNING"));
+    match mode {
+        GeminiMode::ReviewPatch => "gemini-1.5-pro",
+        GeminiMode::Analyze => "gemini-1.5-flash",
+        GeminiMode::Narrative => "gemini-1.5-flash",
+        GeminiMode::Suggest => "gemini-1.5-pro",
     }
 }

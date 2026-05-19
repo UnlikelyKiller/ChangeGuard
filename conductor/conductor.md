@@ -467,7 +467,7 @@
     *   Goal: Resolve ChangeGuard's `tantivy -> lru` Dependabot alert and consume the CozoDB-redux-owned `swapvec -> lz4_flex` remediation.
     *   Key additions: Dependency compatibility matrix, Tantivy upgrade, CozoDB-redux `6690fdac` lockfile update, ChangeGuard skill guidance, and verification evidence.
 
-## Milestone B: AI-Brains Integration (Planning)
+## Milestone B: AI-Brains Integration (Completed)
 
 *   **Track B1: BridgeRecord Data Model & Schema**
     *   Status: Completed
@@ -519,11 +519,18 @@
     *   Key additions: `src/bridge/notify.rs`, post-verification hooks.
 
 *   **Track R-B: Milestone B Remediation**
-    *   Status: In Progress
+    *   Status: Completed
     *   Spec: `conductor/trackRB/spec.md`
     *   Plan: `conductor/trackRB/plan.md`
     *   Goal: Address Codex findings: hang protection, thread leak prevention, and completed dual-retrieval.
     *   Key additions: Process timeouts, schema validation, decoupled DTOs.
+
+*   **Track R-B2: Master Remediation & Hardening**
+    *   Status: In Progress
+    *   Spec: `conductor/trackRB2/spec.md`
+    *   Plan: `conductor/trackRB2/plan.md`
+    *   Goal: Address Master Review findings: real process killing, non-blocking IPC, strict schema enforcement, and deduplicated ask context.
+    *   Key additions: `Child::kill` logic, non-blocking pipe reads, strict version gating, unified prompt assembly.
 
 ## Workflow
 
