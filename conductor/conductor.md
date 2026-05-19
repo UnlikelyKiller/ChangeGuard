@@ -477,7 +477,7 @@
     *   Key additions: `src/bridge/model.rs`, NDJSON serialization/deserialization logic.
 
 *   **Track B2: bridge export Command**
-    *   Status: Planning
+    *   Status: Completed
     *   Spec: `conductor/trackB2/spec.md`
     *   Plan: `conductor/trackB2/plan.md`
     *   Goal: Implement `changeguard bridge export` to emit hotspots and ledger deltas as NDJSON.

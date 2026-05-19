@@ -647,6 +647,8 @@ pub struct ImpactPacket {
     pub observability: Vec<ObservabilitySignal>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub affected_contracts: Vec<AffectedContract>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ai_insights: Vec<AiInsight>,
     #[serde(default)]
     pub data_flow_matches: Vec<DataFlowMatch>,
     #[serde(default)]
@@ -708,6 +710,14 @@ impl Ord for DeadCodeFinding {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AiInsight {
+    pub memory_id: String,
+    pub relevance: f64,
+    pub content: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "camelCase")]
 pub struct KGImpact {
@@ -759,6 +769,7 @@ impl Default for ImpactPacket {
             relevant_decisions: Vec::new(),
             observability: Vec::new(),
             affected_contracts: Vec::new(),
+            ai_insights: Vec::new(),
             service_map_delta: None,
             data_flow_matches: Vec::new(),
             trace_config_drift: Vec::new(),

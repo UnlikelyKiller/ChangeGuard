@@ -277,7 +277,7 @@ pub enum BridgeCommands {
     /// Import insights and enrich impact packets
     Import {
         /// The input file path
-        #[arg(long, short, name = "in")]
+        #[arg(long = "in", short)]
         input: String,
     },
     /// Query external memories
