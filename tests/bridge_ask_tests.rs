@@ -5,8 +5,9 @@ fn test_ask_command_includes_bridge_context_placeholder() {
     // This is hard to test without a mocked LLM, but we can check if the code paths are hit
     // or if the prompt construction logic is exposed.
     // For now, let's just ensure 'ask' still runs without crashing.
-    let _output = Command::new("cargo")
-        .args(["run", "--", "ask", "how does the bridge work?"])
+    let binary = option_env!("CARGO_BIN_EXE_changeguard").unwrap_or("target/debug/changeguard");
+    let _output = Command::new(binary)
+        .args(["ask", "how does the bridge work?"])
         .output()
         .expect("failed to execute process");
 

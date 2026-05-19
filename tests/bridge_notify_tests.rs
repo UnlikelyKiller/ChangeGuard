@@ -3,8 +3,9 @@ use std::process::Command;
 #[test]
 fn test_verify_command_triggers_notification_path() {
     // This is hard to test without a mocked IPC server, but we can ensure it doesn't crash.
-    let output = Command::new("cargo")
-        .args(["run", "--", "verify", "--help"])
+    let binary = option_env!("CARGO_BIN_EXE_changeguard").unwrap_or("target/debug/changeguard");
+    let output = Command::new(binary)
+        .args(["verify", "--help"])
         .output()
         .expect("failed to execute process");
 

@@ -1,12 +1,57 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BridgeRecord {
+    pub bridge_version: String,
+    pub direction: BridgeDirection,
+    pub timestamp: DateTime<Utc>,
+    pub parent_hash: Option<String>,
+    pub project_id: String,
+    pub session_id: Option<String>,
+    pub tx_id: Option<String>,
+    pub record_kind: String,
+    pub payload: BridgePayload,
+    pub privacy: Privacy,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum BridgeDirection {
+    Inbound,
+    Outbound,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub enum Privacy {
+    #[default]
+    #[serde(alias = "CloudOk", alias = "cloudok", alias = "cloud_ok")]
+    Public,
+    #[serde(alias = "LocalOnly", alias = "localonly", alias = "local_only")]
+    ProjectLocal,
+    #[serde(alias = "NeverInject", alias = "neverinject", alias = "never_inject")]
+    Private,
+    #[serde(alias = "Sealed", alias = "sealed")]
+    Sealed,
+}
+
+impl Privacy {
+    pub fn combine(&self, other: Privacy) -> Privacy {
+        std::cmp::max(*self, other)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
-pub enum BridgeRecord {
+pub enum BridgePayload {
     Hotspot {
         path: String,
         score: f64,
         reason: String,
+        #[serde(default)]
+        temporal_coupling: f64,
+        #[serde(default)]
+        failure_risk_probability: f64,
     },
     LedgerDelta {
         tx_id: String,
@@ -34,39 +79,49 @@ pub struct BridgeVerifyOutcome {
 
 impl BridgeRecord {
     pub const VERSION: &'static str = "0.2";
-}
 
-// Custom serialization to inject version
-#[derive(Serialize)]
-struct VersionedRecord<'a> {
-    version: &'static str,
-    #[serde(flatten)]
-    record: &'a BridgeRecord,
+    pub fn new(
+        direction: BridgeDirection,
+        project_id: String,
+        record_kind: &str,
+        payload: BridgePayload,
+    ) -> Self {
+        Self {
+            bridge_version: Self::VERSION.to_string(),
+            direction,
+            timestamp: Utc::now(),
+            parent_hash: None, // Will be set by sync engine if available
+            project_id,
+            session_id: None,
+            tx_id: None,
+            record_kind: record_kind.to_string(),
+            payload,
+            privacy: Privacy::ProjectLocal,
+        }
+    }
 }
 
 pub fn serialize_record(record: &BridgeRecord) -> Result<String, serde_json::Error> {
-    let versioned = VersionedRecord {
-        version: BridgeRecord::VERSION,
-        record,
-    };
-    serde_json::to_string(&versioned)
+    serde_json::to_string(record)
+}
+
+pub fn calculate_hash(record: &BridgeRecord) -> String {
+    use sha2::{Digest, Sha256};
+    let json = serde_json::to_string(record).unwrap_or_default();
+    let mut hasher = Sha256::new();
+    hasher.update(json.as_bytes());
+    let result = hasher.finalize();
+    hex::encode(result)
 }
 
 pub fn deserialize_record(json: &str) -> Result<BridgeRecord, serde_json::Error> {
-    let raw: serde_json::Value = serde_json::from_str(json)?;
-    let version = raw
-        .get("version")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| serde::de::Error::custom("Missing 'version' field in bridge record"))?;
-
-    if version != BridgeRecord::VERSION {
+    let record: BridgeRecord = serde_json::from_str(json)?;
+    if record.bridge_version != BridgeRecord::VERSION {
         return Err(serde::de::Error::custom(format!(
             "Bridge record version mismatch: expected {}, found {}",
             BridgeRecord::VERSION,
-            version
+            record.bridge_version
         )));
     }
-
-    // We can deserialize directly into BridgeRecord because it ignores extra fields like "version"
-    serde_json::from_value(raw)
+    Ok(record)
 }

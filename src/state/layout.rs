@@ -57,6 +57,28 @@ impl Layout {
         self.state_dir.join(RULES_FILE)
     }
 
+    pub fn project_id_file(&self) -> Utf8PathBuf {
+        self.state_dir.join("project_id")
+    }
+
+    pub fn bridge_state_file(&self) -> Utf8PathBuf {
+        self.state_subdir().join("bridge_state.json")
+    }
+
+    pub fn get_project_id(&self) -> String {
+        let path = self.project_id_file();
+        if path.exists()
+            && let Ok(id) = fs::read_to_string(&path)
+        {
+            return id.trim().to_string();
+        }
+        // Fallback to directory name or "unknown"
+        self.root
+            .file_name()
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| "unknown".to_string())
+    }
+
     pub fn pid_file(&self) -> Utf8PathBuf {
         self.state_subdir().join("viz-server.pid")
     }

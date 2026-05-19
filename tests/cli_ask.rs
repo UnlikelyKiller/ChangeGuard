@@ -16,11 +16,7 @@ fn test_ask_command_no_packet() {
     let _guard = DirGuard::from_utf8(root);
 
     // Should fail because no .changeguard/state/ledger.db exists
-    let result = execute_ask(
-        Some("What's up?".into()),
-        false,
-        None,
-    );
+    let result = execute_ask(Some("What's up?".into()), false, None);
     assert!(result.is_err());
 }
 
@@ -39,11 +35,6 @@ fn test_ask_invalid_config_fails_before_query_execution() {
         StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path()).unwrap();
     storage.save_packet(&ImpactPacket::default()).unwrap();
 
-    let err = execute_ask(
-        Some("What's up?".into()),
-        false,
-        None,
-    )
-    .unwrap_err();
+    let err = execute_ask(Some("What's up?".into()), false, None).unwrap_err();
     assert!(format!("{err:?}").contains("debounce_ms"));
 }

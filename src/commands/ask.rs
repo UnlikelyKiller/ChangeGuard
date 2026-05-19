@@ -5,22 +5,20 @@ use crate::impact::packet::ImpactPacket;
 use crate::local_model::pruner;
 use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
-use owo_colors::OwoColorize;
 use miette::{IntoDiagnostic, Result};
+use owo_colors::OwoColorize;
 use std::env;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, clap::ValueEnum)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, clap::ValueEnum,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum Backend {
     Local,
     Gemini,
 }
 
-pub fn execute_ask(
-    query: Option<String>,
-    narrative: bool,
-    backend: Option<Backend>,
-) -> Result<()> {
+pub fn execute_ask(query: Option<String>, narrative: bool, backend: Option<Backend>) -> Result<()> {
     let current_dir = env::current_dir().into_diagnostic()?;
     let layout = Layout::new(current_dir.to_string_lossy().as_ref());
     let config = crate::config::load_config(&layout)?;
@@ -37,11 +35,11 @@ pub fn execute_ask(
         && let Ok(bridge_records) = crate::bridge::client::query_unified(q)
     {
         for record in bridge_records {
-            if let crate::bridge::model::BridgeRecord::Insight {
+            if let crate::bridge::model::BridgePayload::Insight {
                 memory_id,
                 relevance,
                 content,
-            } = record
+            } = record.payload
             {
                 latest_packet
                     .ai_insights
@@ -75,8 +73,10 @@ pub fn execute_ask(
         mode = GeminiMode::Analyze;
     }
 
-    let query_string = query.unwrap_or_else(|| "Explain the overall system architecture and recent changes.".to_string());
-    
+    let query_string = query.unwrap_or_else(|| {
+        "Explain the overall system architecture and recent changes.".to_string()
+    });
+
     // 2. Build Unified Context Summary using Pruner (Zero Duplication)
     let pruned = pruner::prune_impact_packet(&latest_packet, mode);
     let context_summary = pruner::format_pruned_packet(&pruned);
@@ -138,7 +138,7 @@ pub fn execute_ask(
             // The system prompt is static application text. Sanitize context.
             let sanitize_result = crate::gemini::sanitize::sanitize_for_gemini(&user_prompt);
             let mut final_user_prompt = sanitize_result.sanitized;
-            
+
             if final_user_prompt.len() > char_limit {
                 tracing::warn!("Prompt exceeds Gemini budget, truncating...");
                 final_user_prompt.truncate(char_limit);
@@ -191,9 +191,9 @@ pub fn resolve_backend_with(
     if config.local_model.prefer_local && !config.local_model.base_url.is_empty() {
         return Backend::Local;
     }
-    
-    let has_gemini_key = config.gemini.api_key.is_some() 
-        || env_reader("GEMINI_API_KEY").is_some() 
+
+    let has_gemini_key = config.gemini.api_key.is_some()
+        || env_reader("GEMINI_API_KEY").is_some()
         || dotenv_reader("GEMINI_API_KEY").is_some();
 
     if !has_gemini_key && !config.local_model.base_url.is_empty() {

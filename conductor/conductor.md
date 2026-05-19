@@ -526,11 +526,18 @@
     *   Key additions: Process timeouts, schema validation, decoupled DTOs.
 
 *   **Track R-B2: Master Remediation & Hardening**
-    *   Status: In Progress
+    *   Status: Completed
     *   Spec: `conductor/trackRB2/spec.md`
     *   Plan: `conductor/trackRB2/plan.md`
     *   Goal: Address Master Review findings: real process killing, non-blocking IPC, strict schema enforcement, and deduplicated ask context.
     *   Key additions: `Child::kill` logic, non-blocking pipe reads, strict version gating, unified prompt assembly.
+
+*   **Track R-B3: Audit Remediation & Spec Alignment**
+    *   Status: Completed
+    *   Spec: `conductor/trackRB3/spec.md`
+    *   Plan: `conductor/trackRB3/plan.md`
+    *   Goal: Address findings from `integration-audit.md`: spec-compliant schema, robust IPC protocol, CLI filtering, and path abstractions.
+    *   Key additions: Full metadata BridgeRecord, newline-delimited framing, selective export, Layout-based paths.
 
 ## Workflow
 

@@ -1,15 +1,41 @@
-use crate::bridge::model::{BridgeRecord, deserialize_record};
-use crate::impact::packet::{AiInsight, ImpactPacket};
+use crate::bridge::model::{BridgePayload, Privacy, calculate_hash, deserialize_record};
+use crate::impact::packet::{
+    AiInsight, Hotspot, ImpactPacket, RelevantDecision, VerificationResult,
+};
+use crate::state::layout::Layout;
 use miette::{IntoDiagnostic, Result};
-use std::fs::File;
+use serde::{Deserialize, Serialize};
+use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
-use std::path::Path;
+use std::path::PathBuf;
 
-pub fn execute_import(input_path: String) -> Result<()> {
-    let input_file = File::open(input_path).into_diagnostic()?;
-    let reader = BufReader::new(input_file);
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct BridgeState {
+    last_inbound_hash: Option<String>,
+    last_outbound_hash: Option<String>,
+    privacy: Option<Privacy>,
+}
 
-    let mut insights = Vec::new();
+pub fn execute_import(in_path: String) -> Result<()> {
+    let current_dir = std::env::current_dir().into_diagnostic()?;
+    let layout = Layout::new(current_dir.to_string_lossy().as_ref());
+
+    if !camino::Utf8Path::new(&in_path).exists() {
+        return Err(miette::miette!("Input file does not exist: {}", in_path));
+    }
+
+    let mut state = load_bridge_state(&layout)?;
+
+    let file = File::open(&in_path).into_diagnostic()?;
+    let reader = BufReader::new(file);
+
+    let mut imported_insights = Vec::new();
+    let mut imported_hotspots = Vec::new();
+    let mut imported_verifications = Vec::new();
+    let mut imported_decisions = Vec::new();
+    let mut other_records_count = 0;
+    let mut rejected_lineage_count = 0;
+
     for line in reader.lines() {
         let line = line.into_diagnostic()?;
         if line.trim().is_empty() {
@@ -17,52 +43,197 @@ pub fn execute_import(input_path: String) -> Result<()> {
         }
 
         match deserialize_record(&line) {
-            Ok(BridgeRecord::Insight {
-                memory_id,
-                relevance,
-                content,
-            }) => {
-                insights.push(AiInsight {
-                    memory_id,
-                    relevance,
-                    content,
-                });
-            }
-            Ok(_) => {
-                // Ignore other record types during import for now
+            Ok(record) => {
+                // Validate parent_hash if present in both state and record
+                if let Some(expected_parent) = &state.last_inbound_hash {
+                    match &record.parent_hash {
+                        Some(actual_parent) => {
+                            if actual_parent != expected_parent {
+                                rejected_lineage_count += 1;
+                                tracing::warn!(
+                                    "Bridge record rejected: parent_hash mismatch. Expected {}, found {}",
+                                    expected_parent,
+                                    actual_parent
+                                );
+                                continue;
+                            }
+                        }
+                        None => {
+                            rejected_lineage_count += 1;
+                            tracing::warn!(
+                                "Bridge record rejected: missing parent_hash. Expected {}",
+                                expected_parent
+                            );
+                            continue;
+                        }
+                    }
+                }
+
+                // Combine privacy (strictest wins)
+                state.privacy = match state.privacy {
+                    Some(current) => Some(current.combine(record.privacy)),
+                    None => Some(record.privacy),
+                };
+
+                match &record.payload {
+                    BridgePayload::Insight {
+                        memory_id,
+                        relevance,
+                        content,
+                    } => {
+                        imported_insights.push(AiInsight {
+                            memory_id: memory_id.clone(),
+                            relevance: *relevance,
+                            content: content.clone(),
+                        });
+                    }
+                    BridgePayload::Hotspot {
+                        path,
+                        score,
+                        reason: _,
+                    } => {
+                        imported_hotspots.push(Hotspot {
+                            path: PathBuf::from(path),
+                            score: *score as f32,
+                            complexity: 0,
+                            frequency: 1,
+                            centrality: None,
+                        });
+                    }
+                    BridgePayload::VerifyOutcome(outcome) => {
+                        imported_verifications.push(VerificationResult {
+                            name: format!("Bridge Verify: {}", outcome.command),
+                            command: outcome.command.clone(),
+                            exit_code: if outcome.success { 0 } else { 1 },
+                            stdout: String::new(),
+                            stderr: outcome.error_snippet.clone().unwrap_or_default(),
+                            duration_ms: 0,
+                            truncated: false,
+                        });
+                    }
+                    BridgePayload::LedgerDelta {
+                        tx_id,
+                        intent,
+                        files_changed,
+                    } => {
+                        imported_decisions.push(RelevantDecision {
+                            file_path: PathBuf::from(format!("tx/{}", tx_id)),
+                            heading: Some(format!("Ledger Delta: {}", intent)),
+                            excerpt: format!(
+                                "Transaction {} changed {} files.",
+                                tx_id, files_changed
+                            ),
+                            similarity: 1.0,
+                            rerank_score: None,
+                            staleness_days: None,
+                            staleness_tier: None,
+                        });
+                    }
+                    BridgePayload::Query { .. } => {
+                        other_records_count += 1;
+                    }
+                }
+
+                // Update state with this record's hash for next line (or next import)
+                state.last_inbound_hash = Some(calculate_hash(&record));
             }
             Err(e) => {
-                tracing::warn!("Failed to parse bridge record: {}", e);
+                tracing::warn!("Failed to deserialize bridge record: {}", e);
             }
         }
     }
 
-    if insights.is_empty() {
-        println!("No insights found in bridge NDJSON.");
+    let total_imported = imported_insights.len()
+        + imported_hotspots.len()
+        + imported_verifications.len()
+        + imported_decisions.len();
+
+    if total_imported == 0 && other_records_count == 0 {
+        if rejected_lineage_count > 0 {
+            return Err(miette::miette!(
+                "No records imported. {} records rejected due to invalid lineage.",
+                rejected_lineage_count
+            ));
+        }
+        println!("No valid bridge records found in input.");
         return Ok(());
     }
 
-    // Enrich latest-impact.json
-    let impact_path = Path::new(".changeguard/reports/latest-impact.json");
-    let mut packet = if impact_path.exists() {
-        let file = File::open(impact_path).into_diagnostic()?;
-        serde_json::from_reader(file).into_diagnostic()?
+    let insights_len = imported_insights.len();
+    let hotspots_len = imported_hotspots.len();
+    let verifications_len = imported_verifications.len();
+    let decisions_len = imported_decisions.len();
+
+    // Update latest-impact.json with imported insights and other record types
+    let impact_path = layout.reports_dir().join("latest-impact.json");
+    if impact_path.exists() {
+        let content = fs::read_to_string(&impact_path).into_diagnostic()?;
+        let mut packet: ImpactPacket = serde_json::from_str(&content).into_diagnostic()?;
+
+        // Merge insights
+        packet.ai_insights.extend(imported_insights);
+
+        // Merge hotspots
+        for hs in imported_hotspots {
+            if let Some(existing) = packet.hotspots.iter_mut().find(|h| h.path == hs.path) {
+                existing.score = hs.score;
+            } else {
+                packet.hotspots.push(hs);
+            }
+        }
+
+        // Merge verifications
+        packet.verification_results.extend(imported_verifications);
+
+        // Merge decisions
+        packet.relevant_decisions.extend(imported_decisions);
+
+        packet.finalize();
+
+        let updated_json = serde_json::to_string_pretty(&packet).into_diagnostic()?;
+        fs::write(&impact_path, updated_json).into_diagnostic()?;
+
+        println!(
+            "Imported {} insights, {} hotspots, {} verifications, and {} decisions into latest impact report.",
+            insights_len, hotspots_len, verifications_len, decisions_len
+        );
     } else {
-        println!("latest-impact.json not found. Initializing new report with insights.");
-        ImpactPacket::default()
-    };
-
-    packet.ai_insights.extend(insights);
-
-    // Ensure directory exists
-    if let Some(parent) = impact_path.parent() {
-        std::fs::create_dir_all(parent).into_diagnostic()?;
+        println!(
+            "Warning: No latest-impact.json found. Records imported but not applied to any report."
+        );
     }
 
-    let out_file = File::create(impact_path).into_diagnostic()?;
-    serde_json::to_writer_pretty(out_file, &packet).into_diagnostic()?;
+    if other_records_count > 0 {
+        println!(
+            "Note: Skipped {} non-enrichment records (not yet supported for active enrichment).",
+            other_records_count
+        );
+    }
 
-    println!("Enriched latest-impact.json with insights.");
+    if rejected_lineage_count > 0 {
+        println!(
+            "Warning: Rejected {} records due to invalid parent_hash lineage.",
+            rejected_lineage_count
+        );
+    }
+
+    save_bridge_state(&layout, &state)?;
 
     Ok(())
+}
+
+fn load_bridge_state(layout: &Layout) -> Result<BridgeState> {
+    let path = layout.bridge_state_file();
+    if path.exists() {
+        let content = fs::read_to_string(path).into_diagnostic()?;
+        serde_json::from_str(&content).into_diagnostic()
+    } else {
+        Ok(BridgeState::default())
+    }
+}
+
+fn save_bridge_state(layout: &Layout, state: &BridgeState) -> Result<()> {
+    let path = layout.bridge_state_file();
+    let json = serde_json::to_string_pretty(state).into_diagnostic()?;
+    fs::write(path, json).into_diagnostic()
 }

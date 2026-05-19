@@ -4,8 +4,9 @@ use tempfile::tempdir;
 
 #[test]
 fn test_bridge_export_subcommand_exists() {
-    let output = Command::new("cargo")
-        .args(["run", "--", "bridge", "export", "--help"])
+    let binary = option_env!("CARGO_BIN_EXE_changeguard").unwrap_or("target/debug/changeguard");
+    let output = Command::new(binary)
+        .args(["bridge", "export", "--help"])
         .output()
         .expect("failed to execute process");
 
@@ -19,15 +20,9 @@ fn test_bridge_export_file_creation() {
     let dir = tempdir().unwrap();
     let out_path = dir.path().join("export.ndjson");
 
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--",
-            "bridge",
-            "export",
-            "--out",
-            out_path.to_str().unwrap(),
-        ])
+    let binary = option_env!("CARGO_BIN_EXE_changeguard").unwrap_or("target/debug/changeguard");
+    let output = Command::new(binary)
+        .args(["bridge", "export", "--out", out_path.to_str().unwrap()])
         .output()
         .expect("failed to execute process");
 

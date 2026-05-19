@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BridgeRecord",
+  "description": "Shared contract for AI-Brains and ChangeGuard interoperability",
+  "type": "object",
+  "required": [
+    "bridge_version",
+    "direction",
+    "timestamp",
+    "project_id",
+    "session_id",
+    "record_kind",
+    "payload",
+    "privacy"
+  ],
+  "properties": {
+    "bridge_version": {
+      "type": "string",
+      "description": "Version of the bridge protocol (e.g., '0.2')"
+    },
+    "direction": {
+      "enum": ["inbound", "outbound"],
+      "description": "Direction of flow relative to the tool (inbound = ChangeGuard -> AI-Brains)"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 timestamp"
+    },
+    "parent_hash": {
+      "type": ["string", "null"],
+      "description": "SHA-256 hash of the previous record in the chain for provenance verification"
+    },
+    "project_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Canonical project ID"
+    },
+    "session_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Session ID for grouping related turns"
+    },
+    "tx_id": {
+      "type": ["string", "null"],
+      "description": "ChangeGuard ledger transaction ID"
+    },
+    "record_kind": {
+      "type": "string",
+      "description": "Type of record (hotspot_delta, ledger_tx, user_prompt, assistant_response, verify_outcome)"
+    },
+    "payload": {
+      "type": "object",
+      "description": "Record-specific structured data"
+    },
+    "privacy": {
+      "type": "string",
+      "enum": ["CloudOk", "LocalOnly", "NeverInject", "Sealed"],
+      "description": "Privacy level for the record"
+    }
+  }
+}

@@ -1,4 +1,4 @@
-use crate::bridge::model::{deserialize_record, BridgeRecord};
+use crate::bridge::model::{BridgeRecord, deserialize_record};
 use miette::Result;
 use std::io::Read;
 use std::process::{Command, Stdio};
@@ -9,7 +9,7 @@ pub fn query_external_cli(query: &str) -> Result<Vec<BridgeRecord>> {
     let timeout = Duration::from_secs(5);
 
     let mut child = match Command::new("ai-brains")
-        .args(["recall", query, "--format", "ndjson"])
+        .args(["sync", "query", query, "--format", "ndjson"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

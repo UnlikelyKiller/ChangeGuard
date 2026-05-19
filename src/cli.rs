@@ -274,12 +274,24 @@ pub enum BridgeCommands {
         /// The output file path
         #[arg(long, short)]
         out: String,
+        /// Export hotspot data
+        #[arg(long)]
+        hotspots: bool,
+        /// Optional specific targets (files or directories) to scope the export
+        #[arg(long)]
+        targets: Option<Vec<String>>,
+        /// Export ledger delta data
+        #[arg(long)]
+        ledger: bool,
     },
     /// Import insights and enrich impact packets
     Import {
-        /// The input file path
-        #[arg(long = "in", short)]
-        input: String,
+        /// The input file path (spec-compliant)
+        #[arg(long, short = 'f')]
+        from: Option<String>,
+        /// The input file path (alias for --from)
+        #[arg(long = "in", short = 'i')]
+        input: Option<String>,
     },
     /// Query external memories
     Query {
