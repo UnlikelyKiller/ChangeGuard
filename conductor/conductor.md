@@ -570,14 +570,14 @@ Cross-repo phase with AI-Brains Phase 18. Transforms IPC bridge from passive tra
     *   Goal: Expose predictive verification via IPC for AI-Brains capture gate; extend watcher to emit risk alerts on high temporal coupling.
     *   Key additions: `ipc_verify.rs` module, `BridgePayload::RiskAlert`, watcher integration.
 
-## Milestone I: Issue Remediation (Active)
+## Milestone I: Issue Remediation (Completed)
 
 Systematic fixes from the 2026-05-20 comprehensive command audit (`docs/issues.md`). Organized in four phases matching the audit's priority tiers. CG-2 (AI-Brains FTS5 query escaping) is excluded — it will be remediated in the ai-brains repository.
 
 ### Phase 1 — Hotfixes
 
 *   **Track I1-1: Local Model URL Hardening & Error Transparency**
-    *   Status: In Planning
+    *   Status: Completed
     *   Spec: `conductor/trackI1-1/spec.md`
     *   Plan: `conductor/trackI1-1/plan.md`
     *   Issues: CG-1a, CG-1b
@@ -585,7 +585,7 @@ Systematic fixes from the 2026-05-20 comprehensive command audit (`docs/issues.m
     *   Key files: `src/local_model/client.rs`, `src/config/model.rs` (default URL), `src/config/defaults.rs`
 
 *   **Track I1-2: Self-Federation False Positive Exclusion**
-    *   Status: In Planning
+    *   Status: Completed
     *   Spec: `conductor/trackI1-2/spec.md`
     *   Plan: `conductor/trackI1-2/plan.md`
     *   Issues: CG-3
@@ -593,7 +593,7 @@ Systematic fixes from the 2026-05-20 comprehensive command audit (`docs/issues.m
     *   Key files: `src/federated/impact.rs`, `src/federated/storage.rs`
 
 *   **Track I1-3: Log Verbosity Default Filter**
-    *   Status: In Planning
+    *   Status: Completed
     *   Spec: `conductor/trackI1-3/spec.md`
     *   Plan: `conductor/trackI1-3/plan.md`
     *   Issues: CG-5
@@ -603,7 +603,7 @@ Systematic fixes from the 2026-05-20 comprehensive command audit (`docs/issues.m
 ### Phase 2 — Reliability
 
 *   **Track I2-1: Stale Index Warning Banner**
-    *   Status: In Planning
+    *   Status: Completed
     *   Spec: `conductor/trackI2-1/spec.md`
     *   Plan: `conductor/trackI2-1/plan.md`
     *   Issues: CG-4
@@ -611,7 +611,7 @@ Systematic fixes from the 2026-05-20 comprehensive command audit (`docs/issues.m
     *   Key files: `src/commands/search.rs`, `src/commands/ask.rs`, `src/commands/dead_code.rs`, `src/commands/hotspots.rs`, `src/config/model.rs`
 
 *   **Track I2-2: Read-Only Storage Init Fast-Path**
-    *   Status: In Planning
+    *   Status: Completed
     *   Spec: `conductor/trackI2-2/spec.md`
     *   Plan: `conductor/trackI2-2/plan.md`
     *   Issues: CG-6
@@ -619,7 +619,7 @@ Systematic fixes from the 2026-05-20 comprehensive command audit (`docs/issues.m
     *   Key files: `src/state/storage.rs`, `src/state/storage_cozo.rs`, `src/main.rs`
 
 *   **Track I2-3: Agent Dotfile Exclusion**
-    *   Status: In Planning
+    *   Status: Completed
     *   Spec: `conductor/trackI2-3/spec.md`
     *   Plan: `conductor/trackI2-3/plan.md`
     *   Issues: CG-7
@@ -627,7 +627,7 @@ Systematic fixes from the 2026-05-20 comprehensive command audit (`docs/issues.m
     *   Key files: `src/config/defaults.rs` (`DEFAULT_CONFIG` ignore_patterns), `src/index/mod.rs` (hardcoded exclusion list if present)
 
 *   **Track I2-4: Doctor Completions Endpoint Ping**
-    *   Status: In Planning
+    *   Status: Completed
     *   Spec: `conductor/trackI2-4/spec.md`
     *   Plan: `conductor/trackI2-4/plan.md`
     *   Issues: CG-10
@@ -637,7 +637,7 @@ Systematic fixes from the 2026-05-20 comprehensive command audit (`docs/issues.m
 ### Phase 3 — Feature Depth
 
 *   **Track I3-1: Audit Command Enrichment**
-    *   Status: In Planning
+    *   Status: Completed
     *   Spec: `conductor/trackI3-1/spec.md`
     *   Plan: `conductor/trackI3-1/plan.md`
     *   Issues: CG-8
@@ -645,7 +645,7 @@ Systematic fixes from the 2026-05-20 comprehensive command audit (`docs/issues.m
     *   Key files: `src/commands/audit.rs`, `src/ledger/db.rs`, `src/state/storage.rs`
 
 *   **Track I3-2: Hotspot Score Log-Scaling**
-    *   Status: In Planning
+    *   Status: Completed
     *   Spec: `conductor/trackI3-2/spec.md`
     *   Plan: `conductor/trackI3-2/plan.md`
     *   Issues: CG-9
@@ -653,7 +653,7 @@ Systematic fixes from the 2026-05-20 comprehensive command audit (`docs/issues.m
     *   Key files: `src/impact/hotspots.rs`
 
 *   **Track I3-3: Local Model Windows Preflight Check**
-    *   Status: In Planning
+    *   Status: Completed
     *   Spec: `conductor/trackI3-3/spec.md`
     *   Plan: `conductor/trackI3-3/plan.md`
     *   Issues: CG-1c
@@ -663,7 +663,7 @@ Systematic fixes from the 2026-05-20 comprehensive command audit (`docs/issues.m
 ### Phase 4 — LLM Router Hardening (Parallel)
 
 *   **Track I4-1: VRAM Pressure Monitoring in Doctor**
-    *   Status: In Planning
+    *   Status: Completed
     *   Spec: `conductor/trackI4-1/spec.md`
     *   Plan: `conductor/trackI4-1/plan.md`
     *   Goal: Surface GPU VRAM usage in `changeguard doctor` using `IDXGIAdapter3::QueryVideoMemoryInfo` (DXGI 1.4, Windows). Requires adding `windows = { version = "0.57", features = ["Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common"] }` to `Cargo.toml`. Emit a yellow warning when used VRAM exceeds 10.5 GB (87.5% of 12 GB B580 budget). No-op on non-Windows targets.
