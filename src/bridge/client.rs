@@ -18,7 +18,7 @@ pub fn query_unified(query: &str) -> Result<Vec<BridgeRecord>> {
             text: query.to_string(),
         };
         let req = BridgeRecord::new(
-            BridgeDirection::Outbound,
+            BridgeDirection::Inbound,
             project_id.clone(),
             "query",
             payload,

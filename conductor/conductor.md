@@ -539,6 +539,37 @@
     *   Goal: Address findings from `integration-audit.md`: spec-compliant schema, robust IPC protocol, CLI filtering, and path abstractions.
     *   Key additions: Full metadata BridgeRecord, newline-delimited framing, selective export, Layout-based paths.
 
+## Milestone C: True Unification (Completed)
+
+Cross-repo phase with AI-Brains Phase 18. Transforms IPC bridge from passive transport into active orchestration.
+
+- [x] C1: Contextual Risk Export & Structured MADR Fields
+- [x] C2: AI-Brains Domain Schema & Cross-Domain Reachability
+- [x] C3: Predictive Verification IPC & Watcher Intervention
+
+*   **Track C1: Contextual Risk Export & Structured MADR Fields**
+    *   Status: Completed
+    *   Spec: `conductor/trackC1/spec.md`
+    *   Plan: `conductor/trackC1/plan.md`
+    *   Goal: Add scope-based hotspot export and structured MADR field emission (not pre-formatted markdown) for AI-Brains nightly ingestion.
+    *   Key additions: `--scope <paths>` filtering in `bridge export --hotspots`, `--madr` flag for structured decision fields.
+
+*   **Track C2: AI-Brains Domain Schema & Cross-Domain Reachability**
+    *   Status: Completed
+    *   Dependencies: C1
+    *   Spec: `conductor/trackC2/spec.md`
+    *   Plan: `conductor/trackC2/plan.md`
+    *   Goal: Add AI-Brains domain relations (Turn, Session, Memory, Decision) to CozoDB and define Datalog rules for cross-domain reachability (conversation→AST and AST→conversation).
+    *   Key additions: 4 new CozoDB relations in `src/state/storage_cozo.rs`, 6 cross-domain query methods, 14 new tests.
+
+*   **Track C3: Predictive Verification IPC & Watcher Intervention**
+    *   Status: Completed
+    *   Dependencies: C1, C2
+    *   Spec: `conductor/trackC3/spec.md`
+    *   Plan: `conductor/trackC3/plan.md`
+    *   Goal: Expose predictive verification via IPC for AI-Brains capture gate; extend watcher to emit risk alerts on high temporal coupling.
+    *   Key additions: `ipc_verify.rs` module, `BridgePayload::RiskAlert`, watcher integration.
+
 ## Workflow
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.

@@ -280,9 +280,15 @@ pub enum BridgeCommands {
         /// Optional specific targets (files or directories) to scope the export
         #[arg(long)]
         targets: Option<Vec<String>>,
+        /// Optional comma-separated file/directory list for scope-based risk analysis
+        #[arg(long, value_delimiter = ',')]
+        scope: Option<Vec<String>>,
         /// Export ledger delta data
         #[arg(long)]
         ledger: bool,
+        /// Export structured MADR fields from architecture and breaking-change ledger entries
+        #[arg(long)]
+        madr: bool,
     },
     /// Import insights and enrich impact packets
     Import {
@@ -297,6 +303,15 @@ pub enum BridgeCommands {
     Query {
         /// The query string
         query: String,
+    },
+    /// Run predictive verification on a scoped set of files (IPC endpoint for AI-Brains capture gate)
+    Verify {
+        /// Comma-separated file or directory paths to scope the prediction
+        #[arg(long, value_delimiter = ',')]
+        scope: Option<Vec<String>>,
+        /// Output file for the result (prints to stdout if omitted)
+        #[arg(long, short)]
+        out: Option<String>,
     },
 }
 

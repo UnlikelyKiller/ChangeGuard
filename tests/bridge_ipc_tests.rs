@@ -120,6 +120,8 @@ fn test_ipc_receive_records_staggered() {
                 path: "src/main.rs".to_string(),
                 score: 0.5,
                 reason: "high score".to_string(),
+                temporal_coupling: 0.0,
+                failure_risk_probability: 0.0,
             },
         );
         let s3 = serialize_record(&r3).unwrap() + "\n";

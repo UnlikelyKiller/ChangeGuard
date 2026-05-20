@@ -79,8 +79,8 @@ impl IpcClient {
             }
             #[cfg(not(windows))]
             {
-                let res = std::os::unix::net::UnixStream::connect(&path_str)
-                    .map(IpcStream::UnixSocket);
+                let res =
+                    std::os::unix::net::UnixStream::connect(&path_str).map(IpcStream::UnixSocket);
                 let _ = tx.send(res);
             }
         });

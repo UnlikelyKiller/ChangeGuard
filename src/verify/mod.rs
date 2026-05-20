@@ -1,5 +1,6 @@
 pub mod ci_predictor;
 pub mod explanation;
+pub mod ipc_verify;
 pub mod plan;
 pub mod predict;
 pub mod probability;

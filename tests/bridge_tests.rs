@@ -8,6 +8,8 @@ fn test_bridge_record_serialization() {
         path: "src/lib.rs".to_string(),
         score: 0.9,
         reason: "high temporal coupling".to_string(),
+        temporal_coupling: 0.0,
+        failure_risk_probability: 0.0,
     };
     let record = BridgeRecord::new(
         BridgeDirection::Outbound,

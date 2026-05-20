@@ -3,10 +3,12 @@ use miette::Result;
 use owo_colors::OwoColorize;
 use std::env;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
+use crate::bridge::notify::{DEFAULT_RISK_ALERT_THRESHOLD, push_risk_alert};
 use crate::config::load::load_config;
+use crate::impact::temporal::{GixHistoryProvider, TemporalEngine};
 use crate::index::incremental::IncrementalSyncEngine;
 use crate::index::orchestrator::ProjectIndexer;
 use crate::ledger::drift::DriftManager;
@@ -14,6 +16,9 @@ use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
 use crate::watch::batch::WatchBatch;
 use crate::watch::debounce::Watcher;
+
+/// Throttle temporal coupling checks to every Nth batch.
+const TEMPORAL_CHECK_INTERVAL: usize = 10;
 
 pub fn execute_watch(interval_ms: u64, json_output: bool, no_graph_sync: bool) -> Result<()> {
     let current_dir = env::current_dir()
@@ -114,6 +119,9 @@ pub fn execute_watch(interval_ms: u64, json_output: bool, no_graph_sync: bool) -
                     }
                 }
             }
+
+            // Temporal coupling risk alerts (throttled)
+            check_temporal_coupling_alerts(&batch, &layout, &repo_root);
         }
     });
 
@@ -133,4 +141,102 @@ pub fn execute_watch(interval_ms: u64, json_output: bool, no_graph_sync: bool) -
         println!("{}", "Watch mode stopped.".yellow());
     }
     Ok(())
+}
+
+/// Throttled temporal coupling check for risk alerts.
+///
+/// Runs every `TEMPORAL_CHECK_INTERVAL` batches to avoid excessive git history analysis.
+/// For each coupling pair above the risk threshold, extracts approximate affected symbols
+/// from the changed file paths and emits a `RiskAlert` via the IPC bridge (fire-and-forget).
+fn check_temporal_coupling_alerts(batch: &WatchBatch, layout: &Layout, repo_root: &Utf8PathBuf) {
+    static BATCH_COUNT: AtomicUsize = AtomicUsize::new(0);
+    let count = BATCH_COUNT.fetch_add(1, Ordering::Relaxed);
+    if !count.is_multiple_of(TEMPORAL_CHECK_INTERVAL) {
+        return;
+    }
+
+    let threshold = match load_config(layout) {
+        Ok(cfg) => cfg.temporal.coupling_threshold as f64,
+        Err(_) => return,
+    };
+
+
+    let repo = match gix::open(repo_root.as_std_path()) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::debug!("Cannot open git repo for temporal coupling check: {:?}", e);
+            return;
+        }
+    };
+
+    let provider = GixHistoryProvider::new(&repo);
+    let config = match load_config(layout) {
+        Ok(cfg) => cfg.temporal,
+        Err(_) => return,
+    };
+
+    let engine = TemporalEngine::new(provider, config);
+    let couplings = match engine.calculate_couplings() {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::debug!("Temporal coupling calculation failed: {:?}", e);
+            return;
+        }
+    };
+
+    // Collect changed file paths from this batch for symbol extraction
+    let changed_paths: std::collections::HashSet<String> = batch
+        .events
+        .iter()
+        .map(|ev| ev.path.as_str().to_string())
+        .collect();
+
+    for coupling in &couplings {
+        let score = coupling.score as f64;
+        if score < threshold {
+            continue;
+        }
+
+        let file_a_str = coupling.file_a.to_string_lossy().to_string();
+        let file_b_str = coupling.file_b.to_string_lossy().to_string();
+
+        // Only alert if at least one of the coupled files was changed in this batch
+        if !changed_paths.contains(&file_a_str) && !changed_paths.contains(&file_b_str) {
+            continue;
+        }
+
+        // Derive affected symbols from changed file paths (approximate).
+        // Uses file stems as a proxy for symbol names when real symbol analysis
+        // is not available during watch.
+        let mut affected_symbols: Vec<String> = Vec::new();
+        for path in &changed_paths {
+            if let Some(stem) = std::path::Path::new(path)
+                .file_stem()
+                .and_then(|s| s.to_str())
+            {
+                affected_symbols.push(stem.to_string());
+            }
+        }
+        affected_symbols.sort();
+        affected_symbols.dedup();
+
+        let risk_level = if score > 0.95 { "High" } else { "Medium" };
+
+        let suggested_remediation = format!(
+            "High temporal coupling ({:.0}%) between {} and {}. Consider testing both files together and reviewing shared dependencies.",
+            score * 100.0,
+            file_a_str,
+            file_b_str,
+        );
+
+        push_risk_alert(
+            &file_a_str,
+            &file_b_str,
+            score,
+            &affected_symbols,
+            &suggested_remediation,
+            risk_level,
+            threshold,
+        );
+    }
 }

@@ -90,6 +90,46 @@ impl CozoStorage {
             self.run_script("::fts create node:fts_idx {extractor: label, tokenizer: Simple}")?;
         }
 
+        // --- Track C2: AI-Brains Domain Relations ---
+        if !existing.contains(&"Turn".to_string()) {
+            self.run_script(":create Turn { id: String => session_id: String, timestamp: String, project_id: String, summary: String, privacy_level: String }")?;
+        }
+        if !existing.contains(&"Session".to_string()) {
+            self.run_script(":create Session { id: String => project_id: String, started_at: String, ended_at: String, turn_count: Int, privacy_level: String }")?;
+        }
+        if !existing.contains(&"Memory".to_string()) {
+            self.run_script(":create Memory { id: String => source_turn_id: String, content: String, memory_type: String, privacy_level: String, created_at: String }")?;
+        }
+        if !existing.contains(&"Decision".to_string()) {
+            self.run_script(":create Decision { id: String => title: String, context_field: String, decision_text: String, consequences: String, source_tx_id: String, timestamp: String }")?;
+        }
+
+        // --- Track C2: Cross-Domain Reachability Queries ---
+        // Cross-domain traversals are expressed as Datalog query patterns executed
+        // via run_script(), which is the interface AI-Brains' CozoProxyBackend uses.
+        // No stored rules — the cozo-redux fork does not support :create ... := for rules.
+        //
+        // conversation_to_ast query (Turn path):
+        //   ?[node_id, node_label] := *Memory{source_turn_id: '<id>', content: node_label}, *node{id: node_id, label: node_label}
+        //
+        // conversation_to_ast query (Decision source path):
+        //   ?[node_id, node_label] := *Decision{id: '<id>', source_tx_id: tx_id}, *edge{source: node_id, provenance_id: tx_id}, *node{id: node_id, label: node_label}
+        //
+        // conversation_to_ast query (Decision target path):
+        //   ?[node_id, node_label] := *Decision{id: '<id>', source_tx_id: tx_id}, *edge{target: node_id, provenance_id: tx_id}, *node{id: node_id, label: node_label}
+        //
+        // ast_to_conversation query (Turn via Memory):
+        //   ?[entity_id] := *node{id: '<id>', label: label}, *Memory{source_turn_id: entity_id, content: label}
+        //
+        // ast_to_conversation query (Session via Memory->Turn):
+        //   ?[entity_id] := *node{id: '<id>', label: label}, *Memory{source_turn_id: turn_id, content: label}, *Turn{id: turn_id, session_id: entity_id}
+        //
+        // ast_to_conversation query (Decision via Edge source):
+        //   ?[entity_id] := *edge{source: '<id>', provenance_id: tx_id}, *Decision{id: entity_id, source_tx_id: tx_id}
+        //
+        // ast_to_conversation query (Decision via Edge target):
+        //   ?[entity_id] := *edge{target: '<id>', provenance_id: tx_id}, *Decision{id: entity_id, source_tx_id: tx_id}
+
         Ok(())
     }
 
@@ -253,6 +293,79 @@ impl CozoStorage {
             }
         }
         Ok(communities)
+    }
+
+    // --- Track C2: Cross-Domain Reachability Query Helpers ---
+    // These return Datalog query text for execution via run_script().
+    // AI-Brains' CozoProxyBackend sends equivalent raw Datalog over Named Pipes.
+
+    /// Query: find AST nodes affected by a Turn via Memory content matching.
+    /// Traversal: Turn -> Memory -> Node (where Memory.content == Node.label)
+    pub fn query_conversation_to_ast_via_memory(&self, turn_id: &str) -> Result<NamedRows> {
+        let script =
+            "?[node_id, node_label] := *Memory{source_turn_id: $turn_id, content: node_label}, *node{id: node_id, label: node_label}";
+        let mut params = std::collections::BTreeMap::new();
+        params.insert(
+            "turn_id".to_string(),
+            DataValue::Str(turn_id.to_string().into()),
+        );
+        self.run_script_with_params(script, params, ScriptMutability::Immutable)
+    }
+
+    /// Query: find AST nodes affected by a Decision via Edge provenance (source nodes).
+    /// Traversal: Decision -> Edge source -> Node
+    pub fn query_conversation_to_ast_via_decision(&self, decision_id: &str) -> Result<NamedRows> {
+        let script =
+            "?[node_id, node_label] := *Decision{id: $decision_id, source_tx_id: tx_id}, *edge{source: node_id, provenance_id: tx_id}, *node{id: node_id, label: node_label}";
+        let mut params = std::collections::BTreeMap::new();
+        params.insert(
+            "decision_id".to_string(),
+            DataValue::Str(decision_id.to_string().into()),
+        );
+        self.run_script_with_params(script, params, ScriptMutability::Immutable)
+    }
+
+    /// Query: find conversations that discussed a given AST node via Memory.
+    /// Traversal: Node -> Memory -> Turn
+    pub fn query_ast_to_conversation_via_memory(&self, node_id: &str) -> Result<NamedRows> {
+        let script =
+            "?[entity_id] := *node{id: $node_id, label: label}, *Memory{source_turn_id: entity_id, content: label}";
+        let mut params = std::collections::BTreeMap::new();
+        params.insert("node_id".to_string(), DataValue::Str(node_id.to_string().into()));
+        self.run_script_with_params(script, params, ScriptMutability::Immutable)
+    }
+
+    /// Query: find sessions that discussed a given AST node via Memory -> Turn.
+    /// Traversal: Node -> Memory -> Turn -> Session
+    pub fn query_ast_to_conversation_via_session(&self, node_id: &str) -> Result<NamedRows> {
+        let script =
+            "?[entity_id] := *node{id: $node_id, label: label}, *Memory{source_turn_id: turn_id, content: label}, *Turn{id: turn_id, session_id: entity_id}";
+        let mut params = std::collections::BTreeMap::new();
+        params.insert("node_id".to_string(), DataValue::Str(node_id.to_string().into()));
+        self.run_script_with_params(script, params, ScriptMutability::Immutable)
+    }
+
+    /// Query: find Decisions that discuss a given AST node via Edge provenance.
+    /// Traversal: Node (as edge source or target) -> Edge -> Decision
+    pub fn query_ast_to_conversation_via_decision(&self, node_id: &str) -> Result<NamedRows> {
+        // Query both edge source and edge target paths.
+        let script =
+            "?[entity_id] := *edge{source: $node_id, provenance_id: tx_id}, *Decision{id: entity_id, source_tx_id: tx_id}";
+        let mut params = std::collections::BTreeMap::new();
+        params.insert("node_id".to_string(), DataValue::Str(node_id.to_string().into()));
+        self.run_script_with_params(script, params, ScriptMutability::Immutable)
+    }
+
+    /// Query: find Decisions that discuss a given AST node via Edge target provenance.
+    pub fn query_ast_to_conversation_via_decision_target(
+        &self,
+        node_id: &str,
+    ) -> Result<NamedRows> {
+        let script =
+            "?[entity_id] := *edge{target: $node_id, provenance_id: tx_id}, *Decision{id: entity_id, source_tx_id: tx_id}";
+        let mut params = std::collections::BTreeMap::new();
+        params.insert("node_id".to_string(), DataValue::Str(node_id.to_string().into()));
+        self.run_script_with_params(script, params, ScriptMutability::Immutable)
     }
 }
 
@@ -712,5 +825,584 @@ mod tests {
             "Expected at least 2 communities, got {:?}",
             distinct.len()
         );
+    }
+
+    // --- Track C2: AI-Brains Domain Relations Tests ---
+
+    #[test]
+    fn test_ai_brains_relations_exist() {
+        let storage = CozoStorage::new(&PathBuf::from("")).unwrap();
+        let relations = storage.get_relations().unwrap();
+        assert!(
+            relations.contains(&"Turn".to_string()),
+            "Turn relation missing"
+        );
+        assert!(
+            relations.contains(&"Session".to_string()),
+            "Session relation missing"
+        );
+        assert!(
+            relations.contains(&"Memory".to_string()),
+            "Memory relation missing"
+        );
+        assert!(
+            relations.contains(&"Decision".to_string()),
+            "Decision relation missing"
+        );
+    }
+
+    #[test]
+    fn test_turn_insert_and_query() {
+        let storage = CozoStorage::new(&PathBuf::from("")).unwrap();
+
+        storage
+            .run_script(
+                "?[id, session_id, timestamp, project_id, summary, privacy_level] <- \
+                 [['t1', 's1', '2024-01-01T00:00:00Z', 'proj1', 'discussed architecture', 'internal']] \
+                 :put Turn",
+            )
+            .unwrap();
+
+        let res = storage
+            .run_script("?[summary] := *Turn{id: 't1', summary: summary}")
+            .unwrap();
+        assert_eq!(res.rows.len(), 1);
+        assert_eq!(
+            res.rows[0][0],
+            DataValue::Str("discussed architecture".into())
+        );
+
+        // Query by session
+        let res = storage
+            .run_script("?[id] := *Turn{session_id: 's1', id: id}")
+            .unwrap();
+        assert_eq!(res.rows.len(), 1);
+        assert_eq!(res.rows[0][0], DataValue::Str("t1".into()));
+    }
+
+    #[test]
+    fn test_session_insert_and_query() {
+        let storage = CozoStorage::new(&PathBuf::from("")).unwrap();
+
+        storage
+            .run_script(
+                "?[id, project_id, started_at, ended_at, turn_count, privacy_level] <- \
+                 [['sess1', 'proj1', '2024-01-01T00:00:00Z', '2024-01-01T01:00:00Z', 5, 'internal']] \
+                 :put Session",
+            )
+            .unwrap();
+
+        let res = storage
+            .run_script("?[turn_count] := *Session{id: 'sess1', turn_count: turn_count}")
+            .unwrap();
+        assert_eq!(res.rows.len(), 1);
+        assert_eq!(res.rows[0][0], DataValue::Num(Num::Int(5)));
+    }
+
+    #[test]
+    fn test_memory_insert_and_query() {
+        let storage = CozoStorage::new(&PathBuf::from("")).unwrap();
+
+        storage
+            .run_script(
+                "?[id, source_turn_id, content, memory_type, privacy_level, created_at] <- \
+                 [['m1', 't1', 'parse_input', 'symbol_reference', 'internal', '2024-01-01T00:00:00Z']] \
+                 :put Memory",
+            )
+            .unwrap();
+
+        let res = storage
+            .run_script("?[content] := *Memory{id: 'm1', content: content}")
+            .unwrap();
+        assert_eq!(res.rows.len(), 1);
+        assert_eq!(res.rows[0][0], DataValue::Str("parse_input".into()));
+
+        // Query by source_turn_id
+        let res = storage
+            .run_script("?[id] := *Memory{source_turn_id: 't1', id: id}")
+            .unwrap();
+        assert_eq!(res.rows.len(), 1);
+        assert_eq!(res.rows[0][0], DataValue::Str("m1".into()));
+    }
+
+    #[test]
+    fn test_decision_insert_and_query() {
+        let storage = CozoStorage::new(&PathBuf::from("")).unwrap();
+
+        storage
+            .run_script(
+                "?[id, title, context_field, decision_text, consequences, source_tx_id, timestamp] <- \
+                 [['d1', 'ADR: Use CozoDB', 'architecture', 'Adopt CozoDB for KG storage', \
+                   'Unified Datalog queries across domains', 'tx_001', '2024-01-01T00:00:00Z']] \
+                 :put Decision",
+            )
+            .unwrap();
+
+        let res = storage
+            .run_script("?[title] := *Decision{id: 'd1', title: title}")
+            .unwrap();
+        assert_eq!(res.rows.len(), 1);
+        assert_eq!(res.rows[0][0], DataValue::Str("ADR: Use CozoDB".into()));
+
+        // Query by source_tx_id
+        let res = storage
+            .run_script("?[id] := *Decision{source_tx_id: 'tx_001', id: id}")
+            .unwrap();
+        assert_eq!(res.rows.len(), 1);
+        assert_eq!(res.rows[0][0], DataValue::Str("d1".into()));
+    }
+
+    // --- Track C2: Cross-Domain Reachability Tests ---
+    // These tests use raw Datalog queries via run_script (AI-Brains' interface)
+    // and the query helper methods on CozoStorage.
+
+    #[test]
+    fn test_conversation_to_ast_memory_path() {
+        let storage = CozoStorage::new(&PathBuf::from("")).unwrap();
+
+        // Insert nodes
+        storage
+            .run_script(
+                "?[id, label, category, risk_score, metadata] <- [
+                    ['n1', 'parse_input', 'function', 0.0, {}],
+                    ['n2', 'validate', 'function', 0.0, {}]
+                ] :put node",
+            )
+            .unwrap();
+
+        // Insert Turn
+        storage
+            .run_script(
+                "?[id, session_id, timestamp, project_id, summary, privacy_level] <- \
+                 [['t1', 's1', '2024-01-01T00:00:00Z', 'proj1', 'discussed parse_input', 'internal']] \
+                 :put Turn",
+            )
+            .unwrap();
+
+        // Insert Memory whose content matches node label 'parse_input'
+        storage
+            .run_script(
+                "?[id, source_turn_id, content, memory_type, privacy_level, created_at] <- \
+                 [['m1', 't1', 'parse_input', 'symbol_reference', 'internal', '2024-01-01T00:00:00Z']] \
+                 :put Memory",
+            )
+            .unwrap();
+
+        // Use the helper method (which executes raw Datalog via run_script)
+        let res = storage.query_conversation_to_ast_via_memory("t1").unwrap();
+
+        // Should find n1 (parse_input) but not n2 (validate) since Memory.content = "parse_input"
+        assert_eq!(res.rows.len(), 1, "Expected 1 node, got {:?}", res.rows);
+        assert_eq!(res.rows[0][0], DataValue::Str("n1".into()));
+        assert_eq!(res.rows[0][1], DataValue::Str("parse_input".into()));
+    }
+
+    #[test]
+    fn test_conversation_to_ast_memory_multi_symbol() {
+        let storage = CozoStorage::new(&PathBuf::from("")).unwrap();
+
+        // Insert nodes
+        storage
+            .run_script(
+                "?[id, label, category, risk_score, metadata] <- [
+                    ['n_parse', 'parse_input', 'function', 0.0, {}],
+                    ['n_valid', 'validate', 'function', 0.0, {}],
+                    ['n_handler', 'handle_request', 'function', 0.0, {}]
+                ] :put node",
+            )
+            .unwrap();
+
+        // Insert Turn
+        storage
+            .run_script(
+                "?[id, session_id, timestamp, project_id, summary, privacy_level] <- \
+                 [['t2', 's2', '2024-01-01T00:00:00Z', 'proj1', 'code review', 'internal']] \
+                 :put Turn",
+            )
+            .unwrap();
+
+        // Two Memory entries from the same Turn, each referencing a different symbol
+        storage
+            .run_script(
+                "?[id, source_turn_id, content, memory_type, privacy_level, created_at] <- [
+                    ['m_p', 't2', 'parse_input', 'symbol_reference', 'internal', '2024-01-01T00:00:00Z'],
+                    ['m_v', 't2', 'validate', 'symbol_reference', 'internal', '2024-01-01T00:00:00Z']
+                ] :put Memory",
+            )
+            .unwrap();
+
+        // Use the helper method
+        let res = storage.query_conversation_to_ast_via_memory("t2").unwrap();
+
+        // Should find both parse_input and validate, but not handle_request
+        assert_eq!(res.rows.len(), 2);
+        let labels: Vec<String> = res
+            .rows
+            .iter()
+            .map(|r| {
+                if let DataValue::Str(s) = &r[1] {
+                    s.to_string()
+                } else {
+                    String::new()
+                }
+            })
+            .collect();
+        assert!(labels.contains(&"parse_input".to_string()));
+        assert!(labels.contains(&"validate".to_string()));
+    }
+
+    #[test]
+    fn test_conversation_to_ast_decision_path() {
+        let storage = CozoStorage::new(&PathBuf::from("")).unwrap();
+
+        // Insert nodes
+        storage
+            .run_script(
+                "?[id, label, category, risk_score, metadata] <- [
+                    ['n1', 'parse_input', 'function', 0.0, {}],
+                    ['n2', 'validate', 'function', 0.0, {}]
+                ] :put node",
+            )
+            .unwrap();
+
+        // Insert edge with provenance matching decision's source_tx_id
+        storage
+            .run_script(
+                "?[source, target, relation, confidence, provenance_id] <- \
+                 [['n1', 'n2', 'calls', 1.0, 'tx_adr_1']] \
+                 :put edge",
+            )
+            .unwrap();
+
+        // Insert Decision linked via source_tx_id = edge provenance_id
+        storage
+            .run_script(
+                "?[id, title, context_field, decision_text, consequences, source_tx_id, timestamp] <- \
+                 [['d1', 'ADR: Input Validation', 'security', 'Use strict validation', \
+                   'better security posture', 'tx_adr_1', '2024-01-01T00:00:00Z']] \
+                 :put Decision",
+            )
+            .unwrap();
+
+        // Query via the helper method (source nodes of matching edges)
+        let res = storage
+            .query_conversation_to_ast_via_decision("d1")
+            .unwrap();
+
+        // Should find n1 via edge source path
+        assert_eq!(res.rows.len(), 1);
+        assert_eq!(res.rows[0][0], DataValue::Str("n1".into()));
+        assert_eq!(res.rows[0][1], DataValue::Str("parse_input".into()));
+
+        // Also query target nodes via raw Datalog
+        let res_target = storage
+            .run_script(
+                "?[node_id, node_label] := *Decision{id: 'd1', source_tx_id: tx_id}, \
+                 *edge{target: node_id, provenance_id: tx_id}, \
+                 *node{id: node_id, label: node_label}",
+            )
+            .unwrap();
+        assert_eq!(res_target.rows.len(), 1);
+        assert_eq!(res_target.rows[0][0], DataValue::Str("n2".into()));
+        assert_eq!(res_target.rows[0][1], DataValue::Str("validate".into()));
+    }
+
+    #[test]
+    fn test_ast_to_conversation_memory_to_turn() {
+        let storage = CozoStorage::new(&PathBuf::from("")).unwrap();
+
+        // Insert node
+        storage
+            .run_script(
+                "?[id, label, category, risk_score, metadata] <- \
+                 [['n1', 'parse_input', 'function', 0.0, {}]] \
+                 :put node",
+            )
+            .unwrap();
+
+        // Insert Turn
+        storage
+            .run_script(
+                "?[id, session_id, timestamp, project_id, summary, privacy_level] <- \
+                 [['t1', 's1', '2024-01-01T00:00:00Z', 'proj1', 'discussed parse_input', 'internal']] \
+                 :put Turn",
+            )
+            .unwrap();
+
+        // Insert Memory linking the Turn to the symbol
+        storage
+            .run_script(
+                "?[id, source_turn_id, content, memory_type, privacy_level, created_at] <- \
+                 [['m1', 't1', 'parse_input', 'symbol_reference', 'internal', '2024-01-01T00:00:00Z']] \
+                 :put Memory",
+            )
+            .unwrap();
+
+        // Use the helper method (finds Turns via Memory content matching)
+        let res = storage.query_ast_to_conversation_via_memory("n1").unwrap();
+
+        // Should find the Turn (t1) via Memory content matching
+        assert_eq!(res.rows.len(), 1);
+        assert_eq!(res.rows[0][0], DataValue::Str("t1".into()));
+    }
+
+    #[test]
+    fn test_ast_to_conversation_memory_to_session() {
+        let storage = CozoStorage::new(&PathBuf::from("")).unwrap();
+
+        // Insert node
+        storage
+            .run_script(
+                "?[id, label, category, risk_score, metadata] <- \
+                 [['n1', 'parse_input', 'function', 0.0, {}]] \
+                 :put node",
+            )
+            .unwrap();
+
+        // Insert Session
+        storage
+            .run_script(
+                "?[id, project_id, started_at, ended_at, turn_count, privacy_level] <- \
+                 [['sess1', 'proj1', '2024-01-01T00:00:00Z', '2024-01-01T01:00:00Z', 3, 'internal']] \
+                 :put Session",
+            )
+            .unwrap();
+
+        // Insert Turn linked to the session
+        storage
+            .run_script(
+                "?[id, session_id, timestamp, project_id, summary, privacy_level] <- \
+                 [['t1', 'sess1', '2024-01-01T00:00:00Z', 'proj1', 'discussed parse_input', 'internal']] \
+                 :put Turn",
+            )
+            .unwrap();
+
+        // Insert Memory linking the Turn to the symbol
+        storage
+            .run_script(
+                "?[id, source_turn_id, content, memory_type, privacy_level, created_at] <- \
+                 [['m1', 't1', 'parse_input', 'symbol_reference', 'internal', '2024-01-01T00:00:00Z']] \
+                 :put Memory",
+            )
+            .unwrap();
+
+        // Find Turns via Memory (should find t1)
+        let res_turns = storage.query_ast_to_conversation_via_memory("n1").unwrap();
+        assert_eq!(res_turns.rows.len(), 1);
+        assert_eq!(res_turns.rows[0][0], DataValue::Str("t1".into()));
+
+        // Find Sessions via Memory -> Turn (should find sess1)
+        let res_sessions = storage.query_ast_to_conversation_via_session("n1").unwrap();
+        assert_eq!(res_sessions.rows.len(), 1);
+        assert_eq!(res_sessions.rows[0][0], DataValue::Str("sess1".into()));
+    }
+
+    #[test]
+    fn test_ast_to_conversation_edge_to_decision() {
+        let storage = CozoStorage::new(&PathBuf::from("")).unwrap();
+
+        // Insert nodes
+        storage
+            .run_script(
+                "?[id, label, category, risk_score, metadata] <- [
+                    ['n1', 'parse_input', 'function', 0.0, {}],
+                    ['n2', 'validate', 'function', 0.0, {}]
+                ] :put node",
+            )
+            .unwrap();
+
+        // Insert edge with provenance
+        storage
+            .run_script(
+                "?[source, target, relation, confidence, provenance_id] <- \
+                 [['n1', 'n2', 'calls', 1.0, 'tx_adr_1']] \
+                 :put edge",
+            )
+            .unwrap();
+
+        // Insert Decision linked via source_tx_id = edge provenance_id
+        storage
+            .run_script(
+                "?[id, title, context_field, decision_text, consequences, source_tx_id, timestamp] <- \
+                 [['d1', 'ADR: Input Validation', 'security', 'Use strict validation', \
+                   'better security posture', 'tx_adr_1', '2024-01-01T00:00:00Z']] \
+                 :put Decision",
+            )
+            .unwrap();
+
+        // Query via the helper method (n1 is source of edge)
+        let res = storage
+            .query_ast_to_conversation_via_decision("n1")
+            .unwrap();
+        assert_eq!(res.rows.len(), 1);
+        assert_eq!(res.rows[0][0], DataValue::Str("d1".into()));
+
+        // Query via raw Datalog for n2 (target of edge)
+        let res = storage
+            .run_script(
+                "?[entity_id] := *edge{target: 'n2', provenance_id: tx_id}, \
+                 *Decision{id: entity_id, source_tx_id: tx_id}",
+            )
+            .unwrap();
+        assert_eq!(res.rows.len(), 1);
+        assert_eq!(res.rows[0][0], DataValue::Str("d1".into()));
+    }
+
+    #[test]
+    fn test_cross_domain_bidirectional_roundtrip() {
+        let storage = CozoStorage::new(&PathBuf::from("")).unwrap();
+
+        // Setup: nodes, edges, decisions, turns, sessions, memories
+        storage
+            .run_script(
+                "?[id, label, category, risk_score, metadata] <- [
+                    ['n1', 'parse_input', 'function', 0.0, {}],
+                    ['n2', 'validate', 'function', 0.0, {}]
+                ] :put node",
+            )
+            .unwrap();
+
+        storage
+            .run_script(
+                "?[source, target, relation, confidence, provenance_id] <- \
+                 [['n1', 'n2', 'calls', 1.0, 'tx_adr_1']] \
+                 :put edge",
+            )
+            .unwrap();
+
+        storage
+            .run_script(
+                "?[id, title, context_field, decision_text, consequences, source_tx_id, timestamp] <- \
+                 [['d1', 'ADR: Validation', 'security', 'Add validation', \
+                   'fewer bugs', 'tx_adr_1', '2024-01-01T00:00:00Z']] \
+                 :put Decision",
+            )
+            .unwrap();
+
+        storage
+            .run_script(
+                "?[id, session_id, timestamp, project_id, summary, privacy_level] <- \
+                 [['t1', 'sess1', '2024-01-01T00:00:00Z', 'proj1', 'discussed parse_input', 'internal']] \
+                 :put Turn",
+            )
+            .unwrap();
+
+        storage
+            .run_script(
+                "?[id, source_turn_id, content, memory_type, privacy_level, created_at] <- \
+                 [['m1', 't1', 'parse_input', 'symbol_reference', 'internal', '2024-01-01T00:00:00Z']] \
+                 :put Memory",
+            )
+            .unwrap();
+
+        // Forward: Decision d1 -> conversation_to_ast -> should find n1 (source)
+        let forward = storage
+            .query_conversation_to_ast_via_decision("d1")
+            .unwrap();
+        assert_eq!(forward.rows.len(), 1);
+        assert_eq!(forward.rows[0][0], DataValue::Str("n1".into()));
+
+        // Reverse: Node n1 as edge source -> ast_to_conversation -> should find d1
+        let reverse = storage
+            .query_ast_to_conversation_via_decision("n1")
+            .unwrap();
+        assert!(
+            reverse
+                .rows
+                .iter()
+                .any(|r| r[0] == DataValue::Str("d1".into()))
+        );
+
+        // Reverse: Node n2 as edge target -> should find d1
+        let reverse_target = storage
+            .run_script(
+                "?[entity_id] := *edge{target: 'n2', provenance_id: tx_id}, \
+                 *Decision{id: entity_id, source_tx_id: tx_id}",
+            )
+            .unwrap();
+        assert!(
+            reverse_target
+                .rows
+                .iter()
+                .any(|r| r[0] == DataValue::Str("d1".into()))
+        );
+
+        // Forward: Turn t1 -> conversation_to_ast -> should find n1
+        let forward_turn = storage.query_conversation_to_ast_via_memory("t1").unwrap();
+        assert_eq!(forward_turn.rows.len(), 1);
+        assert_eq!(forward_turn.rows[0][0], DataValue::Str("n1".into()));
+
+        // Reverse: Node n1 -> ast_to_conversation via Memory -> should find t1
+        let reverse_node = storage.query_ast_to_conversation_via_memory("n1").unwrap();
+        assert!(
+            reverse_node
+                .rows
+                .iter()
+                .any(|r| r[0] == DataValue::Str("t1".into()))
+        );
+    }
+
+    #[test]
+    fn test_conversation_to_ast_no_match() {
+        let storage = CozoStorage::new(&PathBuf::from("")).unwrap();
+
+        // Insert nodes
+        storage
+            .run_script(
+                "?[id, label, category, risk_score, metadata] <- \
+                 [['n1', 'unrelated_function', 'function', 0.0, {}]] \
+                 :put node",
+            )
+            .unwrap();
+
+        // Insert Turn with no matching Memory
+        storage
+            .run_script(
+                "?[id, session_id, timestamp, project_id, summary, privacy_level] <- \
+                 [['t_orphan', 's1', '2024-01-01T00:00:00Z', 'proj1', 'no symbols', 'internal']] \
+                 :put Turn",
+            )
+            .unwrap();
+
+        // Query via helper for a Turn with no Memory
+        let res = storage
+            .query_conversation_to_ast_via_memory("t_orphan")
+            .unwrap();
+        assert_eq!(res.rows.len(), 0);
+
+        // Query for a non-existent entity (still empty)
+        let res = storage
+            .query_conversation_to_ast_via_memory("nonexistent")
+            .unwrap();
+        assert_eq!(res.rows.len(), 0);
+    }
+
+    #[test]
+    fn test_schema_setup_idempotent() {
+        // Use a persistent path to test that setup_schema can be called multiple times
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("idempotent_test.cozo");
+
+        // First initialization
+        let storage1 = CozoStorage::new(&path).unwrap();
+        let relations1 = storage1.get_relations().unwrap();
+        assert!(relations1.contains(&"Turn".to_string()));
+
+        // Drop storage1 so the database file can be reopened
+        drop(storage1);
+
+        // Second initialization on the same path (tests idempotency)
+        let storage2 = CozoStorage::new(&path).unwrap();
+        let relations2 = storage2.get_relations().unwrap();
+
+        // All relations should still be present
+        assert!(relations2.contains(&"Turn".to_string()));
+        assert!(relations2.contains(&"Session".to_string()));
+        assert!(relations2.contains(&"Memory".to_string()));
+        assert!(relations2.contains(&"Decision".to_string()));
+
+        // Existing relations (node, edge) should not have been affected
+        assert!(relations2.contains(&"node".to_string()));
+        assert!(relations2.contains(&"edge".to_string()));
     }
 }

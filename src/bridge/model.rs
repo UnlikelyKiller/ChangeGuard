@@ -67,6 +67,20 @@ pub enum BridgePayload {
     Query {
         text: String,
     },
+    Madr {
+        title: String,
+        context: String,
+        decision: String,
+        consequences: String,
+    },
+    RiskAlert {
+        coupled_file_a: String,
+        coupled_file_b: String,
+        coupling_score: f64,
+        affected_symbols: Vec<String>,
+        suggested_remediation: String,
+        risk_level: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,7 +92,7 @@ pub struct BridgeVerifyOutcome {
 }
 
 impl BridgeRecord {
-    pub const VERSION: &'static str = "0.2";
+    pub const VERSION: &'static str = "0.3";
 
     pub fn new(
         direction: BridgeDirection,

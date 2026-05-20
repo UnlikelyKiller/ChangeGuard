@@ -87,11 +87,7 @@ pub fn execute_import(in_path: String) -> Result<()> {
                             content: content.clone(),
                         });
                     }
-                    BridgePayload::Hotspot {
-                        path,
-                        score,
-                        reason: _,
-                    } => {
+                    BridgePayload::Hotspot { path, score, .. } => {
                         imported_hotspots.push(Hotspot {
                             path: PathBuf::from(path),
                             score: *score as f32,
@@ -130,6 +126,12 @@ pub fn execute_import(in_path: String) -> Result<()> {
                         });
                     }
                     BridgePayload::Query { .. } => {
+                        other_records_count += 1;
+                    }
+                    BridgePayload::Madr { .. } => {
+                        other_records_count += 1;
+                    }
+                    BridgePayload::RiskAlert { .. } => {
                         other_records_count += 1;
                     }
                 }
