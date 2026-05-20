@@ -47,6 +47,9 @@ deep_model = "gemini-3.1-pro-preview"
 timeout_secs = 120
 context_window = 128000
 
+[index]
+stale_threshold_days = 3
+
 [local_model]
 # Use 127.0.0.1 — 'localhost' resolves to ::1 (IPv6) on Windows, which breaks IPv4-only servers
 base_url = "http://127.0.0.1:8081"

@@ -164,6 +164,25 @@ impl Default for DeadCodeConfig {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct IndexConfig {
+    /// Number of days after which the Tantivy/CozoDB index is considered stale.
+    #[serde(default = "default_stale_threshold_days")]
+    pub stale_threshold_days: u64,
+}
+
+fn default_stale_threshold_days() -> u64 {
+    3
+}
+
+impl Default for IndexConfig {
+    fn default() -> Self {
+        Self {
+            stale_threshold_days: default_stale_threshold_days(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Config {
     #[serde(default)]
@@ -192,6 +211,8 @@ pub struct Config {
     pub coverage: CoverageConfig,
     #[serde(default)]
     pub dead_code: DeadCodeConfig,
+    #[serde(default)]
+    pub index: IndexConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
