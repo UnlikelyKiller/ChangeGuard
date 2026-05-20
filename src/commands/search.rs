@@ -26,20 +26,22 @@ pub fn execute_search(
     let project_id = layout.get_project_id();
 
     // --- Staleness check (applies to both semantic and BM25 paths) ---
-    let storage = StorageManager::open_read_only(&layout.root)?;
-    let config = load_config(&layout)?;
-    let threshold = config.index.stale_threshold_days;
-
-    if auto_index {
-        // Run incremental index silently instead of warning
-        if let Err(e) = run_incremental_index(&layout, &storage) {
-            tracing::warn!("incremental index failed, proceeding with current index: {e}");
+    // When --index is used, skip staleness check (full re-index supersedes it).
+    // Otherwise use read-only fast-path, gracefully skipping if DB not initialized.
+    if !index {
+        let config = load_config(&layout)?;
+        if let Ok(storage) = StorageManager::open_read_only(&layout.root) {
+            let threshold = config.index.stale_threshold_days;
+            if auto_index {
+                if let Err(e) = run_incremental_index(&layout, &storage) {
+                    tracing::warn!("incremental index failed, proceeding with current index: {e}");
+                }
+                // Re-open storage after index mutation
+                let _ = StorageManager::open_read_only(&layout.root)?;
+            } else {
+                let _ = warn_if_stale(&storage, threshold);
+            }
         }
-        // Re-open storage after index mutation
-        let storage = StorageManager::open_read_only(&layout.root)?;
-        let _ = storage;
-    } else {
-        let _ = warn_if_stale(&storage, threshold);
     }
 
     if semantic {
