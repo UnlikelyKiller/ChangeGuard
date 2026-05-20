@@ -88,6 +88,7 @@ pub fn execute_import(in_path: String) -> Result<()> {
                         imported_hotspots.push(Hotspot {
                             path: PathBuf::from(path),
                             score: *score as f32,
+                            display_score: 0.0,
                             complexity: 0,
                             frequency: 1,
                             centrality: None,

@@ -296,6 +296,8 @@ pub struct Hotspot {
     pub path: PathBuf,
     #[serde(deserialize_with = "deserialize_score")]
     pub score: f32,
+    #[serde(default)]
+    pub display_score: f32,
     pub complexity: i32,
     pub frequency: usize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
