@@ -1,6 +1,8 @@
 use crate::impact::packet::{ChangedFile, ImpactPacket};
 use crate::index::storage::persist_symbols;
+use crate::state::layout::Layout;
 use crate::state::migrations::get_migrations;
+use camino::Utf8Path;
 use miette::{IntoDiagnostic, Result};
 use rusqlite::Connection;
 use std::collections::HashMap;
@@ -50,6 +52,15 @@ impl StorageManager {
 
     pub fn get_connection_mut(&mut self) -> &mut Connection {
         &mut self.conn
+    }
+
+    /// Open storage in read-only mode, skipping migration checks.
+    /// This is a fast-path for read-only commands that do not write to storage.
+    ///
+    /// Returns `Err` if the SQLite database file does not exist.
+    pub fn open_read_only(root: &Utf8Path) -> Result<Self> {
+        let db_path = Layout::new(root).state_subdir().join("ledger.db");
+        Self::init(db_path.as_std_path())
     }
 
     pub fn init_from_conn(conn: Connection) -> Self {
@@ -395,5 +406,49 @@ mod tests {
         assert_eq!(map.len(), 1);
         assert!(map.contains_key(&PathBuf::from("src/a.rs")));
         assert!(!map.contains_key(&PathBuf::from("src/b.rs")));
+    }
+
+    #[test]
+    fn read_only_skips_migrations() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = camino::Utf8Path::from_path(tmp.path()).unwrap();
+        let layout = Layout::new(root);
+        layout.ensure_state_dir().unwrap();
+
+        // Create an empty SQLite file (no migrations have run)
+        let db_path = layout.state_subdir().join("ledger.db");
+        let conn = Connection::open(db_path.as_std_path()).unwrap();
+        let initial_version: i64 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(initial_version, 0, "fresh db should have user_version=0");
+        drop(conn);
+
+        // Call open_read_only — in RED phase this delegates to init which
+        // runs migrations, so the test will fail. In GREEN phase it skips
+        // migrations and the test passes.
+        let storage = StorageManager::open_read_only(root).unwrap();
+
+        // Verify no migrations ran — user_version should still be 0
+        let version: i64 = storage
+            .get_connection()
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 0, "open_read_only should not run migrations");
+    }
+
+    #[test]
+    fn read_only_fails_on_missing_db() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = camino::Utf8Path::from_path(tmp.path()).unwrap();
+        let layout = Layout::new(root);
+        layout.ensure_state_dir().unwrap();
+        // Do NOT create an SQLite file
+
+        // In RED phase open_read_only delegates to init which creates the
+        // file via Connection::open, so the test fails. In GREEN phase
+        // open_read_only checks path existence first and returns Err.
+        let result = StorageManager::open_read_only(root);
+        assert!(result.is_err(), "open_read_only should fail without a db file");
     }
 }
