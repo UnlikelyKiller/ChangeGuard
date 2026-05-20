@@ -669,6 +669,32 @@ Systematic fixes from the 2026-05-20 comprehensive command audit (`docs/issues.m
     *   Goal: Surface GPU VRAM usage in `changeguard doctor` using `IDXGIAdapter3::QueryVideoMemoryInfo` (DXGI 1.4, Windows). Requires adding `windows = { version = "0.57", features = ["Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common"] }` to `Cargo.toml`. Emit a yellow warning when used VRAM exceeds 10.5 GB (87.5% of 12 GB B580 budget). No-op on non-Windows targets.
     *   Key files: `src/commands/doctor.rs`, `Cargo.toml`
 
+### Phase 5 — Audit Fixes
+
+*   **Track I5-1: Fix Regex Search Trigram Case Sensitivity**
+    *   Status: In Progress
+    *   Spec: `conductor/trackI5-1/spec.md`
+    *   Plan: `conductor/trackI5-1/plan.md`
+    *   Issues: Regex search returns "No matches found" for patterns with uppercase letters
+    *   Goal: Lowercase trigrams in `search_trigrams()` before creating `TermQuery` to match Tantivy's tokenization behavior.
+    *   Key files: `src/search/tantivy_engine.rs`
+
+*   **Track I5-2: Fix Scan Command Ignore Patterns Filtering**
+    *   Status: In Progress
+    *   Spec: `conductor/trackI5-2/spec.md`
+    *   Plan: `conductor/trackI5-2/plan.md`
+    *   Issues: `changeguard scan` flags all dirty files including agent dotfiles
+    *   Goal: Load config in `execute_scan()` and filter changes against `config.watch.ignore_patterns` using glob matching.
+    *   Key files: `src/commands/scan.rs`
+
+*   **Track I5-3: Fix viz --output Parent Directory Creation**
+    *   Status: In Progress
+    *   Spec: `conductor/trackI5-3/spec.md`
+    *   Plan: `conductor/trackI5-3/plan.md`
+    *   Issues: `changeguard viz --output` fails when parent directory doesn't exist
+    *   Goal: Create parent directory before writing output file.
+    *   Key files: `src/commands/viz.rs`
+
 ## Workflow
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.

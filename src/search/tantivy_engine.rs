@@ -110,7 +110,10 @@ impl TantivySearchEngine {
         let mut subqueries: Vec<(tantivy::query::Occur, Box<dyn tantivy::query::Query>)> =
             Vec::new();
         for trigram in trigrams {
-            let term = Term::from_field_text(trigrams_field, trigram);
+            // Tantivy's default text tokenizer lowercases terms during indexing,
+            // but TermQuery bypasses the tokenizer. Lowercase to match.
+            let lower = trigram.to_lowercase();
+            let term = Term::from_field_text(trigrams_field, &lower);
             let query = TermQuery::new(term, IndexRecordOption::Basic);
             subqueries.push((tantivy::query::Occur::Must, Box::new(query)));
         }
