@@ -38,6 +38,10 @@ struct CompletionResponse {
     choices: Vec<Choice>,
 }
 
+pub fn ping_completions(config: &LocalModelConfig) -> Result<String, String> {
+    Err("not implemented".to_string())
+}
+
 pub fn complete(
     config: &LocalModelConfig,
     messages: &[ChatMessage],
@@ -255,6 +259,47 @@ mod tests {
         let result = complete(&config, &test_messages(), &CompletionOptions::default());
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not reachable"));
+    }
+
+    #[test]
+    fn completions_ping_success() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::POST)
+                .path("/v1/chat/completions");
+            then.status(200)
+                .header("Content-Type", "application/json")
+                .json_body(serde_json::json!({
+                    "choices": [{"message": {"content": "hi"}}]
+                }));
+        });
+        let config = test_config(&server.base_url());
+        let result = ping_completions(&config);
+        assert!(result.is_ok(), "expected Ok, got: {:?}", result);
+        assert_eq!(result.unwrap(), "test-model");
+    }
+
+    #[test]
+    fn completions_ping_transport_failure() {
+        let config = test_config("http://127.0.0.1:1");
+        let result = ping_completions(&config);
+        assert!(result.is_err());
+        assert!(!result.unwrap_err().is_empty(), "error should not be empty");
+    }
+
+    #[test]
+    fn completions_ping_non_200() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::POST)
+                .path("/v1/chat/completions");
+            then.status(503).body("Service Unavailable");
+        });
+        let config = test_config(&server.base_url());
+        let result = ping_completions(&config);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("503"), "expected '503' in: {err}");
     }
 
     #[test]
