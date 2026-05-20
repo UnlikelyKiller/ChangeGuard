@@ -7,6 +7,9 @@ use miette::Result;
 #[command(version)]
 #[command(about = "ChangeGuard: Local-first change intelligence and Gemini-assisted development", long_about = None)]
 pub struct Cli {
+    /// Enable verbose (debug) logging output
+    #[arg(long, short = 'v', global = true)]
+    pub verbose: bool,
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -535,8 +538,10 @@ pub enum LedgerCommands {
 }
 
 pub fn run() -> Result<()> {
-    let cli = Cli::parse();
+    run_with(Cli::parse())
+}
 
+pub fn run_with(cli: Cli) -> Result<()> {
     match cli.command {
         Commands::Init { no_gitignore } => crate::commands::init::execute_init(no_gitignore),
         Commands::Doctor => crate::commands::doctor::execute_doctor(),

@@ -1,14 +1,36 @@
-use changeguard::cli;
+use changeguard::cli::{self, Cli};
+use clap::Parser;
 use miette::Result;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
+/// Build the log filter based on the verbose flag.
+///
+/// - `verbose = true`: use "debug" level for all crates
+/// - `verbose = false`: respect `RUST_LOG` if set, otherwise apply the quiet
+///   default that silences noisy third-party crates (graph_builder, tantivy,
+///   sled) to WARN while keeping everything else at INFO.
+fn build_log_filter(verbose: bool) -> EnvFilter {
+    if verbose {
+        EnvFilter::new("debug")
+    } else {
+        EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| EnvFilter::new("info,graph_builder=warn,tantivy=warn,sled=warn"))
+    }
+}
+
 fn run() -> Result<()> {
+    // Parse CLI args once here so we can read the verbose flag before
+    // initializing the logger.  cli::run_with(cli) reuses the parsed struct,
+    // avoiding a second parse.
+    let cli_args = Cli::parse();
+    let verbose = cli_args.verbose;
+
     tracing_subscriber::registry()
         .with(fmt::layer())
-        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with(build_log_filter(verbose))
         .init();
 
-    cli::run()?;
+    cli::run_with(cli_args)?;
 
     Ok(())
 }
@@ -28,4 +50,35 @@ fn main() {
         std::process::exit(1);
     }
 }
-// dummy change
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn cli_has_verbose_flag() {
+        let args =
+            changeguard::cli::Cli::try_parse_from(["changeguard", "--verbose", "doctor"]).unwrap();
+        assert!(args.verbose);
+        let args_short =
+            changeguard::cli::Cli::try_parse_from(["changeguard", "-v", "doctor"]).unwrap();
+        assert!(args_short.verbose);
+    }
+
+    #[test]
+    fn cli_verbose_default_is_false() {
+        let args = changeguard::cli::Cli::try_parse_from(["changeguard", "doctor"]).unwrap();
+        assert!(!args.verbose);
+    }
+
+    #[test]
+    fn build_log_filter_verbose_does_not_panic() {
+        let _f = build_log_filter(true);
+    }
+
+    #[test]
+    fn build_log_filter_quiet_does_not_panic() {
+        let _f = build_log_filter(false);
+    }
+}
