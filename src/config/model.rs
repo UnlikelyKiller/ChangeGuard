@@ -325,6 +325,10 @@ fn default_ignore_patterns() -> Vec<String> {
         "target/**".to_string(),
         ".git/**".to_string(),
         "node_modules/**".to_string(),
+        ".claude/**".to_string(),
+        ".codex/**".to_string(),
+        ".opencode/**".to_string(),
+        ".agents/**".to_string(),
     ]
 }
 
