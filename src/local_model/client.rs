@@ -95,10 +95,10 @@ pub fn complete(
                     body.chars().take(200).collect::<String>()
                 ));
             }
-            Err(ureq::Error::Transport(_inner)) => {
+            Err(ureq::Error::Transport(inner)) => {
                 return Err(format!(
-                    "Local model server not reachable at {}",
-                    config.base_url
+                    "Local model server not reachable at {} \u{2014} {}",
+                    config.base_url, inner
                 ));
             }
         };
@@ -255,5 +255,25 @@ mod tests {
         let result = complete(&config, &test_messages(), &CompletionOptions::default());
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not reachable"));
+    }
+
+    #[test]
+    fn transport_error_includes_cause() {
+        // Use a port that nothing is listening on
+        let config = test_config("http://127.0.0.1:1");
+        let result = complete(&config, &test_messages(), &CompletionOptions::default());
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("not reachable at"),
+            "expected 'not reachable at' in: {err}"
+        );
+        // The cause (e.g., "Connection refused") should appear after ' — '
+        assert!(
+            err.contains(" \u{2014} "),
+            "expected cause separator ' — ' in: {err}"
+        );
+        let cause = err.split(" \u{2014} ").nth(1).unwrap_or("");
+        assert!(!cause.is_empty(), "cause should not be empty, got: {err}");
     }
 }

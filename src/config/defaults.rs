@@ -43,6 +43,10 @@ fast_model = "gemini-3.1-flash-lite-preview"
 deep_model = "gemini-3.1-pro-preview"
 timeout_secs = 120
 context_window = 128000
+
+[local_model]
+# Use 127.0.0.1 — 'localhost' resolves to ::1 (IPv6) on Windows, which breaks IPv4-only servers
+base_url = "http://127.0.0.1:8081"
 "#;
 
 pub const DEFAULT_CONFIG_TEMPLATE_ENV: &str = "CHANGEGUARD_DEFAULT_CONFIG";
@@ -70,4 +74,15 @@ fn default_config_template_path() -> Option<Utf8PathBuf> {
     Utf8PathBuf::from_path_buf(home.into())
         .ok()
         .map(|home| home.join(".changeguard").join(USER_DEFAULT_CONFIG_FILE))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_template_uses_127() {
+        let config: crate::config::model::Config = toml::from_str(DEFAULT_CONFIG).unwrap();
+        assert_eq!(config.local_model.base_url, "http://127.0.0.1:8081");
+    }
 }
