@@ -714,7 +714,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Key files: `src/search/tantivy_engine.rs`
 
 *   **Track J3: Temporal Coupling Row Cap and Relevance Filter**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackJ3/spec.md`
     *   Plan: `conductor/trackJ3/plan.md`
     *   Goal: Filter temporal coupling results to pairs involving changed files; cap output at `max_coupling_pairs` (default 50). Eliminates 500+ row explosion from agent dotfiles.

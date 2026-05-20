@@ -513,10 +513,12 @@ fn default_match_threshold() -> f32 {
     0.5
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CoverageConfig {
     #[serde(default)]
     pub enabled: bool,
+    #[serde(default = "default_max_coupling_pairs")]
+    pub max_coupling_pairs: usize,
     #[serde(default)]
     pub traces: TracesConfig,
     #[serde(default)]
@@ -531,6 +533,26 @@ pub struct CoverageConfig {
     pub ci_self_awareness: CiSelfAwarenessConfig,
     #[serde(default)]
     pub adr_staleness: AdrStalenessConfig,
+}
+
+fn default_max_coupling_pairs() -> usize {
+    50
+}
+
+impl Default for CoverageConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_coupling_pairs: default_max_coupling_pairs(),
+            traces: TracesConfig::default(),
+            sdk: SdkConfig::default(),
+            services: ServicesConfig::default(),
+            data_flow: DataFlowConfig::default(),
+            deploy: DeployConfig::default(),
+            ci_self_awareness: CiSelfAwarenessConfig::default(),
+            adr_staleness: AdrStalenessConfig::default(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -1352,6 +1374,13 @@ mod tests {
         assert!((config.dead_code.reachability_weight - 2.0).abs() < f64::EPSILON);
         assert!((config.dead_code.git_activity_weight - 1.5).abs() < f64::EPSILON);
         assert!((config.dead_code.test_coverage_weight - 0.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_coverage_config_defaults() {
+        let config = CoverageConfig::default();
+        assert!(!config.enabled);
+        assert_eq!(config.max_coupling_pairs, 50);
     }
 
     #[test]
