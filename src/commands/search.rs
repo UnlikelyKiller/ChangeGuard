@@ -1,5 +1,6 @@
 use crate::bridge::model::{BridgeDirection, BridgePayload, BridgeRecord, Privacy};
 use crate::config::load_config;
+use crate::index::{ProjectIndexer, warn_if_stale};
 use crate::search::{RegexFilter, StreamIndexer, TantivySearchEngine};
 use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
@@ -9,6 +10,7 @@ use owo_colors::OwoColorize;
 use std::env;
 use tracing::info;
 
+#[allow(clippy::too_many_arguments)]
 pub fn execute_search(
     query: String,
     regex: bool,
@@ -16,11 +18,30 @@ pub fn execute_search(
     limit: usize,
     index: bool,
     json: bool,
+    auto_index: bool,
 ) -> Result<()> {
     let root = get_repo_root()?;
     let layout = Layout::new(&root);
     layout.ensure_state_dir()?;
     let project_id = layout.get_project_id();
+
+    // --- Staleness check (applies to both semantic and BM25 paths) ---
+    let db_path = layout.state_subdir().join("ledger.db");
+    let storage = StorageManager::init(db_path.as_std_path())?;
+    let config = load_config(&layout)?;
+    let threshold = config.index.stale_threshold_days;
+
+    if auto_index {
+        // Run incremental index silently instead of warning
+        if let Err(e) = run_incremental_index(&layout, &storage) {
+            tracing::warn!("incremental index failed, proceeding with current index: {e}");
+        }
+        // Re-open storage after index mutation
+        let storage = StorageManager::init(db_path.as_std_path())?;
+        let _ = storage;
+    } else {
+        let _ = warn_if_stale(&storage, threshold);
+    }
 
     if semantic {
         let config = load_config(&layout)?;
@@ -92,6 +113,17 @@ pub fn execute_search(
         perform_search(engine, &root, query, regex, limit, json, &project_id)?;
     }
 
+    Ok(())
+}
+
+/// Run an incremental index against the SQLite/CozoDB project index.
+fn run_incremental_index(layout: &Layout, _storage: &StorageManager) -> Result<()> {
+    let repo_path = layout.root.clone();
+    // We need an owned StorageManager — clone the connection by re-initializing.
+    let db_path = layout.state_subdir().join("ledger.db");
+    let storage = StorageManager::init(db_path.as_std_path())?;
+    let mut indexer = ProjectIndexer::new(storage, repo_path);
+    let _stats = indexer.incremental_index()?;
     Ok(())
 }
 

@@ -2,6 +2,7 @@ use crate::config::model::{Config, GeminiConfig};
 use crate::gemini::modes::GeminiMode;
 use crate::gemini::wrapper::run_query;
 use crate::impact::packet::ImpactPacket;
+use crate::index::{ProjectIndexer, warn_if_stale};
 use crate::local_model::pruner;
 use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
@@ -18,13 +19,28 @@ pub enum Backend {
     Gemini,
 }
 
-pub fn execute_ask(query: Option<String>, narrative: bool, backend: Option<Backend>) -> Result<()> {
+pub fn execute_ask(
+    query: Option<String>,
+    narrative: bool,
+    backend: Option<Backend>,
+    auto_index: bool,
+) -> Result<()> {
     let current_dir = env::current_dir().into_diagnostic()?;
     let layout = Layout::new(current_dir.to_string_lossy().as_ref());
     let config = crate::config::load_config(&layout)?;
 
     let storage_path = layout.state_subdir().join("ledger.db");
     let storage = StorageManager::init(storage_path.as_std_path())?;
+
+    // --- Staleness check ---
+    let threshold = config.index.stale_threshold_days;
+    if auto_index {
+        if let Err(e) = run_incremental_index(&layout, &storage) {
+            tracing::warn!("incremental index failed, proceeding with current index: {e}");
+        }
+    } else {
+        let _ = warn_if_stale(&storage, threshold);
+    }
 
     let mut latest_packet = storage.get_latest_packet()?.ok_or_else(|| {
         miette::miette!("No impact report found. Run 'changeguard impact' first.")
@@ -159,6 +175,16 @@ pub fn execute_ask(query: Option<String>, narrative: bool, backend: Option<Backe
             Ok(())
         }
     }
+}
+
+/// Run an incremental index against the SQLite/CozoDB project index.
+fn run_incremental_index(layout: &Layout, _storage: &StorageManager) -> Result<()> {
+    let db_path = layout.state_subdir().join("ledger.db");
+    let storage = StorageManager::init(db_path.as_std_path())?;
+    let repo_path = layout.root.clone();
+    let mut indexer = ProjectIndexer::new(storage, repo_path);
+    let _stats = indexer.incremental_index()?;
+    Ok(())
 }
 
 fn get_working_tree_diff() -> Option<String> {

@@ -25,12 +25,59 @@ pub struct StalenessWarning {
 /// * `threshold_days` – number of days that may elapse before the index is
 ///   considered stale (e.g. 3).
 pub fn check_index_staleness(
-    _storage: &StorageManager,
-    _threshold_days: u64,
+    storage: &StorageManager,
+    threshold_days: u64,
 ) -> Option<StalenessWarning> {
-    // RED phase stub: always returns None.
-    // GREEN phase will implement the actual staleness query.
-    None
+    let conn = storage.get_connection();
+
+    // Find the most recent last_indexed_at across all non-deleted files.
+    let max_indexed: Option<String> = conn
+        .query_row(
+            "SELECT MAX(last_indexed_at) FROM project_files WHERE parse_status != 'DELETED'",
+            [],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .ok()
+        .flatten();
+
+    let last_indexed = match max_indexed {
+        Some(ts) => match chrono::DateTime::parse_from_rfc3339(&ts) {
+            Ok(dt) => dt.with_timezone(&Utc),
+            Err(_) => return None,
+        },
+        // No files indexed yet => stale.
+        None => return None,
+    };
+
+    let now = Utc::now();
+    let days = (now - last_indexed).num_days();
+
+    if days < 0 {
+        // Clock skew; treat as fresh.
+        return None;
+    }
+
+    let days_since_indexed = days as u64;
+
+    if days_since_indexed <= threshold_days {
+        return None;
+    }
+
+    // Count total indexed (non-deleted) files — these are the files affected
+    // by the stale index.
+    let stale_files: usize = conn
+        .query_row(
+            "SELECT COUNT(*) FROM project_files WHERE parse_status != 'DELETED'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .ok()
+        .unwrap_or(0) as usize;
+
+    Some(StalenessWarning {
+        days_since_indexed,
+        stale_files,
+    })
 }
 
 /// Emit the staleness warning to stderr so it does not interfere with --json
@@ -40,7 +87,11 @@ pub fn print_staleness_warning(warning: &StalenessWarning) {
         "⚠  Index is {} day{} old with {} stale file{} — results may be degraded. \
          Run `changeguard index` to refresh.",
         warning.days_since_indexed,
-        if warning.days_since_indexed == 1 { "" } else { "s" },
+        if warning.days_since_indexed == 1 {
+            ""
+        } else {
+            "s"
+        },
         warning.stale_files,
         if warning.stale_files == 1 { "" } else { "s" },
     );

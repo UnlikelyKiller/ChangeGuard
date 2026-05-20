@@ -91,6 +91,9 @@ pub enum Commands {
         /// Backend to use (local, gemini, or auto)
         #[arg(long)]
         backend: Option<Backend>,
+        /// Automatically run incremental index before querying if the index is stale
+        #[arg(long)]
+        auto_index: bool,
     },
     /// Reset the local state
     Reset {
@@ -162,6 +165,9 @@ pub enum Commands {
         /// Output results as NDJSON BridgeRecord entries
         #[arg(long)]
         json: bool,
+        /// Automatically run incremental index before searching if the index is stale
+        #[arg(long)]
+        auto_index: bool,
     },
     /// Identify high-risk hotspots in the codebase
     Hotspots {
@@ -573,8 +579,9 @@ pub fn run_with(cli: Cli) -> Result<()> {
             query,
             narrative,
             backend,
+            auto_index,
             ..
-        } => crate::commands::ask::execute_ask(query, narrative, backend),
+        } => crate::commands::ask::execute_ask(query, narrative, backend, auto_index),
         Commands::Reset {
             remove_config,
             remove_rules,
@@ -618,7 +625,10 @@ pub fn run_with(cli: Cli) -> Result<()> {
             limit,
             index,
             json,
-        } => crate::commands::search::execute_search(query, regex, semantic, limit, index, json),
+            auto_index,
+        } => crate::commands::search::execute_search(
+            query, regex, semantic, limit, index, json, auto_index,
+        ),
         Commands::Hotspots {
             limit,
             commits,

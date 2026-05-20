@@ -1,5 +1,7 @@
+use crate::config::load_config;
 use crate::git::repo::open_repo;
 use crate::impact::temporal::GixHistoryProvider;
+use crate::index::warn_if_stale;
 use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
 use miette::{IntoDiagnostic, Result};
@@ -22,6 +24,11 @@ pub fn execute_hotspots(
 
     let db_path = layout.state_subdir().join("ledger.db");
     let storage = StorageManager::init(db_path.as_std_path())?;
+
+    // --- Staleness check ---
+    let config = load_config(&layout).unwrap_or_default();
+    let threshold_days = config.index.stale_threshold_days;
+    let _ = warn_if_stale(&storage, threshold_days);
 
     if semantic {
         let cozo = storage

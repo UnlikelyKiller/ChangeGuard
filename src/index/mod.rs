@@ -1,6 +1,5 @@
 pub mod analysis;
 pub mod ast_worker;
-pub mod staleness;
 pub mod call_graph;
 pub mod centrality;
 pub mod ci_gates;
@@ -20,6 +19,7 @@ pub mod orchestrator;
 pub mod references;
 pub mod routes;
 pub mod runtime_usage;
+pub mod staleness;
 pub mod storage;
 pub mod symbols;
 pub mod test_mapping;
@@ -32,5 +32,5 @@ pub use orchestrator::{
     IndexStats, IndexStatus, ProjectFile, ProjectIndexer, ProjectSymbol, ServiceIndexStats,
 };
 pub use staleness::{
-    check_index_staleness, print_staleness_warning, warn_if_stale, StalenessWarning,
+    StalenessWarning, check_index_staleness, print_staleness_warning, warn_if_stale,
 };
