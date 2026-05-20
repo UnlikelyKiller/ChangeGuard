@@ -1,7 +1,7 @@
 # Track I5-2: Fix Scan Command to Respect Ignore Patterns
 
 ## Status
-In Progress
+Completed
 
 ## Issue
 `changeguard scan` flags all dirty files from `get_repo_status()` without filtering against `config.watch.ignore_patterns`. This causes agent dotfiles (`.claude/`, `.codex/`, `.agents/`, `.opencode/`) and other ignored paths to appear in scan output.

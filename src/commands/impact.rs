@@ -1,3 +1,4 @@
+use crate::config::load::load_config;
 use crate::git::RepoSnapshot;
 use crate::git::repo::{get_head_info, open_repo};
 use crate::git::status::get_repo_status;
@@ -5,6 +6,7 @@ use crate::output::diagnostics::{success_marker, warning_marker};
 use crate::output::human::print_impact_summary;
 use crate::state::layout::Layout;
 use crate::state::reports::write_impact_report;
+use globset::{Glob, GlobSetBuilder};
 use miette::Result;
 use owo_colors::OwoColorize;
 use std::env;
@@ -20,7 +22,11 @@ pub fn execute_impact(
 
     let repo = open_repo(&current_dir)?;
     let (head_hash, branch_name) = get_head_info(&repo)?;
-    let changes = get_repo_status(&repo)?;
+    let layout = Layout::new(current_dir.to_string_lossy().as_ref());
+
+    // Filter changes against config ignore_patterns
+    let all_changes = get_repo_status(&repo)?;
+    let changes = filter_changes(&layout, all_changes)?;
 
     let is_clean = changes.is_empty();
 
@@ -31,11 +37,10 @@ pub fn execute_impact(
         changes,
     };
 
-    let layout = Layout::new(current_dir.to_string_lossy().as_ref());
     let mut packet = crate::impact::orchestrator::map_snapshot_to_packet(snapshot, &current_dir)?;
 
     // Load main config for temporal analysis
-    let mut config = crate::config::load::load_config(&layout).unwrap_or_else(|e| {
+    let mut config = load_config(&layout).unwrap_or_else(|e| {
         tracing::warn!("Failed to load config: {e}. Using defaults.");
         println!(
             "{} Could not load config. Using default temporal analysis settings.",
@@ -87,4 +92,32 @@ pub fn execute_impact(
     );
 
     Ok(())
+}
+
+/// Filter changes against config `watch.ignore_patterns` using glob matching.
+fn filter_changes(
+    layout: &Layout,
+    changes: Vec<crate::git::FileChange>,
+) -> Result<Vec<crate::git::FileChange>> {
+    let config = match load_config(layout) {
+        Ok(c) => c,
+        Err(_) => return Ok(changes),
+    };
+    let mut builder = GlobSetBuilder::new();
+    for pattern in &config.watch.ignore_patterns {
+        builder.add(
+            Glob::new(pattern)
+                .map_err(|e| miette::miette!("Invalid glob pattern '{}': {}", pattern, e))?,
+        );
+    }
+    let ignore_set = builder
+        .build()
+        .map_err(|e| miette::miette!("Failed to build glob set: {}", e))?;
+    Ok(changes
+        .into_iter()
+        .filter(|change| {
+            let path_str = change.path.to_string_lossy();
+            !ignore_set.is_match(path_str.as_ref())
+        })
+        .collect())
 }

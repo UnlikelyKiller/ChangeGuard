@@ -1,7 +1,7 @@
 # Track I5-1: Fix Regex Search Trigram Case Sensitivity
 
 ## Status
-In Progress
+Completed
 
 ## Issue
 `changeguard search --regex "StorageManager"` returns "No matches found" for valid queries when the pattern contains uppercase characters.

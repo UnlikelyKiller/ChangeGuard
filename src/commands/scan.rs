@@ -24,12 +24,13 @@ pub fn execute_scan(run_impact: bool) -> Result<()> {
         let mut builder = GlobSetBuilder::new();
         for pattern in &config.watch.ignore_patterns {
             builder.add(
-                Glob::new(pattern).map_err(|e| {
-                    miette::miette!("Invalid glob pattern '{}': {}", pattern, e)
-                })?,
+                Glob::new(pattern)
+                    .map_err(|e| miette::miette!("Invalid glob pattern '{}': {}", pattern, e))?,
             );
         }
-        let ignore_set = builder.build().map_err(|e| miette::miette!("Failed to build glob set: {}", e))?;
+        let ignore_set = builder
+            .build()
+            .map_err(|e| miette::miette!("Failed to build glob set: {}", e))?;
         all_changes
             .into_iter()
             .filter(|change| {

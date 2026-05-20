@@ -672,7 +672,7 @@ Systematic fixes from the 2026-05-20 comprehensive command audit (`docs/issues.m
 ### Phase 5 — Audit Fixes
 
 *   **Track I5-1: Fix Regex Search Trigram Case Sensitivity**
-    *   Status: In Progress
+    *   Status: Completed
     *   Spec: `conductor/trackI5-1/spec.md`
     *   Plan: `conductor/trackI5-1/plan.md`
     *   Issues: Regex search returns "No matches found" for patterns with uppercase letters
@@ -680,7 +680,7 @@ Systematic fixes from the 2026-05-20 comprehensive command audit (`docs/issues.m
     *   Key files: `src/search/tantivy_engine.rs`
 
 *   **Track I5-2: Fix Scan Command Ignore Patterns Filtering**
-    *   Status: In Progress
+    *   Status: Completed
     *   Spec: `conductor/trackI5-2/spec.md`
     *   Plan: `conductor/trackI5-2/plan.md`
     *   Issues: `changeguard scan` flags all dirty files including agent dotfiles
@@ -688,7 +688,7 @@ Systematic fixes from the 2026-05-20 comprehensive command audit (`docs/issues.m
     *   Key files: `src/commands/scan.rs`
 
 *   **Track I5-3: Fix viz --output Parent Directory Creation**
-    *   Status: In Progress
+    *   Status: Completed
     *   Spec: `conductor/trackI5-3/spec.md`
     *   Plan: `conductor/trackI5-3/plan.md`
     *   Issues: `changeguard viz --output` fails when parent directory doesn't exist

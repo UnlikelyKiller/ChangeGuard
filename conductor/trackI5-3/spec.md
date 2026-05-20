@@ -1,7 +1,7 @@
 # Track I5-3: Fix viz --output Path Handling
 
 ## Status
-In Progress
+Completed
 
 ## Issue
 `changeguard viz --output /path/to/output.html` fails silently or creates output in the wrong location when the parent directory of the specified output path doesn't exist.

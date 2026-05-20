@@ -100,7 +100,9 @@ pub fn execute_viz(output_path: Option<PathBuf>) -> Result<()> {
     let html = generate_html(&nodes, &edges);
 
     let out = output_path.unwrap_or_else(|| layout.reports_dir().join("graph.html").into());
-    if let Some(parent) = out.parent() {
+    if let Some(parent) = out.parent()
+        && !parent.as_os_str().is_empty()
+    {
         fs::create_dir_all(parent).into_diagnostic()?;
     }
     fs::write(&out, html).into_diagnostic()?;
