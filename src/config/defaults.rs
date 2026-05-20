@@ -71,3 +71,14 @@ fn default_config_template_path() -> Option<Utf8PathBuf> {
         .ok()
         .map(|home| home.join(".changeguard").join(USER_DEFAULT_CONFIG_FILE))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_template_uses_127() {
+        let config: crate::config::model::Config = toml::from_str(DEFAULT_CONFIG).unwrap();
+        assert_eq!(config.local_model.base_url, "http://127.0.0.1:8081");
+    }
+}
