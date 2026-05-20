@@ -26,8 +26,7 @@ pub fn execute_search(
     let project_id = layout.get_project_id();
 
     // --- Staleness check (applies to both semantic and BM25 paths) ---
-    let db_path = layout.state_subdir().join("ledger.db");
-    let storage = StorageManager::init(db_path.as_std_path())?;
+    let storage = StorageManager::open_read_only(&layout.root)?;
     let config = load_config(&layout)?;
     let threshold = config.index.stale_threshold_days;
 
@@ -37,7 +36,7 @@ pub fn execute_search(
             tracing::warn!("incremental index failed, proceeding with current index: {e}");
         }
         // Re-open storage after index mutation
-        let storage = StorageManager::init(db_path.as_std_path())?;
+        let storage = StorageManager::open_read_only(&layout.root)?;
         let _ = storage;
     } else {
         let _ = warn_if_stale(&storage, threshold);
@@ -45,8 +44,7 @@ pub fn execute_search(
 
     if semantic {
         let config = load_config(&layout)?;
-        let db_path = layout.state_subdir().join("ledger.db");
-        let storage = StorageManager::init(db_path.as_std_path())?;
+        let storage = StorageManager::open_read_only(&layout.root)?;
         let cozo = storage
             .cozo
             .as_ref()

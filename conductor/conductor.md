@@ -570,6 +570,105 @@ Cross-repo phase with AI-Brains Phase 18. Transforms IPC bridge from passive tra
     *   Goal: Expose predictive verification via IPC for AI-Brains capture gate; extend watcher to emit risk alerts on high temporal coupling.
     *   Key additions: `ipc_verify.rs` module, `BridgePayload::RiskAlert`, watcher integration.
 
+## Milestone I: Issue Remediation (Active)
+
+Systematic fixes from the 2026-05-20 comprehensive command audit (`docs/issues.md`). Organized in four phases matching the audit's priority tiers. CG-2 (AI-Brains FTS5 query escaping) is excluded — it will be remediated in the ai-brains repository.
+
+### Phase 1 — Hotfixes
+
+*   **Track I1-1: Local Model URL Hardening & Error Transparency**
+    *   Status: In Planning
+    *   Spec: `conductor/trackI1-1/spec.md`
+    *   Plan: `conductor/trackI1-1/plan.md`
+    *   Issues: CG-1a, CG-1b
+    *   Goal: Change the default `local_model.base_url` from `localhost` to `127.0.0.1` to avoid Windows IPv6 resolution; surface the inner `ureq::Error::Transport` cause instead of swallowing it.
+    *   Key files: `src/local_model/client.rs`, `src/config/model.rs` (default URL), `src/config/defaults.rs`
+
+*   **Track I1-2: Self-Federation False Positive Exclusion**
+    *   Status: In Planning
+    *   Spec: `conductor/trackI1-2/spec.md`
+    *   Plan: `conductor/trackI1-2/plan.md`
+    *   Issues: CG-3
+    *   Goal: Prevent `check_cross_repo_impact` from treating the current repository as an invalid sibling, eliminating the spurious "medium" risk elevation. Also align `impact.rs` schema path lookup with the current `.changeguard/state/schema.json` location (it currently only checks the legacy `.changeguard/schema.json`).
+    *   Key files: `src/federated/impact.rs`, `src/federated/storage.rs`
+
+*   **Track I1-3: Log Verbosity Default Filter**
+    *   Status: In Planning
+    *   Spec: `conductor/trackI1-3/spec.md`
+    *   Plan: `conductor/trackI1-3/plan.md`
+    *   Issues: CG-5
+    *   Goal: Set a structured default `EnvFilter` in `tracing-subscriber` init that silences `graph_builder`, `tantivy`, and `sled` at `warn`, while preserving `RUST_LOG` override and adding a `--verbose` flag that restores full `info` output.
+    *   Key files: `src/main.rs`, `src/commands/*.rs` (CLI flag wiring)
+
+### Phase 2 — Reliability
+
+*   **Track I2-1: Stale Index Warning Banner**
+    *   Status: In Planning
+    *   Spec: `conductor/trackI2-1/spec.md`
+    *   Plan: `conductor/trackI2-1/plan.md`
+    *   Issues: CG-4
+    *   Goal: Emit a yellow `[WARN]` staleness banner on `search`, `ask`, `dead-code`, and `hotspots` when the index exceeds a configurable `stale_threshold_days` (default 3). Add optional `--auto-index` flag to `search` and `ask`.
+    *   Key files: `src/commands/search.rs`, `src/commands/ask.rs`, `src/commands/dead_code.rs`, `src/commands/hotspots.rs`, `src/config/model.rs`
+
+*   **Track I2-2: Read-Only Storage Init Fast-Path**
+    *   Status: In Planning
+    *   Spec: `conductor/trackI2-2/spec.md`
+    *   Plan: `conductor/trackI2-2/plan.md`
+    *   Issues: CG-6
+    *   Goal: Skip full migration verification (SQLite WAL setup + CozoDB schema check) for known read-only commands (`search`, `hotspots`, `ledger status`, `config verify`). Target: eliminate the 500ms–1s cold-start overhead on those paths.
+    *   Key files: `src/state/storage.rs`, `src/state/storage_cozo.rs`, `src/main.rs`
+
+*   **Track I2-3: Agent Dotfile Exclusion**
+    *   Status: In Planning
+    *   Spec: `conductor/trackI2-3/spec.md`
+    *   Plan: `conductor/trackI2-3/plan.md`
+    *   Issues: CG-7
+    *   Goal: Add `.claude`, `.codex`, `.opencode/**` to the default `ignore_patterns` so agent config files are never flagged as "unsupported language" in scan/impact output.
+    *   Key files: `src/config/defaults.rs` (`DEFAULT_CONFIG` ignore_patterns), `src/index/mod.rs` (hardcoded exclusion list if present)
+
+*   **Track I2-4: Doctor Completions Endpoint Ping**
+    *   Status: In Planning
+    *   Spec: `conductor/trackI2-4/spec.md`
+    *   Plan: `conductor/trackI2-4/plan.md`
+    *   Issues: CG-10
+    *   Goal: Add a `POST /v1/chat/completions` liveness probe to `doctor`, separate from the existing embeddings ping. Report two distinct lines: `Embedding model` and `Completion model`. Emit yellow if completions are unreachable while embeddings succeed.
+    *   Key files: `src/commands/doctor.rs`, `src/local_model/client.rs`
+
+### Phase 3 — Feature Depth
+
+*   **Track I3-1: Audit Command Enrichment**
+    *   Status: In Planning
+    *   Spec: `conductor/trackI3-1/spec.md`
+    *   Plan: `conductor/trackI3-1/plan.md`
+    *   Issues: CG-8
+    *   Goal: Expand `changeguard audit` from pending-only output to a multi-section health report: commit velocity (last 30 days), top churned files, `ci_outcome_history` pass/fail trend, oldest unupdated ADR, hotspot delta since last audit, unaudited drift summary. Add `--json` flag.
+    *   Key files: `src/commands/audit.rs`, `src/ledger/db.rs`, `src/state/storage.rs`
+
+*   **Track I3-2: Hotspot Score Log-Scaling**
+    *   Status: In Planning
+    *   Spec: `conductor/trackI3-2/spec.md`
+    *   Plan: `conductor/trackI3-2/plan.md`
+    *   Issues: CG-9
+    *   Goal: Apply `log1p` normalization to the raw `complexity × frequency` product so a 22× outlier gap compresses to a readable scale. Display raw factors (`complexity`, `frequency`) as sub-columns alongside the normalized score.
+    *   Key files: `src/impact/hotspots.rs`
+
+*   **Track I3-3: Local Model Windows Preflight Check**
+    *   Status: In Planning
+    *   Spec: `conductor/trackI3-3/spec.md`
+    *   Plan: `conductor/trackI3-3/plan.md`
+    *   Issues: CG-1c
+    *   Goal: Add a startup connectivity check in `LocalModelClient` that (a) detects `localhost` in `base_url` on Windows and emits a warning suggesting `127.0.0.1`, (b) attempts an explicit TCP connect to `127.0.0.1` on the same port if `localhost` fails, and (c) surfaces the diagnostic in `changeguard doctor`.
+    *   Key files: `src/local_model/client.rs`, `src/commands/doctor.rs`
+
+### Phase 4 — LLM Router Hardening (Parallel)
+
+*   **Track I4-1: VRAM Pressure Monitoring in Doctor**
+    *   Status: In Planning
+    *   Spec: `conductor/trackI4-1/spec.md`
+    *   Plan: `conductor/trackI4-1/plan.md`
+    *   Goal: Surface GPU VRAM usage in `changeguard doctor` using `IDXGIAdapter3::QueryVideoMemoryInfo` (DXGI 1.4, Windows). Requires adding `windows = { version = "0.57", features = ["Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common"] }` to `Cargo.toml`. Emit a yellow warning when used VRAM exceeds 10.5 GB (87.5% of 12 GB B580 budget). No-op on non-Windows targets.
+    *   Key files: `src/commands/doctor.rs`, `Cargo.toml`
+
 ## Workflow
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.

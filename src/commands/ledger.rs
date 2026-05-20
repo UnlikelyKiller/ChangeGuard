@@ -342,7 +342,7 @@ pub fn execute_ledger_status(
     exit_code: bool,
 ) -> Result<()> {
     let layout = get_layout()?;
-    let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
+    let mut storage = StorageManager::open_read_only(&layout.root)?;
     let config = load_ledger_config(&layout);
     let stale_threshold = config.ledger.stale_threshold_hours as i64;
     let tx_mgr = TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);

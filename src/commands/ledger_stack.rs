@@ -24,7 +24,7 @@ fn get_layout() -> Result<Layout> {
 
 pub fn execute_ledger_stack(category: Option<String>) -> Result<()> {
     let layout = get_layout()?;
-    let storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
+    let storage = StorageManager::open_read_only(&layout.root)?;
     let db = LedgerDb::new(storage.get_connection());
 
     println!(

@@ -51,8 +51,7 @@ pub fn execute_verify(
                 (Some(config_plan.clone()), config_plan.steps)
             } else {
                 // Priority 3: predictive mode (existing logic)
-                let db_path = layout.state_subdir().join("ledger.db");
-                let storage = match StorageManager::init(db_path.as_std_path()) {
+                let storage = match StorageManager::open_read_only(&layout.root) {
                     Ok(storage) => Some(storage),
                     Err(err) => {
                         let warning = format!(

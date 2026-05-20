@@ -21,6 +21,7 @@ pub struct StoredSymbol {
 pub struct StorageManager {
     conn: Connection,
     pub cozo: Option<crate::state::storage_cozo::CozoStorage>,
+    is_read_only: bool,
 }
 
 impl StorageManager {
@@ -43,7 +44,11 @@ impl StorageManager {
         let cozo = crate::state::storage_cozo::CozoStorage::new(&cozo_path).ok();
 
         info!("Initialized storage at {:?}", db_path);
-        Ok(Self { conn, cozo })
+        Ok(Self {
+            conn,
+            cozo,
+            is_read_only: false,
+        })
     }
 
     pub fn get_connection(&self) -> &Connection {
@@ -60,14 +65,51 @@ impl StorageManager {
     /// Returns `Err` if the SQLite database file does not exist.
     pub fn open_read_only(root: &Utf8Path) -> Result<Self> {
         let db_path = Layout::new(root).state_subdir().join("ledger.db");
-        Self::init(db_path.as_std_path())
+
+        if !db_path.exists() {
+            return Err(miette::miette!(
+                "Storage not initialized at {}. Run a write command first (e.g. `changeguard scan`).",
+                db_path
+            ));
+        }
+
+        tracing::debug!("Opening read-only storage at {:?}", db_path);
+        let conn = Connection::open(db_path.as_std_path()).into_diagnostic()?;
+
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;",
+        )
+        .into_diagnostic()?;
+
+        // NOTE: migrations intentionally skipped — read-only fast path
+
+        let cozo_path = db_path
+            .parent()
+            .map(|p| p.join("ledger.cozo"))
+            .unwrap_or_default();
+        let cozo = crate::state::storage_cozo::CozoStorage::new(cozo_path.as_std_path()).ok();
+
+        tracing::debug!("Opened read-only storage at {:?}", db_path);
+        Ok(Self {
+            conn,
+            cozo,
+            is_read_only: true,
+        })
     }
 
     pub fn init_from_conn(conn: Connection) -> Self {
-        Self { conn, cozo: None }
+        Self {
+            conn,
+            cozo: None,
+            is_read_only: false,
+        }
     }
 
     pub fn save_packet(&self, packet: &ImpactPacket) -> Result<()> {
+        debug_assert!(
+            !self.is_read_only,
+            "write called on read-only StorageManager"
+        );
         let packet_json = serde_json::to_string(packet).into_diagnostic()?;
         let is_clean = if packet.changes.is_empty() { 1 } else { 0 };
 
@@ -130,6 +172,10 @@ impl StorageManager {
     }
 
     pub fn save_batch(&self, timestamp: &str, event_count: u32, batch_json: &str) -> Result<i64> {
+        debug_assert!(
+            !self.is_read_only,
+            "write called on read-only StorageManager"
+        );
         self.conn
             .execute(
                 "INSERT INTO batches (timestamp, event_count, batch_json) VALUES (?1, ?2, ?3)",
@@ -145,6 +191,10 @@ impl StorageManager {
         plan_json: Option<&str>,
         overall_pass: bool,
     ) -> Result<i64> {
+        debug_assert!(
+            !self.is_read_only,
+            "write called on read-only StorageManager"
+        );
         self.conn
             .execute(
                 "INSERT INTO verification_runs (timestamp, plan_json, overall_pass) VALUES (?1, ?2, ?3)",
@@ -162,6 +212,10 @@ impl StorageManager {
         duration_ms: u64,
         truncated: bool,
     ) -> Result<()> {
+        debug_assert!(
+            !self.is_read_only,
+            "write called on read-only StorageManager"
+        );
         self.conn
             .execute(
                 "INSERT INTO verification_results (run_id, command, exit_code, duration_ms, truncated) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -172,6 +226,10 @@ impl StorageManager {
     }
 
     pub fn save_changed_files(&self, snapshot_id: i64, files: &[ChangedFile]) -> Result<()> {
+        debug_assert!(
+            !self.is_read_only,
+            "write called on read-only StorageManager"
+        );
         for file in files {
             self.conn
                 .execute(
@@ -287,7 +345,11 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         let mut conn = conn;
         get_migrations().to_latest(&mut conn).unwrap();
-        StorageManager { conn, cozo: None }
+        StorageManager {
+            conn,
+            cozo: None,
+            is_read_only: false,
+        }
     }
 
     #[test]
@@ -449,6 +511,9 @@ mod tests {
         // file via Connection::open, so the test fails. In GREEN phase
         // open_read_only checks path existence first and returns Err.
         let result = StorageManager::open_read_only(root);
-        assert!(result.is_err(), "open_read_only should fail without a db file");
+        assert!(
+            result.is_err(),
+            "open_read_only should fail without a db file"
+        );
     }
 }
