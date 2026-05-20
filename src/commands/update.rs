@@ -33,13 +33,13 @@ pub fn execute_update(migrate: bool, binary: bool, force: bool) -> Result<()> {
 fn update_binary() -> Result<()> {
     println!("{}", "Updating ChangeGuard binary...".bold().cyan());
 
-    let current_dir = env::current_dir().into_diagnostic()?;
-    let cargo_toml = current_dir.join("Cargo.toml");
+    let root = get_repo_root()?;
+    let cargo_toml = root.as_std_path().join("Cargo.toml");
 
     if cargo_toml.exists() {
         info!("Detected local source repository. Running 'cargo install --path .'");
         let status = Command::new("cargo")
-            .args(["install", "--path", "."])
+            .args(["install", "--path", root.as_str()])
             .status()
             .into_diagnostic()?;
 
@@ -79,6 +79,8 @@ fn migrate_state(force: bool) -> Result<()> {
 fn soft_migrate(layout: &Layout) -> Result<()> {
     println!("{}", "Running soft state migration...".bold().cyan());
 
+    layout.ensure_state_dir()?;
+
     let db_path = layout.state_subdir().join("ledger.db");
     info!("Re-initializing storage at {:?}", db_path);
     let _storage = StorageManager::init(db_path.as_std_path())?;
@@ -96,6 +98,8 @@ fn soft_migrate(layout: &Layout) -> Result<()> {
 /// Hard migration: wipe non-ledger state (CozoDB, search index) then re-init.
 fn hard_migrate(layout: &Layout) -> Result<()> {
     println!("{}", "Running hard state migration...".bold().cyan());
+
+    layout.ensure_state_dir()?;
 
     // Wipe Knowledge Graph (CozoDB sled store)
     let cozo_path = layout.state_subdir().join("ledger.cozo");
@@ -176,7 +180,7 @@ mod tests {
     fn test_get_repo_root_ok() {
         let root = get_repo_root().unwrap();
         assert!(
-            root.as_str().contains("changeguard"),
+            root.as_str().to_ascii_lowercase().contains("changeguard"),
             "should be in the changeguard repo"
         );
     }
