@@ -7,8 +7,19 @@ use miette::Result;
 use std::fs;
 use std::panic;
 
-fn resolve_sibling_schema(_path: &str) -> Option<std::path::PathBuf> {
-    None // stub — always returns None, will fail the tests
+fn resolve_sibling_schema(path: &str) -> Option<std::path::PathBuf> {
+    let base = std::path::Path::new(path);
+    // Try current path first
+    let current = base.join(".changeguard").join("state").join("schema.json");
+    if current.exists() {
+        return Some(current);
+    }
+    // Fall back to legacy path
+    let legacy = base.join(".changeguard").join("schema.json");
+    if legacy.exists() {
+        return Some(legacy);
+    }
+    None
 }
 
 pub fn check_cross_repo_impact(packet: &mut ImpactPacket, storage: &StorageManager) -> Result<()> {
@@ -21,6 +32,18 @@ pub fn check_cross_repo_impact(packet: &mut ImpactPacket, storage: &StorageManag
     let db = LedgerDb::new(storage.get_connection());
 
     for (name, path, _) in links {
+        // Skip self: if the sibling path resolves to our own repo, skip it.
+        let self_path = std::env::current_dir().unwrap_or_default();
+        let sibling_canonical = std::path::Path::new(&path)
+            .canonicalize()
+            .unwrap_or_else(|_| std::path::Path::new(&path).to_path_buf());
+        let self_canonical = self_path
+            .canonicalize()
+            .unwrap_or_else(|_| self_path.clone());
+        if sibling_canonical == self_canonical {
+            continue;
+        }
+
         let Some(schema_path) = resolve_sibling_schema(&path) else {
             impact_reasons.push(format!(
                 "Cross-repo impact: Sibling '{}' schema is unavailable or invalid.",
