@@ -42,14 +42,23 @@ pub fn execute_doctor() -> Result<()> {
 
     let config = crate::config::load::load_config(&layout).unwrap_or_else(|_| Config::default());
 
-    let local_model_status = if config.local_model.base_url.is_empty() {
+    let embedding_model_status = if config.local_model.base_url.is_empty() {
         "Not configured".to_string()
     } else {
         match crate::embed::client::check_local_model(&config.local_model) {
             Ok(dims) => format!(
-                "reachable ({} dims, model: {})",
-                dims.dimensions, dims.model_name
+                "{} ({} dims) @ {}",
+                dims.model_name, dims.dimensions, config.local_model.base_url
             ),
+            Err(e) => format!("unreachable ({})", e),
+        }
+    };
+
+    let completion_model_status = if config.local_model.base_url.is_empty() {
+        "Not configured".to_string()
+    } else {
+        match crate::local_model::client::ping_completions(&config.local_model) {
+            Ok(model) => format!("{} @ {}", model, config.local_model.base_url),
             Err(e) => format!("unreachable ({})", e),
         }
     };
@@ -76,7 +85,8 @@ pub fn execute_doctor() -> Result<()> {
         path_display: &current_dir.display().to_string(),
         path_kind: &kind_str,
         is_wsl_mounted: path_kind == crate::platform::PathKind::WslMounted,
-        local_model_status: &local_model_status,
+        embedding_model_status: &embedding_model_status,
+        completion_model_status: &completion_model_status,
         native_graph_status: &native_graph_status,
     };
 

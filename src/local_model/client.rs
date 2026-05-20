@@ -39,7 +39,49 @@ struct CompletionResponse {
 }
 
 pub fn ping_completions(config: &LocalModelConfig) -> Result<String, String> {
-    Err("not implemented".to_string())
+    if config.base_url.is_empty() {
+        return Err("not configured".to_string());
+    }
+
+    let url = format!("{}/v1/chat/completions", config.base_url);
+
+    let body = serde_json::json!({
+        "model": config.generation_model,
+        "messages": [{"role": "user", "content": "ping"}],
+        "max_tokens": 1,
+        "stream": false,
+    });
+
+    let agent = ureq::AgentBuilder::new()
+        .timeout_read(Duration::from_secs(5))
+        .timeout_write(Duration::from_secs(5))
+        .build();
+
+    let response = match agent
+        .post(&url)
+        .set("Content-Type", "application/json")
+        .send_json(&body)
+    {
+        Ok(resp) => resp,
+        Err(ureq::Error::Status(code, _)) => {
+            return Err(format!("{code} from server"));
+        }
+        Err(ureq::Error::Transport(inner)) => {
+            return Err(format!("unreachable — {inner}"));
+        }
+    };
+
+    // Best-effort model name: read from response, fall back to configured model
+    let model_name = response
+        .into_json::<serde_json::Value>()
+        .ok()
+        .and_then(|v| {
+            v.get("model")
+                .and_then(|m| m.as_str().map(|s| s.to_string()))
+        })
+        .unwrap_or_else(|| config.generation_model.clone());
+
+    Ok(model_name)
 }
 
 pub fn complete(

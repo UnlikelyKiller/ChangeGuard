@@ -516,7 +516,8 @@ pub struct DoctorReport<'a> {
     pub path_display: &'a str,
     pub path_kind: &'a str,
     pub is_wsl_mounted: bool,
-    pub local_model_status: &'a str,
+    pub embedding_model_status: &'a str,
+    pub completion_model_status: &'a str,
     pub native_graph_status: &'a str,
 }
 
@@ -563,8 +564,13 @@ pub fn print_doctor_report(report: &DoctorReport) {
 
     println!(
         "\n{:<20} {}",
-        "Local Model:".bold(),
-        report.local_model_status
+        "Embedding Model:".bold(),
+        report.embedding_model_status
+    );
+    println!(
+        "{:<20} {}",
+        "Completion Model:".bold(),
+        report.completion_model_status
     );
     println!(
         "{:<20} {}",
