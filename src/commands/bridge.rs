@@ -18,8 +18,6 @@ pub fn execute(subcommand: BridgeCommands) -> Result<()> {
             crate::bridge::import::execute_import(path)
         }
         BridgeCommands::Query { query } => crate::bridge::client::execute_query(query),
-        BridgeCommands::Verify { scope, out } => {
-            crate::bridge::export::execute_verify(scope, out)
-        }
+        BridgeCommands::Verify { scope, out } => crate::bridge::export::execute_verify(scope, out),
     }
 }

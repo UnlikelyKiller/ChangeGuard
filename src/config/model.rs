@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub type TomlError = toml::de::Error;
-pub const DEFAULT_GEMINI_FAST_MODEL: &str = "gemini-3-flash-preview";
-pub const DEFAULT_GEMINI_DEEP_MODEL: &str = "gemini-3.1-pro-preview";
+pub const DEFAULT_GEMINI_FAST_MODEL: &str = "gemini-3.5-flash";
+pub const DEFAULT_GEMINI_DEEP_MODEL: &str = "gemini-3.1-pro";
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct VerifyStep {

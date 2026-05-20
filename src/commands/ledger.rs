@@ -300,25 +300,11 @@ pub fn execute_ledger_note(
 ) -> Result<()> {
     let note_text = match (message, note) {
         (Some(msg), None) => msg,
-        (None, Some(pos)) => {
-            eprintln!(
-                "{}",
-                "warning: Note as a positional argument is deprecated. Use --message <note> instead."
-                    .yellow()
-            );
-            pos
-        }
-        (Some(msg), Some(_)) => {
-            eprintln!(
-                "{}",
-                "warning: Both --message and positional note provided; using --message. The positional note argument is deprecated."
-                    .yellow()
-            );
-            msg
-        }
+        (None, Some(pos)) => pos,
+        (Some(msg), Some(_)) => msg,
         (None, None) => {
             return Err(miette::miette!(
-                "Missing required note text. Use --message <note>."
+                "Missing required note text. Use --message <note> or pass it as a positional argument."
             ));
         }
     };

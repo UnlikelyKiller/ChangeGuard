@@ -152,7 +152,7 @@ pub fn execute_ask(query: Option<String>, narrative: bool, backend: Option<Backe
                 &system_prompt,
                 &final_user_prompt,
                 timeout_secs,
-                model,
+                &model,
                 config.gemini.api_key.as_deref(),
             )?;
 
@@ -211,21 +211,155 @@ fn get_system_prompt(mode: GeminiMode) -> String {
     }
 }
 
-pub(crate) fn select_gemini_model<'a>(
-    config: &'a GeminiConfig,
+pub(crate) fn select_gemini_model(
+    config: &GeminiConfig,
     mode: GeminiMode,
     _packet: &ImpactPacket,
-) -> &'a str {
-    if let Some(model) = config.model.as_deref()
-        && !model.is_empty()
+) -> String {
+    // 1. Check GEMINI_MODEL env / .env override
+    if let Some(model) = env::var("GEMINI_MODEL")
+        .ok()
+        .or_else(|| crate::config::model::read_env_key("GEMINI_MODEL"))
+        && !model.trim().is_empty()
     {
         return model;
     }
 
+    // 2. Check config.model override
+    if let Some(model) = config.model.as_deref()
+        && !model.trim().is_empty()
+    {
+        return model.to_string();
+    }
+
     match mode {
-        GeminiMode::ReviewPatch => "gemini-1.5-pro",
-        GeminiMode::Analyze => "gemini-1.5-flash",
-        GeminiMode::Narrative => "gemini-1.5-flash",
-        GeminiMode::Suggest => "gemini-1.5-pro",
+        GeminiMode::ReviewPatch | GeminiMode::Suggest => {
+            // Check deep model env
+            if let Some(model) = env::var("GEMINI_DEEP_MODEL")
+                .ok()
+                .or_else(|| crate::config::model::read_env_key("GEMINI_DEEP_MODEL"))
+                && !model.trim().is_empty()
+            {
+                return model;
+            }
+            // Check config deep_model
+            if let Some(model) = config.deep_model.as_deref()
+                && !model.trim().is_empty()
+            {
+                return model.to_string();
+            }
+            // Fallback default
+            crate::config::model::DEFAULT_GEMINI_DEEP_MODEL.to_string()
+        }
+        GeminiMode::Analyze | GeminiMode::Narrative => {
+            // Check fast model env
+            if let Some(model) = env::var("GEMINI_FAST_MODEL")
+                .ok()
+                .or_else(|| crate::config::model::read_env_key("GEMINI_FAST_MODEL"))
+                && !model.trim().is_empty()
+            {
+                return model;
+            }
+            // Check config fast_model
+            if let Some(model) = config.fast_model.as_deref()
+                && !model.trim().is_empty()
+            {
+                return model.to_string();
+            }
+            // Fallback default
+            crate::config::model::DEFAULT_GEMINI_FAST_MODEL.to_string()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::model::GeminiConfig;
+    use crate::impact::packet::ImpactPacket;
+    use std::sync::Mutex;
+
+    static ENV_MUTEX: Mutex<()> = Mutex::new(());
+
+    fn clean_env() {
+        unsafe {
+            std::env::remove_var("GEMINI_MODEL");
+            std::env::remove_var("GEMINI_FAST_MODEL");
+            std::env::remove_var("GEMINI_DEEP_MODEL");
+        }
+    }
+
+    #[test]
+    fn test_select_gemini_model_defaults() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        clean_env();
+
+        let config = GeminiConfig::default();
+        let packet = ImpactPacket::default();
+
+        // Default fast model should be gemini-3.5-flash
+        let fast_model = select_gemini_model(&config, GeminiMode::Analyze, &packet);
+        assert_eq!(fast_model, "gemini-3.5-flash");
+
+        // Default deep model should be gemini-3.1-pro
+        let deep_model = select_gemini_model(&config, GeminiMode::ReviewPatch, &packet);
+        assert_eq!(deep_model, "gemini-3.1-pro");
+    }
+
+    #[test]
+    fn test_select_gemini_model_config_overrides() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        clean_env();
+
+        let mut config = GeminiConfig::default();
+        let packet = ImpactPacket::default();
+
+        config.model = Some("custom-model".to_string());
+        let model = select_gemini_model(&config, GeminiMode::Analyze, &packet);
+        assert_eq!(model, "custom-model");
+
+        config.model = None;
+        config.fast_model = Some("custom-fast".to_string());
+        config.deep_model = Some("custom-deep".to_string());
+
+        let fast_model = select_gemini_model(&config, GeminiMode::Analyze, &packet);
+        assert_eq!(fast_model, "custom-fast");
+
+        let deep_model = select_gemini_model(&config, GeminiMode::ReviewPatch, &packet);
+        assert_eq!(deep_model, "custom-deep");
+    }
+
+    #[test]
+    fn test_select_gemini_model_env_overrides() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        clean_env();
+
+        let config = GeminiConfig::default();
+        let packet = ImpactPacket::default();
+
+        unsafe {
+            std::env::set_var("GEMINI_MODEL", "env-model");
+        }
+        let model = select_gemini_model(&config, GeminiMode::Analyze, &packet);
+        assert_eq!(model, "env-model");
+        unsafe {
+            std::env::remove_var("GEMINI_MODEL");
+        }
+
+        unsafe {
+            std::env::set_var("GEMINI_FAST_MODEL", "env-fast");
+            std::env::set_var("GEMINI_DEEP_MODEL", "env-deep");
+        }
+
+        let fast_model = select_gemini_model(&config, GeminiMode::Analyze, &packet);
+        assert_eq!(fast_model, "env-fast");
+
+        let deep_model = select_gemini_model(&config, GeminiMode::ReviewPatch, &packet);
+        assert_eq!(deep_model, "env-deep");
+
+        unsafe {
+            std::env::remove_var("GEMINI_FAST_MODEL");
+            std::env::remove_var("GEMINI_DEEP_MODEL");
+        }
     }
 }

@@ -44,28 +44,25 @@ pub fn execute_import(in_path: String) -> Result<()> {
 
         match deserialize_record(&line) {
             Ok(record) => {
-                // Validate parent_hash if present in both state and record
-                if let Some(expected_parent) = &state.last_inbound_hash {
-                    match &record.parent_hash {
-                        Some(actual_parent) => {
-                            if actual_parent != expected_parent {
-                                rejected_lineage_count += 1;
-                                tracing::warn!(
-                                    "Bridge record rejected: parent_hash mismatch. Expected {}, found {}",
-                                    expected_parent,
-                                    actual_parent
-                                );
-                                continue;
-                            }
-                        }
-                        None => {
+                // Validate parent_hash if present in the record
+                if let Some(actual_parent) = &record.parent_hash {
+                    if let Some(expected_parent) = &state.last_inbound_hash {
+                        if actual_parent != expected_parent {
                             rejected_lineage_count += 1;
                             tracing::warn!(
-                                "Bridge record rejected: missing parent_hash. Expected {}",
-                                expected_parent
+                                "Bridge record rejected: parent_hash mismatch. Expected {}, found {}",
+                                expected_parent,
+                                actual_parent
                             );
                             continue;
                         }
+                    } else {
+                        rejected_lineage_count += 1;
+                        tracing::warn!(
+                            "Bridge record rejected: non-null parent_hash {} but state has no previous inbound hash",
+                            actual_parent
+                        );
+                        continue;
                     }
                 }
 

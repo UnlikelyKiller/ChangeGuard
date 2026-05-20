@@ -302,8 +302,7 @@ impl CozoStorage {
     /// Query: find AST nodes affected by a Turn via Memory content matching.
     /// Traversal: Turn -> Memory -> Node (where Memory.content == Node.label)
     pub fn query_conversation_to_ast_via_memory(&self, turn_id: &str) -> Result<NamedRows> {
-        let script =
-            "?[node_id, node_label] := *Memory{source_turn_id: $turn_id, content: node_label}, *node{id: node_id, label: node_label}";
+        let script = "?[node_id, node_label] := *Memory{source_turn_id: $turn_id, content: node_label}, *node{id: node_id, label: node_label}";
         let mut params = std::collections::BTreeMap::new();
         params.insert(
             "turn_id".to_string(),
@@ -315,8 +314,7 @@ impl CozoStorage {
     /// Query: find AST nodes affected by a Decision via Edge provenance (source nodes).
     /// Traversal: Decision -> Edge source -> Node
     pub fn query_conversation_to_ast_via_decision(&self, decision_id: &str) -> Result<NamedRows> {
-        let script =
-            "?[node_id, node_label] := *Decision{id: $decision_id, source_tx_id: tx_id}, *edge{source: node_id, provenance_id: tx_id}, *node{id: node_id, label: node_label}";
+        let script = "?[node_id, node_label] := *Decision{id: $decision_id, source_tx_id: tx_id}, *edge{source: node_id, provenance_id: tx_id}, *node{id: node_id, label: node_label}";
         let mut params = std::collections::BTreeMap::new();
         params.insert(
             "decision_id".to_string(),
@@ -328,20 +326,24 @@ impl CozoStorage {
     /// Query: find conversations that discussed a given AST node via Memory.
     /// Traversal: Node -> Memory -> Turn
     pub fn query_ast_to_conversation_via_memory(&self, node_id: &str) -> Result<NamedRows> {
-        let script =
-            "?[entity_id] := *node{id: $node_id, label: label}, *Memory{source_turn_id: entity_id, content: label}";
+        let script = "?[entity_id] := *node{id: $node_id, label: label}, *Memory{source_turn_id: entity_id, content: label}";
         let mut params = std::collections::BTreeMap::new();
-        params.insert("node_id".to_string(), DataValue::Str(node_id.to_string().into()));
+        params.insert(
+            "node_id".to_string(),
+            DataValue::Str(node_id.to_string().into()),
+        );
         self.run_script_with_params(script, params, ScriptMutability::Immutable)
     }
 
     /// Query: find sessions that discussed a given AST node via Memory -> Turn.
     /// Traversal: Node -> Memory -> Turn -> Session
     pub fn query_ast_to_conversation_via_session(&self, node_id: &str) -> Result<NamedRows> {
-        let script =
-            "?[entity_id] := *node{id: $node_id, label: label}, *Memory{source_turn_id: turn_id, content: label}, *Turn{id: turn_id, session_id: entity_id}";
+        let script = "?[entity_id] := *node{id: $node_id, label: label}, *Memory{source_turn_id: turn_id, content: label}, *Turn{id: turn_id, session_id: entity_id}";
         let mut params = std::collections::BTreeMap::new();
-        params.insert("node_id".to_string(), DataValue::Str(node_id.to_string().into()));
+        params.insert(
+            "node_id".to_string(),
+            DataValue::Str(node_id.to_string().into()),
+        );
         self.run_script_with_params(script, params, ScriptMutability::Immutable)
     }
 
@@ -349,10 +351,12 @@ impl CozoStorage {
     /// Traversal: Node (as edge source or target) -> Edge -> Decision
     pub fn query_ast_to_conversation_via_decision(&self, node_id: &str) -> Result<NamedRows> {
         // Query both edge source and edge target paths.
-        let script =
-            "?[entity_id] := *edge{source: $node_id, provenance_id: tx_id}, *Decision{id: entity_id, source_tx_id: tx_id}";
+        let script = "?[entity_id] := *edge{source: $node_id, provenance_id: tx_id}, *Decision{id: entity_id, source_tx_id: tx_id}";
         let mut params = std::collections::BTreeMap::new();
-        params.insert("node_id".to_string(), DataValue::Str(node_id.to_string().into()));
+        params.insert(
+            "node_id".to_string(),
+            DataValue::Str(node_id.to_string().into()),
+        );
         self.run_script_with_params(script, params, ScriptMutability::Immutable)
     }
 
@@ -361,10 +365,12 @@ impl CozoStorage {
         &self,
         node_id: &str,
     ) -> Result<NamedRows> {
-        let script =
-            "?[entity_id] := *edge{target: $node_id, provenance_id: tx_id}, *Decision{id: entity_id, source_tx_id: tx_id}";
+        let script = "?[entity_id] := *edge{target: $node_id, provenance_id: tx_id}, *Decision{id: entity_id, source_tx_id: tx_id}";
         let mut params = std::collections::BTreeMap::new();
-        params.insert("node_id".to_string(), DataValue::Str(node_id.to_string().into()));
+        params.insert(
+            "node_id".to_string(),
+            DataValue::Str(node_id.to_string().into()),
+        );
         self.run_script_with_params(script, params, ScriptMutability::Immutable)
     }
 }

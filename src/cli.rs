@@ -4,6 +4,7 @@ use miette::Result;
 
 #[derive(Parser)]
 #[command(name = "changeguard")]
+#[command(version)]
 #[command(about = "ChangeGuard: Local-first change intelligence and Gemini-assisted development", long_about = None)]
 pub struct Cli {
     #[command(subcommand)]
@@ -155,6 +156,9 @@ pub enum Commands {
         /// Force re-indexing before search
         #[arg(long, short)]
         index: bool,
+        /// Output results as NDJSON BridgeRecord entries
+        #[arg(long)]
+        json: bool,
     },
     /// Identify high-risk hotspots in the codebase
     Hotspots {
@@ -451,10 +455,10 @@ pub enum LedgerCommands {
     Note {
         /// The entity (path/symbol)
         entity: String,
-        /// The note or lesson learned (required)
+        /// The note or lesson learned (required if positional note is not provided)
         #[arg(long, short)]
         message: Option<String>,
-        /// DEPRECATED: Use --message instead. Accepted as a positional for grace period.
+        /// The note or lesson learned (positional fallback for --message)
         #[arg(verbatim_doc_comment)]
         note: Option<String>,
     },
@@ -608,7 +612,8 @@ pub fn run() -> Result<()> {
             semantic,
             limit,
             index,
-        } => crate::commands::search::execute_search(query, regex, semantic, limit, index),
+            json,
+        } => crate::commands::search::execute_search(query, regex, semantic, limit, index, json),
         Commands::Hotspots {
             limit,
             commits,

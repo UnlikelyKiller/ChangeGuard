@@ -1,3 +1,4 @@
+use crate::bridge::model::{BridgeDirection, BridgePayload, BridgeRecord, Privacy};
 use crate::config::load_config;
 use crate::search::{RegexFilter, StreamIndexer, TantivySearchEngine};
 use crate::state::layout::Layout;
@@ -14,10 +15,12 @@ pub fn execute_search(
     semantic: bool,
     limit: usize,
     index: bool,
+    json: bool,
 ) -> Result<()> {
     let root = get_repo_root()?;
     let layout = Layout::new(&root);
     layout.ensure_state_dir()?;
+    let project_id = layout.get_project_id();
 
     if semantic {
         let config = load_config(&layout)?;
@@ -35,7 +38,29 @@ pub fn execute_search(
         let results = semantic_engine.query(&query, limit)?;
 
         if results.is_empty() {
-            println!("No relevant code snippets found.");
+            if !json {
+                println!("No relevant code snippets found.");
+            }
+        } else if json {
+            for (path, name, offset, dist) in results {
+                let record = BridgeRecord {
+                    bridge_version: BridgeRecord::VERSION.to_string(),
+                    direction: BridgeDirection::Outbound,
+                    timestamp: chrono::Utc::now(),
+                    parent_hash: None,
+                    project_id: project_id.clone(),
+                    session_id: None,
+                    tx_id: None,
+                    record_kind: "insight".to_string(),
+                    payload: BridgePayload::Insight {
+                        memory_id: format!("{}::{}", path, name),
+                        relevance: 1.0 - dist as f64,
+                        content: format!("{} (offset {}, dist {:.4})", name, offset, dist),
+                    },
+                    privacy: Privacy::ProjectLocal,
+                };
+                println!("{}", serde_json::to_string(&record).unwrap_or_default());
+            }
         } else {
             println!("\n{}", "Semantic Search Results:".bold().cyan());
             for (path, name, offset, dist) in results {
@@ -62,9 +87,9 @@ pub fn execute_search(
         indexer.index_repository(&root)?;
         // Re-open engine to pick up new index
         let engine = TantivySearchEngine::open_or_create(index_path.as_std_path())?;
-        perform_search(engine, &root, query, regex, limit)?;
+        perform_search(engine, &root, query, regex, limit, json, &project_id)?;
     } else {
-        perform_search(engine, &root, query, regex, limit)?;
+        perform_search(engine, &root, query, regex, limit, json, &project_id)?;
     }
 
     Ok(())
@@ -76,12 +101,36 @@ fn perform_search(
     query: String,
     regex: bool,
     limit: usize,
+    json: bool,
+    project_id: &str,
 ) -> Result<()> {
     if regex {
         let filter = RegexFilter::new(&engine);
         let matches = filter.search(root, &query, limit)?;
         if matches.is_empty() {
-            println!("No matches found.");
+            if !json {
+                println!("No matches found.");
+            }
+        } else if json {
+            for m in matches {
+                let record = BridgeRecord {
+                    bridge_version: BridgeRecord::VERSION.to_string(),
+                    direction: BridgeDirection::Outbound,
+                    timestamp: chrono::Utc::now(),
+                    parent_hash: None,
+                    project_id: project_id.to_string(),
+                    session_id: None,
+                    tx_id: None,
+                    record_kind: "insight".to_string(),
+                    payload: BridgePayload::Insight {
+                        memory_id: format!("{}:{}", m.path, m.line_number),
+                        relevance: 1.0,
+                        content: m.content,
+                    },
+                    privacy: Privacy::ProjectLocal,
+                };
+                println!("{}", serde_json::to_string(&record).unwrap_or_default());
+            }
         } else {
             for m in matches {
                 println!("{}:{}: {}", m.path, m.line_number, m.content);
@@ -90,7 +139,29 @@ fn perform_search(
     } else {
         let results = engine.search(&query, limit)?;
         if results.is_empty() {
-            println!("No matches found.");
+            if !json {
+                println!("No matches found.");
+            }
+        } else if json {
+            for r in results {
+                let record = BridgeRecord {
+                    bridge_version: BridgeRecord::VERSION.to_string(),
+                    direction: BridgeDirection::Outbound,
+                    timestamp: chrono::Utc::now(),
+                    parent_hash: None,
+                    project_id: project_id.to_string(),
+                    session_id: None,
+                    tx_id: None,
+                    record_kind: "insight".to_string(),
+                    payload: BridgePayload::Insight {
+                        memory_id: r.path.clone(),
+                        relevance: r.score as f64,
+                        content: r.path,
+                    },
+                    privacy: Privacy::ProjectLocal,
+                };
+                println!("{}", serde_json::to_string(&record).unwrap_or_default());
+            }
         } else {
             for r in results {
                 println!("{} (score: {:.2})", r.path, r.score);

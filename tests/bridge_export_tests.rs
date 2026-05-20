@@ -18,16 +18,56 @@ fn test_bridge_export_subcommand_exists() {
 #[test]
 fn test_bridge_export_file_creation() {
     let dir = tempdir().unwrap();
+
+    // Initialize a minimal git repo so bridge export can discover the project.
+    let mut git_init = std::process::Command::new("git");
+    git_init
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let mut git_commit = std::process::Command::new("git");
+    git_commit
+        .args([
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "init",
+        ])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    // Initialize ChangeGuard state in the temp directory.
+    let binary = option_env!("CARGO_BIN_EXE_changeguard").unwrap_or("target/debug/changeguard");
+    let init_output = Command::new(binary)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to execute changeguard init");
+    assert!(
+        init_output.status.success(),
+        "changeguard init failed: {:?}",
+        init_output
+    );
+
     let out_path = dir.path().join("export.ndjson");
 
-    let binary = option_env!("CARGO_BIN_EXE_changeguard").unwrap_or("target/debug/changeguard");
     let output = Command::new(binary)
         .args(["bridge", "export", "--out", out_path.to_str().unwrap()])
+        .current_dir(dir.path())
         .output()
         .expect("failed to execute process");
 
-    // This should fail initially because the command doesn't exist
-    assert!(output.status.success());
+    assert!(
+        output.status.success(),
+        "bridge export failed: {:?}",
+        output
+    );
     assert!(out_path.exists());
 
     let content = fs::read_to_string(out_path).unwrap();

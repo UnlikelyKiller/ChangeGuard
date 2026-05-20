@@ -6,7 +6,7 @@ use miette::{IntoDiagnostic, Result};
 use regex::Regex;
 use std::fs;
 use std::panic;
-use tracing::warn;
+use tracing::{debug, warn};
 
 pub const DEFAULT_SIBLING_LIMIT: usize = 20;
 
@@ -105,7 +105,14 @@ impl FederatedScanner {
             }
 
             // Skip current repo
-            if path == self.root {
+            let is_root = if let (Ok(p1), Ok(p2)) =
+                (path.canonicalize_utf8(), self.root.canonicalize_utf8())
+            {
+                p1.as_str().to_lowercase() == p2.as_str().to_lowercase()
+            } else {
+                path.as_str().to_lowercase() == self.root.as_str().to_lowercase()
+            };
+            if is_root {
                 continue;
             }
 
@@ -146,7 +153,7 @@ impl FederatedScanner {
                     match self.load_schema(&sp) {
                         Ok(schema) => {
                             if let Err(e) = schema.validate() {
-                                warnings.push(format!("Invalid schema at {}: {}", path, e));
+                                debug!("Invalid schema at {}: {}", path, e);
                             } else {
                                 discovered.push((path, schema));
                             }

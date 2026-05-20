@@ -19,7 +19,7 @@ fn test_bridge_record_serialization() {
     );
 
     let serialized = serialize_record(&record).unwrap();
-    assert!(serialized.contains(r#""bridge_version":"0.2""#));
+    assert!(serialized.contains(r#""bridge_version":"0.3""#));
     assert!(serialized.contains(r#""direction":"outbound""#));
     assert!(serialized.contains(r#""project_id":"test-project""#));
     assert!(serialized.contains(r#""type":"Hotspot""#));
@@ -28,7 +28,7 @@ fn test_bridge_record_serialization() {
 #[test]
 fn test_bridge_record_deserialization() {
     let json = r#"{
-        "bridge_version": "0.2",
+        "bridge_version": "0.3",
         "direction": "inbound",
         "timestamp": "2026-05-19T12:00:00Z",
         "project_id": "test-project",

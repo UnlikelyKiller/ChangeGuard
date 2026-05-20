@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
-use crate::bridge::notify::{DEFAULT_RISK_ALERT_THRESHOLD, push_risk_alert};
+use crate::bridge::notify::push_risk_alert;
 use crate::config::load::load_config;
 use crate::impact::temporal::{GixHistoryProvider, TemporalEngine};
 use crate::index::incremental::IncrementalSyncEngine;
@@ -159,7 +159,6 @@ fn check_temporal_coupling_alerts(batch: &WatchBatch, layout: &Layout, repo_root
         Ok(cfg) => cfg.temporal.coupling_threshold as f64,
         Err(_) => return,
     };
-
 
     let repo = match gix::open(repo_root.as_std_path()) {
         Ok(r) => r,
