@@ -11,6 +11,30 @@ pub struct VramInfo {
     pub current_usage: u64,
 }
 
+#[cfg(target_os = "windows")]
+pub fn query_vram_usage() -> Result<VramInfo, String> {
+    use windows::Win32::Graphics::Dxgi::*;
+    use windows::core::Interface;
+    unsafe {
+        let factory: IDXGIFactory4 = CreateDXGIFactory2(DXGI_CREATE_FACTORY_FLAGS(0))
+            .map_err(|e| e.message().to_string())?;
+        let adapter: IDXGIAdapter3 = factory
+            .EnumAdapters1(0)
+            .map_err(|e| e.message().to_string())?
+            .cast()
+            .map_err(|e| e.message().to_string())?;
+        let mut info = DXGI_QUERY_VIDEO_MEMORY_INFO::default();
+        adapter
+            .QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &mut info)
+            .map_err(|e| e.message().to_string())?;
+        Ok(VramInfo {
+            budget_bytes: info.Budget,
+            current_usage: info.CurrentUsage,
+        })
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
 pub fn query_vram_usage() -> Result<VramInfo, String> {
     Err("not implemented".to_string())
 }

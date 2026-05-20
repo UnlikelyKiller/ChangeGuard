@@ -92,5 +92,50 @@ pub fn execute_doctor() -> Result<()> {
 
     print_doctor_report(&report);
 
+    // VRAM pressure (Windows-only via DXGI)
+    print_vram_section();
+
     Ok(())
+}
+
+fn print_vram_section() {
+    #[cfg(target_os = "windows")]
+    {
+        match crate::platform::gpu::query_vram_usage() {
+            Ok(info) => {
+                let used_gb = info.current_usage as f64 / 1_000_000_000.0;
+                let budget_gb = info.budget_bytes as f64 / 1_000_000_000.0;
+                let pressure = crate::platform::gpu::classify(&info);
+                let icon = match pressure {
+                    crate::platform::gpu::VramPressure::Critical => "X".red().to_string(),
+                    crate::platform::gpu::VramPressure::High => "!".yellow().to_string(),
+                    crate::platform::gpu::VramPressure::Ok => "V".green().to_string(),
+                };
+                println!(
+                    "{:<20} {:.1} GB / {:.1} GB  {}",
+                    "GPU VRAM:".bold(),
+                    used_gb,
+                    budget_gb,
+                    icon,
+                );
+                if matches!(
+                    pressure,
+                    crate::platform::gpu::VramPressure::Critical
+                        | crate::platform::gpu::VramPressure::High
+                ) {
+                    println!(
+                        "{}",
+                        "  High VRAM pressure detected — avoid running both models simultaneously"
+                            .yellow()
+                            .italic()
+                    );
+                }
+            }
+            Err(e) => println!("{:<20} unavailable ({})", "GPU VRAM:".bold(), e.yellow()),
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        println!("{:<20} n/a (Windows-only monitoring)", "GPU VRAM:".bold());
+    }
 }
