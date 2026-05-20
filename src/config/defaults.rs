@@ -8,7 +8,10 @@ auto_fix = false
 
 [watch]
 debounce_ms = 1000
-ignore_patterns = ["target/**", ".git/**", "node_modules/**"]
+ignore_patterns = [
+    "target/**", ".git/**", "node_modules/**",
+    ".claude/**", ".codex/**", ".opencode/**", ".agents/**"
+]
 
 [temporal]
 max_commits = 1000
@@ -84,5 +87,31 @@ mod tests {
     fn config_template_uses_127() {
         let config: crate::config::model::Config = toml::from_str(DEFAULT_CONFIG).unwrap();
         assert_eq!(config.local_model.base_url, "http://127.0.0.1:8081");
+    }
+
+    #[test]
+    fn config_template_excludes_agent_dotfiles() {
+        let config: crate::config::model::Config = toml::from_str(DEFAULT_CONFIG).unwrap();
+        let patterns = &config.watch.ignore_patterns;
+        assert!(
+            patterns.iter().any(|p| p == ".claude/**"),
+            "missing .claude/**"
+        );
+        assert!(
+            patterns.iter().any(|p| p == ".agents/**"),
+            "missing .agents/**"
+        );
+        assert!(
+            patterns.iter().any(|p| p == ".codex/**"),
+            "missing .codex/**"
+        );
+        assert!(
+            patterns.iter().any(|p| p == ".opencode/**"),
+            "missing .opencode/**"
+        );
+        assert!(
+            patterns.iter().any(|p| p == "target/**"),
+            "missing target/**"
+        );
     }
 }
