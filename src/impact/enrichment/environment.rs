@@ -3,7 +3,7 @@ use crate::impact::packet::ImpactPacket;
 use crate::index::env_schema::EnvVarDep;
 use miette::{IntoDiagnostic, Result};
 use std::collections::HashSet;
-use tracing::info;
+use tracing::debug;
 
 pub struct EnvironmentProvider;
 
@@ -17,7 +17,7 @@ impl EnrichmentProvider for EnvironmentProvider {
             .storage
             .table_exists_and_has_data("env_references")?
         {
-            info!("Skipping environment enrichment: env_references table is empty or missing.");
+            debug!("Skipping environment enrichment: env_references table is empty or missing.");
             return Ok(());
         }
 

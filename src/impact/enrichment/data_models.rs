@@ -1,7 +1,7 @@
 use crate::impact::enrichment::{EnrichmentContext, EnrichmentProvider};
 use crate::impact::packet::{DataModel, ImpactPacket};
 use miette::{IntoDiagnostic, Result};
-use tracing::info;
+use tracing::debug;
 
 pub struct DataModelProvider;
 
@@ -12,7 +12,7 @@ impl EnrichmentProvider for DataModelProvider {
 
     fn enrich(&self, context: &EnrichmentContext, packet: &mut ImpactPacket) -> Result<()> {
         if !context.storage.table_exists_and_has_data("data_models")? {
-            info!("Skipping data model enrichment: data_models table is empty or missing.");
+            debug!("Skipping data model enrichment: data_models table is empty or missing.");
             return Ok(());
         }
 

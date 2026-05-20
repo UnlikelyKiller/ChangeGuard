@@ -7,7 +7,7 @@ use miette::{IntoDiagnostic, Result};
 use rusqlite::Connection;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use tracing::info;
+use tracing::debug;
 
 use crate::index::symbols::SymbolKind;
 
@@ -26,7 +26,7 @@ pub struct StorageManager {
 
 impl StorageManager {
     pub fn init(db_path: &Path) -> Result<Self> {
-        info!("StorageManager::init called with {:?}", db_path);
+        debug!("StorageManager::init called with {:?}", db_path);
         let mut conn = Connection::open(db_path).into_diagnostic()?;
 
         conn.execute_batch(
@@ -43,7 +43,7 @@ impl StorageManager {
             .unwrap_or_default();
         let cozo = crate::state::storage_cozo::CozoStorage::new(&cozo_path).ok();
 
-        info!("Initialized storage at {:?}", db_path);
+        debug!("Initialized storage at {:?}", db_path);
         Ok(Self {
             conn,
             cozo,

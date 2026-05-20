@@ -2,7 +2,7 @@ use crate::impact::analysis::dead_code::ConfidenceScorer;
 use crate::impact::enrichment::{EnrichmentContext, EnrichmentProvider};
 use crate::impact::packet::ImpactPacket;
 use miette::Result;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 pub struct DeadCodeProvider;
 
@@ -17,7 +17,7 @@ impl EnrichmentProvider for DeadCodeProvider {
             return Ok(());
         }
 
-        info!("Enriching impact packet with dead code findings...");
+        debug!("Enriching impact packet with dead code findings...");
 
         let cozo = context.storage.cozo.as_ref();
         let scorer = ConfidenceScorer::new(
@@ -49,7 +49,7 @@ impl EnrichmentProvider for DeadCodeProvider {
         }
 
         packet.dead_code_findings.sort_unstable();
-        info!(
+        debug!(
             "Dead code enrichment added {} findings",
             packet.dead_code_findings.len()
         );

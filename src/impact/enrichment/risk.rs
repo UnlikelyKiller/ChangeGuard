@@ -4,7 +4,7 @@ use crate::impact::packet::ImpactPacket;
 use crate::policy::load::load_rules;
 use crate::state::layout::Layout;
 use miette::Result;
-use tracing::{info, warn};
+use tracing::{debug, warn};
 
 pub struct RiskProvider;
 
@@ -14,7 +14,7 @@ impl EnrichmentProvider for RiskProvider {
     }
 
     fn enrich(&self, context: &EnrichmentContext, packet: &mut ImpactPacket) -> Result<()> {
-        info!("Performing risk analysis...");
+        debug!("Performing risk analysis...");
 
         let layout = Layout::new(context.project_root.to_string_lossy().as_ref());
         let rules = match load_rules(&layout) {

@@ -1,7 +1,7 @@
 use crate::impact::enrichment::{EnrichmentContext, EnrichmentProvider};
 use crate::impact::packet::{ImpactPacket, KGImpact};
 use miette::Result;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 pub struct KGProvider;
 
@@ -16,7 +16,7 @@ impl EnrichmentProvider for KGProvider {
             return Ok(());
         };
 
-        info!("Enriching impact packet with Knowledge Graph data...");
+        debug!("Enriching impact packet with Knowledge Graph data...");
 
         // 1. Sync Hotspots to KG risk scores
         if !packet.hotspots.is_empty() {
@@ -122,7 +122,7 @@ impl EnrichmentProvider for KGProvider {
             }
         }
 
-        info!(
+        debug!(
             "KG enrichment added {} impact links",
             packet.knowledge_graph.len()
         );

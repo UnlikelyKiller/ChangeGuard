@@ -1,7 +1,7 @@
 use crate::impact::enrichment::{EnrichmentContext, EnrichmentProvider};
 use crate::impact::packet::ImpactPacket;
 use miette::{IntoDiagnostic, Result};
-use tracing::info;
+use tracing::debug;
 
 pub struct InfrastructureProvider;
 
@@ -15,7 +15,7 @@ impl EnrichmentProvider for InfrastructureProvider {
             .storage
             .table_exists_and_has_data("project_topology")?
         {
-            info!(
+            debug!(
                 "Skipping infrastructure enrichment: project_topology table is empty or missing."
             );
             return Ok(());

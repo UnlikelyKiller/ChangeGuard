@@ -2,7 +2,7 @@ use cozo::*;
 use miette::Result;
 use serde_json::json;
 use std::path::Path;
-use tracing::info;
+use tracing::{debug, info};
 
 #[derive(Debug, Clone)]
 pub struct GraphNode {
@@ -34,10 +34,15 @@ impl CozoStorage {
         } else {
             "sled"
         };
-        info!(
+        debug!(
             "CozoStorage selecting engine '{}' for path {:?}",
             engine, db_path
         );
+
+        let is_new = engine == "sled" && !db_path.exists();
+        if is_new {
+            info!("[init] Creating new CozoDB storage at {:?}", db_path);
+        }
 
         let db = DbInstance::new(engine, db_path, Default::default())
             .map_err(|e| miette::miette!("Failed to initialize CozoDB: {:?}", e))?;
@@ -45,7 +50,7 @@ impl CozoStorage {
         let storage = Self { db };
         storage.setup_schema()?;
 
-        info!("Initialized CozoDB storage at {:?}", db_path);
+        debug!("Initialized CozoDB storage at {:?}", db_path);
         Ok(storage)
     }
 
@@ -379,6 +384,7 @@ impl CozoStorage {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn test_cozo_basic_init() {
@@ -1410,5 +1416,73 @@ mod tests {
         // Existing relations (node, edge) should not have been affected
         assert!(relations2.contains(&"node".to_string()));
         assert!(relations2.contains(&"edge".to_string()));
+    }
+
+    #[test]
+    fn test_no_info_logs_on_existing_db_init() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("existing.cozo");
+
+        // 1. Initial creation (first-time init)
+        let storage1 = CozoStorage::new(&path).unwrap();
+        drop(storage1);
+
+        // 2. Set up tracing log capture subscriber
+        struct SimpleLogCapture {
+            logs: Arc<Mutex<Vec<(tracing::Level, String)>>>,
+        }
+        impl tracing::Subscriber for SimpleLogCapture {
+            fn enabled(&self, metadata: &tracing::Metadata<'_>) -> bool {
+                metadata.level() <= &tracing::Level::INFO
+            }
+            fn new_span(&self, _span: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+                tracing::span::Id::from_u64(1)
+            }
+            fn record(&self, _span: &tracing::span::Id, _values: &tracing::span::Record<'_>) {}
+            fn record_follows_from(&self, _span: &tracing::span::Id, _follows: &tracing::span::Id) {
+            }
+            fn event(&self, event: &tracing::Event<'_>) {
+                let mut msg = String::new();
+                struct Visitor<'a>(&'a mut String);
+                impl<'a> tracing::field::Visit for Visitor<'a> {
+                    fn record_debug(
+                        &mut self,
+                        field: &tracing::field::Field,
+                        value: &dyn std::fmt::Debug,
+                    ) {
+                        if field.name() == "message" {
+                            use std::fmt::Write;
+                            let _ = write!(self.0, "{:?}", value);
+                        }
+                    }
+                }
+                event.record(&mut Visitor(&mut msg));
+                if let Ok(mut logs) = self.logs.lock() {
+                    logs.push((*event.metadata().level(), msg));
+                }
+            }
+            fn enter(&self, _span: &tracing::span::Id) {}
+            fn exit(&self, _span: &tracing::span::Id) {}
+        }
+
+        let logs = Arc::new(Mutex::new(Vec::new()));
+        let subscriber = SimpleLogCapture { logs: logs.clone() };
+
+        // 3. Re-initialize (existing DB path)
+        tracing::subscriber::with_default(subscriber, || {
+            let _storage2 = CozoStorage::new(&path).unwrap();
+        });
+
+        // 4. Assert no INFO logs occurred
+        let captured = logs.lock().unwrap();
+        let info_logs: Vec<_> = captured
+            .iter()
+            .filter(|(lvl, _)| *lvl == tracing::Level::INFO)
+            .collect();
+        assert!(
+            info_logs.is_empty(),
+            "Expected no INFO logs on re-initializing existing DB, but got: {:?}",
+            info_logs
+        );
     }
 }

@@ -4,7 +4,7 @@ use crate::retrieval::query::{compute_staleness, compute_staleness_tier, query_d
 use crate::retrieval::rerank::rerank;
 use miette::Result;
 use std::path::PathBuf;
-use tracing::{info, warn};
+use tracing::{debug, warn};
 
 pub struct KnowledgeProvider;
 
@@ -30,7 +30,7 @@ impl EnrichmentProvider for KnowledgeProvider {
 
         // Check if doc_chunks table has any rows
         if !context.storage.table_exists_and_has_data("doc_chunks")? {
-            info!("Skipping knowledge enrichment: doc_chunks table is empty or missing.");
+            debug!("Skipping knowledge enrichment: doc_chunks table is empty or missing.");
             return Ok(());
         }
 

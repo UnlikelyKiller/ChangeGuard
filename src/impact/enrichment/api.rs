@@ -1,7 +1,7 @@
 use crate::impact::enrichment::{EnrichmentContext, EnrichmentProvider};
 use crate::impact::packet::{ApiRoute, ImpactPacket};
 use miette::{IntoDiagnostic, Result};
-use tracing::info;
+use tracing::debug;
 
 pub struct ApiProvider;
 
@@ -12,7 +12,7 @@ impl EnrichmentProvider for ApiProvider {
 
     fn enrich(&self, context: &EnrichmentContext, packet: &mut ImpactPacket) -> Result<()> {
         if !context.storage.table_exists_and_has_data("api_routes")? {
-            info!("Skipping API enrichment: api_routes table is empty or missing.");
+            debug!("Skipping API enrichment: api_routes table is empty or missing.");
             return Ok(());
         }
 

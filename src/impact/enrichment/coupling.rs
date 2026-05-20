@@ -4,7 +4,7 @@ use crate::impact::packet::{ImpactPacket, StructuralCoupling};
 use crate::impact::temporal::{GixHistoryProvider, TemporalEngine};
 use miette::{IntoDiagnostic, Result};
 use std::path::PathBuf;
-use tracing::{info, warn};
+use tracing::{debug, warn};
 
 pub struct CouplingProvider;
 
@@ -34,7 +34,7 @@ impl CouplingProvider {
             .storage
             .table_exists_and_has_data("structural_edges")?
         {
-            info!(
+            debug!(
                 "Skipping structural coupling enrichment: structural_edges table is empty or missing."
             );
             return Ok(());
@@ -94,7 +94,7 @@ impl CouplingProvider {
         context: &EnrichmentContext,
         packet: &mut ImpactPacket,
     ) -> Result<()> {
-        info!("Running temporal coupling analysis...");
+        debug!("Running temporal coupling analysis...");
 
         let repo = open_repo(&context.project_root)
             .map_err(|e| miette::miette!("Failed to open repo for temporal analysis: {}", e))?;

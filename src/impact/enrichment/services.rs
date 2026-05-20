@@ -5,7 +5,7 @@ use crate::index::call_graph::{CallEdge, CallGraph, CallKind, ResolutionStatus};
 use miette::{IntoDiagnostic, Result};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use tracing::info;
+use tracing::debug;
 
 pub struct ServiceProvider;
 
@@ -16,12 +16,12 @@ impl EnrichmentProvider for ServiceProvider {
 
     fn enrich(&self, context: &EnrichmentContext, packet: &mut ImpactPacket) -> Result<()> {
         if !context.config.coverage.enabled || !context.config.coverage.services.enabled {
-            info!("Skipping service enrichment: coverage.services is disabled.");
+            debug!("Skipping service enrichment: coverage.services is disabled.");
             return Ok(());
         }
 
         if !context.storage.table_exists_and_has_data("project_files")? {
-            info!("Skipping service enrichment: project_files table is empty or missing.");
+            debug!("Skipping service enrichment: project_files table is empty or missing.");
             return Ok(());
         }
 
@@ -46,7 +46,7 @@ impl EnrichmentProvider for ServiceProvider {
         }
 
         if affected_services_set.is_empty() {
-            info!("No services affected by these changes.");
+            debug!("No services affected by these changes.");
             return Ok(());
         }
 

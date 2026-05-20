@@ -5,7 +5,7 @@ use crate::index::languages::{
 };
 use miette::Result;
 use std::fs;
-use tracing::info;
+use tracing::debug;
 
 pub struct ObservabilityProvider;
 
@@ -19,7 +19,7 @@ impl EnrichmentProvider for ObservabilityProvider {
             .storage
             .table_exists_and_has_data("observability_patterns")?
         {
-            info!(
+            debug!(
                 "Skipping observability enrichment: observability_patterns table is empty or missing."
             );
             return Ok(());

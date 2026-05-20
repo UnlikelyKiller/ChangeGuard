@@ -1,7 +1,7 @@
 use crate::impact::enrichment::{EnrichmentContext, EnrichmentProvider};
 use crate::impact::packet::{CIGate, ImpactPacket};
 use miette::{IntoDiagnostic, Result};
-use tracing::info;
+use tracing::debug;
 
 pub struct CIGateProvider;
 
@@ -12,7 +12,7 @@ impl EnrichmentProvider for CIGateProvider {
 
     fn enrich(&self, context: &EnrichmentContext, packet: &mut ImpactPacket) -> Result<()> {
         if !context.storage.table_exists_and_has_data("ci_gates")? {
-            info!("Skipping CI gate enrichment: ci_gates table is empty or missing.");
+            debug!("Skipping CI gate enrichment: ci_gates table is empty or missing.");
             return Ok(());
         }
 

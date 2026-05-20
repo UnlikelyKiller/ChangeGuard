@@ -4,7 +4,7 @@ use crate::impact::hotspots::calculate_hotspots;
 use crate::impact::packet::ImpactPacket;
 use crate::impact::temporal::GixHistoryProvider;
 use miette::Result;
-use tracing::{info, warn};
+use tracing::{debug, warn};
 
 pub struct HotspotProvider;
 
@@ -14,7 +14,7 @@ impl EnrichmentProvider for HotspotProvider {
     }
 
     fn enrich(&self, context: &EnrichmentContext, packet: &mut ImpactPacket) -> Result<()> {
-        info!("Calculating hotspots...");
+        debug!("Calculating hotspots...");
 
         let repo = open_repo(&context.project_root)
             .map_err(|e| miette::miette!("Failed to open repo for hotspot analysis: {}", e))?;
