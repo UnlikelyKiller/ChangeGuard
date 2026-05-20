@@ -1,20 +1,36 @@
-use changeguard::cli;
+use changeguard::cli::{self, Cli};
+use clap::Parser;
 use miette::Result;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 /// Build the log filter based on the verbose flag.
-/// Stub: always returns the default "info" filter — tests for suppression will fail.
-fn build_log_filter(_verbose: bool) -> EnvFilter {
-    EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))
+///
+/// - `verbose = true`: use "debug" level for all crates
+/// - `verbose = false`: respect `RUST_LOG` if set, otherwise apply the quiet
+///   default that silences noisy third-party crates (graph_builder, tantivy,
+///   sled) to WARN while keeping everything else at INFO.
+fn build_log_filter(verbose: bool) -> EnvFilter {
+    if verbose {
+        EnvFilter::new("debug")
+    } else {
+        EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| EnvFilter::new("info,graph_builder=warn,tantivy=warn,sled=warn"))
+    }
 }
 
 fn run() -> Result<()> {
+    // Parse CLI args once here so we can read the verbose flag before
+    // initializing the logger.  cli::run_with(cli) reuses the parsed struct,
+    // avoiding a second parse.
+    let cli_args = Cli::parse();
+    let verbose = cli_args.verbose;
+
     tracing_subscriber::registry()
         .with(fmt::layer())
-        .with(build_log_filter(false))
+        .with(build_log_filter(verbose))
         .init();
 
-    cli::run()?;
+    cli::run_with(cli_args)?;
 
     Ok(())
 }

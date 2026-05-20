@@ -538,8 +538,10 @@ pub enum LedgerCommands {
 }
 
 pub fn run() -> Result<()> {
-    let cli = Cli::parse();
+    run_with(Cli::parse())
+}
 
+pub fn run_with(cli: Cli) -> Result<()> {
     match cli.command {
         Commands::Init { no_gitignore } => crate::commands::init::execute_init(no_gitignore),
         Commands::Doctor => crate::commands::doctor::execute_doctor(),
