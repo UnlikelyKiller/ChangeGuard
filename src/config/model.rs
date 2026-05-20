@@ -899,6 +899,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn default_ignore_patterns_include_agent_dotfiles() {
+        let config = WatchConfig::default();
+        assert!(config.ignore_patterns.iter().any(|p| p == ".claude/**"));
+        assert!(config.ignore_patterns.iter().any(|p| p == ".agents/**"));
+        assert!(config.ignore_patterns.iter().any(|p| p == ".codex/**"));
+        assert!(config.ignore_patterns.iter().any(|p| p == ".opencode/**"));
+        // Regression: existing patterns still present
+        assert!(config.ignore_patterns.iter().any(|p| p == "target/**"));
+        assert!(config.ignore_patterns.iter().any(|p| p == ".git/**"));
+    }
+
+    #[test]
     fn test_config_defaults() {
         let config = Config::default();
         assert!(!config.core.strict);
