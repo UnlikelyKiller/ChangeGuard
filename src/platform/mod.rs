@@ -1,5 +1,6 @@
 pub mod detect;
 pub mod env;
+pub mod gpu;
 pub mod paths;
 pub mod process_policy;
 pub mod shell;
