@@ -5,6 +5,10 @@ use camino::Utf8PathBuf;
 use miette::{IntoDiagnostic, Result};
 use std::collections::HashMap;
 
+pub fn normalize_score(raw_score: f64) -> f64 {
+    (raw_score * 1000.0).ln_1p()
+}
+
 pub fn calculate_hotspots(
     storage: &StorageManager,
     history_provider: &dyn HistoryProvider,
@@ -132,9 +136,11 @@ pub fn calculate_hotspots(
 
         let score = f_norm * c_norm;
 
+        let display_score = normalize_score(score as f64) as f32;
         hotspots.push(Hotspot {
             path: path.into(),
             score,
+            display_score,
             complexity,
             frequency: freq,
             centrality: None,
@@ -151,4 +157,46 @@ pub fn calculate_hotspots(
     hotspots.truncate(limit);
 
     Ok(hotspots)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn log_scale_zero() {
+        assert_eq!(normalize_score(0.0), 0.0);
+    }
+
+    #[test]
+    fn log_scale_positive() {
+        assert!(normalize_score(1.0) > 0.0);
+    }
+
+    #[test]
+    fn log_scale_compresses_outlier() {
+        let high = normalize_score(0.135);
+        let low = normalize_score(0.006);
+        // The raw ratio is 22.5x; after log normalization should be < 5x
+        assert!(
+            high / low < 5.0,
+            "expected log normalization to compress 22x gap; got ratio {:.2}",
+            high / low
+        );
+    }
+
+    #[test]
+    fn sort_order_preserved() {
+        // ln_1p is monotonic — sort by raw == sort by display
+        let scores = vec![0.135_f64, 0.006, 0.05, 0.0];
+        let mut by_raw = scores.clone();
+        by_raw.sort_by(|a, b| b.partial_cmp(a).unwrap());
+        let mut by_display = scores.clone();
+        by_display.sort_by(|a, b| {
+            normalize_score(*b)
+                .partial_cmp(&normalize_score(*a))
+                .unwrap()
+        });
+        assert_eq!(by_raw, by_display, "sort order must be identical");
+    }
 }

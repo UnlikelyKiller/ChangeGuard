@@ -65,6 +65,7 @@ fn test_narrative_golden_prompt() {
         hotspots: vec![Hotspot {
             path: PathBuf::from("src/core/logic.rs"),
             score: 12.5,
+            display_score: 0.0,
             complexity: 45,
             frequency: 120,
             centrality: None,

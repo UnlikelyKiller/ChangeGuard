@@ -65,6 +65,7 @@ fn test_narrative_golden_prompt() {
         hotspots: vec![Hotspot {
             path: PathBuf::from("src/auth.rs"),
             score: 0.92,
+            display_score: 0.0,
             complexity: 45,
             frequency: 150,
             centrality: None,

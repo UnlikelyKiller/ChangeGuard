@@ -338,6 +338,7 @@ mod tests {
                 Hotspot {
                     path: PathBuf::from("src/bridge/export.rs"),
                     score: 0.9,
+                    display_score: 0.0,
                     complexity: 12,
                     frequency: 5,
                     centrality: Some(3),
@@ -345,6 +346,7 @@ mod tests {
                 Hotspot {
                     path: PathBuf::from("src/bridge/model.rs"),
                     score: 0.7,
+                    display_score: 0.0,
                     complexity: 8,
                     frequency: 3,
                     centrality: Some(2),
@@ -352,6 +354,7 @@ mod tests {
                 Hotspot {
                     path: PathBuf::from("src/ledger/db.rs"),
                     score: 0.85,
+                    display_score: 0.0,
                     complexity: 15,
                     frequency: 7,
                     centrality: Some(5),
@@ -774,6 +777,7 @@ mod tests {
             hotspots: vec![Hotspot {
                 path: PathBuf::from("src/main.rs"),
                 score: 0.5,
+                display_score: 0.0,
                 complexity: 5,
                 frequency: 2,
                 centrality: None,

@@ -647,12 +647,13 @@ pub fn print_hotspots_table(hotspots: &[crate::impact::packet::Hotspot]) {
     let mut table = build_table(["Rank", "Score", "Freq", "Comp", "File Path"]);
 
     for (i, hotspot) in hotspots.iter().enumerate() {
+        let score_display = format!("{:.3}", hotspot.display_score);
         let score_color = if hotspot.score > 0.7 {
-            hotspot.score.to_string().red().bold().to_string()
+            score_display.red().bold().to_string()
         } else if hotspot.score > 0.4 {
-            hotspot.score.to_string().yellow().to_string()
+            score_display.yellow().to_string()
         } else {
-            hotspot.score.to_string().green().to_string()
+            score_display.dimmed().to_string()
         };
 
         table.add_row(vec![
@@ -682,12 +683,13 @@ pub fn print_hotspots_table_with_centrality(hotspots: &[crate::impact::packet::H
     let mut table = build_table(["Rank", "Score", "Freq", "Comp", "Centrality", "File Path"]);
 
     for (i, hotspot) in hotspots.iter().enumerate() {
+        let score_display = format!("{:.3}", hotspot.display_score);
         let score_color = if hotspot.score > 0.7 {
-            hotspot.score.to_string().red().bold().to_string()
+            score_display.red().bold().to_string()
         } else if hotspot.score > 0.4 {
-            hotspot.score.to_string().yellow().to_string()
+            score_display.yellow().to_string()
         } else {
-            hotspot.score.to_string().green().to_string()
+            score_display.dimmed().to_string()
         };
 
         let centrality_str = hotspot
