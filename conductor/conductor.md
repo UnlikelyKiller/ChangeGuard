@@ -735,7 +735,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Key files: `src/impact/enrichment/kg_provider.rs`, `src/impact/orchestrator.rs`, `src/ui/spinner.rs` (new), `src/config/model.rs`
 
 *   **Track J6: `bridge export` Stdout Default**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackJ6/spec.md`
     *   Plan: `conductor/trackJ6/plan.md`
     *   Goal: Make `--out` optional; default to stdout when omitted. Enables `changeguard bridge export | jq .` and parity with `bridge verify`.

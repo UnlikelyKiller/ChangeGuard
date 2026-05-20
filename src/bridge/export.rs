@@ -17,7 +17,7 @@ struct BridgeState {
 }
 
 pub fn execute_export(
-    out_path: String,
+    out_path: Option<String>,
     hotspots: bool,
     targets: Option<Vec<String>>,
     scope: Option<Vec<String>>,
@@ -30,7 +30,7 @@ pub fn execute_export(
 /// Internal implementation that accepts an optional base directory override.
 /// When `base_dir` is `None`, uses `std::env::current_dir()`.
 fn execute_export_in_dir(
-    out_path: String,
+    out_path: Option<String>,
     hotspots: bool,
     targets: Option<Vec<String>>,
     scope: Option<Vec<String>>,
@@ -270,18 +270,31 @@ fn execute_export_in_dir(
     }
 
     // 4. Write NDJSON
-    let out_file = File::create(out_path).into_diagnostic()?;
-    let mut writer = BufWriter::new(out_file);
-    for record in records {
-        let line = serialize_record(&record).into_diagnostic()?;
-        writer.write_all(line.as_bytes()).into_diagnostic()?;
-        writer.write_all(b"\n").into_diagnostic()?;
+    match out_path {
+        Some(path) => {
+            if let Some(parent) = std::path::Path::new(&path).parent() {
+                fs::create_dir_all(parent).into_diagnostic()?;
+            }
+            let out_file = File::create(&path).into_diagnostic()?;
+            let mut writer = BufWriter::new(out_file);
+            for record in records {
+                let line = serialize_record(&record).into_diagnostic()?;
+                writer.write_all(line.as_bytes()).into_diagnostic()?;
+                writer.write_all(b"\n").into_diagnostic()?;
+            }
+            writer.flush().into_diagnostic()?;
+            println!("Exported records to bridge NDJSON: {path}");
+        }
+        None => {
+            for record in records {
+                let line = serialize_record(&record).into_diagnostic()?;
+                println!("{line}");
+            }
+        }
     }
-    writer.flush().into_diagnostic()?;
 
     save_bridge_state(&layout, &state)?;
 
-    println!("Exported records to bridge NDJSON.");
     Ok(())
 }
 
@@ -419,7 +432,7 @@ mod tests {
         // Call with scope targeting only src/bridge/
         let scope = Some(vec!["src/bridge/".to_string()]);
         execute_export_in_dir(
-            out_path.clone(),
+            Some(out_path.clone()),
             true,
             None,
             scope,
@@ -506,7 +519,7 @@ mod tests {
 
         // Call without scope (global export)
         execute_export_in_dir(
-            out_path.clone(),
+            Some(out_path.clone()),
             true,
             None,
             None,
@@ -687,7 +700,7 @@ mod tests {
 
         // Export MADR only
         execute_export_in_dir(
-            out_path.clone(),
+            Some(out_path.clone()),
             false,
             None,
             None,
@@ -841,7 +854,7 @@ mod tests {
         // Export with NO flags (export_all behavior)
         let out_path_all = layout.reports_dir().join("export-all.ndjson").to_string();
         execute_export_in_dir(
-            out_path_all.clone(),
+            Some(out_path_all.clone()),
             false,
             None,
             None,
@@ -874,7 +887,7 @@ mod tests {
         // Export with --madr flag
         let out_path_madr = layout.reports_dir().join("export-madr.ndjson").to_string();
         execute_export_in_dir(
-            out_path_madr.clone(),
+            Some(out_path_madr.clone()),
             false,
             None,
             None,
@@ -909,7 +922,7 @@ mod tests {
         // Global export
         let global_path = layout.reports_dir().join("global.ndjson").to_string();
         execute_export_in_dir(
-            global_path.clone(),
+            Some(global_path.clone()),
             true,
             None,
             None,
@@ -922,7 +935,7 @@ mod tests {
         // Scoped export
         let scoped_path = layout.reports_dir().join("scoped.ndjson").to_string();
         execute_export_in_dir(
-            scoped_path.clone(),
+            Some(scoped_path.clone()),
             true,
             None,
             Some(vec!["src/bridge/".to_string()]),

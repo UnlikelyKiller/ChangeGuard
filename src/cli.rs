@@ -287,9 +287,9 @@ pub enum Commands {
 pub enum BridgeCommands {
     /// Export hotspots and ledger deltas to NDJSON
     Export {
-        /// The output file path
+        /// The output file path (default: stdout)
         #[arg(long, short)]
-        out: String,
+        out: Option<String>,
         /// Export hotspot data
         #[arg(long)]
         hotspots: bool,
