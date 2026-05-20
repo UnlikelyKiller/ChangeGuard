@@ -62,6 +62,7 @@ pub struct ProjectSymbol {
     pub byte_start: Option<i32>,
     pub byte_end: Option<i32>,
     pub signature_hash: Option<String>,
+    pub metadata: Option<String>,
     pub confidence: f64,
     pub evidence: Option<String>,
     pub last_indexed_at: String,
@@ -363,6 +364,11 @@ impl ProjectIndexer {
                     byte_start: ps.byte_start,
                     byte_end: ps.byte_end,
                     entrypoint_kind: Some(ps.entrypoint_kind.clone()),
+                    metadata: ps
+                        .metadata
+                        .as_ref()
+                        .and_then(|m| serde_json::from_str(m).ok())
+                        .unwrap_or_default(),
                 })
             })
             .collect();
@@ -684,7 +690,7 @@ impl ProjectIndexer {
                 "SELECT id, file_id, qualified_name, symbol_name, symbol_kind, visibility, \
              entrypoint_kind, is_public, cognitive_complexity, cyclomatic_complexity, \
              line_start, line_end, byte_start, byte_end, signature_hash, confidence, \
-             evidence, last_indexed_at \
+             evidence, last_indexed_at, metadata \
              FROM project_symbols WHERE file_id = ?1",
             )
             .into_diagnostic()?;
@@ -707,6 +713,7 @@ impl ProjectIndexer {
                     byte_start: row.get::<_, Option<i32>>(12)?,
                     byte_end: row.get::<_, Option<i32>>(13)?,
                     signature_hash: row.get::<_, Option<String>>(14)?,
+                    metadata: row.get::<_, Option<String>>(18)?,
                     confidence: row.get::<_, f64>(15)?,
                     evidence: row.get::<_, Option<String>>(16)?,
                     last_indexed_at: row.get::<_, String>(17)?,
@@ -1227,6 +1234,7 @@ impl ProjectIndexer {
                     byte_start: None,
                     byte_end: None,
                     entrypoint_kind: None,
+                    metadata: std::collections::BTreeMap::new(),
                 })
                 .collect();
 
@@ -1265,6 +1273,8 @@ impl ProjectIndexer {
                         EntrypointKind::Handler => stats.handlers += 1,
                         EntrypointKind::PublicApi => stats.public_apis += 1,
                         EntrypointKind::Test => stats.tests += 1,
+                        EntrypointKind::Ffi => stats.ffi += 1,
+                        EntrypointKind::Macro => stats.macros += 1,
                         EntrypointKind::Internal => stats.internal += 1,
                     }
                 }
@@ -1689,8 +1699,8 @@ pub fn insert_symbol_row(conn: &Connection, ps: &ProjectSymbol, file_id: i64) ->
          (file_id, qualified_name, symbol_name, symbol_kind, visibility, \
           entrypoint_kind, is_public, cognitive_complexity, cyclomatic_complexity, \
           line_start, line_end, byte_start, byte_end, signature_hash, confidence, \
-          evidence, last_indexed_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17) \
+          evidence, last_indexed_at, metadata) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18) \
          ON CONFLICT(file_id, qualified_name, symbol_kind) DO UPDATE SET \
             symbol_name=excluded.symbol_name, visibility=excluded.visibility, \
             entrypoint_kind=excluded.entrypoint_kind, is_public=excluded.is_public, \
@@ -1698,7 +1708,8 @@ pub fn insert_symbol_row(conn: &Connection, ps: &ProjectSymbol, file_id: i64) ->
             line_start=excluded.line_start, line_end=excluded.line_end, \
             byte_start=excluded.byte_start, byte_end=excluded.byte_end, \
             signature_hash=excluded.signature_hash, confidence=excluded.confidence, \
-            evidence=excluded.evidence, last_indexed_at=excluded.last_indexed_at",
+            evidence=excluded.evidence, last_indexed_at=excluded.last_indexed_at, \
+            metadata=excluded.metadata",
         rusqlite::params![
             file_id,
             ps.qualified_name,
@@ -1717,6 +1728,7 @@ pub fn insert_symbol_row(conn: &Connection, ps: &ProjectSymbol, file_id: i64) ->
             ps.confidence,
             ps.evidence,
             ps.last_indexed_at,
+            ps.metadata,
         ],
     )
     .into_diagnostic()?;
@@ -1729,6 +1741,12 @@ fn symbol_to_project_symbol(s: &Symbol, file_id: i64, now: &str) -> ProjectSymbo
         Some("public".to_string())
     } else {
         Some("private".to_string())
+    };
+
+    let metadata = if s.metadata.is_empty() {
+        None
+    } else {
+        serde_json::to_string(&s.metadata).ok()
     };
 
     ProjectSymbol {
@@ -1747,6 +1765,7 @@ fn symbol_to_project_symbol(s: &Symbol, file_id: i64, now: &str) -> ProjectSymbo
         byte_start: s.byte_start,
         byte_end: s.byte_end,
         signature_hash: None,
+        metadata,
         confidence: 1.0,
         evidence: None,
         last_indexed_at: now.to_string(),
@@ -1799,6 +1818,7 @@ mod tests {
             byte_start: None,
             byte_end: None,
             entrypoint_kind: None,
+            metadata: std::collections::BTreeMap::new(),
         };
 
         let ps = symbol_to_project_symbol(&symbol, 42, "2026-01-01T00:00:00Z");
@@ -1890,6 +1910,7 @@ mod tests {
             byte_start: None,
             byte_end: None,
             signature_hash: None,
+            metadata: None,
             confidence: 1.0,
             evidence: None,
             last_indexed_at: now.to_string(),
@@ -1972,6 +1993,7 @@ mod tests {
             byte_start: None,
             byte_end: None,
             signature_hash: None,
+            metadata: None,
             confidence: 1.0,
             evidence: None,
             last_indexed_at: "2026-01-01T00:00:00Z".to_string(),

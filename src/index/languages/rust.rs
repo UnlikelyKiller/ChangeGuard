@@ -25,6 +25,7 @@ pub fn extract_symbols(content: &str) -> Result<Option<Vec<Symbol>>> {
         (trait_item name: (type_identifier) @name) @symbol
         (mod_item name: (identifier) @name) @symbol
         (type_item name: (type_identifier) @name) @symbol
+        (use_declaration) @symbol
     "#;
 
     let query = Query::new(&language.into(), query_str).into_diagnostic()?;
@@ -37,7 +38,7 @@ pub fn extract_symbols(content: &str) -> Result<Option<Vec<Symbol>>> {
         let mut name = String::new();
         let mut is_public = false;
         let mut kind = SymbolKind::Function;
-
+        let mut metadata = std::collections::BTreeMap::new();
         for capture in m.captures {
             let capture_name = query.capture_names()[capture.index as usize];
             match capture_name {
@@ -57,15 +58,65 @@ pub fn extract_symbols(content: &str) -> Result<Option<Vec<Symbol>>> {
                         "trait_item" => kind = SymbolKind::Trait,
                         "mod_item" => kind = SymbolKind::Module,
                         "type_item" => kind = SymbolKind::Type,
+                        "use_declaration" => {
+                            // Only handle public re-exports
+                            let mut cursor = node.walk();
+                            let mut is_pub = false;
+                            for child in node.children(&mut cursor) {
+                                if child.kind() == "visibility_modifier" {
+                                    is_pub = true;
+                                    break;
+                                }
+                            }
+                            if is_pub {
+                                kind = SymbolKind::Type; // Fallback kind
+                                is_public = true;
+                                // Extract re-exported name(s)
+                                name = extract_use_name(node, content);
+                                metadata.insert("reexport".to_string(), "true".to_string());
+                            } else {
+                                continue;
+                            }
+                        }
                         _ => {}
                     }
 
-                    // Check for visibility by looking at children
+                    // Check for visibility and metadata by looking at children and preceding siblings
                     let mut cursor = node.walk();
                     for child in node.children(&mut cursor) {
                         if child.kind() == "visibility_modifier" {
                             is_public = true;
-                            break;
+                        }
+                        if child.kind() == "abi" {
+                            if let Ok(abi_text) = child.utf8_text(content.as_bytes()) {
+                                metadata.insert("abi".to_string(), abi_text.to_string());
+                            }
+                        }
+                    }
+
+                    // Check preceding siblings for attributes
+                    if let Some(parent) = node.parent() {
+                        let mut pcursor = parent.walk();
+                        let siblings: Vec<tree_sitter::Node> =
+                            parent.children(&mut pcursor).collect();
+                        if let Some(idx) = siblings.iter().position(|s| *s == node) {
+                            for i in (0..idx).rev() {
+                                let sibling = siblings[i];
+                                if sibling.kind() == "attribute_item" {
+                                    if let Ok(attr_text) = sibling.utf8_text(content.as_bytes()) {
+                                        if attr_text.contains("#[cfg(") {
+                                            metadata.insert("cfg".to_string(), attr_text.to_string());
+                                        }
+                                        if attr_text.contains("proc_macro") {
+                                            metadata.insert("macro".to_string(), "proc_macro".to_string());
+                                        }
+                                    }
+                                } else if sibling.kind() != "line_comment"
+                                    && sibling.kind() != "block_comment"
+                                {
+                                    break;
+                                }
+                            }
                         }
                     }
                 }
@@ -86,11 +137,31 @@ pub fn extract_symbols(content: &str) -> Result<Option<Vec<Symbol>>> {
                 byte_start: None,
                 byte_end: None,
                 entrypoint_kind: None,
+                metadata,
             });
         }
     }
 
     Ok(Some(symbols))
+}
+
+/// Extract the re-exported name from a use_declaration.
+fn extract_use_name(node: tree_sitter::Node, content: &str) -> String {
+    // Simple heuristic: find the last identifier in the use path.
+    // Handles 'pub use path::to::Name;' and 'pub use path::to::Name as Other;'
+    let mut last_ident = String::new();
+    let mut stack = vec![node];
+    while let Some(n) = stack.pop() {
+        if n.kind() == "identifier" || n.kind() == "type_identifier" {
+            last_ident = n.utf8_text(content.as_bytes()).unwrap_or("").to_string();
+        }
+        let mut c = n.walk();
+        let children: Vec<_> = n.children(&mut c).collect();
+        for child in children.into_iter().rev() {
+            stack.push(child);
+        }
+    }
+    last_ident
 }
 
 pub fn extract_routes(content: &str, _symbols: &[Symbol]) -> Result<Vec<ExtractedRoute>> {

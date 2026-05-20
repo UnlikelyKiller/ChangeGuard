@@ -362,6 +362,7 @@ impl<'a> CallGraphBuilder<'a> {
                     byte_start: None,
                     byte_end: None,
                     entrypoint_kind: None,
+                    metadata: std::collections::BTreeMap::new(),
                 })
                 .collect();
 

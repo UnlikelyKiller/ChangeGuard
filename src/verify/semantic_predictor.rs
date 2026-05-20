@@ -262,10 +262,11 @@ pub fn blend_scores(
 mod tests {
     use super::*;
     use crate::impact::packet::{ChangedFile, FileAnalysisStatus};
-    use crate::index::symbols::Symbol;
+    use crate::index::symbols::{Symbol, SymbolKind};
     use crate::state::migrations::get_migrations;
     use httpmock::prelude::*;
     use std::path::PathBuf;
+
     fn setup_db() -> Connection {
         let mut conn = Connection::open_in_memory().unwrap();
         let migrations = get_migrations();
@@ -280,13 +281,10 @@ mod tests {
                 ChangedFile {
                     path: PathBuf::from("src/main.rs"),
                     status: "Modified".to_string(),
-                    old_path: None,
-                    is_staged: true,
-
                     symbols: Some(vec![
                         Symbol {
                             name: "main".to_string(),
-                            kind: crate::index::symbols::SymbolKind::Function,
+                            kind: SymbolKind::Function,
                             is_public: true,
                             cognitive_complexity: None,
                             cyclomatic_complexity: None,
@@ -296,10 +294,11 @@ mod tests {
                             byte_start: None,
                             byte_end: None,
                             entrypoint_kind: None,
+                            metadata: std::collections::BTreeMap::new(),
                         },
                         Symbol {
                             name: "helper".to_string(),
-                            kind: crate::index::symbols::SymbolKind::Function,
+                            kind: SymbolKind::Function,
                             is_public: false,
                             cognitive_complexity: None,
                             cyclomatic_complexity: None,
@@ -309,26 +308,18 @@ mod tests {
                             byte_start: None,
                             byte_end: None,
                             entrypoint_kind: None,
+                            metadata: std::collections::BTreeMap::new(),
                         },
                     ]),
-                    imports: None,
-                    runtime_usage: None,
-                    analysis_status: FileAnalysisStatus::default(),
-                    analysis_warnings: Vec::new(),
-                    api_routes: Vec::new(),
-                    data_models: Vec::new(),
-                    ci_gates: Vec::new(),
+                    ..ChangedFile::default()
                 },
                 ChangedFile {
                     path: PathBuf::from("src/lib.rs"),
                     status: "Modified".to_string(),
-                    old_path: None,
-                    is_staged: true,
-
                     symbols: Some(vec![
                         Symbol {
                             name: "init".to_string(),
-                            kind: crate::index::symbols::SymbolKind::Function,
+                            kind: SymbolKind::Function,
                             is_public: true,
                             cognitive_complexity: None,
                             cyclomatic_complexity: None,
@@ -338,10 +329,11 @@ mod tests {
                             byte_start: None,
                             byte_end: None,
                             entrypoint_kind: None,
+                            metadata: std::collections::BTreeMap::new(),
                         },
                         Symbol {
                             name: "run".to_string(),
-                            kind: crate::index::symbols::SymbolKind::Function,
+                            kind: SymbolKind::Function,
                             is_public: false,
                             cognitive_complexity: None,
                             cyclomatic_complexity: None,
@@ -351,42 +343,31 @@ mod tests {
                             byte_start: None,
                             byte_end: None,
                             entrypoint_kind: None,
+                            metadata: std::collections::BTreeMap::new(),
                         },
                     ]),
-                    imports: None,
-                    runtime_usage: None,
-                    analysis_status: FileAnalysisStatus::default(),
-                    analysis_warnings: Vec::new(),
-                    api_routes: Vec::new(),
-                    data_models: Vec::new(),
-                    ci_gates: Vec::new(),
+                    ..ChangedFile::default()
                 },
                 ChangedFile {
                     path: PathBuf::from("src/utils.rs"),
                     status: "Modified".to_string(),
-                    old_path: None,
-                    is_staged: true,
-
-                    symbols: Some(vec![Symbol {
-                        name: "normalize".to_string(),
-                        kind: crate::index::symbols::SymbolKind::Function,
-                        is_public: true,
-                        cognitive_complexity: None,
-                        cyclomatic_complexity: None,
-                        line_start: None,
-                        line_end: None,
-                        qualified_name: None,
-                        byte_start: None,
-                        byte_end: None,
-                        entrypoint_kind: None,
-                    }]),
-                    imports: None,
-                    runtime_usage: None,
-                    analysis_status: FileAnalysisStatus::default(),
-                    analysis_warnings: Vec::new(),
-                    api_routes: Vec::new(),
-                    data_models: Vec::new(),
-                    ci_gates: Vec::new(),
+                    symbols: Some(vec![
+                        Symbol {
+                            name: "normalize".to_string(),
+                            kind: SymbolKind::Function,
+                            is_public: true,
+                            cognitive_complexity: None,
+                            cyclomatic_complexity: None,
+                            line_start: None,
+                            line_end: None,
+                            qualified_name: None,
+                            byte_start: None,
+                            byte_end: None,
+                            entrypoint_kind: None,
+                            metadata: std::collections::BTreeMap::new(),
+                        },
+                    ]),
+                    ..ChangedFile::default()
                 },
             ],
             ..ImpactPacket::default()
@@ -738,8 +719,6 @@ mod tests {
         // tests/a.rs: semantic=0.9
         assert!((result.get("tests/a.rs").copied().unwrap() - 0.9).abs() < 1e-6);
         // tests/b.rs: only in rule, but weight=1 means semantic=0.0 for it, so 1.0 * 0.0 = 0.0
-        // Actually, at weight=1.0: (1-w)*rule + w*semantic = 0*0.6 + 1*0 = 0.0
-        // So it should be 0.0
         assert!((result.get("tests/b.rs").copied().unwrap_or(0.0) - 0.0).abs() < 1e-6);
         // tests/c.rs: only in semantic, rule=0.0 → 1.0 * 0.7 = 0.7
         assert!((result.get("tests/c.rs").copied().unwrap() - 0.7).abs() < 1e-6);

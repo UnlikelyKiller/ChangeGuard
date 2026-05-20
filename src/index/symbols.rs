@@ -71,4 +71,7 @@ pub struct Symbol {
     pub byte_end: Option<i32>,
     #[serde(default)]
     pub entrypoint_kind: Option<String>,
+    #[serde(default)]
+    pub metadata: std::collections::BTreeMap<String, String>,
 }
+

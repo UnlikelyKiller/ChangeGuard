@@ -77,6 +77,7 @@ pub fn extract_symbols(content: &str) -> Result<Option<Vec<Symbol>>> {
                 byte_start: None,
                 byte_end: None,
                 entrypoint_kind: None,
+                metadata: std::collections::BTreeMap::new(),
             });
         }
     }

@@ -65,6 +65,7 @@ impl ScipSymbolMapper {
             byte_start: None,
             byte_end: None,
             signature_hash: Some(signature_hash),
+            metadata: None,
             confidence: 1.0,
             evidence: Some("scip".to_string()),
             last_indexed_at: Utc::now().to_rfc3339(),

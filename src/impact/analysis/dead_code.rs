@@ -67,12 +67,16 @@ impl<'a> ConfidenceScorer<'a> {
             factors.push(ConfidenceFactor::NoTestCoverage);
         }
 
-        let recommendation = format!(
+        let mut recommendation = format!(
             "Symbol '{}' in {} has {:.0}% confidence of being dead code. Consider reviewing for removal or adding tests.",
             symbol.name,
             file_path.display(),
             confidence * 100.0
         );
+
+        if let Some(cfg) = symbol.metadata.get("cfg") {
+            recommendation.push_str(&format!(" Note: symbol is feature-gated via {}.", cfg));
+        }
 
         Ok(Some(DeadCodeFinding {
             symbol_name: symbol.name.clone(),
@@ -115,7 +119,12 @@ impl<'a> ConfidenceScorer<'a> {
     fn is_entrypoint(symbol: &Symbol) -> bool {
         matches!(
             symbol.entrypoint_kind.as_deref(),
-            Some("ENTRYPOINT") | Some("HANDLER") | Some("PUBLIC_API")
+            Some("ENTRYPOINT")
+                | Some("HANDLER")
+                | Some("PUBLIC_API")
+                | Some("TEST")
+                | Some("FFI")
+                | Some("MACRO")
         )
     }
 
@@ -507,7 +516,7 @@ impl<'a> ConfidenceScorer<'a> {
             .prepare(
                 "SELECT ps.symbol_name, ps.symbol_kind, ps.is_public, ps.cognitive_complexity,
                         ps.cyclomatic_complexity, ps.line_start, ps.line_end, ps.qualified_name,
-                        ps.byte_start, ps.byte_end, ps.entrypoint_kind
+                        ps.byte_start, ps.byte_end, ps.entrypoint_kind, ps.metadata
                  FROM project_symbols ps
                  JOIN project_files pf ON ps.file_id = pf.id
                  WHERE pf.file_path = ?1",
@@ -520,6 +529,11 @@ impl<'a> ConfidenceScorer<'a> {
                     .unwrap_or(crate::index::symbols::SymbolKind::Function);
                 let is_public: i32 = row.get(2)?;
                 let entrypoint: Option<String> = row.get(10)?;
+                let metadata_str: Option<String> = row.get(11)?;
+                let metadata = metadata_str
+                    .and_then(|s| serde_json::from_str(&s).ok())
+                    .unwrap_or_default();
+
                 Ok(Symbol {
                     name: row.get(0)?,
                     kind,
@@ -532,6 +546,7 @@ impl<'a> ConfidenceScorer<'a> {
                     byte_start: row.get(8)?,
                     byte_end: row.get(9)?,
                     entrypoint_kind: entrypoint,
+                    metadata,
                 })
             })
             .into_diagnostic()?;
@@ -548,7 +563,7 @@ impl<'a> ConfidenceScorer<'a> {
             .prepare(
                 "SELECT ps.symbol_name, ps.symbol_kind, ps.is_public, ps.cognitive_complexity,
                         ps.cyclomatic_complexity, ps.line_start, ps.line_end, ps.qualified_name,
-                        ps.byte_start, ps.byte_end, ps.entrypoint_kind, pf.file_path
+                        ps.byte_start, ps.byte_end, ps.entrypoint_kind, pf.file_path, ps.metadata
                  FROM project_symbols ps
                  JOIN project_files pf ON ps.file_id = pf.id
                  WHERE pf.parse_status != 'DELETED'",
@@ -562,6 +577,11 @@ impl<'a> ConfidenceScorer<'a> {
                 let is_public: i32 = row.get(2)?;
                 let entrypoint: Option<String> = row.get(10)?;
                 let file_path: String = row.get(11)?;
+                let metadata_str: Option<String> = row.get(12)?;
+                let metadata = metadata_str
+                    .and_then(|s| serde_json::from_str(&s).ok())
+                    .unwrap_or_default();
+
                 Ok((
                     Symbol {
                         name: row.get(0)?,
@@ -575,6 +595,7 @@ impl<'a> ConfidenceScorer<'a> {
                         byte_start: row.get(8)?,
                         byte_end: row.get(9)?,
                         entrypoint_kind: entrypoint,
+                        metadata,
                     },
                     PathBuf::from(file_path),
                 ))
@@ -631,6 +652,7 @@ mod tests {
             byte_start: None,
             byte_end: None,
             entrypoint_kind: entrypoint.map(|s| s.to_string()),
+            metadata: std::collections::BTreeMap::new(),
         }
     }
 

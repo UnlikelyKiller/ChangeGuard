@@ -11,6 +11,8 @@ pub enum EntrypointKind {
     Handler,
     PublicApi,
     Test,
+    Ffi,
+    Macro,
     #[default]
     Internal,
 }
@@ -22,6 +24,8 @@ impl EntrypointKind {
             EntrypointKind::Handler => "HANDLER",
             EntrypointKind::PublicApi => "PUBLIC_API",
             EntrypointKind::Test => "TEST",
+            EntrypointKind::Ffi => "FFI",
+            EntrypointKind::Macro => "MACRO",
             EntrypointKind::Internal => "INTERNAL",
         }
     }
@@ -32,6 +36,8 @@ impl EntrypointKind {
             "HANDLER" => Some(EntrypointKind::Handler),
             "PUBLIC_API" => Some(EntrypointKind::PublicApi),
             "TEST" => Some(EntrypointKind::Test),
+            "FFI" => Some(EntrypointKind::Ffi),
+            "MACRO" => Some(EntrypointKind::Macro),
             "INTERNAL" => Some(EntrypointKind::Internal),
             _ => None,
         }
@@ -44,6 +50,8 @@ pub struct EntrypointStats {
     pub handlers: usize,
     pub public_apis: usize,
     pub tests: usize,
+    pub ffi: usize,
+    pub macros: usize,
     pub internal: usize,
 }
 
@@ -65,10 +73,6 @@ pub fn detect_rust_entrypoints(content: &str, symbols: &[Symbol]) -> Vec<SymbolC
     let attr_map = parse_rust_attributes(content);
 
     for symbol in symbols {
-        if symbol.kind != crate::index::symbols::SymbolKind::Function {
-            continue;
-        }
-
         // Check for #[test] or #[tokio::test]
         if attr_map
             .get(&symbol.name)
@@ -80,6 +84,67 @@ pub fn detect_rust_entrypoints(content: &str, symbols: &[Symbol]) -> Vec<SymbolC
                 confidence: 1.0,
                 evidence: "Rust test function".to_string(),
             });
+            continue;
+        }
+
+        // Check for extern "C"
+        if symbol.metadata.get("abi").is_some_and(|abi| abi.contains("\"C\"")) {
+            results.push(SymbolClassification {
+                symbol_name: symbol.name.clone(),
+                kind: EntrypointKind::Ffi,
+                confidence: 1.0,
+                evidence: "Extern C function".to_string(),
+            });
+            continue;
+        }
+
+        // Check for proc-macros
+        if symbol.metadata.contains_key("macro") {
+            results.push(SymbolClassification {
+                symbol_name: symbol.name.clone(),
+                kind: EntrypointKind::Macro,
+                confidence: 1.0,
+                evidence: "Rust procedural macro".to_string(),
+            });
+            continue;
+        }
+
+        // Check for FFI (extern "C")
+        if let Some(abi) = symbol.metadata.get("abi") {
+            if abi.contains("\"C\"") || abi.contains("\"system\"") {
+                results.push(SymbolClassification {
+                    symbol_name: symbol.name.clone(),
+                    kind: EntrypointKind::Ffi,
+                    confidence: 1.0,
+                    evidence: format!("FFI export ({})", abi),
+                });
+                continue;
+            }
+        }
+
+        // Check for feature gates
+        if let Some(cfg) = symbol.metadata.get("cfg") {
+            results.push(SymbolClassification {
+                symbol_name: symbol.name.clone(),
+                kind: EntrypointKind::PublicApi,
+                confidence: 0.8,
+                evidence: format!("Feature gated: {}", cfg),
+            });
+            continue;
+        }
+
+        // Check for re-exports
+        if symbol.metadata.contains_key("reexport") {
+            results.push(SymbolClassification {
+                symbol_name: symbol.name.clone(),
+                kind: EntrypointKind::PublicApi,
+                confidence: 1.0,
+                evidence: "Public re-export".to_string(),
+            });
+            continue;
+        }
+
+        if symbol.kind != crate::index::symbols::SymbolKind::Function {
             continue;
         }
 
@@ -770,6 +835,7 @@ fn main() {
             byte_start: None,
             byte_end: None,
             entrypoint_kind: None,
+            metadata: std::collections::BTreeMap::new(),
         }];
         let results = detect_rust_entrypoints(content, &symbols);
         assert!(
@@ -799,6 +865,7 @@ fn test_foo() {
             byte_start: None,
             byte_end: None,
             entrypoint_kind: None,
+            metadata: std::collections::BTreeMap::new(),
         }];
         let results = detect_rust_entrypoints(content, &symbols);
         assert!(
@@ -827,6 +894,7 @@ pub fn another_pub() -> bool { true }
                 byte_start: None,
                 byte_end: None,
                 entrypoint_kind: None,
+                metadata: std::collections::BTreeMap::new(),
             },
             Symbol {
                 name: "another_pub".to_string(),
@@ -840,6 +908,7 @@ pub fn another_pub() -> bool { true }
                 byte_start: None,
                 byte_end: None,
                 entrypoint_kind: None,
+                metadata: std::collections::BTreeMap::new(),
             },
         ];
         let results = detect_rust_entrypoints(content, &symbols);
@@ -875,6 +944,7 @@ async fn get_users() -> HttpResponse {
             byte_start: None,
             byte_end: None,
             entrypoint_kind: None,
+            metadata: std::collections::BTreeMap::new(),
         }];
         let results = detect_rust_entrypoints(content, &symbols);
         assert!(
@@ -901,6 +971,7 @@ export function handler() { }
             byte_start: None,
             byte_end: None,
             entrypoint_kind: None,
+            metadata: std::collections::BTreeMap::new(),
         }];
         let results = detect_typescript_entrypoints(content, &symbols, "server.ts");
         assert!(results.iter().any(|r| r.kind == EntrypointKind::Entrypoint));
@@ -927,6 +998,7 @@ if __name__ == "__main__":
             byte_start: None,
             byte_end: None,
             entrypoint_kind: None,
+            metadata: std::collections::BTreeMap::new(),
         }];
         let results = detect_python_entrypoints(content, &symbols, "main.py");
         assert!(results.iter().any(|r| r.kind == EntrypointKind::Entrypoint));
@@ -946,6 +1018,7 @@ if __name__ == "__main__":
             byte_start: None,
             byte_end: None,
             entrypoint_kind: None,
+            metadata: std::collections::BTreeMap::new(),
         }];
         let results = detect_python_entrypoints("", &symbols, "test_module.py");
         assert!(

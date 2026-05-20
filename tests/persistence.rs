@@ -35,7 +35,9 @@ fn test_persistence_integration() {
                 byte_start: None,
                 byte_end: None,
                 entrypoint_kind: None,
+                metadata: std::collections::BTreeMap::new(),
             }]),
+
             imports: None,
             runtime_usage: None,
             analysis_status: FileAnalysisStatus::default(),

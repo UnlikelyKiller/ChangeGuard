@@ -1058,6 +1058,7 @@ mod tests {
                     byte_start: None,
                     byte_end: None,
                     entrypoint_kind: None,
+                    metadata: std::collections::BTreeMap::new(),
                 },
                 Symbol {
                     name: "bar".into(),
@@ -1071,6 +1072,7 @@ mod tests {
                     byte_start: None,
                     byte_end: None,
                     entrypoint_kind: None,
+                    metadata: std::collections::BTreeMap::new(),
                 },
             ]),
             imports: None,

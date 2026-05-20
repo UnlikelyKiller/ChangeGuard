@@ -742,11 +742,12 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Key files: `src/commands/bridge.rs`, `src/bridge/export.rs`
 
 *   **Track J7: Dead-Code False Positive Filtering**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackJ7/spec.md`
     *   Plan: `conductor/trackJ7/plan.md`
     *   Goal: Filter `#[test]` functions, `pub use` re-exports, proc/derive macros, and `extern "C"` from dead-code output. Annotate feature-gated symbols instead of flagging them as dead.
-    *   Key files: `src/impact/analysis/dead_code.rs`, `src/commands/dead_code.rs`, `src/config/model.rs`
+    *   Key files: `src/impact/analysis/dead_code.rs`, `src/index/entrypoint.rs`, `src/index/languages/rust.rs`
+
 
 *   **Track J8: `index --check` Exit Code Fix**
     *   Status: Completed

@@ -3,6 +3,7 @@ pub mod m1_to_m10;
 pub mod m21_to_m29;
 pub mod m30_scip;
 pub mod m31_ci_predict;
+pub mod m32_symbol_metadata;
 
 use rusqlite_migration::Migrations;
 
@@ -13,6 +14,7 @@ pub fn get_migrations() -> Migrations<'static> {
     all_m.extend(m21_to_m29::m21_to_m29());
     all_m.extend(m30_scip::m30_scip());
     all_m.extend(m31_ci_predict::m31_ci_predict());
+    all_m.extend(m32_symbol_metadata::m32_symbol_metadata());
 
     Migrations::new(all_m)
 }

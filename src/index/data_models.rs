@@ -123,7 +123,9 @@ impl<'a> DataModelExtractor<'a> {
                 byte_start: None,
                 byte_end: None,
                 entrypoint_kind: None,
+                metadata: std::collections::BTreeMap::new(),
             };
+
             symbols_by_file.entry(*file_id).or_default().push(symbol);
         }
 

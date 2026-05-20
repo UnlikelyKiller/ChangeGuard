@@ -30,7 +30,9 @@ fn test_risk_analysis_integration() {
             byte_start: None,
             byte_end: None,
             entrypoint_kind: None,
+            metadata: std::collections::BTreeMap::new(),
         }]),
+
 
         imports: None,
         runtime_usage: None,
@@ -105,7 +107,9 @@ fn test_risk_analysis_high_volume() {
         byte_start: None,
         byte_end: None,
         entrypoint_kind: None,
+        metadata: std::collections::BTreeMap::new(),
     }]);
+
 
     analyze_risk(
         &mut packet,
@@ -156,7 +160,9 @@ fn test_risk_analysis_protected_and_public() {
             byte_start: None,
             byte_end: None,
             entrypoint_kind: None,
+            metadata: std::collections::BTreeMap::new(),
         }]),
+
 
         imports: None,
         runtime_usage: None,
