@@ -52,9 +52,10 @@ pub fn ping_completions(config: &LocalModelConfig) -> Result<String, String> {
         "stream": false,
     });
 
+    // Use config timeout: lazy-loading servers need time to load the model before responding.
     let agent = ureq::AgentBuilder::new()
-        .timeout_read(Duration::from_secs(5))
-        .timeout_write(Duration::from_secs(5))
+        .timeout_read(Duration::from_secs(config.timeout_secs))
+        .timeout_write(Duration::from_secs(30))
         .build();
 
     let response = match agent

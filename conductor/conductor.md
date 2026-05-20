@@ -695,6 +695,80 @@ Systematic fixes from the 2026-05-20 comprehensive command audit (`docs/issues.m
     *   Goal: Create parent directory before writing output file.
     *   Key files: `src/commands/viz.rs`
 
+## Milestone J: Developer Experience Hardening (In Progress)
+
+Systematic UX and reliability improvements identified in the 2026-05-20 comprehensive command audit. Each track targets a concrete friction point that degrades daily productivity.
+
+*   **Track J1: INFO→DEBUG Log Migration**
+    *   Status: In Progress
+    *   Spec: `conductor/trackJ1/spec.md`
+    *   Plan: `conductor/trackJ1/plan.md`
+    *   Goal: Move storage-init and enrichment-provider lifecycle messages from `info!` to `debug!` so common commands produce zero INFO lines on stderr. Add `[init]` tag to first-time DB creation messages.
+    *   Key files: `src/state/storage_cozo.rs`, `src/state/storage.rs`, `src/impact/orchestrator.rs`, `src/impact/enrichment/*.rs`, `src/search/stream_indexer.rs`, `src/commands/search.rs`
+
+*   **Track J2: Code-Aware Trigram Tokenizer**
+    *   Status: Planned
+    *   Spec: `conductor/trackJ2/spec.md`
+    *   Plan: `conductor/trackJ2/plan.md`
+    *   Goal: Register a `WhitespaceTokenizer + LowerCaseFilter` tokenizer (`"code_trigram"`) for the Tantivy trigrams field so cross-underscore Rust identifiers (e.g. `execute_scan`) are preserved during indexing. Fixes `search -r` returning zero results for any underscore-containing pattern.
+    *   Key files: `src/search/tantivy_engine.rs`
+
+*   **Track J3: Temporal Coupling Row Cap and Relevance Filter**
+    *   Status: Planned
+    *   Spec: `conductor/trackJ3/spec.md`
+    *   Plan: `conductor/trackJ3/plan.md`
+    *   Goal: Filter temporal coupling results to pairs involving changed files; cap output at `max_coupling_pairs` (default 50). Eliminates 500+ row explosion from agent dotfiles.
+    *   Key files: `src/impact/enrichment/coupling.rs`, `src/config/model.rs`, `.changeguard/config.toml`
+
+*   **Track J4: Global Audit Multi-Section Completion**
+    *   Status: Planned
+    *   Spec: `conductor/trackJ4/spec.md`
+    *   Plan: `conductor/trackJ4/plan.md`
+    *   Goal: Implement the five sections originally specced in I3-1 but never built: commit velocity (30d), top churned files, oldest ADR, hotspot delta, and CI trend via `verify-history.json`.
+    *   Key files: `src/commands/ledger_audit.rs`, `src/commands/verify.rs`
+
+*   **Track J5: KG Enrichment Progress Indicator and Configurable Timeout**
+    *   Status: Planned
+    *   Spec: `conductor/trackJ5/spec.md`
+    *   Plan: `conductor/trackJ5/plan.md`
+    *   Goal: Add a spinner to the KG enrichment phase and a configurable `kg_timeout_secs` (default 60). Graceful degradation on timeout so the rest of the impact report still renders.
+    *   Key files: `src/impact/enrichment/kg_provider.rs`, `src/impact/orchestrator.rs`, `src/ui/spinner.rs` (new), `src/config/model.rs`
+
+*   **Track J6: `bridge export` Stdout Default**
+    *   Status: Planned
+    *   Spec: `conductor/trackJ6/spec.md`
+    *   Plan: `conductor/trackJ6/plan.md`
+    *   Goal: Make `--out` optional; default to stdout when omitted. Enables `changeguard bridge export | jq .` and parity with `bridge verify`.
+    *   Key files: `src/commands/bridge.rs`, `src/bridge/export.rs`
+
+*   **Track J7: Dead-Code False Positive Filtering**
+    *   Status: Planned
+    *   Spec: `conductor/trackJ7/spec.md`
+    *   Plan: `conductor/trackJ7/plan.md`
+    *   Goal: Filter `#[test]` functions, `pub use` re-exports, proc/derive macros, and `extern "C"` from dead-code output. Annotate feature-gated symbols instead of flagging them as dead.
+    *   Key files: `src/impact/analysis/dead_code.rs`, `src/commands/dead_code.rs`, `src/config/model.rs`
+
+*   **Track J8: `index --check` Exit Code Fix**
+    *   Status: Planned
+    *   Spec: `conductor/trackJ8/spec.md`
+    *   Plan: `conductor/trackJ8/plan.md`
+    *   Goal: Exit 0 for stale index (usable but not current), exit 1 only for missing or corrupt. Add `--strict` flag for pipelines that require a current index.
+    *   Key files: `src/commands/index.rs`
+
+*   **Track J9: BM25 Search Snippet Output**
+    *   Status: Planned
+    *   Spec: `conductor/trackJ9/spec.md`
+    *   Plan: `conductor/trackJ9/plan.md`
+    *   Goal: Add `snippet` and `line_number` to `SearchResult`; use Tantivy's `SnippetGenerator` to show `{file}:{line}: {snippet}` for BM25 results, matching regex search output format.
+    *   Key files: `src/search/tantivy_engine.rs`, `src/search/mod.rs`, `src/commands/search.rs`
+
+*   **Track J10: `viz-server` CLI Wiring or Clean Removal**
+    *   Status: Planned
+    *   Spec: `conductor/trackJ10/spec.md`
+    *   Plan: `conductor/trackJ10/plan.md`
+    *   Goal: Wire the `viz-server` subcommand into CLI dispatch (if implementation is functional) or delete the dead `src/commands/viz_server.rs` file (if it is a stub). Either path eliminates the "unrecognized subcommand" error.
+    *   Key files: `src/cli.rs`, `src/commands/mod.rs`, `src/commands/viz_server.rs`
+
 ## Workflow
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.
