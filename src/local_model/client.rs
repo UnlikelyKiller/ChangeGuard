@@ -95,10 +95,10 @@ pub fn complete(
                     body.chars().take(200).collect::<String>()
                 ));
             }
-            Err(ureq::Error::Transport(_inner)) => {
+            Err(ureq::Error::Transport(inner)) => {
                 return Err(format!(
-                    "Local model server not reachable at {}",
-                    config.base_url
+                    "Local model server not reachable at {} \u{2014} {}",
+                    config.base_url, inner
                 ));
             }
         };
