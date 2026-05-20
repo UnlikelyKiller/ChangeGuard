@@ -6,7 +6,7 @@ use miette::{IntoDiagnostic, Result};
 use std::collections::HashMap;
 
 pub fn normalize_score(raw_score: f64) -> f64 {
-    raw_score // stub — returns raw, will fail compression test
+    (raw_score * 1000.0).ln_1p()
 }
 
 pub fn calculate_hotspots(
@@ -136,10 +136,11 @@ pub fn calculate_hotspots(
 
         let score = f_norm * c_norm;
 
+        let display_score = normalize_score(score as f64) as f32;
         hotspots.push(Hotspot {
             path: path.into(),
             score,
-            display_score: 0.0,
+            display_score,
             complexity,
             frequency: freq,
             centrality: None,
