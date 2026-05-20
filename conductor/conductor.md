@@ -375,7 +375,7 @@
     *   Key additions: Tree-sitter AST chunking, local vector embeddings, CozoDB HNSW search, `ask --semantic`.
 
 
-## Milestone T: Predictable Verification (Planning)
+## Milestone T: Predictable Verification (Completed)
 
 *   **Track T1: Predictive CI Gate Analysis & Failure Explanation**
     *   Status: Completed
@@ -391,7 +391,7 @@
     *   Goal: Reorder verification execution to minimize time to first failure based on historical probability.
     *   Key additions: `src/verify/probability.rs`, verification test reordering logic.
 
-## Milestone D: Documentation & Deep Intelligence (In Planning)
+## Milestone D: Documentation & Deep Intelligence (Completed)
 
 *   **Track 50-1: Document Template Engine & Basic Exports**
     *   Status: Completed
@@ -443,13 +443,13 @@
     *   Key additions: `tree-sitter` integration in `cozo-redux` FTS, language-aware tokenization rules, `index --fts-mode code` flag.
 
 *   **Track 55-1: Maintenance & Migration (Update Command)**
-    *   Status: In Planning
+    *   Status: Completed
     *   Spec: `conductor/track55-1/spec.md`
     *   Plan: `conductor/track55-1/plan.md`
     *   Goal: Implement an `update` command to handle repository-level state migration, schema upgrades, and optional binary self-updating.
     *   Key additions: `update --migrate` (re-index state), `update --binary` (cargo install), and automated health checks.
 
-## Milestone V: Semantic Search Restoration (In Planning)
+## Milestone V: Semantic Search Restoration (Completed)
 
 *   **Track 56-1: Restore Native Semantic Search Path**
     *   Status: Completed
@@ -458,7 +458,7 @@
     *   Goal: Re-enable the HNSW index for `snippet_embedding` and route the fallback through native cozo-redux distance ops (`cos_dist`, `l2_dist`). Resolves `docs/help2.md`.
     *   Key additions: HNSW index restoration in `vector_store.rs`, Cozo-native `cos_dist` fallback, `CozoStorage::get_indices()`, regression tests in `tests/cozo_vector_ops.rs` and `tests/semantic_search.rs`.
 
-## Milestone H: Dependency Hygiene (In Planning)
+## Milestone H: Dependency Hygiene (Completed)
 
 *   **Track 57-1: Dependency Alert Remediation**
     *   Status: Completed
