@@ -707,7 +707,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Key files: `src/state/storage_cozo.rs`, `src/state/storage.rs`, `src/impact/orchestrator.rs`, `src/impact/enrichment/*.rs`, `src/search/stream_indexer.rs`, `src/commands/search.rs`
 
 *   **Track J2: Code-Aware Trigram Tokenizer**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackJ2/spec.md`
     *   Plan: `conductor/trackJ2/plan.md`
     *   Goal: Register a `WhitespaceTokenizer + LowerCaseFilter` tokenizer (`"code_trigram"`) for the Tantivy trigrams field so cross-underscore Rust identifiers (e.g. `execute_scan`) are preserved during indexing. Fixes `search -r` returning zero results for any underscore-containing pattern.
@@ -763,7 +763,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Key files: `src/search/tantivy_engine.rs`, `src/search/mod.rs`, `src/commands/search.rs`
 
 *   **Track J10: `viz-server` CLI Wiring or Clean Removal**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackJ10/spec.md`
     *   Plan: `conductor/trackJ10/plan.md`
     *   Goal: Wire the `viz-server` subcommand into CLI dispatch (if implementation is functional) or delete the dead `src/commands/viz_server.rs` file (if it is a stub). Either path eliminates the "unrecognized subcommand" error.

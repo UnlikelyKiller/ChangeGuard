@@ -73,7 +73,7 @@ scip = "0.7"
 protobuf = "3.7"
 
 [features]
-default = []
+default = ["viz-server"]
 daemon = ["dep:tower-lsp-server", "dep:tokio"]
 viz-server = ["dep:tokio", "dep:tokio-tungstenite", "dep:futures-util", "dep:webbrowser"]
 
