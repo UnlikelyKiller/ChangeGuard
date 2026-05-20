@@ -749,7 +749,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Key files: `src/impact/analysis/dead_code.rs`, `src/commands/dead_code.rs`, `src/config/model.rs`
 
 *   **Track J8: `index --check` Exit Code Fix**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackJ8/spec.md`
     *   Plan: `conductor/trackJ8/plan.md`
     *   Goal: Exit 0 for stale index (usable but not current), exit 1 only for missing or corrupt. Add `--strict` flag for pipelines that require a current index.

@@ -29,6 +29,7 @@ fn get_layout() -> Result<Layout> {
 pub struct IndexArgs {
     pub incremental: bool,
     pub check: bool,
+    pub strict: bool,
     pub json: bool,
     pub analyze_graph: bool,
     pub docs: bool,
@@ -71,10 +72,31 @@ pub fn execute_index(args: IndexArgs) -> Result<()> {
 
     if args.check {
         let status = indexer.check_status()?;
+        let discovered = indexer.discover_files()?;
+        let is_missing = status.total_files == 0 && !discovered.is_empty();
+
         if args.json {
             let output = serde_json::to_string_pretty(&status).into_diagnostic()?;
             println!("{}", output);
         } else {
+            if is_missing {
+                eprintln!("Error: Index is missing or empty. Run 'changeguard index' to build it.");
+            } else if status.stale_files > 0 {
+                if args.strict {
+                    eprintln!(
+                        "Error: Index is stale ({} files) and --strict is enabled.",
+                        status.stale_files
+                    );
+                } else {
+                    println!(
+                        "Warning: Index is stale ({} files). Run 'changeguard index --incremental' to update.",
+                        status.stale_files
+                    );
+                }
+            } else {
+                println!("Index is up to date.");
+            }
+
             println!("Index Status:");
             println!("  Files indexed:   {}", status.total_files);
             println!("  Symbols indexed: {}", status.total_symbols);
@@ -85,7 +107,11 @@ pub fn execute_index(args: IndexArgs) -> Result<()> {
                 println!("  Last indexed:     never");
             }
         }
-        if status.stale_files > 0 {
+
+        if is_missing {
+            std::process::exit(1);
+        }
+        if status.stale_files > 0 && args.strict {
             std::process::exit(1);
         }
         return Ok(());

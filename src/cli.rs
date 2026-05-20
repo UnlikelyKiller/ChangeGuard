@@ -121,6 +121,9 @@ pub enum Commands {
         /// Show index status without re-indexing
         #[arg(long)]
         check: bool,
+        /// Exit with code 1 if the index is stale (used with --check)
+        #[arg(long)]
+        strict: bool,
         /// Output as JSON
         #[arg(long)]
         json: bool,
@@ -598,6 +601,7 @@ pub fn run_with(cli: Cli) -> Result<()> {
         Commands::Index {
             incremental,
             check,
+            strict,
             json,
             analyze_graph,
             docs,
@@ -609,6 +613,7 @@ pub fn run_with(cli: Cli) -> Result<()> {
         } => crate::commands::index::execute_index(crate::commands::index::IndexArgs {
             incremental,
             check,
+            strict,
             json,
             analyze_graph,
             docs,
