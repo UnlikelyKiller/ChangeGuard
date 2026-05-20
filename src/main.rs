@@ -2,10 +2,16 @@ use changeguard::cli;
 use miette::Result;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
+/// Build the log filter based on the verbose flag.
+/// Stub: always returns the default "info" filter — tests for suppression will fail.
+fn build_log_filter(_verbose: bool) -> EnvFilter {
+    EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))
+}
+
 fn run() -> Result<()> {
     tracing_subscriber::registry()
         .with(fmt::layer())
-        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with(build_log_filter(false))
         .init();
 
     cli::run()?;
@@ -28,4 +34,35 @@ fn main() {
         std::process::exit(1);
     }
 }
-// dummy change
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn cli_has_verbose_flag() {
+        let args =
+            changeguard::cli::Cli::try_parse_from(["changeguard", "--verbose", "doctor"]).unwrap();
+        assert!(args.verbose);
+        let args_short =
+            changeguard::cli::Cli::try_parse_from(["changeguard", "-v", "doctor"]).unwrap();
+        assert!(args_short.verbose);
+    }
+
+    #[test]
+    fn cli_verbose_default_is_false() {
+        let args = changeguard::cli::Cli::try_parse_from(["changeguard", "doctor"]).unwrap();
+        assert!(!args.verbose);
+    }
+
+    #[test]
+    fn build_log_filter_verbose_does_not_panic() {
+        let _f = build_log_filter(true);
+    }
+
+    #[test]
+    fn build_log_filter_quiet_does_not_panic() {
+        let _f = build_log_filter(false);
+    }
+}

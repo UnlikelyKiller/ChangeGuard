@@ -7,6 +7,9 @@ use miette::Result;
 #[command(version)]
 #[command(about = "ChangeGuard: Local-first change intelligence and Gemini-assisted development", long_about = None)]
 pub struct Cli {
+    /// Enable verbose (debug) logging output
+    #[arg(long, short = 'v', global = true)]
+    pub verbose: bool,
     #[command(subcommand)]
     pub command: Commands,
 }
