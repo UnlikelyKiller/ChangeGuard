@@ -105,10 +105,14 @@ pub fn extract_symbols(content: &str) -> Result<Option<Vec<Symbol>>> {
                                 if sibling.kind() == "attribute_item" {
                                     if let Ok(attr_text) = sibling.utf8_text(content.as_bytes()) {
                                         if attr_text.contains("#[cfg(") {
-                                            metadata.insert("cfg".to_string(), attr_text.to_string());
+                                            metadata
+                                                .insert("cfg".to_string(), attr_text.to_string());
                                         }
                                         if attr_text.contains("proc_macro") {
-                                            metadata.insert("macro".to_string(), "proc_macro".to_string());
+                                            metadata.insert(
+                                                "macro".to_string(),
+                                                "proc_macro".to_string(),
+                                            );
                                         }
                                     }
                                 } else if sibling.kind() != "line_comment"

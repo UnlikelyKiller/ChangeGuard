@@ -88,7 +88,11 @@ pub fn detect_rust_entrypoints(content: &str, symbols: &[Symbol]) -> Vec<SymbolC
         }
 
         // Check for extern "C"
-        if symbol.metadata.get("abi").is_some_and(|abi| abi.contains("\"C\"")) {
+        if symbol
+            .metadata
+            .get("abi")
+            .is_some_and(|abi| abi.contains("\"C\""))
+        {
             results.push(SymbolClassification {
                 symbol_name: symbol.name.clone(),
                 kind: EntrypointKind::Ffi,

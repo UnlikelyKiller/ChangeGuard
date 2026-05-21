@@ -33,7 +33,6 @@ fn test_risk_analysis_integration() {
             metadata: std::collections::BTreeMap::new(),
         }]),
 
-
         imports: None,
         runtime_usage: None,
         analysis_status: FileAnalysisStatus::default(),
@@ -110,7 +109,6 @@ fn test_risk_analysis_high_volume() {
         metadata: std::collections::BTreeMap::new(),
     }]);
 
-
     analyze_risk(
         &mut packet,
         &rules,
@@ -162,7 +160,6 @@ fn test_risk_analysis_protected_and_public() {
             entrypoint_kind: None,
             metadata: std::collections::BTreeMap::new(),
         }]),
-
 
         imports: None,
         runtime_usage: None,

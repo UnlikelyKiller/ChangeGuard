@@ -53,9 +53,15 @@ pub fn persist_symbols(conn: &Connection, snapshot_id: i64, files: &[ChangedFile
 
         let file_path = normalize_repo_path(&file.path);
         for symbol in symbols {
+            let metadata = if symbol.metadata.is_empty() {
+                None
+            } else {
+                serde_json::to_string(&symbol.metadata).ok()
+            };
+
             conn.execute(
-                "INSERT INTO symbols (snapshot_id, file_path, symbol_name, symbol_kind, is_public, cognitive_complexity, cyclomatic_complexity)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT INTO symbols (snapshot_id, file_path, symbol_name, symbol_kind, is_public, cognitive_complexity, cyclomatic_complexity, metadata)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 (
                     snapshot_id,
                     &file_path,
@@ -64,6 +70,7 @@ pub fn persist_symbols(conn: &Connection, snapshot_id: i64, files: &[ChangedFile
                     symbol.is_public as i32,
                     symbol.cognitive_complexity,
                     symbol.cyclomatic_complexity,
+                    metadata,
                 ),
             )
             .into_diagnostic()?;

@@ -35,7 +35,7 @@ fn test_persistence_integration() {
                 byte_start: None,
                 byte_end: None,
                 entrypoint_kind: None,
-                metadata: std::collections::BTreeMap::new(),
+                metadata: [("reexport".to_string(), "true".to_string())].into(),
             }]),
 
             imports: None,
@@ -64,4 +64,10 @@ fn test_persistence_integration() {
         .query_row("SELECT count(*) FROM symbols", [], |row| row.get(0))
         .unwrap();
     assert_eq!(symbol_count, 1);
+
+    // Verify metadata was persisted
+    let metadata: String = conn
+        .query_row("SELECT metadata FROM symbols LIMIT 1", [], |row| row.get(0))
+        .unwrap();
+    assert!(metadata.contains("reexport"));
 }

@@ -1130,12 +1130,12 @@ impl ProjectIndexer {
         let conn = self.storage.get_connection();
         let mut stmt = conn
             .prepare(
-                "SELECT id, file_id, symbol_name, symbol_kind, is_public FROM project_symbols \
+                "SELECT id, file_id, symbol_name, symbol_kind, is_public, metadata FROM project_symbols \
                  ORDER BY file_id",
             )
             .into_diagnostic()?;
 
-        let rows: Vec<(i64, i64, String, String, bool)> = stmt
+        let rows: Vec<(i64, i64, String, String, bool, Option<String>)> = stmt
             .query_map([], |row| {
                 Ok((
                     row.get::<_, i64>(0)?,
@@ -1143,6 +1143,7 @@ impl ProjectIndexer {
                     row.get::<_, String>(2)?,
                     row.get::<_, String>(3)?,
                     row.get::<_, i32>(4)? != 0,
+                    row.get::<_, Option<String>>(5)?,
                 ))
             })
             .into_diagnostic()?
@@ -1152,13 +1153,15 @@ impl ProjectIndexer {
         drop(stmt);
 
         // Group symbols by file_id
-        let mut file_symbols: HashMap<i64, Vec<(i64, String, String, bool)>> = HashMap::new();
-        for (id, file_id, name, kind, is_public) in &rows {
+        let mut file_symbols: HashMap<i64, Vec<(i64, String, String, bool, Option<String>)>> =
+            HashMap::new();
+        for (id, file_id, name, kind, is_public, metadata) in &rows {
             file_symbols.entry(*file_id).or_default().push((
                 *id,
                 name.clone(),
                 kind.clone(),
                 *is_public,
+                metadata.clone(),
             ));
         }
 
@@ -1209,32 +1212,39 @@ impl ProjectIndexer {
             // Build Symbol structs for detection
             let sym_vec: Vec<Symbol> = symbols
                 .iter()
-                .map(|(_, name, kind, is_public)| Symbol {
-                    name: name.clone(),
-                    kind: match kind.as_str() {
-                        "Function" => crate::index::symbols::SymbolKind::Function,
-                        "Method" => crate::index::symbols::SymbolKind::Method,
-                        "Class" => crate::index::symbols::SymbolKind::Class,
-                        "Struct" => crate::index::symbols::SymbolKind::Struct,
-                        "Enum" => crate::index::symbols::SymbolKind::Enum,
-                        "Trait" => crate::index::symbols::SymbolKind::Trait,
-                        "Interface" => crate::index::symbols::SymbolKind::Interface,
-                        "Type" => crate::index::symbols::SymbolKind::Type,
-                        "Variable" => crate::index::symbols::SymbolKind::Variable,
-                        "Constant" => crate::index::symbols::SymbolKind::Constant,
-                        "Module" => crate::index::symbols::SymbolKind::Module,
-                        _ => crate::index::symbols::SymbolKind::Function,
-                    },
-                    is_public: *is_public,
-                    cognitive_complexity: None,
-                    cyclomatic_complexity: None,
-                    line_start: None,
-                    line_end: None,
-                    qualified_name: None,
-                    byte_start: None,
-                    byte_end: None,
-                    entrypoint_kind: None,
-                    metadata: std::collections::BTreeMap::new(),
+                .map(|(_, name, kind, is_public, metadata)| {
+                    let metadata_map = metadata
+                        .as_ref()
+                        .and_then(|m| serde_json::from_str(m).ok())
+                        .unwrap_or_default();
+
+                    Symbol {
+                        name: name.clone(),
+                        kind: match kind.as_str() {
+                            "Function" => crate::index::symbols::SymbolKind::Function,
+                            "Method" => crate::index::symbols::SymbolKind::Method,
+                            "Class" => crate::index::symbols::SymbolKind::Class,
+                            "Struct" => crate::index::symbols::SymbolKind::Struct,
+                            "Enum" => crate::index::symbols::SymbolKind::Enum,
+                            "Trait" => crate::index::symbols::SymbolKind::Trait,
+                            "Interface" => crate::index::symbols::SymbolKind::Interface,
+                            "Type" => crate::index::symbols::SymbolKind::Type,
+                            "Variable" => crate::index::symbols::SymbolKind::Variable,
+                            "Constant" => crate::index::symbols::SymbolKind::Constant,
+                            "Module" => crate::index::symbols::SymbolKind::Module,
+                            _ => crate::index::symbols::SymbolKind::Function,
+                        },
+                        is_public: *is_public,
+                        cognitive_complexity: None,
+                        cyclomatic_complexity: None,
+                        line_start: None,
+                        line_end: None,
+                        qualified_name: None,
+                        byte_start: None,
+                        byte_end: None,
+                        entrypoint_kind: None,
+                        metadata: metadata_map,
+                    }
                 })
                 .collect();
 
@@ -1253,8 +1263,8 @@ impl ProjectIndexer {
                 // Find the corresponding DB row
                 let db_id = symbols
                     .iter()
-                    .find(|(_, name, _, _)| name == &class.symbol_name)
-                    .map(|(id, _, _, _)| *id);
+                    .find(|(_, name, _, _, _)| name == &class.symbol_name)
+                    .map(|(id, _, _, _, _)| *id);
 
                 if let Some(id) = db_id {
                     conn3.execute(

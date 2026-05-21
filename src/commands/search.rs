@@ -195,7 +195,7 @@ fn perform_search(
                 println!("{}", serde_json::to_string(&record).unwrap_or_default());
             }
         } else {
-            let any_missing_snippets = results.iter().any(|r| r.snippet.is_none());
+            let any_missing_snippets = results.iter().any(|r| r.highlighted.is_none());
             if any_missing_snippets {
                 println!(
                     "{}",
@@ -205,7 +205,7 @@ fn perform_search(
             }
 
             for r in results {
-                if let (Some(snippet), Some(line)) = (r.snippet, r.line_number) {
+                if let (Some(snippet), Some(line)) = (r.highlighted, r.line_number) {
                     println!("{}:{}: {}", r.path, line, snippet);
                 } else {
                     println!("{} (score: {:.2})", r.path, r.score);

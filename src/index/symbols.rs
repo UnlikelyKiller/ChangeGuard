@@ -74,4 +74,3 @@ pub struct Symbol {
     #[serde(default)]
     pub metadata: std::collections::BTreeMap<String, String>,
 }
-

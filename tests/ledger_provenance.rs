@@ -32,7 +32,7 @@ fn test_ledger_token_provenance() {
     // Simulate symbol changes
     let symbol_diff = vec![(
         Symbol {
-            name: "test_symbol".to_string(),
+            name: "my_func".to_string(),
             kind: SymbolKind::Function,
             is_public: true,
             cognitive_complexity: None,
@@ -75,7 +75,21 @@ fn test_ledger_token_provenance() {
 fn test_symbol_diff_logic() {
     let old_symbols = vec![
         Symbol {
-            name: "test_symbol".to_string(),
+            name: "s1".to_string(),
+            kind: SymbolKind::Function,
+            is_public: true,
+            cognitive_complexity: Some(5),
+            cyclomatic_complexity: None,
+            line_start: None,
+            line_end: None,
+            qualified_name: None,
+            byte_start: None,
+            byte_end: None,
+            entrypoint_kind: None,
+            metadata: std::collections::BTreeMap::new(),
+        },
+        Symbol {
+            name: "s2".to_string(),
             kind: SymbolKind::Function,
             is_public: true,
             cognitive_complexity: None,
@@ -88,26 +102,25 @@ fn test_symbol_diff_logic() {
             entrypoint_kind: None,
             metadata: std::collections::BTreeMap::new(),
         },
-        Symbol {
-            name: "test_symbol".to_string(),
-            kind: SymbolKind::Function,
-            is_public: true,
-            cognitive_complexity: None,
-            cyclomatic_complexity: None,
-            line_start: None,
-            line_end: None,
-            qualified_name: None,
-            byte_start: None,
-            byte_end: None,
-            entrypoint_kind: None,
-            metadata: std::collections::BTreeMap::new(),
-        }
-
     ];
 
     let new_symbols = vec![
         Symbol {
-            name: "test_symbol".to_string(),
+            name: "s1".to_string(),
+            kind: SymbolKind::Function,
+            is_public: true,
+            cognitive_complexity: Some(10), // Modified
+            cyclomatic_complexity: None,
+            line_start: None,
+            line_end: None,
+            qualified_name: None,
+            byte_start: None,
+            byte_end: None,
+            entrypoint_kind: None,
+            metadata: std::collections::BTreeMap::new(),
+        },
+        Symbol {
+            name: "s3".to_string(), // Added
             kind: SymbolKind::Function,
             is_public: true,
             cognitive_complexity: None,
@@ -120,21 +133,6 @@ fn test_symbol_diff_logic() {
             entrypoint_kind: None,
             metadata: std::collections::BTreeMap::new(),
         },
-        Symbol {
-            name: "test_symbol".to_string(),
-            kind: SymbolKind::Function,
-            is_public: true,
-            cognitive_complexity: None,
-            cyclomatic_complexity: None,
-            line_start: None,
-            line_end: None,
-            qualified_name: None,
-            byte_start: None,
-            byte_end: None,
-            entrypoint_kind: None,
-            metadata: std::collections::BTreeMap::new(),
-        }
-
     ];
 
     let diff = compute_symbol_diff(&old_symbols, &new_symbols);

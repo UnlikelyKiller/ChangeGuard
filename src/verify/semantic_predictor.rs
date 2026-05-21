@@ -261,7 +261,7 @@ pub fn blend_scores(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::impact::packet::{ChangedFile, FileAnalysisStatus};
+    use crate::impact::packet::ChangedFile;
     use crate::index::symbols::{Symbol, SymbolKind};
     use crate::state::migrations::get_migrations;
     use httpmock::prelude::*;
@@ -351,22 +351,20 @@ mod tests {
                 ChangedFile {
                     path: PathBuf::from("src/utils.rs"),
                     status: "Modified".to_string(),
-                    symbols: Some(vec![
-                        Symbol {
-                            name: "normalize".to_string(),
-                            kind: SymbolKind::Function,
-                            is_public: true,
-                            cognitive_complexity: None,
-                            cyclomatic_complexity: None,
-                            line_start: None,
-                            line_end: None,
-                            qualified_name: None,
-                            byte_start: None,
-                            byte_end: None,
-                            entrypoint_kind: None,
-                            metadata: std::collections::BTreeMap::new(),
-                        },
-                    ]),
+                    symbols: Some(vec![Symbol {
+                        name: "normalize".to_string(),
+                        kind: SymbolKind::Function,
+                        is_public: true,
+                        cognitive_complexity: None,
+                        cyclomatic_complexity: None,
+                        line_start: None,
+                        line_end: None,
+                        qualified_name: None,
+                        byte_start: None,
+                        byte_end: None,
+                        entrypoint_kind: None,
+                        metadata: std::collections::BTreeMap::new(),
+                    }]),
                     ..ChangedFile::default()
                 },
             ],

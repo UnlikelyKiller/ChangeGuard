@@ -14,6 +14,7 @@ pub struct SearchResult {
     pub line_count: usize,
     pub score: f32,
     pub snippet: Option<String>,
+    pub highlighted: Option<String>,
     pub line_number: Option<usize>,
 }
 
@@ -108,7 +109,8 @@ impl TantivySearchEngine {
         let query_parser = QueryParser::for_index(&self.index, vec![content_field, path_field]);
         let query = query_parser.parse_query(query_str).into_diagnostic()?;
 
-        let snippet_generator = SnippetGenerator::create(&searcher, &*query, content_field).into_diagnostic()?;
+        let snippet_generator =
+            SnippetGenerator::create(&searcher, &*query, content_field).into_diagnostic()?;
 
         let top_docs = searcher
             .search(&query, &TopDocs::with_limit(limit).order_by_score())
@@ -130,17 +132,27 @@ impl TantivySearchEngine {
                 .unwrap_or(0) as usize;
 
             let mut snippet_opt = None;
+            let mut highlighted_opt = None;
             let mut line_number_opt = None;
 
-            if let Some(content_val) = retrieved_doc.get_first(content_field).and_then(|v| v.as_str()) {
+            if let Some(content_val) = retrieved_doc
+                .get_first(content_field)
+                .and_then(|v| v.as_str())
+            {
                 let snippet = snippet_generator.snippet_from_doc(&retrieved_doc);
-                let highlighted = snippet.to_html();
-                if !highlighted.is_empty() {
-                    snippet_opt = Some(highlighted.replace("<b>", "\x1b[1m").replace("</b>", "\x1b[0m"));
+                let highlighted_html = snippet.to_html();
+                if !highlighted_html.is_empty() {
+                    snippet_opt = Some(snippet.fragment().to_string());
+                    highlighted_opt = Some(
+                        highlighted_html
+                            .replace("<b>", "\x1b[1m")
+                            .replace("</b>", "\x1b[0m"),
+                    );
                     // Heuristic for line number: find the first match in the content by looking at the snippet.
                     let plain_snippet = snippet.fragment();
                     if let Some(idx) = content_val.find(plain_snippet) {
-                        let lines_before = content_val[..idx].chars().filter(|&c| c == '\n').count();
+                        let lines_before =
+                            content_val[..idx].chars().filter(|&c| c == '\n').count();
                         line_number_opt = Some(lines_before + 1);
                     } else {
                         line_number_opt = Some(1);
@@ -153,6 +165,7 @@ impl TantivySearchEngine {
                 line_count,
                 score,
                 snippet: snippet_opt,
+                highlighted: highlighted_opt,
                 line_number: line_number_opt,
             });
         }

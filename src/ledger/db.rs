@@ -859,7 +859,10 @@ impl<'a> LedgerDb<'a> {
         Ok(count as usize)
     }
 
-    pub fn get_top_churned_entities(&self, limit: usize) -> Result<Vec<(String, usize)>, LedgerError> {
+    pub fn get_top_churned_entities(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<(String, usize)>, LedgerError> {
         let mut stmt = self.conn.prepare(
             "SELECT entity, COUNT(*) as churn FROM ledger_entries GROUP BY entity ORDER BY churn DESC LIMIT ?1"
         )?;

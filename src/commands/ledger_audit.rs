@@ -8,14 +8,14 @@ use std::env;
 
 use crate::config::load::load_config;
 use crate::config::model::Config;
+use crate::impact::hotspots::calculate_hotspots;
+use crate::impact::temporal::GixHistoryProvider;
 use crate::ledger::db::LedgerDb;
 use crate::ledger::transaction::TransactionManager;
-use crate::ledger::ui::{get_category_icon, get_change_type_icon, get_status_icon, LedgerStatus};
+use crate::ledger::ui::{LedgerStatus, get_category_icon, get_change_type_icon, get_status_icon};
 use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
 use crate::verify::results::{VERIFY_HISTORY, VerifyHistoryRecord};
-use crate::impact::hotspots::calculate_hotspots;
-use crate::impact::temporal::GixHistoryProvider;
 
 fn get_repo_root() -> Result<Utf8PathBuf> {
     let current_dir = env::current_dir().into_diagnostic()?;
