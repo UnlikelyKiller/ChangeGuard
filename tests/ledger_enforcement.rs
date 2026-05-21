@@ -344,23 +344,25 @@ fn get_path_validator() -> (String, Vec<String>) {
 fn test_commit_validator_blocking() {
     let dir = tempdir().unwrap();
     let db_path = dir.path().join("ledger.db");
-    let storage = StorageManager::init(&db_path).unwrap();
-    let conn = storage.get_connection();
-    let db = LedgerDb::new(conn);
-
-    let (exe, args) = get_failing_validator();
-
     // 1. Register a failing ERROR validator for FEATURE
-    db.insert_commit_validator(&CommitValidator {
-        category: "FEATURE".to_string(),
-        name: "fail-validator".to_string(),
-        executable: exe,
-        args,
-        validation_level: ValidationLevel::Error,
-        enabled: true,
-        ..Default::default()
-    })
-    .unwrap();
+    {
+        let storage = StorageManager::init(&db_path).unwrap();
+        let conn = storage.get_connection();
+        let db = LedgerDb::new(conn);
+
+        let (exe, args) = get_failing_validator();
+
+        db.insert_commit_validator(&CommitValidator {
+            category: "FEATURE".to_string(),
+            name: "fail-validator".to_string(),
+            executable: exe,
+            args,
+            validation_level: ValidationLevel::Error,
+            enabled: true,
+            ..Default::default()
+        })
+        .unwrap();
+    }
 
     let mut storage_mut = StorageManager::init(&db_path).unwrap();
     let mut manager = TransactionManager::new(
@@ -402,22 +404,24 @@ fn test_commit_validator_blocking() {
 fn test_commit_validator_warning() {
     let dir = tempdir().unwrap();
     let db_path = dir.path().join("ledger.db");
-    let storage = StorageManager::init(&db_path).unwrap();
-    let db = LedgerDb::new(storage.get_connection());
-
-    let (exe, args) = get_failing_validator();
-
     // 1. Register a failing WARNING validator
-    db.insert_commit_validator(&CommitValidator {
-        category: "FEATURE".to_string(),
-        name: "warn-validator".to_string(),
-        executable: exe,
-        args,
-        validation_level: ValidationLevel::Warning,
-        enabled: true,
-        ..Default::default()
-    })
-    .unwrap();
+    {
+        let storage = StorageManager::init(&db_path).unwrap();
+        let db = LedgerDb::new(storage.get_connection());
+
+        let (exe, args) = get_failing_validator();
+
+        db.insert_commit_validator(&CommitValidator {
+            category: "FEATURE".to_string(),
+            name: "warn-validator".to_string(),
+            executable: exe,
+            args,
+            validation_level: ValidationLevel::Warning,
+            enabled: true,
+            ..Default::default()
+        })
+        .unwrap();
+    }
 
     let mut storage_mut = StorageManager::init(&db_path).unwrap();
     let mut manager = TransactionManager::new(
@@ -453,23 +457,25 @@ fn test_commit_validator_warning() {
 fn test_commit_validator_timeout() {
     let dir = tempdir().unwrap();
     let db_path = dir.path().join("ledger.db");
-    let storage = StorageManager::init(&db_path).unwrap();
-    let db = LedgerDb::new(storage.get_connection());
-
-    let (exe, args) = get_timeout_validator();
-
     // 1. Register a timeout validator
-    db.insert_commit_validator(&CommitValidator {
-        category: "FEATURE".to_string(),
-        name: "timeout-validator".to_string(),
-        executable: exe,
-        args,
-        timeout_ms: 100, // Very short timeout
-        validation_level: ValidationLevel::Error,
-        enabled: true,
-        ..Default::default()
-    })
-    .unwrap();
+    {
+        let storage = StorageManager::init(&db_path).unwrap();
+        let db = LedgerDb::new(storage.get_connection());
+
+        let (exe, args) = get_timeout_validator();
+
+        db.insert_commit_validator(&CommitValidator {
+            category: "FEATURE".to_string(),
+            name: "timeout-validator".to_string(),
+            executable: exe,
+            args,
+            timeout_ms: 100, // Very short timeout
+            validation_level: ValidationLevel::Error,
+            enabled: true,
+            ..Default::default()
+        })
+        .unwrap();
+    }
 
     let mut storage_mut = StorageManager::init(&db_path).unwrap();
     let mut manager = TransactionManager::new(
@@ -514,22 +520,24 @@ fn test_commit_validator_timeout() {
 fn test_commit_validator_absolute_path() {
     let dir = tempdir().unwrap();
     let db_path = dir.path().join("ledger.db");
-    let storage = StorageManager::init(&db_path).unwrap();
-    let db = LedgerDb::new(storage.get_connection());
-
-    let (exe, args) = get_path_validator();
-
     // 1. Register a validator that prints its argument (the entity path)
-    db.insert_commit_validator(&CommitValidator {
-        category: "FEATURE".to_string(),
-        name: "path-validator".to_string(),
-        executable: exe,
-        args,
-        validation_level: ValidationLevel::Error,
-        enabled: true,
-        ..Default::default()
-    })
-    .unwrap();
+    {
+        let storage = StorageManager::init(&db_path).unwrap();
+        let db = LedgerDb::new(storage.get_connection());
+
+        let (exe, args) = get_path_validator();
+
+        db.insert_commit_validator(&CommitValidator {
+            category: "FEATURE".to_string(),
+            name: "path-validator".to_string(),
+            executable: exe,
+            args,
+            validation_level: ValidationLevel::Error,
+            enabled: true,
+            ..Default::default()
+        })
+        .unwrap();
+    }
 
     let mut storage_mut = StorageManager::init(&db_path).unwrap();
     let repo_root = dir.path().to_path_buf();
@@ -584,22 +592,24 @@ fn test_commit_validator_absolute_path() {
 fn test_all_category_validators() {
     let dir = tempdir().unwrap();
     let db_path = dir.path().join("ledger.db");
-    let storage = StorageManager::init(&db_path).unwrap();
-    let db = LedgerDb::new(storage.get_connection());
-
-    let (exe, args) = get_failing_validator();
-
     // 1. Register an 'ALL' category validator
-    db.insert_commit_validator(&CommitValidator {
-        category: "ALL".to_string(),
-        name: "global-validator".to_string(),
-        executable: exe,
-        args,
-        validation_level: ValidationLevel::Error,
-        enabled: true,
-        ..Default::default()
-    })
-    .unwrap();
+    {
+        let storage = StorageManager::init(&db_path).unwrap();
+        let db = LedgerDb::new(storage.get_connection());
+
+        let (exe, args) = get_failing_validator();
+
+        db.insert_commit_validator(&CommitValidator {
+            category: "ALL".to_string(),
+            name: "global-validator".to_string(),
+            executable: exe,
+            args,
+            validation_level: ValidationLevel::Error,
+            enabled: true,
+            ..Default::default()
+        })
+        .unwrap();
+    }
 
     let mut storage_mut = StorageManager::init(&db_path).unwrap();
     let mut manager = TransactionManager::new(

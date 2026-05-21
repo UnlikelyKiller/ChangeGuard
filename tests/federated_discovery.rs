@@ -92,6 +92,11 @@ fn test_federate_scan_from_subdirectory() {
         let packet = changeguard::impact::packet::ImpactPacket::default();
         storage.save_packet(&packet).unwrap();
 
+        let conn = storage.get_connection();
+        let _links_before = changeguard::federated::storage::get_federated_links(conn).unwrap();
+
+        storage.shutdown().unwrap();
+
         let subdir = repo1.join("src");
         fs::create_dir_all(&subdir).unwrap();
         let _subguard = DirGuard::from_utf8(&subdir);
@@ -99,7 +104,9 @@ fn test_federate_scan_from_subdirectory() {
         // This should find repo2 as a sibling
         execute_federate_scan().unwrap();
 
-        // Verify link was created in repo1's ledger
+        // Re-open to verify
+        let storage =
+            changeguard::state::storage::StorageManager::init(db_path.as_std_path()).unwrap();
         let links =
             changeguard::federated::storage::get_federated_links(storage.get_connection()).unwrap();
         assert!(links.iter().any(|(name, _, _)| name == "repo2"));

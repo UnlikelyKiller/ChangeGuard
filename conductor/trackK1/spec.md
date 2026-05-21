@@ -1,7 +1,7 @@
 # Track K1: Storage Resilience (Windows & Vector Integrity)
 
 ## Status
-Planned
+Completed
 
 ## Milestone
 K: Service Discovery & Storage Hardening
@@ -19,6 +19,7 @@ K: Service Discovery & Storage Hardening
     - **New**: Implement an explicit `shutdown()` routine for `StorageManager` to close all SQLite and Cozo handles.
     - Implement a `robust_remove_dir` utility with retry-on-lock logic for Windows.
     - **New**: Add a "Cold Start Validation" that runs `::hnsw list` and verifies metadata integrity on first init.
+    - **Fork Maintenance**: If usage-side hardening (explicit shutdown + retries) fails to eliminate "neighbor degree" errors, investigate the HNSW metadata persistence logic in the `cozo-redux` fork (specifically for the `storage-sled` backend on Windows).
 
 ## Definition of Done (DoD)
 - [ ] `changeguard index` results in visible `.seg` files in `.changeguard/search_index/` on Windows.

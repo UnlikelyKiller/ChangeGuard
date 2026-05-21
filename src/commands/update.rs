@@ -99,6 +99,14 @@ fn soft_migrate(layout: &Layout) -> Result<()> {
 fn hard_migrate(layout: &Layout) -> Result<()> {
     println!("{}", "Running hard state migration...".bold().cyan());
 
+    // Step 0: Shutdown any existing handles to the database or KG
+    let db_path = layout.state_subdir().join("ledger.db");
+    if db_path.exists()
+        && let Ok(storage) = StorageManager::init(db_path.as_std_path())
+    {
+        let _ = storage.shutdown();
+    }
+
     layout.ensure_state_dir()?;
 
     // Wipe Knowledge Graph (CozoDB sled store)
@@ -106,7 +114,7 @@ fn hard_migrate(layout: &Layout) -> Result<()> {
     if cozo_path.exists() {
         info!("Removing Knowledge Graph at {:?}", cozo_path);
         if cozo_path.is_dir() {
-            std::fs::remove_dir_all(&cozo_path).into_diagnostic()?;
+            robust_remove_dir(cozo_path.as_std_path())?;
         } else {
             std::fs::remove_file(&cozo_path).into_diagnostic()?;
         }
@@ -117,7 +125,7 @@ fn hard_migrate(layout: &Layout) -> Result<()> {
     let search_dir = layout.search_index_dir();
     if search_dir.exists() {
         info!("Removing search index at {:?}", search_dir);
-        std::fs::remove_dir_all(search_dir.as_std_path()).into_diagnostic()?;
+        robust_remove_dir(search_dir.as_std_path())?;
         println!("{}", "Search index cleared.".green());
     }
 
@@ -134,6 +142,33 @@ fn hard_migrate(layout: &Layout) -> Result<()> {
     );
 
     Ok(())
+}
+
+/// A utility to retry directory removal on Windows, where anti-virus or lingering
+/// mapped memory can cause short-lived "Permission Denied" locks.
+fn robust_remove_dir(path: &std::path::Path) -> Result<()> {
+    let mut attempts = 0;
+    let max_attempts = 10;
+    let delay = std::time::Duration::from_millis(100);
+
+    loop {
+        match std::fs::remove_dir_all(path) {
+            Ok(_) => return Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => {
+                attempts += 1;
+                if attempts >= max_attempts {
+                    return Err(miette::miette!(
+                        "Failed to remove directory {:?} after {} attempts: {}",
+                        path,
+                        max_attempts,
+                        e
+                    ));
+                }
+                std::thread::sleep(delay);
+            }
+        }
+    }
 }
 
 /// Check that `.gitignore` contains necessary patterns and add them if missing.

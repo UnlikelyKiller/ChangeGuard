@@ -240,6 +240,7 @@ fn packet_for_file(file_path: &Path) -> ImpactPacket {
             byte_start: None,
             byte_end: None,
             entrypoint_kind: None,
+            metadata: Default::default(),
         }]),
         imports: None,
         runtime_usage: None,

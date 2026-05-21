@@ -87,10 +87,14 @@ impl StreamIndexer {
             worker.join().unwrap();
         }
 
-        std::sync::Arc::into_inner(writer)
-            .ok_or_else(|| miette::miette!("Failed to get unique access to writer for commit"))?
-            .commit()
-            .into_diagnostic()?;
+        let mut writer = std::sync::Arc::into_inner(writer)
+            .ok_or_else(|| miette::miette!("Failed to get unique access to writer for commit"))?;
+
+        writer.commit().into_diagnostic()?;
+        writer.wait_merging_threads().into_diagnostic()?;
+
+        let segment_count = self.engine.segment_count()?;
+        debug!("Tantivy index committed with {} segments", segment_count);
 
         Ok(())
     }

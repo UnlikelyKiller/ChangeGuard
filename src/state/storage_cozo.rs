@@ -47,6 +47,23 @@ impl CozoStorage {
         let db = DbInstance::new(engine, db_path, Default::default())
             .map_err(|e| miette::miette!("Failed to initialize CozoDB: {:?}", e))?;
 
+        // Cold Start Verification: Detect HNSW metadata corruption immediately.
+        // If this panics/errors internally in Cozo due to "Invalid neighbor degree",
+        // we catch it right here at initialization and prevent further operations.
+        if engine == "sled"
+            && !is_new
+            && let Err(e) = db.run_script(
+                "::relations",
+                Default::default(),
+                ScriptMutability::Immutable,
+            )
+        {
+            return Err(miette::miette!(
+                "CozoDB Cold Start Verification failed. Storage metadata may be corrupt: {}",
+                e
+            ));
+        }
+
         let storage = Self { db };
         storage.setup_schema()?;
 
@@ -70,6 +87,16 @@ impl CozoStorage {
             .run_script(script, params, mutability)
             .map_err(|e| miette::miette!("CozoDB script error: {:?}", e))
     }
+
+    /// Explicitly close the CozoDB instance, ensuring all file locks are released.
+    /// This is particularly important on Windows before attempting to delete
+    /// the underlying storage directory.
+    pub fn shutdown(self) {
+        // Drop the DbInstance to release locks
+        debug!("Shutting down CozoDB instance");
+        drop(self.db);
+    }
+
     pub fn setup_schema(&self) -> Result<()> {
         let existing = self.get_relations()?;
 

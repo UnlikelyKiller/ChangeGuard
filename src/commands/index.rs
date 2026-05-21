@@ -184,6 +184,20 @@ pub fn execute_index(args: IndexArgs) -> Result<()> {
             None
         };
 
+    // Update Tantivy search index (full-text search)
+    // This ensures 'changeguard index' builds everything.
+    let index_path = layout.search_index_dir();
+    {
+        let engine = crate::search::TantivySearchEngine::open_or_create(index_path.as_std_path())?;
+        engine.clear()?;
+        let stream_indexer = crate::search::StreamIndexer::new(engine);
+        stream_indexer.index_repository(&layout.root)?;
+    }
+
+    // Verify search index integrity on disk
+    let engine = crate::search::TantivySearchEngine::open_or_create(index_path.as_std_path())?;
+    engine.verify_index_integrity(index_path.as_std_path())?;
+
     if args.json {
         let mut output = serde_json::to_value(&stats).into_diagnostic()?;
         let doc_obj = serde_json::to_value(&doc_stats).into_diagnostic()?;

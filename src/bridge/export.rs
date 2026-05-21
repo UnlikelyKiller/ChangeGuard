@@ -690,6 +690,10 @@ mod tests {
             .insert_ledger_entry(&entry2)
             .expect("failed to insert ledger entry 2");
 
+        // Step 0: Shutdown storage to release file locks before export re-initializes it.
+        // This is a key capability added in Track K1.
+        storage.shutdown().expect("failed to shutdown storage");
+
         // Also write a minimal impact packet so the export doesn't fail on missing file
         let packet = ImpactPacket::default();
         let impact_path = layout.reports_dir().join("latest-impact.json");
@@ -850,6 +854,9 @@ mod tests {
             trace_id: None,
         };
         ledger_db.insert_ledger_entry(&entry).expect("insert entry");
+
+        // Step 0: Shutdown storage to release file locks before export re-initializes it.
+        storage.shutdown().expect("failed to shutdown storage");
 
         // Export with NO flags (export_all behavior)
         let out_path_all = layout.reports_dir().join("export-all.ndjson").to_string();

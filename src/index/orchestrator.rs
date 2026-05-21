@@ -1152,9 +1152,11 @@ impl ProjectIndexer {
 
         drop(stmt);
 
+        type FileSymbolData = (i64, String, String, bool, Option<String>);
+        type FileSymbolsMap = HashMap<i64, Vec<FileSymbolData>>;
+
         // Group symbols by file_id
-        let mut file_symbols: HashMap<i64, Vec<(i64, String, String, bool, Option<String>)>> =
-            HashMap::new();
+        let mut file_symbols: FileSymbolsMap = HashMap::new();
         for (id, file_id, name, kind, is_public, metadata) in &rows {
             file_symbols.entry(*file_id).or_default().push((
                 *id,

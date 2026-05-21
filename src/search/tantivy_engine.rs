@@ -246,6 +246,61 @@ impl TantivySearchEngine {
         writer.commit().into_diagnostic()?;
         Ok(())
     }
+
+    pub fn segment_count(&self) -> Result<usize> {
+        let searcher = self.reader.searcher();
+        Ok(searcher.segment_readers().len())
+    }
+
+    /// Verify that the segment files on disk match the segments listed in meta.json.
+    /// This is a crucial check for Windows where segments occasionally "vanish"
+    /// despite a successful commit.
+    pub fn verify_index_integrity(&self, index_path: &Path) -> Result<()> {
+        let meta_path = index_path.join("meta.json");
+        if !meta_path.exists() {
+            return Err(miette::miette!(
+                "Index meta.json missing at {:?}",
+                meta_path
+            ));
+        }
+
+        let meta_content = std::fs::read_to_string(&meta_path).into_diagnostic()?;
+        let meta: serde_json::Value = serde_json::from_str(&meta_content).into_diagnostic()?;
+
+        let segments = meta
+            .get("segments")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| miette::miette!("Malformed meta.json: 'segments' field missing"))?;
+
+        for segment in segments {
+            let id = segment
+                .get("segment_id")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| miette::miette!("Malformed meta.json: 'segment_id' missing"))?;
+
+            // Tantivy segment files use the UUID without hyphens as the base name,
+            // and consist of multiple extensions (.store, .idx, .fast, .term, etc.).
+            // We check for the .store file as the primary indicator.
+            let clean_id = id.replace("-", "");
+            let store_file = index_path.join(format!("{}.store", clean_id));
+
+            if !store_file.exists() {
+                let mut files = Vec::new();
+                if let Ok(entries) = std::fs::read_dir(index_path) {
+                    for entry in entries.flatten() {
+                        files.push(entry.file_name().to_string_lossy().to_string());
+                    }
+                }
+                return Err(miette::miette!(
+                    "Tantivy segment file missing: {:?}. The index is corrupt or incomplete. Files in directory: {:?}",
+                    store_file,
+                    files
+                ));
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]

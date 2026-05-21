@@ -114,16 +114,16 @@ pub fn detect_rust_entrypoints(content: &str, symbols: &[Symbol]) -> Vec<SymbolC
         }
 
         // Check for FFI (extern "C")
-        if let Some(abi) = symbol.metadata.get("abi") {
-            if abi.contains("\"C\"") || abi.contains("\"system\"") {
-                results.push(SymbolClassification {
-                    symbol_name: symbol.name.clone(),
-                    kind: EntrypointKind::Ffi,
-                    confidence: 1.0,
-                    evidence: format!("FFI export ({})", abi),
-                });
-                continue;
-            }
+        if let Some(abi) = symbol.metadata.get("abi")
+            && (abi.contains("\"C\"") || abi.contains("\"system\""))
+        {
+            results.push(SymbolClassification {
+                symbol_name: symbol.name.clone(),
+                kind: EntrypointKind::Ffi,
+                confidence: 1.0,
+                evidence: format!("FFI export ({})", abi),
+            });
+            continue;
         }
 
         // Check for feature gates

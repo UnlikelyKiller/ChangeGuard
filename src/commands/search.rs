@@ -30,14 +30,16 @@ pub fn execute_search(
     // Otherwise use read-only fast-path, gracefully skipping if DB not initialized.
     if !index {
         let config = load_config(&layout)?;
-        if let Ok(storage) = StorageManager::open_read_only(&layout.root) {
+        let mut storage_opt = StorageManager::open_read_only(&layout.root).ok();
+        
+        if let Some(storage) = storage_opt.take() {
             let threshold = config.index.stale_threshold_days;
             if auto_index {
-                if let Err(e) = run_incremental_index(&layout, &storage) {
+                // Drop read-only handle so run_incremental_index can take an exclusive lock
+                drop(storage);
+                if let Err(e) = run_incremental_index(&layout) {
                     tracing::warn!("incremental index failed, proceeding with current index: {e}");
                 }
-                // Re-open storage after index mutation
-                let _ = StorageManager::open_read_only(&layout.root)?;
             } else {
                 let _ = warn_if_stale(&storage, threshold);
             }
@@ -103,11 +105,19 @@ pub fn execute_search(
 
     if index || is_index_empty(&index_path) {
         debug!("Indexing repository for search...");
-        engine.clear()?;
-        let indexer = StreamIndexer::new(engine);
-        indexer.index_repository(&root)?;
+        {
+            engine.clear()?;
+            let indexer = StreamIndexer::new(engine);
+            indexer.index_repository(&root)?;
+        }
+
         // Re-open engine to pick up new index
         let engine = TantivySearchEngine::open_or_create(index_path.as_std_path())?;
+
+        // Verify physical integrity on disk (crucial for Windows)
+        engine.verify_index_integrity(index_path.as_std_path())?;
+        debug!("Tantivy index integrity verified.");
+
         perform_search(engine, &root, query, regex, limit, json, &project_id)?;
     } else {
         perform_search(engine, &root, query, regex, limit, json, &project_id)?;
@@ -117,7 +127,7 @@ pub fn execute_search(
 }
 
 /// Run an incremental index against the SQLite/CozoDB project index.
-fn run_incremental_index(layout: &Layout, _storage: &StorageManager) -> Result<()> {
+fn run_incremental_index(layout: &Layout) -> Result<()> {
     let repo_path = layout.root.clone();
     // We need an owned StorageManager — clone the connection by re-initializing.
     let db_path = layout.state_subdir().join("ledger.db");

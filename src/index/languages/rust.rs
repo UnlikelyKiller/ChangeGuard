@@ -87,10 +87,10 @@ pub fn extract_symbols(content: &str) -> Result<Option<Vec<Symbol>>> {
                         if child.kind() == "visibility_modifier" {
                             is_public = true;
                         }
-                        if child.kind() == "abi" {
-                            if let Ok(abi_text) = child.utf8_text(content.as_bytes()) {
-                                metadata.insert("abi".to_string(), abi_text.to_string());
-                            }
+                        if child.kind() == "abi"
+                            && let Ok(abi_text) = child.utf8_text(content.as_bytes())
+                        {
+                            metadata.insert("abi".to_string(), abi_text.to_string());
                         }
                     }
 

@@ -41,7 +41,11 @@ impl StorageManager {
             .parent()
             .map(|p| p.join("ledger.cozo"))
             .unwrap_or_default();
-        let cozo = crate::state::storage_cozo::CozoStorage::new(&cozo_path).ok();
+        let cozo = if !cozo_path.as_os_str().is_empty() {
+            Some(crate::state::storage_cozo::CozoStorage::new(&cozo_path)?)
+        } else {
+            None
+        };
 
         debug!("Initialized storage at {:?}", db_path);
         Ok(Self {
@@ -57,6 +61,24 @@ impl StorageManager {
 
     pub fn get_connection_mut(&mut self) -> &mut Connection {
         &mut self.conn
+    }
+
+    /// Explicitly shutdown the storage manager, releasing all file locks.
+    pub fn shutdown(mut self) -> Result<()> {
+        debug!("Shutting down StorageManager");
+        if let Some(cozo) = self.cozo.take() {
+            cozo.shutdown();
+        }
+
+        let conn = std::mem::replace(
+            &mut self.conn,
+            Connection::open_in_memory().into_diagnostic()?,
+        );
+        if let Err((_conn, e)) = conn.close() {
+            return Err(miette::miette!("Failed to close SQLite connection: {}", e));
+        }
+
+        Ok(())
     }
 
     /// Open storage in read-only mode, skipping migration checks.
