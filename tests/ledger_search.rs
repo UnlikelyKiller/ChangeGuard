@@ -83,13 +83,15 @@ fn test_search_basic() {
 
     // Search for "database"
     let results = db
-        .search_ledger("database", None, None, false, None)
+        .search_ledger("database", None, None, false, None, 0)
         .unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].summary, "Implement database search");
 
     // Search for "search"
-    let results = db.search_ledger("search", None, None, false, None).unwrap();
+    let results = db
+        .search_ledger("search", None, None, false, None, 0)
+        .unwrap();
     assert_eq!(results.len(), 2);
 }
 
@@ -144,13 +146,13 @@ fn test_search_filters() {
 
     // Filter by category
     let results = db
-        .search_ledger("FTS", Some("BUGFIX"), None, false, None)
+        .search_ledger("FTS", Some("BUGFIX"), None, false, None, 0)
         .unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].summary, "FTS fix");
 
     // Filter by breaking
-    let results = db.search_ledger("FTS", None, None, true, None).unwrap();
+    let results = db.search_ledger("FTS", None, None, true, None, 0).unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].summary, "FTS search");
 }
@@ -205,7 +207,9 @@ fn test_search_ranking() {
     db.insert_ledger_entry(&entry2).unwrap();
 
     // Query for "Search"
-    let results = db.search_ledger("Search", None, None, false, None).unwrap();
+    let results = db
+        .search_ledger("Search", None, None, false, None, 0)
+        .unwrap();
     assert_eq!(results.len(), 2);
     // entry2 has "Search" in summary, entry1 has it in reason.
     assert_eq!(results[0].tx_id, "tx2");
@@ -216,7 +220,7 @@ fn test_search_invalid_syntax() {
     let conn = setup_db();
     let db = LedgerDb::new(&conn);
 
-    let result = db.search_ledger("summary: ( )", None, None, false, None);
+    let result = db.search_ledger("summary: ( )", None, None, false, None, 0);
     match result {
         Err(LedgerError::Validation(msg)) => {
             assert!(msg.contains("syntax error") || msg.contains("Invalid search query"));
@@ -285,14 +289,14 @@ fn test_search_days_filtering() {
 
     // Search with --days 5
     let results = db
-        .search_ledger("change", None, Some(5), false, None)
+        .search_ledger("change", None, Some(5), false, None, 0)
         .unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].summary, "Recent change");
 
     // Search with --days 15
     let results = db
-        .search_ledger("change", None, Some(15), false, None)
+        .search_ledger("change", None, Some(15), false, None, 0)
         .unwrap();
     assert_eq!(results.len(), 2);
 }

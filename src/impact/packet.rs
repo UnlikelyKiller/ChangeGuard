@@ -299,7 +299,7 @@ pub struct Hotspot {
     #[serde(default)]
     pub display_score: f32,
     pub complexity: i32,
-    pub frequency: usize,
+    pub frequency: f64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub centrality: Option<usize>,
 }

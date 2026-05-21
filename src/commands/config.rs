@@ -1,5 +1,4 @@
 use crate::commands::ask::{self, Backend};
-use crate::config::load;
 use crate::config::model::Config;
 use crate::policy::load as policy_load;
 use crate::state::layout::Layout;
@@ -15,7 +14,7 @@ pub fn execute_config_verify() -> Result<()> {
     println!("Verifying ChangeGuard configuration...");
 
     // Verify config.toml
-    let config = match load::load_config(&layout) {
+    let config = match crate::config::load_config(&layout) {
         Ok(cfg) => {
             println!("  ✅ config.toml is valid");
             Some(cfg)
@@ -49,6 +48,24 @@ pub fn execute_config_verify() -> Result<()> {
     } else {
         Err(miette::miette!("Configuration verification failed."))
     }
+}
+
+pub fn execute_config_view(json: bool) -> Result<()> {
+    let current_dir = std::env::current_dir()
+        .map_err(|e| miette::miette!("Failed to get current directory: {e}"))?;
+    let layout = Layout::new(current_dir.to_string_lossy().as_ref());
+    let config = crate::config::load_config(&layout)?;
+
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&config)
+                .map_err(|e| miette::miette!("Failed to serialize config to JSON: {e}"))?
+        );
+    } else {
+        println!("{:#?}", config);
+    }
+    Ok(())
 }
 
 pub(crate) fn format_backend_line(config: &Config) -> String {

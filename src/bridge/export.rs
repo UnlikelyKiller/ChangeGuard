@@ -353,7 +353,7 @@ mod tests {
                     score: 0.9,
                     display_score: 0.0,
                     complexity: 12,
-                    frequency: 5,
+                    frequency: 5.0,
                     centrality: Some(3),
                 },
                 Hotspot {
@@ -361,7 +361,7 @@ mod tests {
                     score: 0.7,
                     display_score: 0.0,
                     complexity: 8,
-                    frequency: 3,
+                    frequency: 3.0,
                     centrality: Some(2),
                 },
                 Hotspot {
@@ -369,7 +369,7 @@ mod tests {
                     score: 0.85,
                     display_score: 0.0,
                     complexity: 15,
-                    frequency: 7,
+                    frequency: 7.0,
                     centrality: Some(5),
                 },
             ],
@@ -796,7 +796,7 @@ mod tests {
                 score: 0.5,
                 display_score: 0.0,
                 complexity: 5,
-                frequency: 2,
+                frequency: 2.0,
                 centrality: None,
             }],
             ..ImpactPacket::default()

@@ -802,18 +802,18 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Key files: `src/index/orchestrator.rs`, `src/coverage/services.rs` (new), `src/commands/viz.rs`
 
 *   **Track K5: Operational Transparency (Config View & Audit Pagination)**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackK5/spec.md`
     *   Plan: `conductor/trackK5/plan.md`
     *   Goal: Implement `config view` to see resolved project state; add `--limit`/`--offset` pagination to `ledger audit` for manageable transaction history.
-    *   Key files: `src/commands/config.rs`, `src/commands/ledger.rs`, `src/ledger/db.rs`
+    *   Key files: `src/commands/config.rs`, `src/commands/ledger_audit.rs`, `src/ledger/db.rs`
 
 *   **Track K6: Temporal Risk Precision (Time-Bounded Hotspots)**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackK6/spec.md`
     *   Plan: `conductor/trackK6/plan.md`
     *   Goal: Add `--commits N` and `--days N` to `hotspots` to focus analysis on recent trends; implement exponential decay weighting for hotspot scores.
-    *   Key files: `src/cli.rs`, `src/impact/enrichment/hotspots.rs`
+    *   Key files: `src/cli.rs`, `src/impact/hotspots.rs`, `src/impact/temporal.rs`
 
 ## Workflow
 

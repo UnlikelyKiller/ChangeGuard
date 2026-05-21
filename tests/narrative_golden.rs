@@ -67,7 +67,7 @@ fn test_narrative_golden_prompt() {
             score: 12.5,
             display_score: 0.0,
             complexity: 45,
-            frequency: 120,
+            frequency: 120.0,
             centrality: None,
         }],
         verification_results: vec![],

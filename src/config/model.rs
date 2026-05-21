@@ -221,6 +221,9 @@ pub struct HotspotsConfig {
     pub max_commits: usize,
     #[serde(default = "default_hotspots_limit")]
     pub limit: usize,
+    /// Half-life for exponential decay (in commits). Recent commits weighted higher.
+    #[serde(default = "default_decay_half_life")]
+    pub decay_half_life: usize,
 }
 
 impl Default for HotspotsConfig {
@@ -228,6 +231,7 @@ impl Default for HotspotsConfig {
         Self {
             max_commits: default_hotspots_max_commits(),
             limit: default_hotspots_limit(),
+            decay_half_life: default_decay_half_life(),
         }
     }
 }

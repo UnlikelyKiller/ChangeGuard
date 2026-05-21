@@ -14,6 +14,8 @@ impl HistoryProvider for MockHistoryProvider {
     fn get_history(
         &self,
         _max_commits: usize,
+        _max_days: Option<u64>,
+        _since: Option<String>,
         _all_parents: bool,
     ) -> Result<Vec<CommitFileSet>, GitError> {
         Ok(self.history.clone())
@@ -37,7 +39,8 @@ fn test_hotspots_use_normalized_multiplication_and_path_tie_breaking() {
         ],
     };
 
-    let hotspots = calculate_hotspots(&storage, &history, 10, 10, false, None, None).unwrap();
+    let hotspots =
+        calculate_hotspots(&storage, &history, 10, None, None, 10, false, 0, None, None).unwrap();
 
     assert_eq!(hotspots[0].path.to_string_lossy(), "src/b.rs");
     assert_eq!(hotspots[1].path.to_string_lossy(), "src/c.rs");
@@ -58,8 +61,19 @@ fn test_hotspots_apply_directory_and_language_filters() {
         history: vec![commit(&["src/a.rs", "tests/a.rs", "src/a.py"])],
     };
 
-    let hotspots =
-        calculate_hotspots(&storage, &history, 10, 10, false, Some("src/"), Some("rs")).unwrap();
+    let hotspots = calculate_hotspots(
+        &storage,
+        &history,
+        10,
+        None,
+        None,
+        10,
+        false,
+        0,
+        Some("src/"),
+        Some("rs"),
+    )
+    .unwrap();
 
     assert_eq!(hotspots.len(), 1);
     assert_eq!(hotspots[0].path.to_string_lossy(), "src/a.rs");
@@ -76,7 +90,8 @@ fn test_hotspots_are_json_serializable() {
         history: vec![commit(&["src/a.rs"])],
     };
 
-    let hotspots = calculate_hotspots(&storage, &history, 10, 10, false, None, None).unwrap();
+    let hotspots =
+        calculate_hotspots(&storage, &history, 10, None, None, 10, false, 0, None, None).unwrap();
     let json = serde_json::to_string(&hotspots).unwrap();
 
     assert!(json.contains("src/a.rs"));
@@ -100,7 +115,8 @@ fn test_hotspots_propagate_malformed_sqlite_rows() {
         history: vec![commit(&["src/a.rs"])],
     };
 
-    let error = calculate_hotspots(&storage, &history, 10, 10, false, None, None).unwrap_err();
+    let error = calculate_hotspots(&storage, &history, 10, None, None, 10, false, 0, None, None)
+        .unwrap_err();
     assert!(format!("{error:?}").contains("Invalid column type"));
 }
 
@@ -117,7 +133,8 @@ fn test_hotspot_score_is_finite_when_all_complexity_is_zero() {
         history: vec![commit(&["README.md", "docs/guide.md"])],
     };
 
-    let hotspots = calculate_hotspots(&storage, &history, 10, 10, false, None, None).unwrap();
+    let hotspots =
+        calculate_hotspots(&storage, &history, 10, None, None, 10, false, 0, None, None).unwrap();
     assert!(!hotspots.is_empty());
     for h in &hotspots {
         assert!(

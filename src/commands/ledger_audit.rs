@@ -40,7 +40,12 @@ fn load_ledger_config(layout: &Layout) -> Config {
     })
 }
 
-pub fn execute_ledger_audit(entity: Option<String>, include_unaudited: bool) -> Result<()> {
+pub fn execute_ledger_audit(
+    entity: Option<String>,
+    include_unaudited: bool,
+    limit: usize,
+    offset: usize,
+) -> Result<()> {
     let layout = get_layout()?;
     let mut storage = StorageManager::open_read_only(&layout.root)?;
     let config = load_ledger_config(&layout);
@@ -53,15 +58,20 @@ pub fn execute_ledger_audit(entity: Option<String>, include_unaudited: bool) -> 
     println!("{}", "ChangeGuard Project Audit".bold().underline());
 
     if let Some(path) = entity {
-        audit_entity(&manager, &path)?;
+        audit_entity(&manager, &path, limit, offset)?;
     } else {
-        audit_global(&manager, include_unaudited)?;
+        audit_global(&manager, include_unaudited, limit, offset)?;
     }
 
     Ok(())
 }
 
-fn audit_global(manager: &TransactionManager, include_unaudited: bool) -> Result<()> {
+fn audit_global(
+    manager: &TransactionManager,
+    include_unaudited: bool,
+    limit: usize,
+    offset: usize,
+) -> Result<()> {
     let pending = manager
         .get_all_pending()
         .map_err(|e| miette::miette!("{}", e))?;
@@ -101,6 +111,46 @@ fn audit_global(manager: &TransactionManager, include_unaudited: bool) -> Result
         println!("{table}");
     }
 
+    let db = LedgerDb::new(manager.get_connection());
+
+    println!("\n{}", "RECENT COMMITTED ENTRIES".green().bold());
+    let recent = db
+        .get_recent_ledger_entries_paginated(limit, offset)
+        .map_err(|e| miette::miette!("{}", e))?;
+
+    if recent.is_empty() {
+        println!("  None.");
+    } else {
+        let mut table = Table::new();
+        table
+            .load_preset(UTF8_FULL)
+            .apply_modifier(UTF8_ROUND_CORNERS)
+            .set_header(vec![
+                Cell::new("ID").fg(Color::Cyan),
+                Cell::new("TX ID").fg(Color::Cyan),
+                Cell::new("Entity").fg(Color::Cyan),
+                Cell::new("Change").fg(Color::Cyan),
+                Cell::new("Summary").fg(Color::Cyan),
+                Cell::new("Committed").fg(Color::Cyan),
+            ]);
+
+        for entry in recent {
+            table.add_row(vec![
+                Cell::new(entry.id.to_string()),
+                Cell::new(&entry.tx_id[..8]).fg(Color::Yellow),
+                Cell::new(&entry.entity).fg(Color::Cyan),
+                Cell::new(format!(
+                    "{} {:?}",
+                    get_change_type_icon(&entry.change_type),
+                    entry.change_type
+                )),
+                Cell::new(&entry.summary),
+                Cell::new(&entry.committed_at),
+            ]);
+        }
+        println!("{table}");
+    }
+
     if include_unaudited {
         println!("\n{}", "UNAUDITED DRIFT".red().bold());
         if unaudited.is_empty() {
@@ -129,7 +179,6 @@ fn audit_global(manager: &TransactionManager, include_unaudited: bool) -> Result
         }
     }
 
-    let db = LedgerDb::new(manager.get_connection());
     let layout = get_layout()?;
 
     // 1. Commit Velocity (30d)
@@ -176,8 +225,19 @@ fn audit_global(manager: &TransactionManager, include_unaudited: bool) -> Result
     let storage = StorageManager::open_read_only(&layout.root)?;
     let discovered = gix::discover(&layout.root).into_diagnostic()?;
     let history_provider = GixHistoryProvider::new(&discovered);
-    let hotspots = calculate_hotspots(&storage, &history_provider, 500, 3, false, None, None)
-        .unwrap_or_default();
+    let hotspots = calculate_hotspots(
+        &storage,
+        &history_provider,
+        500,
+        None,
+        None,
+        3,
+        false,
+        100, // Default decay half-life for audit summary
+        None,
+        None,
+    )
+    .unwrap_or_default();
 
     println!("\n{}", "TOP 3 HOTSPOTS".yellow().bold());
     if hotspots.is_empty() {
@@ -219,11 +279,16 @@ fn audit_global(manager: &TransactionManager, include_unaudited: bool) -> Result
     Ok(())
 }
 
-fn audit_entity(manager: &TransactionManager, entity: &str) -> Result<()> {
+fn audit_entity(
+    manager: &TransactionManager,
+    entity: &str,
+    limit: usize,
+    offset: usize,
+) -> Result<()> {
     println!("\nAudit History for {}:", entity.cyan());
 
     let entries = manager
-        .get_ledger_entries(entity)
+        .get_ledger_entries_paginated(entity, limit, offset)
         .map_err(|e| miette::miette!("{}", e))?;
     if entries.is_empty() {
         println!("  No committed entries found.");

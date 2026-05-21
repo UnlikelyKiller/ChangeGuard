@@ -90,7 +90,7 @@ pub fn execute_import(in_path: String) -> Result<()> {
                             score: *score as f32,
                             display_score: 0.0,
                             complexity: 0,
-                            frequency: 1,
+                            frequency: 1.0,
                             centrality: None,
                         });
                     }

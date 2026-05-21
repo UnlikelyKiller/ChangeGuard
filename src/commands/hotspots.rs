@@ -11,6 +11,8 @@ use std::env;
 pub fn execute_hotspots(
     limit: usize,
     commits: usize,
+    days: Option<u64>,
+    since: Option<String>,
     json: bool,
     dir: Option<String>,
     lang: Option<String>,
@@ -76,16 +78,40 @@ pub fn execute_hotspots(
     }
 
     if !json {
-        println!("Analyzing {} commits for temporal hotspots...", commits);
+        let mut filters = Vec::new();
+        filters.push(format!("limit: {}", limit));
+        filters.push(format!("commits: {}", commits));
+        if let Some(d) = days {
+            filters.push(format!("days: {}", d));
+        }
+        if let Some(s) = &since {
+            filters.push(format!("since: {}", s));
+        }
+        println!("Analyzing hotspots [{}]...", filters.join(", "));
     }
+
+    // Resolve 'since' to a commit ID if provided
+    let since_commit = if let Some(ref s) = since {
+        Some(
+            repo.find_reference(s)
+                .map_err(|e| miette::miette!("Failed to find 'since' reference '{}': {}", s, e))?
+                .id()
+                .to_string(),
+        )
+    } else {
+        None
+    };
 
     let history_provider = GixHistoryProvider::new(&repo);
     let mut hotspots = crate::impact::hotspots::calculate_hotspots(
         &storage,
         &history_provider,
         commits,
+        days,
+        since_commit,
         limit,
         all_parents,
+        config.hotspots.decay_half_life,
         dir.as_deref(),
         lang.as_deref(),
     )?;

@@ -496,15 +496,25 @@ impl<'a> TransactionManager<'a> {
         days: Option<u64>,
         breaking_only: bool,
         limit: Option<usize>,
+        offset: usize,
     ) -> Result<Vec<LedgerEntry>, LedgerError> {
         let db = LedgerDb::new(self.conn);
-        db.search_ledger(query, category, days, breaking_only, limit)
+        db.search_ledger(query, category, days, breaking_only, limit, offset)
     }
 
     pub fn get_ledger_entries(&self, entity: &str) -> Result<Vec<LedgerEntry>, LedgerError> {
+        self.get_ledger_entries_paginated(entity, 1000, 0)
+    }
+
+    pub fn get_ledger_entries_paginated(
+        &self,
+        entity: &str,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<LedgerEntry>, LedgerError> {
         let normalized = self.entity_normalized(entity)?;
         let db = LedgerDb::new(self.conn);
-        db.get_ledger_entries_by_entity(&normalized)
+        db.get_ledger_entries_by_entity_paginated(&normalized, limit, offset)
     }
 
     pub fn get_all_pending(&self) -> Result<Vec<Transaction>, LedgerError> {

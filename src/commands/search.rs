@@ -31,7 +31,7 @@ pub fn execute_search(
     if !index {
         let config = load_config(&layout)?;
         let mut storage_opt = StorageManager::open_read_only(&layout.root).ok();
-        
+
         if let Some(storage) = storage_opt.take() {
             let threshold = config.index.stale_threshold_days;
             if auto_index {

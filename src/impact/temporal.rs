@@ -17,6 +17,8 @@ pub trait HistoryProvider {
     fn get_history(
         &self,
         max_commits: usize,
+        max_days: Option<u64>,
+        since_commit: Option<String>,
         all_parents: bool,
     ) -> Result<Vec<CommitFileSet>, GitError>;
 }
@@ -36,6 +38,8 @@ impl<'repo> HistoryProvider for GixHistoryProvider<'repo> {
     fn get_history(
         &self,
         max_commits: usize,
+        max_days: Option<u64>,
+        since_commit: Option<String>,
         all_parents: bool,
     ) -> Result<Vec<CommitFileSet>, GitError> {
         if self.repo.is_shallow() {
@@ -60,6 +64,14 @@ impl<'repo> HistoryProvider for GixHistoryProvider<'repo> {
             .all()
             .map_err(|e| GitError::MetadataError { source: e.into() })?;
 
+        let cutoff_time = max_days.map(|d| {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            now.saturating_sub(d * 86400)
+        });
+
         for res in walk {
             if history.len() >= max_commits {
                 break;
@@ -73,6 +85,13 @@ impl<'repo> HistoryProvider for GixHistoryProvider<'repo> {
                 }
             };
 
+            // since_commit check
+            if let Some(ref since) = since_commit
+                && info.id().to_string().starts_with(since)
+            {
+                break;
+            }
+
             let commit = match info.id().object().map(|obj| obj.into_commit()) {
                 Ok(commit) => commit,
                 Err(e) => {
@@ -80,6 +99,21 @@ impl<'repo> HistoryProvider for GixHistoryProvider<'repo> {
                     continue;
                 }
             };
+
+            // Time-based filtering
+            if let Some(cutoff) = cutoff_time {
+                let commit_time = commit
+                    .time()
+                    .map_err(|e| GitError::MetadataError { source: e.into() })?
+                    .seconds;
+                if (commit_time as u64) < cutoff {
+                    if !all_parents {
+                        break;
+                    } else {
+                        continue;
+                    }
+                }
+            }
 
             let is_merge = commit.parent_ids().count() > 1;
             let mut files = HashSet::new();
@@ -165,9 +199,12 @@ impl<P: HistoryProvider> TemporalEngine<P> {
     }
 
     pub fn calculate_couplings(&self) -> Result<Vec<TemporalCoupling>, GitError> {
-        let history = self
-            .provider
-            .get_history(self.config.max_commits, self.config.all_parents)?;
+        let history = self.provider.get_history(
+            self.config.max_commits,
+            None,
+            None,
+            self.config.all_parents,
+        )?;
 
         let mut commit_count = 0;
         // Store (commit_index, weight) for each file
@@ -339,7 +376,13 @@ mod tests {
     }
 
     impl HistoryProvider for MockHistoryProvider {
-        fn get_history(&self, _max: usize, _all: bool) -> Result<Vec<CommitFileSet>, GitError> {
+        fn get_history(
+            &self,
+            _max: usize,
+            _days: Option<u64>,
+            _since: Option<String>,
+            _all: bool,
+        ) -> Result<Vec<CommitFileSet>, GitError> {
             Ok(self.commits.clone())
         }
     }

@@ -252,16 +252,55 @@ impl<'a> LedgerDb<'a> {
         &self,
         entity_normalized: &str,
     ) -> Result<Vec<LedgerEntry>, LedgerError> {
+        self.get_ledger_entries_by_entity_paginated(entity_normalized, 1000, 0)
+    }
+
+    pub fn get_ledger_entries_by_entity_paginated(
+        &self,
+        entity_normalized: &str,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<LedgerEntry>, LedgerError> {
         let mut stmt = self.conn.prepare(
             "SELECT id, tx_id, category, entry_type, entity, entity_normalized,
                     change_type, summary, reason, is_breaking, committed_at,
                     verification_status, verification_basis, outcome_notes,
                     origin, trace_id
              FROM ledger_entries WHERE entity_normalized = ?1
-             ORDER BY committed_at DESC",
+             ORDER BY committed_at DESC
+             LIMIT ?2 OFFSET ?3",
         )?;
 
-        let rows = stmt.query_map([entity_normalized], |row| self.map_ledger_entry(row))?;
+        let rows = stmt.query_map(
+            params![entity_normalized, limit as i64, offset as i64],
+            |row| self.map_ledger_entry(row),
+        )?;
+
+        let mut entries = Vec::new();
+        for entry in rows {
+            entries.push(entry?);
+        }
+        Ok(entries)
+    }
+
+    pub fn get_recent_ledger_entries_paginated(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<LedgerEntry>, LedgerError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, tx_id, category, entry_type, entity, entity_normalized,
+                    change_type, summary, reason, is_breaking, committed_at,
+                    verification_status, verification_basis, outcome_notes,
+                    origin, trace_id
+             FROM ledger_entries
+             ORDER BY committed_at DESC
+             LIMIT ?1 OFFSET ?2",
+        )?;
+
+        let rows = stmt.query_map(params![limit as i64, offset as i64], |row| {
+            self.map_ledger_entry(row)
+        })?;
 
         let mut entries = Vec::new();
         for entry in rows {
@@ -334,6 +373,7 @@ impl<'a> LedgerDb<'a> {
         days: Option<u64>,
         breaking_only: bool,
         limit: Option<usize>,
+        offset: usize,
     ) -> Result<Vec<LedgerEntry>, LedgerError> {
         let mut sql =
             "SELECT l.id, l.tx_id, l.category, l.entry_type, l.entity, l.entity_normalized,
@@ -369,8 +409,9 @@ impl<'a> LedgerDb<'a> {
         sql.push_str(" ORDER BY f.rank, l.committed_at DESC");
 
         if let Some(lim) = limit {
-            sql.push_str(&format!(" LIMIT ?{param_idx}"));
+            sql.push_str(&format!(" LIMIT ?{param_idx} OFFSET ?{}", param_idx + 1));
             params.push(Box::new(lim as i64));
+            params.push(Box::new(offset as i64));
         }
 
         let mut stmt = self.conn.prepare(&sql).map_err(|e| {

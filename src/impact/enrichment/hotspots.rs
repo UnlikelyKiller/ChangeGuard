@@ -25,8 +25,11 @@ impl EnrichmentProvider for HotspotProvider {
             context.storage,
             &history_provider,
             context.config.hotspots.max_commits,
+            None,
+            None,
             context.config.hotspots.limit,
             context.config.temporal.all_parents,
+            context.config.hotspots.decay_half_life,
             None,
             None,
         ) {

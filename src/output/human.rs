@@ -665,7 +665,7 @@ pub fn print_hotspots_table(hotspots: &[crate::impact::packet::Hotspot]) {
         table.add_row(vec![
             (i + 1).to_string(),
             score_color,
-            hotspot.frequency.to_string(),
+            format!("{:.1}", hotspot.frequency),
             hotspot.complexity.to_string(),
             hotspot.path.display().to_string().cyan().to_string(),
         ]);
@@ -706,7 +706,7 @@ pub fn print_hotspots_table_with_centrality(hotspots: &[crate::impact::packet::H
         table.add_row(vec![
             (i + 1).to_string(),
             score_color,
-            hotspot.frequency.to_string(),
+            format!("{:.1}", hotspot.frequency),
             hotspot.complexity.to_string(),
             centrality_str,
             hotspot.path.display().to_string().cyan().to_string(),

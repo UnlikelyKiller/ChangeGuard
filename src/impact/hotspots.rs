@@ -9,27 +9,41 @@ pub fn normalize_score(raw_score: f64) -> f64 {
     (raw_score * 1000.0).ln_1p()
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn calculate_hotspots(
     storage: &StorageManager,
     history_provider: &dyn HistoryProvider,
     commits: usize,
+    days: Option<u64>,
+    since_commit: Option<String>,
     limit: usize,
     all_parents: bool,
+    decay_half_life: usize,
     dir_filter: Option<&str>,
     lang_filter: Option<&str>,
 ) -> Result<Vec<Hotspot>> {
     let history = history_provider
-        .get_history(commits, all_parents)
+        .get_history(commits, days, since_commit, all_parents)
         .map_err(|e| miette::miette!("Git history error: {e}"))?;
 
-    let mut frequency_map: HashMap<Utf8PathBuf, usize> = HashMap::new();
+    let mut frequency_map: HashMap<Utf8PathBuf, f64> = HashMap::new();
     let mut total_eligible_commits = 0;
 
-    for commit_set in &history {
+    let half_life = decay_half_life as f64;
+
+    for (idx, commit_set) in history.iter().enumerate() {
         if commit_set.is_merge || commit_set.files.is_empty() {
             continue;
         }
         total_eligible_commits += 1;
+
+        // Exponential decay: most recent commit (idx 0) gets weight 1.0
+        let weight = if half_life > 0.0 {
+            (2.0_f64).powf(-(idx as f64) / half_life)
+        } else {
+            1.0
+        };
+
         for file in &commit_set.files {
             // Apply filtering during crawl
             let path_str = file.as_str();
@@ -42,7 +56,7 @@ pub fn calculate_hotspots(
                 continue;
             }
 
-            *frequency_map.entry(file.clone()).or_default() += 1;
+            *frequency_map.entry(file.clone()).or_default() += weight;
         }
     }
 
@@ -115,7 +129,11 @@ pub fn calculate_hotspots(
     let mut hotspots = Vec::new();
 
     // Find max frequency for normalization
-    let max_freq = frequency_map.values().max().cloned().unwrap_or(1) as f32;
+    let max_freq = frequency_map
+        .values()
+        .cloned()
+        .fold(f64::MIN, f64::max)
+        .max(1.0) as f32;
     // Find max complexity for normalization; clamp to 1 to avoid division by zero when all files have 0 complexity
     let max_comp = file_complexities
         .values()

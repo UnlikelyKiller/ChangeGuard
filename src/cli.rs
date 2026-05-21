@@ -180,6 +180,12 @@ pub enum Commands {
         /// Commit history window to analyze
         #[arg(long, short, default_value_t = 100)]
         commits: usize,
+        /// Only analyze commits from the last N days
+        #[arg(long, short)]
+        days: Option<u64>,
+        /// Only analyze commits since this reference
+        #[arg(long)]
+        since: Option<String>,
         /// Output hotspots as JSON
         #[arg(long)]
         json: bool,
@@ -231,6 +237,12 @@ pub enum Commands {
         /// Include UNAUDITED drift in global view
         #[arg(long)]
         include_unaudited: bool,
+        /// Limit the number of entries displayed
+        #[arg(long, short, default_value_t = 50)]
+        limit: usize,
+        /// Offset for pagination
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
     },
     /// Manage configuration
     Config {
@@ -345,6 +357,12 @@ pub enum FederateCommands {
 pub enum ConfigCommands {
     /// Verify the configuration files
     Verify,
+    /// View the resolved configuration
+    View {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// Shared flags available to all ledger subcommands.
@@ -517,6 +535,12 @@ pub enum LedgerCommands {
         /// Include UNAUDITED drift in global view
         #[arg(long)]
         include_unaudited: bool,
+        /// Limit the number of entries displayed
+        #[arg(long, short, default_value_t = 50)]
+        limit: usize,
+        /// Offset for pagination
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
     },
     /// Export architectural decisions as MADR-format markdown
     Adr {
@@ -543,6 +567,9 @@ pub enum LedgerCommands {
         /// Limit the number of results
         #[arg(long, short, default_value_t = 50)]
         limit: usize,
+        /// Offset for pagination
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
     },
 }
 
@@ -637,6 +664,8 @@ pub fn run_with(cli: Cli) -> Result<()> {
         Commands::Hotspots {
             limit,
             commits,
+            days,
+            since,
             json,
             dir,
             lang,
@@ -646,6 +675,8 @@ pub fn run_with(cli: Cli) -> Result<()> {
         } => crate::commands::hotspots::execute_hotspots(
             limit,
             commits,
+            days,
+            since,
             json,
             dir,
             lang,
@@ -742,7 +773,14 @@ pub fn run_with(cli: Cli) -> Result<()> {
             LedgerCommands::Audit {
                 entity,
                 include_unaudited,
-            } => crate::commands::ledger_audit::execute_ledger_audit(entity, include_unaudited),
+                limit,
+                offset,
+            } => crate::commands::ledger_audit::execute_ledger_audit(
+                entity,
+                include_unaudited,
+                limit,
+                offset,
+            ),
             LedgerCommands::Adr { output_dir, days } => {
                 crate::commands::ledger_adr::execute_ledger_adr(output_dir, days)
             }
@@ -753,12 +791,14 @@ pub fn run_with(cli: Cli) -> Result<()> {
                 days,
                 breaking,
                 limit,
+                offset,
             } => crate::commands::ledger_search::execute_ledger_search(
-                query, category, days, breaking, limit,
+                query, category, days, breaking, limit, offset,
             ),
         },
         Commands::Config { command } => match command {
             ConfigCommands::Verify => crate::commands::config::execute_config_verify(),
+            ConfigCommands::View { json } => crate::commands::config::execute_config_view(json),
         },
         Commands::DeadCode { threshold, limit } => {
             crate::commands::dead_code::execute_dead_code(threshold, limit)
@@ -768,7 +808,14 @@ pub fn run_with(cli: Cli) -> Result<()> {
         Commands::Audit {
             entity,
             include_unaudited,
-        } => crate::commands::ledger_audit::execute_ledger_audit(entity, include_unaudited),
+            limit,
+            offset,
+        } => crate::commands::ledger_audit::execute_ledger_audit(
+            entity,
+            include_unaudited,
+            limit,
+            offset,
+        ),
         Commands::Viz { output } => crate::commands::viz::execute_viz(output),
         #[cfg(feature = "viz-server")]
         Commands::VizServer {

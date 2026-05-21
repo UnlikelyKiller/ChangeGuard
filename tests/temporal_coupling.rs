@@ -18,6 +18,8 @@ impl HistoryProvider for MockHistoryProvider {
     fn get_history(
         &self,
         _max_commits: usize,
+        _max_days: Option<u64>,
+        _since: Option<String>,
         _all_parents: bool,
     ) -> Result<Vec<CommitFileSet>, GitError> {
         Ok(self.history.clone())
@@ -149,8 +151,8 @@ fn test_gix_history_provider_uses_first_parent_by_default() {
     let repo = gix::discover(tmp.path()).unwrap();
     let provider = GixHistoryProvider::new(&repo);
 
-    let first_parent = provider.get_history(50, false).unwrap();
-    let all_parents = provider.get_history(50, true).unwrap();
+    let first_parent = provider.get_history(50, None, None, false).unwrap();
+    let all_parents = provider.get_history(50, None, None, true).unwrap();
 
     assert!(
         first_parent
