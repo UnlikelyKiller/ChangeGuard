@@ -771,35 +771,35 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Key files: `src/cli.rs`, `src/commands/mod.rs`, `src/commands/viz_server.rs`
 
 
-## Milestone K: Service Discovery & Storage Hardening (Planning)
+## Milestone K: Service Discovery & Storage Hardening (Planned)
 
 *   **Track K1: Storage Resilience (Windows & Vector Integrity)**
     *   Status: Planned
     *   Spec: `conductor/trackK1/spec.md`
     *   Plan: `conductor/trackK1/plan.md`
-    *   Goal: Fix Tantivy segment persistence on Windows and ensure hard state migrations robustly clear CozoDB HNSW metadata to prevent corruption.
+    *   Goal: Fix Tantivy segment persistence on Windows via explicit commit verification; implement robust CozoDB shutdown and cold-start validation to prevent HNSW metadata corruption.
     *   Key files: `src/search/tantivy_engine.rs`, `src/state/storage_cozo.rs`, `src/commands/update.rs`
 
-*   **Track K2: Intelligence Precision (Ask Context)**
+*   **Track K2: Intelligence Precision (Adaptive Inference Context)**
     *   Status: Planned
     *   Spec: `conductor/trackK2/spec.md`
     *   Plan: `conductor/trackK2/plan.md`
-    *   Goal: Fix `ask --semantic` hallucinations by prioritizing codebase snippets over the impact packet when git state is clean.
+    *   Goal: Eliminate `ask --semantic` hallucinations in clean git states by pivoting to a "Codebase Oracle" mode with 90% token allocation for retrieved code chunks and mandatory source attribution.
     *   Key files: `src/commands/ask.rs`, `src/local_model/context.rs`, `src/gemini/prompt.rs`
 
-*   **Track K3: CLI UX Polish (Aliases & Recovery)**
+*   **Track K3: CLI UX Polish (Proactive Recovery & Hybrid Search)**
     *   Status: Planned
     *   Spec: `conductor/trackK3/spec.md`
     *   Plan: `conductor/trackK3/plan.md`
-    *   Goal: Add `status` alias for `ledger status`, implement proactive schema recovery hints, and introduce a hybrid/unified search mode.
+    *   Goal: Add top-level `status` alias; implement interactive "Proactive Self-Correction" for schema mismatches; introduce heuristic search routing (Regex auto-detection) and blends.
     *   Key files: `src/cli.rs`, `src/commands/search.rs`, `src/state/storage.rs`
 
-*   **Track K4: Automated Service-Map Extraction**
-    *   Status: Planning
+*   **Track K4: Service Boundary & Communication Mapping**
+    *   Status: Planned
     *   Spec: `conductor/trackK4/spec.md`
     *   Plan: `conductor/trackK4/plan.md`
-    *   Goal: Infer service boundaries from topology and build a cross-service dependency graph for high-level risk analysis.
-    *   Key files: `src/index/orchestrator.rs`, `src/coverage/services.rs` (new)
+    *   Goal: Infer service boundaries from monorepo markers (Cargo/Npm/Go); extract inter-service communication patterns (HTTP/Graph); surface service-level blast radius in impact reports.
+    *   Key files: `src/index/orchestrator.rs`, `src/coverage/services.rs` (new), `src/commands/viz.rs`
 
 ## Workflow
 
