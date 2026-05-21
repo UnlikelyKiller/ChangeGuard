@@ -770,6 +770,37 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Goal: Wire the `viz-server` subcommand into CLI dispatch (if implementation is functional) or delete the dead `src/commands/viz_server.rs` file (if it is a stub). Either path eliminates the "unrecognized subcommand" error.
     *   Key files: `src/cli.rs`, `src/commands/mod.rs`, `src/commands/viz_server.rs`
 
+
+## Milestone K: Service Discovery & Storage Hardening (Planning)
+
+*   **Track K1: Storage Resilience (Windows & Vector Integrity)**
+    *   Status: Planned
+    *   Spec: `conductor/trackK1/spec.md`
+    *   Plan: `conductor/trackK1/plan.md`
+    *   Goal: Fix Tantivy segment persistence on Windows and ensure hard state migrations robustly clear CozoDB HNSW metadata to prevent corruption.
+    *   Key files: `src/search/tantivy_engine.rs`, `src/state/storage_cozo.rs`, `src/commands/update.rs`
+
+*   **Track K2: Intelligence Precision (Ask Context)**
+    *   Status: Planned
+    *   Spec: `conductor/trackK2/spec.md`
+    *   Plan: `conductor/trackK2/plan.md`
+    *   Goal: Fix `ask --semantic` hallucinations by prioritizing codebase snippets over the impact packet when git state is clean.
+    *   Key files: `src/commands/ask.rs`, `src/local_model/context.rs`, `src/gemini/prompt.rs`
+
+*   **Track K3: CLI UX Polish (Aliases & Recovery)**
+    *   Status: Planned
+    *   Spec: `conductor/trackK3/spec.md`
+    *   Plan: `conductor/trackK3/plan.md`
+    *   Goal: Add `status` alias for `ledger status`, implement proactive schema recovery hints, and introduce a hybrid/unified search mode.
+    *   Key files: `src/cli.rs`, `src/commands/search.rs`, `src/state/storage.rs`
+
+*   **Track K4: Automated Service-Map Extraction**
+    *   Status: Planning
+    *   Spec: `conductor/trackK4/spec.md`
+    *   Plan: `conductor/trackK4/plan.md`
+    *   Goal: Infer service boundaries from topology and build a cross-service dependency graph for high-level risk analysis.
+    *   Key files: `src/index/orchestrator.rs`, `src/coverage/services.rs` (new)
+
 ## Workflow
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.
