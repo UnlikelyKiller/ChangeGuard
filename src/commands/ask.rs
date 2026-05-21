@@ -124,11 +124,18 @@ pub fn execute_ask(
             });
 
             // 4. Assemble context with budget enforcement
+            let adaptive_mode = if latest_packet.is_empty() {
+                crate::local_model::context::AdaptiveMode::CodebaseFocus
+            } else {
+                crate::local_model::context::AdaptiveMode::ChangesFocus
+            };
+
             let messages = crate::local_model::context::assemble_context(
                 &system_prompt,
                 &user_prompt,
                 &relevant_chunks,
                 max_tokens,
+                adaptive_mode,
             );
 
             match crate::local_model::client::complete(

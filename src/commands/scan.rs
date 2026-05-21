@@ -7,10 +7,15 @@ use crate::output::human::print_scan_summary;
 use crate::state::layout::Layout;
 use crate::state::reports::{ScanDiffSummary, ScanReport, write_scan_report};
 use globset::{Glob, GlobSetBuilder};
-use miette::Result;
+use miette::{IntoDiagnostic, Result};
 use std::env;
+use std::path::PathBuf;
 
-pub fn execute_scan(run_impact: bool) -> Result<()> {
+pub fn execute_scan(run_impact: bool, json: bool, out: Option<PathBuf>) -> Result<()> {
+    if !run_impact && (json || out.is_some()) {
+        return Err(miette::miette!("--json and --out require --impact"));
+    }
+
     let current_dir = env::current_dir()
         .map_err(|e| miette::miette!("Failed to get current directory: {}", e))?;
 
@@ -65,10 +70,25 @@ pub fn execute_scan(run_impact: bool) -> Result<()> {
     let scan_report = ScanReport::from_snapshot(&snapshot, diff_summaries);
     write_scan_report(&layout, &scan_report)?;
 
-    print_scan_summary(&snapshot);
+    let write_impact_json = json || out.is_some();
+
+    if !write_impact_json {
+        print_scan_summary(&snapshot);
+    }
 
     if run_impact {
-        crate::commands::impact::execute_impact(false, false, false, false)?;
+        if write_impact_json {
+            let impact_packet = crate::commands::impact::execute_impact_silent()?;
+            let json_output = serde_json::to_string_pretty(&impact_packet).into_diagnostic()?;
+
+            if let Some(path) = out {
+                std::fs::write(&path, json_output).into_diagnostic()?;
+            } else {
+                println!("{}", json_output);
+            }
+        } else {
+            crate::commands::impact::execute_impact(false, false, false, false)?;
+        }
     }
 
     Ok(())

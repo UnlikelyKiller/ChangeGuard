@@ -9,27 +9,36 @@ pub fn normalize_score(raw_score: f64) -> f64 {
     (raw_score * 1000.0).ln_1p()
 }
 
-#[allow(clippy::too_many_arguments)]
+#[derive(Debug, Clone, Default)]
+pub struct HotspotQuery {
+    pub commits: usize,
+    pub days: Option<u64>,
+    pub since_commit: Option<String>,
+    pub limit: usize,
+    pub all_parents: bool,
+    pub decay_half_life: usize,
+    pub dir_filter: Option<String>,
+    pub lang_filter: Option<String>,
+}
+
 pub fn calculate_hotspots(
     storage: &StorageManager,
     history_provider: &dyn HistoryProvider,
-    commits: usize,
-    days: Option<u64>,
-    since_commit: Option<String>,
-    limit: usize,
-    all_parents: bool,
-    decay_half_life: usize,
-    dir_filter: Option<&str>,
-    lang_filter: Option<&str>,
+    query: &HotspotQuery,
 ) -> Result<Vec<Hotspot>> {
     let history = history_provider
-        .get_history(commits, days, since_commit, all_parents)
+        .get_history(
+            query.commits,
+            query.days,
+            query.since_commit.clone(),
+            query.all_parents,
+        )
         .map_err(|e| miette::miette!("Git history error: {e}"))?;
 
     let mut frequency_map: HashMap<Utf8PathBuf, f64> = HashMap::new();
     let mut total_eligible_commits = 0;
 
-    let half_life = decay_half_life as f64;
+    let half_life = query.decay_half_life as f64;
 
     for (idx, commit_set) in history.iter().enumerate() {
         if commit_set.is_merge || commit_set.files.is_empty() {
@@ -48,11 +57,19 @@ pub fn calculate_hotspots(
             // Apply filtering during crawl
             let path_str = file.as_str();
 
-            if dir_filter.is_some_and(|dir| !path_str.starts_with(dir)) {
+            if query
+                .dir_filter
+                .as_ref()
+                .is_some_and(|dir| !path_str.starts_with(dir))
+            {
                 continue;
             }
 
-            if lang_filter.is_some_and(|lang| !path_str.ends_with(&format!(".{lang}"))) {
+            if query
+                .lang_filter
+                .as_ref()
+                .is_some_and(|lang| !path_str.ends_with(&format!(".{lang}")))
+            {
                 continue;
             }
 
@@ -172,7 +189,7 @@ pub fn calculate_hotspots(
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| a.path.cmp(&b.path))
     });
-    hotspots.truncate(limit);
+    hotspots.truncate(query.limit);
 
     Ok(hotspots)
 }

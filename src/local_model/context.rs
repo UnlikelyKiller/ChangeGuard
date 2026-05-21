@@ -8,45 +8,78 @@ use crate::local_model::pruner::RankedChunk;
 /// 5% safety headroom
 const USABLE_FRACTION: f64 = 0.85;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdaptiveMode {
+    ChangesFocus,
+    CodebaseFocus,
+}
+
 /// Assemble a conversation context for the local model.
 ///
 /// Budget allocation priority:
 /// 1. System prompt (fixed, high priority)
-/// 2. User message + pruned impact packet (high priority)
+/// 2. User message + pruned impact packet (high priority in ChangesFocus)
 /// 3. Top-ranked chunks sorted by relevance score until budget exhausted
 ///
-/// If budget is insufficient for system prompt + user message, chunks are skipped.
-/// If enough remains, highest-scored chunks are included first.
+/// In CodebaseFocus mode, chunks are prioritized to fill up to 90% of the budget.
 pub fn assemble_context(
     system_prompt: &str,
     user_message: &str,
     relevant_chunks: &[RankedChunk],
     max_context_tokens: usize,
+    mode: AdaptiveMode,
 ) -> Vec<ChatMessage> {
     // 85% of total context window is usable for prompt + context
     let usable_tokens = (max_context_tokens as f64 * USABLE_FRACTION) as usize;
     let char_budget = usable_tokens * 4;
 
-    // System prompt always included (truncate if too long)
-    let sys_prompt = if system_prompt.len() > char_budget {
-        tracing::warn!("System prompt exceeds token budget, truncating");
-        system_prompt.chars().take(char_budget).collect::<String>()
-    } else {
-        system_prompt.to_string()
-    };
-
-    let user_msg = ChatMessage {
-        role: "user".to_string(),
-        content: user_message.to_string(),
-    };
-
-    // Remaining budget for context chunks after system prompt + user message
-    let remaining = char_budget.saturating_sub(sys_prompt.len() + user_msg.content.len());
-
     let mut messages = Vec::new();
+
+    let (final_system_prompt, final_user_message, chunk_budget) = match mode {
+        AdaptiveMode::ChangesFocus => {
+            let sys_prompt = if system_prompt.len() > char_budget {
+                tracing::warn!("System prompt exceeds token budget, truncating");
+                system_prompt.chars().take(char_budget).collect::<String>()
+            } else {
+                system_prompt.to_string()
+            };
+
+            let remaining = char_budget.saturating_sub(sys_prompt.len() + user_message.len());
+            (sys_prompt, user_message.to_string(), remaining)
+        }
+        AdaptiveMode::CodebaseFocus => {
+            let oracle_prompt = format!(
+                "{}\n\nCODEBASE ORACLE MODE: You are an expert on this codebase. Answer the user's question using ONLY the provided code snippets. Citations are MANDATORY: use [path:line] format. If the answer is not in the snippets, say you do not know.",
+                system_prompt
+            );
+
+            let sys_prompt = if oracle_prompt.len() > char_budget {
+                oracle_prompt.chars().take(char_budget).collect::<String>()
+            } else {
+                oracle_prompt
+            };
+
+            // In CodebaseFocus, chunks can take up to 90% of the budget.
+            // We prioritize chunks over the user message if necessary.
+            let chunk_budget = (char_budget as f64 * 0.9) as usize;
+            let user_msg_budget = char_budget.saturating_sub(sys_prompt.len() + chunk_budget);
+
+            let trimmed_user_message = if user_message.len() > user_msg_budget {
+                user_message
+                    .chars()
+                    .take(user_msg_budget)
+                    .collect::<String>()
+            } else {
+                user_message.to_string()
+            };
+
+            (sys_prompt, trimmed_user_message, chunk_budget)
+        }
+    };
+
     messages.push(ChatMessage {
         role: "system".to_string(),
-        content: sys_prompt,
+        content: final_system_prompt,
     });
 
     // Sort chunks by score descending (highest relevance first)
@@ -60,8 +93,8 @@ pub fn assemble_context(
     let mut included = 0usize;
     let mut used: usize = 0;
     for chunk in &sorted {
-        if used + chunk.content.len() <= remaining {
-            used += chunk.content.len();
+        if used + chunk.content.len() + chunk.source.len() + 4 <= chunk_budget {
+            used += chunk.content.len() + chunk.source.len() + 4;
             included += 1;
         } else {
             break;
@@ -82,7 +115,10 @@ pub fn assemble_context(
         });
     }
 
-    messages.push(user_msg);
+    messages.push(ChatMessage {
+        role: "user".to_string(),
+        content: final_user_message,
+    });
 
     messages
 }
@@ -120,7 +156,13 @@ mod tests {
             make_chunk("Medium relevance chunk", "medium.md", 0.6),
         ];
 
-        let messages = assemble_context("You are helpful.", "What is Rust?", &chunks, 1000);
+        let messages = assemble_context(
+            "You are helpful.",
+            "What is Rust?",
+            &chunks,
+            1000,
+            AdaptiveMode::ChangesFocus,
+        );
 
         // Should have at least: system + 3 chunks + user = 5 messages
         assert_eq!(messages.len(), 5);
@@ -142,7 +184,13 @@ mod tests {
             make_chunk("Context A", "a.md", 0.9),
             make_chunk("Context B", "b.md", 0.8),
         ];
-        let messages = assemble_context("You are helpful.", "What is Rust?", &chunks, 1000);
+        let messages = assemble_context(
+            "You are helpful.",
+            "What is Rust?",
+            &chunks,
+            1000,
+            AdaptiveMode::ChangesFocus,
+        );
         assert_eq!(messages.len(), 4);
         assert_eq!(messages[0].role, "system");
         assert_eq!(messages[0].content, "You are helpful.");
@@ -169,6 +217,7 @@ mod tests {
             "user query", // 10 chars
             &chunks,
             10, // 10 tokens -> 8 usable -> 32 chars budget
+            AdaptiveMode::ChangesFocus,
         );
         // After budget: system(10) + user(10) = 20, leaving 12 for chunks
         // First chunk is 30 > 12, so NO chunks fit
@@ -180,7 +229,13 @@ mod tests {
 
     #[test]
     fn assemble_empty_context() {
-        let messages = assemble_context("System prompt", "User question", &[], 1000);
+        let messages = assemble_context(
+            "System prompt",
+            "User question",
+            &[],
+            1000,
+            AdaptiveMode::ChangesFocus,
+        );
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0].role, "system");
         assert_eq!(messages[0].content, "System prompt");
@@ -195,6 +250,7 @@ mod tests {
             "short",
             &[],
             2, // 2 tokens -> 1 usable -> 4 chars
+            AdaptiveMode::ChangesFocus,
         );
         // system_prompt truncated to 4 chars
         assert_eq!(messages.len(), 2);
@@ -219,6 +275,7 @@ mod tests {
             "user query", // 10 chars
             &chunks,
             500,
+            AdaptiveMode::ChangesFocus,
         );
 
         // System + chunk1 (fits) + user = 3
@@ -238,7 +295,9 @@ mod tests {
         let messages = assemble_context(
             "sys",   // 3 chars
             "query", // 5 chars
-            &chunks, 1000,
+            &chunks,
+            1000,
+            AdaptiveMode::ChangesFocus,
         );
 
         // 3400 - 3 - 5 = 3392 remaining for chunks, 3000 fits -> included

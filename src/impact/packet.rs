@@ -675,6 +675,39 @@ pub struct ImpactPacket {
     pub dead_code_findings: Vec<DeadCodeFinding>,
 }
 
+impl ImpactPacket {
+    pub fn is_empty(&self) -> bool {
+        self.changes.is_empty()
+            && self.temporal_couplings.is_empty()
+            && self.structural_couplings.is_empty()
+            && self.centrality_risks.is_empty()
+            && self.logging_coverage_delta.is_empty()
+            && self.error_handling_delta.is_empty()
+            && self.telemetry_coverage_delta.is_empty()
+            && self.infrastructure_dirs.is_empty()
+            && self.env_var_deps.is_empty()
+            && self.test_coverage.is_empty()
+            && self.runtime_usage_delta.is_empty()
+            && self.hotspots.is_empty()
+            && self.verification_results.is_empty()
+            && self.relevant_decisions.is_empty()
+            && self.observability.is_empty()
+            && self.affected_contracts.is_empty()
+            && self.ai_insights.is_empty()
+            && self.data_flow_matches.is_empty()
+            && self.service_map_delta.is_none()
+            && self.trace_config_drift.is_empty()
+            && self.trace_env_vars.is_empty()
+            && self.sdk_dependencies_delta.is_none()
+            && self.deploy_manifest_changes.is_empty()
+            && self.ci_config_change.is_none()
+            && self.ci_predictions.is_empty()
+            && self.knowledge_graph.is_empty()
+            && self.analysis_warnings.is_empty()
+            && self.dead_code_findings.is_empty()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "camelCase")]
 pub enum ConfidenceFactor {

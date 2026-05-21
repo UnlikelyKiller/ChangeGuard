@@ -815,6 +815,27 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Goal: Add `--commits N` and `--days N` to `hotspots` to focus analysis on recent trends; implement exponential decay weighting for hotspot scores.
     *   Key files: `src/cli.rs`, `src/impact/hotspots.rs`, `src/impact/temporal.rs`
 
+*   **Track K7: Hotspot API Refactoring (Argument Objects)**
+    *   Status: Completed
+    *   Spec: `conductor/trackK7/spec.md`
+    *   Plan: `conductor/trackK7/plan.md`
+    *   Goal: Address signature bloat in `calculate_hotspots` by refactoring 10 positional arguments into a `HotspotQuery` struct.
+    *   Key files: `src/impact/hotspots.rs`, `src/commands/hotspots.rs`
+
+*   **Track K8: CLI Consistency (Scan Impact JSON)**
+    *   Status: Completed
+    *   Spec: `conductor/trackK8/spec.md`
+    *   Plan: `conductor/trackK8/plan.md`
+    *   Goal: Enable `--json` and `--out` support for `scan --impact` to support automated pipeline integration.
+    *   Key files: `src/cli.rs`, `src/commands/scan.rs`
+
+*   **Track K9: Unified Audit Reporting**
+    *   Status: Completed
+    *   Spec: `conductor/trackK9/spec.md`
+    *   Plan: `conductor/trackK9/plan.md`
+    *   Goal: Refactor `ledger audit` into a unified report abstraction where pagination applies holistically to ranked lists and entry tables.
+    *   Key files: `src/commands/ledger_audit.rs`
+
 ## Workflow
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.

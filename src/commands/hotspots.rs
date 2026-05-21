@@ -1,5 +1,7 @@
+use crate::cli::HotspotArgs;
 use crate::config::load_config;
 use crate::git::repo::open_repo;
+use crate::impact::hotspots::{HotspotQuery, calculate_hotspots};
 use crate::impact::temporal::GixHistoryProvider;
 use crate::index::warn_if_stale;
 use crate::state::layout::Layout;
@@ -7,19 +9,22 @@ use crate::state::storage::StorageManager;
 use miette::{IntoDiagnostic, Result};
 use std::env;
 
-#[allow(clippy::too_many_arguments)]
-pub fn execute_hotspots(
-    limit: usize,
-    commits: usize,
-    days: Option<u64>,
-    since: Option<String>,
-    json: bool,
-    dir: Option<String>,
-    lang: Option<String>,
-    all_parents: bool,
-    centrality: bool,
-    semantic: bool,
-) -> Result<()> {
+impl From<HotspotArgs> for HotspotQuery {
+    fn from(args: HotspotArgs) -> Self {
+        Self {
+            commits: args.commits,
+            days: args.days,
+            since_commit: None, // Resolved later
+            limit: args.limit,
+            all_parents: args.all_parents,
+            decay_half_life: 0, // Resolved from config
+            dir_filter: args.dir,
+            lang_filter: args.lang,
+        }
+    }
+}
+
+pub fn execute_hotspots(args: HotspotArgs) -> Result<()> {
     let current_dir = env::current_dir().into_diagnostic()?;
     let repo = open_repo(&current_dir)?;
     let layout = Layout::new(current_dir.to_string_lossy().as_ref());
@@ -31,19 +36,19 @@ pub fn execute_hotspots(
     let threshold_days = config.index.stale_threshold_days;
     let _ = warn_if_stale(&storage, threshold_days);
 
-    if semantic {
+    if args.semantic {
         let cozo = storage
             .cozo
             .as_ref()
             .ok_or_else(|| miette::miette!("CozoDB storage not initialized"))?;
 
-        if !json {
+        if !args.json {
             println!("Analyzing semantic similarity hotspots (duplication)...");
         }
 
         let matches = crate::semantic::hotspots::find_semantic_hotspots(cozo, 0.85)?;
 
-        if json {
+        if args.json {
             println!(
                 "{}",
                 serde_json::to_string_pretty(&matches).into_diagnostic()?
@@ -77,21 +82,21 @@ pub fn execute_hotspots(
         return Ok(());
     }
 
-    if !json {
+    if !args.json {
         let mut filters = Vec::new();
-        filters.push(format!("limit: {}", limit));
-        filters.push(format!("commits: {}", commits));
-        if let Some(d) = days {
+        filters.push(format!("limit: {}", args.limit));
+        filters.push(format!("commits: {}", args.commits));
+        if let Some(d) = args.days {
             filters.push(format!("days: {}", d));
         }
-        if let Some(s) = &since {
+        if let Some(s) = &args.since {
             filters.push(format!("since: {}", s));
         }
         println!("Analyzing hotspots [{}]...", filters.join(", "));
     }
 
     // Resolve 'since' to a commit ID if provided
-    let since_commit = if let Some(ref s) = since {
+    let since_commit = if let Some(ref s) = args.since {
         Some(
             repo.find_reference(s)
                 .map_err(|e| miette::miette!("Failed to find 'since' reference '{}': {}", s, e))?
@@ -103,21 +108,14 @@ pub fn execute_hotspots(
     };
 
     let history_provider = GixHistoryProvider::new(&repo);
-    let mut hotspots = crate::impact::hotspots::calculate_hotspots(
-        &storage,
-        &history_provider,
-        commits,
-        days,
-        since_commit,
-        limit,
-        all_parents,
-        config.hotspots.decay_half_life,
-        dir.as_deref(),
-        lang.as_deref(),
-    )?;
+    let mut query = HotspotQuery::from(args.clone());
+    query.since_commit = since_commit;
+    query.decay_half_life = config.hotspots.decay_half_life;
+
+    let mut hotspots = calculate_hotspots(&storage, &history_provider, &query)?;
 
     // Enrich with centrality data if requested
-    if centrality {
+    if args.centrality {
         let conn = storage.get_connection();
         let has_centrality: bool = match conn.query_row(
             "SELECT count(*) FROM symbol_centrality LIMIT 1",
@@ -148,12 +146,12 @@ pub fn execute_hotspots(
         }
     }
 
-    if json {
+    if args.json {
         println!(
             "{}",
             serde_json::to_string_pretty(&hotspots).into_diagnostic()?
         );
-    } else if centrality {
+    } else if args.centrality {
         crate::output::human::print_hotspots_table_with_centrality(&hotspots);
     } else {
         crate::output::human::print_hotspots_table(&hotspots);

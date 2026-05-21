@@ -25,7 +25,7 @@ fn test_scan_integration_clean() {
 
     let _guard = DirGuard::new(root);
 
-    let result = execute_scan(false);
+    let result = execute_scan(false, false, None);
     assert!(result.is_ok());
 
     let layout = Layout::new(root.to_string_lossy().as_ref());
@@ -57,7 +57,7 @@ fn test_scan_integration_dirty() {
 
     let _guard = DirGuard::new(root);
 
-    let result = execute_scan(false);
+    let result = execute_scan(false, false, None);
     assert!(result.is_ok());
 
     let layout = Layout::new(root.to_string_lossy().as_ref());
@@ -89,8 +89,53 @@ fn test_scan_integration_detached() {
 
     let _guard = DirGuard::new(root);
 
-    let result = execute_scan(false);
+    let result = execute_scan(false, false, None);
     assert!(result.is_ok());
+}
+
+#[test]
+fn test_scan_impact_out_writes_json_without_json_flag() {
+    let _lock = cwd_lock().lock().unwrap();
+    let tmp = tempdir().unwrap();
+    let root = tmp.path();
+
+    setup_git_repo(root);
+
+    fs::create_dir(root.join("src")).unwrap();
+    fs::write(root.join("src").join("main.rs"), "fn main() {}\n").unwrap();
+    git_cmd(root, &["add", "."]);
+    git_cmd(root, &["commit", "-m", "initial commit"]);
+    fs::write(
+        root.join("src").join("main.rs"),
+        "fn main() { println!(\"hi\"); }\n",
+    )
+    .unwrap();
+
+    let out_path = root.join("impact.json");
+    let _guard = DirGuard::new(root);
+
+    execute_scan(true, false, Some(out_path.clone())).unwrap();
+
+    let content = fs::read_to_string(out_path).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(parsed["schemaVersion"], "v1");
+    assert!(parsed["changes"].is_array());
+}
+
+#[test]
+fn test_scan_json_requires_impact() {
+    let _lock = cwd_lock().lock().unwrap();
+    let tmp = tempdir().unwrap();
+    let root = tmp.path();
+
+    setup_git_repo(root);
+
+    let _guard = DirGuard::new(root);
+    let error = execute_scan(false, true, None).unwrap_err();
+    assert!(
+        error.to_string().contains("--impact"),
+        "expected impact requirement error, got {error:?}"
+    );
 }
 
 fn read_status(root: &Path) -> Vec<FileChange> {

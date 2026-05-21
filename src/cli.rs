@@ -29,6 +29,12 @@ pub enum Commands {
         /// Also run impact analysis after scanning
         #[arg(long)]
         impact: bool,
+        /// Output impact report as JSON (requires --impact)
+        #[arg(long, requires = "impact")]
+        json: bool,
+        /// Save impact JSON output to a file (requires --impact)
+        #[arg(long, short, requires = "impact")]
+        out: Option<std::path::PathBuf>,
     },
     /// Watch the repository for changes and batch them
     Watch {
@@ -174,36 +180,8 @@ pub enum Commands {
     },
     /// Identify high-risk hotspots in the codebase
     Hotspots {
-        /// Maximum number of hotspots to show
-        #[arg(long, short, default_value_t = 10)]
-        limit: usize,
-        /// Commit history window to analyze
-        #[arg(long, short, default_value_t = 100)]
-        commits: usize,
-        /// Only analyze commits from the last N days
-        #[arg(long, short)]
-        days: Option<u64>,
-        /// Only analyze commits since this reference
-        #[arg(long)]
-        since: Option<String>,
-        /// Output hotspots as JSON
-        #[arg(long)]
-        json: bool,
-        /// Filter by directory
-        #[arg(long)]
-        dir: Option<String>,
-        /// Filter by language (extension)
-        #[arg(long)]
-        lang: Option<String>,
-        /// Enable full history traversal (default is first-parent only)
-        #[arg(long)]
-        all_parents: bool,
-        /// Include centrality data (requires prior `index --analyze-graph`)
-        #[arg(long)]
-        centrality: bool,
-        /// Find semantically similar code clusters (duplication hotspots)
-        #[arg(long, short)]
-        semantic: bool,
+        #[command(flatten)]
+        args: HotspotArgs,
     },
     /// Manage federated intelligence across multiple repositories
     Federate {
@@ -243,6 +221,9 @@ pub enum Commands {
         /// Offset for pagination
         #[arg(long, default_value_t = 0)]
         offset: usize,
+        /// Output audit report as JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Manage configuration
     Config {
@@ -541,6 +522,9 @@ pub enum LedgerCommands {
         /// Offset for pagination
         #[arg(long, default_value_t = 0)]
         offset: usize,
+        /// Output audit report as JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Export architectural decisions as MADR-format markdown
     Adr {
@@ -581,7 +565,9 @@ pub fn run_with(cli: Cli) -> Result<()> {
     match cli.command {
         Commands::Init { no_gitignore } => crate::commands::init::execute_init(no_gitignore),
         Commands::Doctor => crate::commands::doctor::execute_doctor(),
-        Commands::Scan { impact } => crate::commands::scan::execute_scan(impact),
+        Commands::Scan { impact, json, out } => {
+            crate::commands::scan::execute_scan(impact, json, out)
+        }
         Commands::Watch {
             interval,
             json,
@@ -661,29 +647,7 @@ pub fn run_with(cli: Cli) -> Result<()> {
         } => crate::commands::search::execute_search(
             query, regex, semantic, limit, index, json, auto_index,
         ),
-        Commands::Hotspots {
-            limit,
-            commits,
-            days,
-            since,
-            json,
-            dir,
-            lang,
-            all_parents,
-            centrality,
-            semantic,
-        } => crate::commands::hotspots::execute_hotspots(
-            limit,
-            commits,
-            days,
-            since,
-            json,
-            dir,
-            lang,
-            all_parents,
-            centrality,
-            semantic,
-        ),
+        Commands::Hotspots { args } => crate::commands::hotspots::execute_hotspots(args),
         Commands::Federate { command } => match command {
             FederateCommands::Export => crate::commands::federate::execute_federate_export(),
             FederateCommands::Scan => crate::commands::federate::execute_federate_scan(),
@@ -775,11 +739,13 @@ pub fn run_with(cli: Cli) -> Result<()> {
                 include_unaudited,
                 limit,
                 offset,
+                json,
             } => crate::commands::ledger_audit::execute_ledger_audit(
                 entity,
                 include_unaudited,
                 limit,
                 offset,
+                json,
             ),
             LedgerCommands::Adr { output_dir, days } => {
                 crate::commands::ledger_adr::execute_ledger_adr(output_dir, days)
@@ -810,11 +776,13 @@ pub fn run_with(cli: Cli) -> Result<()> {
             include_unaudited,
             limit,
             offset,
+            json,
         } => crate::commands::ledger_audit::execute_ledger_audit(
             entity,
             include_unaudited,
             limit,
             offset,
+            json,
         ),
         Commands::Viz { output } => crate::commands::viz::execute_viz(output),
         #[cfg(feature = "viz-server")]
@@ -830,4 +798,38 @@ pub fn run_with(cli: Cli) -> Result<()> {
             force,
         } => crate::commands::update::execute_update(migrate, binary, force),
     }
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct HotspotArgs {
+    /// Maximum number of hotspots to show
+    #[arg(long, short, default_value_t = 10)]
+    pub limit: usize,
+    /// Commit history window to analyze
+    #[arg(long, short, default_value_t = 100)]
+    pub commits: usize,
+    /// Only analyze commits from the last N days
+    #[arg(long, short)]
+    pub days: Option<u64>,
+    /// Only analyze commits since this reference
+    #[arg(long)]
+    pub since: Option<String>,
+    /// Output hotspots as JSON
+    #[arg(long)]
+    pub json: bool,
+    /// Filter by directory
+    #[arg(long)]
+    pub dir: Option<String>,
+    /// Filter by language (extension)
+    #[arg(long)]
+    pub lang: Option<String>,
+    /// Enable full history traversal (default is first-parent only)
+    #[arg(long)]
+    pub all_parents: bool,
+    /// Include centrality data (requires prior `index --analyze-graph`)
+    #[arg(long)]
+    pub centrality: bool,
+    /// Find semantically similar code clusters (duplication hotspots)
+    #[arg(long, short)]
+    pub semantic: bool,
 }

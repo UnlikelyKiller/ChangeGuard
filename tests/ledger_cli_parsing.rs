@@ -451,6 +451,15 @@ fn test_ledger_audit_with_entity() {
     assert!(is_ledger(&cli.command));
 }
 
+#[test]
+fn test_ledger_audit_with_json() {
+    let cli = parse_ok(&["changeguard", "ledger", "audit", "--json"]);
+    let Commands::Ledger { command, .. } = cli.command else {
+        panic!("expected Ledger command");
+    };
+    assert!(matches!(command, LedgerCommands::Audit { json: true, .. }));
+}
+
 // ===========================================================================
 // ADR
 // ===========================================================================

@@ -24,14 +24,13 @@ impl EnrichmentProvider for HotspotProvider {
         match calculate_hotspots(
             context.storage,
             &history_provider,
-            context.config.hotspots.max_commits,
-            None,
-            None,
-            context.config.hotspots.limit,
-            context.config.temporal.all_parents,
-            context.config.hotspots.decay_half_life,
-            None,
-            None,
+            &crate::impact::hotspots::HotspotQuery {
+                commits: context.config.hotspots.max_commits,
+                limit: context.config.hotspots.limit,
+                all_parents: context.config.temporal.all_parents,
+                decay_half_life: context.config.hotspots.decay_half_life,
+                ..Default::default()
+            },
         ) {
             Ok(hotspots) => {
                 packet.hotspots = hotspots;
