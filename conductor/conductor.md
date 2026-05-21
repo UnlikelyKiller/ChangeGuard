@@ -695,12 +695,12 @@ Systematic fixes from the 2026-05-20 comprehensive command audit (`docs/issues.m
     *   Goal: Create parent directory before writing output file.
     *   Key files: `src/commands/viz.rs`
 
-## Milestone J: Developer Experience Hardening (In Progress)
+## Milestone J: Developer Experience Hardening (Completed)
 
 Systematic UX and reliability improvements identified in the 2026-05-20 comprehensive command audit. Each track targets a concrete friction point that degrades daily productivity.
 
 *   **Track J1: INFO→DEBUG Log Migration**
-    *   Status: In Progress
+    *   Status: Completed
     *   Spec: `conductor/trackJ1/spec.md`
     *   Plan: `conductor/trackJ1/plan.md`
     *   Goal: Move storage-init and enrichment-provider lifecycle messages from `info!` to `debug!` so common commands produce zero INFO lines on stderr. Add `[init]` tag to first-time DB creation messages.
@@ -721,7 +721,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Key files: `src/impact/enrichment/coupling.rs`, `src/config/model.rs`, `.changeguard/config.toml`
 
 *   **Track J4: Global Audit Multi-Section Completion**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackJ4/spec.md`
     *   Plan: `conductor/trackJ4/plan.md`
     *   Goal: Implement the five sections originally specced in I3-1 but never built: commit velocity (30d), top churned files, oldest ADR, hotspot delta, and CI trend via `verify-history.json`.
@@ -757,7 +757,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Key files: `src/commands/index.rs`
 
 *   **Track J9: BM25 Search Snippet Output**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackJ9/spec.md`
     *   Plan: `conductor/trackJ9/plan.md`
     *   Goal: Add `snippet` and `line_number` to `SearchResult`; use Tantivy's `SnippetGenerator` to show `{file}:{line}: {snippet}` for BM25 results, matching regex search output format.

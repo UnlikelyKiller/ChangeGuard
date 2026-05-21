@@ -8,7 +8,7 @@ use camino::Utf8PathBuf;
 use miette::{IntoDiagnostic, Result};
 use owo_colors::OwoColorize;
 use std::env;
-use tracing::info;
+use tracing::debug;
 
 #[allow(clippy::too_many_arguments)]
 pub fn execute_search(
@@ -55,7 +55,7 @@ pub fn execute_search(
         let semantic_engine =
             crate::semantic::SemanticDiscovery::new(config.local_model.clone(), cozo)?;
 
-        info!("Performing semantic search for: {}", query);
+        debug!("Performing semantic search for: {}", query);
         let results = semantic_engine.query(&query, limit)?;
 
         if results.is_empty() {
@@ -102,7 +102,7 @@ pub fn execute_search(
     let engine = TantivySearchEngine::open_or_create(index_path.as_std_path())?;
 
     if index || is_index_empty(&index_path) {
-        info!("Indexing repository for search...");
+        debug!("Indexing repository for search...");
         engine.clear()?;
         let indexer = StreamIndexer::new(engine);
         indexer.index_repository(&root)?;
@@ -188,15 +188,28 @@ fn perform_search(
                     payload: BridgePayload::Insight {
                         memory_id: r.path.clone(),
                         relevance: r.score as f64,
-                        content: r.path,
+                        content: r.snippet.unwrap_or(r.path),
                     },
                     privacy: Privacy::ProjectLocal,
                 };
                 println!("{}", serde_json::to_string(&record).unwrap_or_default());
             }
         } else {
+            let any_missing_snippets = results.iter().any(|r| r.snippet.is_none());
+            if any_missing_snippets {
+                println!(
+                    "{}",
+                    "Warning: Index needs re-building for snippets. Run 'changeguard index --semantic --force'."
+                        .yellow()
+                );
+            }
+
             for r in results {
-                println!("{} (score: {:.2})", r.path, r.score);
+                if let (Some(snippet), Some(line)) = (r.snippet, r.line_number) {
+                    println!("{}:{}: {}", r.path, line, snippet);
+                } else {
+                    println!("{} (score: {:.2})", r.path, r.score);
+                }
             }
         }
     }

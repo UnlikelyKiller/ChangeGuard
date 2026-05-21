@@ -4,6 +4,7 @@ use std::path::Path;
 use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::*;
+use tantivy::snippet::SnippetGenerator;
 use tantivy::tokenizer::{LowerCaser, TextAnalyzer, WhitespaceTokenizer};
 use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy};
 
@@ -12,6 +13,8 @@ pub struct SearchResult {
     pub path: String,
     pub line_count: usize,
     pub score: f32,
+    pub snippet: Option<String>,
+    pub line_number: Option<usize>,
 }
 
 pub struct TantivySearchEngine {
@@ -28,9 +31,10 @@ impl TantivySearchEngine {
         // @cg-tx: baff3d54-a2ba-4c1c-ac8a-99bdd2435221 (Track J2)
         let mut schema_builder = Schema::builder();
         schema_builder.add_text_field("path", TEXT | STORED);
-        schema_builder.add_text_field("content", TEXT);
+        schema_builder.add_text_field("content", TEXT | STORED);
         schema_builder.add_u64_field("line_count", STORED);
         schema_builder.add_text_field("language", TEXT | STORED);
+
         // Trigrams are space-separated; use a whitespace tokenizer + lower-caser
         // so that cross-underscore trigrams (e.g. "te_", "_sc") survive ingestion.
         // SimpleTokenizer (the TEXT default) treats '_' as a word boundary and
@@ -104,6 +108,8 @@ impl TantivySearchEngine {
         let query_parser = QueryParser::for_index(&self.index, vec![content_field, path_field]);
         let query = query_parser.parse_query(query_str).into_diagnostic()?;
 
+        let snippet_generator = SnippetGenerator::create(&searcher, &*query, content_field).into_diagnostic()?;
+
         let top_docs = searcher
             .search(&query, &TopDocs::with_limit(limit).order_by_score())
             .into_diagnostic()?;
@@ -123,10 +129,31 @@ impl TantivySearchEngine {
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0) as usize;
 
+            let mut snippet_opt = None;
+            let mut line_number_opt = None;
+
+            if let Some(content_val) = retrieved_doc.get_first(content_field).and_then(|v| v.as_str()) {
+                let snippet = snippet_generator.snippet_from_doc(&retrieved_doc);
+                let highlighted = snippet.to_html();
+                if !highlighted.is_empty() {
+                    snippet_opt = Some(highlighted.replace("<b>", "\x1b[1m").replace("</b>", "\x1b[0m"));
+                    // Heuristic for line number: find the first match in the content by looking at the snippet.
+                    let plain_snippet = snippet.fragment();
+                    if let Some(idx) = content_val.find(plain_snippet) {
+                        let lines_before = content_val[..idx].chars().filter(|&c| c == '\n').count();
+                        line_number_opt = Some(lines_before + 1);
+                    } else {
+                        line_number_opt = Some(1);
+                    }
+                }
+            }
+
             results.push(SearchResult {
                 path,
                 line_count,
                 score,
+                snippet: snippet_opt,
+                line_number: line_number_opt,
             });
         }
 

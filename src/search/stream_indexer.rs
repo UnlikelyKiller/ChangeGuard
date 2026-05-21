@@ -7,7 +7,7 @@ use miette::{IntoDiagnostic, Result};
 use std::fs;
 use std::thread;
 use tantivy::TantivyDocument;
-use tracing::info;
+use tracing::debug;
 
 pub struct StreamIndexer {
     engine: std::sync::Arc<TantivySearchEngine>,
@@ -32,7 +32,7 @@ impl StreamIndexer {
             .unwrap_or(1)
             .min(4); // Cap workers to avoid resource exhaustion
 
-        info!("Starting indexing with {} workers", num_workers);
+        debug!("Starting indexing with {} workers", num_workers);
         let writer = std::sync::Arc::new(self.engine.get_writer(100_000_000)?);
 
         let mut workers = Vec::new();
@@ -54,7 +54,7 @@ impl StreamIndexer {
                 let trigrams_field = schema.get_field("trigrams").unwrap();
 
                 for job in rx {
-                    info!("Worker {}: Indexing file: {}", i, job.path);
+                    debug!("Worker {}: Indexing file: {}", i, job.path);
                     let utf8_content = normalize_to_utf8(&job.content);
                     let clean_content = strip_control_characters(&utf8_content);
                     let line_count = clean_content.lines().count();
