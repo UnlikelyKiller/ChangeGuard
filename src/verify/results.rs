@@ -1,13 +1,14 @@
-use crate::state::StateError;
 use crate::state::layout::Layout;
+use crate::state::StateError;
 use chrono::Utc;
-use miette::Result;
+use miette::{IntoDiagnostic, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 
 use super::plan::VerificationPlan;
 
 pub const LATEST_VERIFY_REPORT: &str = "latest-verify.json";
+pub const VERIFY_HISTORY: &str = "verify-history.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -32,6 +33,13 @@ pub struct VerificationReport {
     pub suggested_actions: Vec<crate::verify::suggestions::Suggestion>,
     pub overall_pass: bool,
     pub timestamp: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VerifyHistoryRecord {
+    pub timestamp: String,
+    pub passed: bool,
+    pub duration_secs: u64,
 }
 
 impl VerificationReport {
@@ -75,6 +83,35 @@ pub fn write_verify_report(layout: &Layout, report: &VerificationReport) -> Resu
         path: report_path.to_string(),
         source: e,
     })?;
+
+    // Update history
+    update_verify_history(layout, report)?;
+
+    Ok(())
+}
+
+fn update_verify_history(layout: &Layout, report: &VerificationReport) -> Result<()> {
+    let history_path = layout.reports_dir().join(VERIFY_HISTORY);
+    let mut history: Vec<VerifyHistoryRecord> = if history_path.exists() {
+        let content = fs::read_to_string(&history_path).into_diagnostic()?;
+        serde_json::from_str(&content).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    let total_duration_ms: u64 = report.results.iter().map(|r| r.duration_ms).sum();
+    history.push(VerifyHistoryRecord {
+        timestamp: report.timestamp.clone(),
+        passed: report.overall_pass,
+        duration_secs: total_duration_ms / 1000,
+    });
+
+    if history.len() > 100 {
+        history.remove(0);
+    }
+
+    let json = serde_json::to_string_pretty(&history).into_diagnostic()?;
+    fs::write(history_path, json).into_diagnostic()?;
 
     Ok(())
 }

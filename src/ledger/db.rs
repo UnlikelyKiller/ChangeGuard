@@ -849,4 +849,44 @@ impl<'a> LedgerDb<'a> {
         }
         Ok(entries)
     }
+
+    pub fn get_transaction_velocity(&self, days: u64) -> Result<usize, LedgerError> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM ledger_entries WHERE committed_at >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?1)",
+            [format!("-{} days", days)],
+            |row| row.get(0),
+        )?;
+        Ok(count as usize)
+    }
+
+    pub fn get_top_churned_entities(&self, limit: usize) -> Result<Vec<(String, usize)>, LedgerError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT entity, COUNT(*) as churn FROM ledger_entries GROUP BY entity ORDER BY churn DESC LIMIT ?1"
+        )?;
+        let rows = stmt.query_map([limit as i64], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
+        })?;
+        let mut results = Vec::new();
+        for res in rows {
+            results.push(res?);
+        }
+        Ok(results)
+    }
+
+    pub fn get_oldest_adr(&self) -> Result<Option<LedgerEntry>, LedgerError> {
+        self.conn
+            .query_row(
+                "SELECT id, tx_id, category, entry_type, entity, entity_normalized,
+                    change_type, summary, reason, is_breaking, committed_at,
+                    verification_status, verification_basis, outcome_notes,
+                    origin, trace_id
+             FROM ledger_entries 
+             WHERE category = 'ARCHITECTURE' 
+             ORDER BY committed_at ASC LIMIT 1",
+                [],
+                |row| self.map_ledger_entry(row),
+            )
+            .optional()
+            .map_err(LedgerError::from)
+    }
 }

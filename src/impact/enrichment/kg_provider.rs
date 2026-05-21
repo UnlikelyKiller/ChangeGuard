@@ -1,6 +1,8 @@
 use crate::impact::enrichment::{EnrichmentContext, EnrichmentProvider};
 use crate::impact::packet::{ImpactPacket, KGImpact};
+use crate::ui::spinner::Spinner;
 use miette::Result;
+use std::time::Instant;
 use tracing::{debug, warn};
 
 pub struct KGProvider;
@@ -17,9 +19,25 @@ impl EnrichmentProvider for KGProvider {
         };
 
         debug!("Enriching impact packet with Knowledge Graph data...");
+        let spinner = Spinner::new("Enriching Knowledge Graph...");
+        let start_time = Instant::now();
+        let timeout_secs = context.config.coverage.kg_timeout_secs as u64;
+
+        let check_timeout = |context: &EnrichmentContext| -> bool {
+            if start_time.elapsed().as_secs() >= timeout_secs {
+                context.add_warning("Knowledge Graph enrichment timed out".to_string());
+                return true;
+            }
+            false
+        };
 
         // 1. Sync Hotspots to KG risk scores
         if !packet.hotspots.is_empty() {
+            if check_timeout(context) {
+                spinner.finish();
+                return Ok(());
+            }
+
             let mut risk_updates = Vec::new();
             for hotspot in &packet.hotspots {
                 risk_updates.push(vec![
@@ -41,6 +59,11 @@ impl EnrichmentProvider for KGProvider {
             }
 
             // 1.1 Simple propagation (1-hop)
+            if check_timeout(context) {
+                spinner.finish();
+                return Ok(());
+            }
+
             let propagation_script = "
                 diffused[id, s] := *node{id: src, risk_score: src_s}, *edge{source: src, target: id}, s = src_s * 0.5
                 ?[id, label, category, risk_score, metadata] := *node{id, label, category, risk_score: current, metadata}, diffused[id, s], s > current, risk_score = s
@@ -54,6 +77,11 @@ impl EnrichmentProvider for KGProvider {
         // 2. Identify changed files/symbols in KG
         let mut seed_nodes: Vec<Vec<String>> = Vec::new();
         for file in &packet.changes {
+            if check_timeout(context) {
+                spinner.finish();
+                return Ok(());
+            }
+
             // Find nodes associated with this file
             let file_path = file.path.to_string_lossy();
             let query = format!(
@@ -74,17 +102,15 @@ impl EnrichmentProvider for KGProvider {
             if let Ok(res) = cozo.run_script(&query_file) {
                 for row in res.rows {
                     if let Some(cozo::DataValue::Str(id)) = row.first() {
-                        println!("Found seed node: {}", id);
                         seed_nodes.push(vec![id.to_string()]);
                     }
                 }
             }
         }
 
-        println!("Seed nodes: {:?}", seed_nodes);
-
         if seed_nodes.is_empty() {
             debug!("No seed nodes found in KG for changes");
+            spinner.finish();
             return Ok(());
         }
 
@@ -102,6 +128,11 @@ impl EnrichmentProvider for KGProvider {
         ];
 
         for query in queries {
+            if check_timeout(context) {
+                spinner.finish();
+                return Ok(());
+            }
+
             if let Ok(res) = cozo.run_script(&query) {
                 for row in res.rows {
                     if let (
@@ -122,6 +153,7 @@ impl EnrichmentProvider for KGProvider {
             }
         }
 
+        spinner.finish();
         debug!(
             "KG enrichment added {} impact links",
             packet.knowledge_graph.len()

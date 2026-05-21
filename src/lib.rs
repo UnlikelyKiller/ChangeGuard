@@ -24,6 +24,7 @@ pub mod scip;
 pub mod search;
 pub mod semantic;
 pub mod state;
+pub mod ui;
 pub mod util;
 pub mod verify;
 pub mod watch;

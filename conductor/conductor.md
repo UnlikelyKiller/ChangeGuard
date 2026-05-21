@@ -728,7 +728,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Key files: `src/commands/ledger_audit.rs`, `src/commands/verify.rs`
 
 *   **Track J5: KG Enrichment Progress Indicator and Configurable Timeout**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackJ5/spec.md`
     *   Plan: `conductor/trackJ5/plan.md`
     *   Goal: Add a spinner to the KG enrichment phase and a configurable `kg_timeout_secs` (default 60). Graceful degradation on timeout so the rest of the impact report still renders.

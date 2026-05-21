@@ -519,6 +519,8 @@ pub struct CoverageConfig {
     pub enabled: bool,
     #[serde(default = "default_max_coupling_pairs")]
     pub max_coupling_pairs: usize,
+    #[serde(default = "default_kg_timeout")]
+    pub kg_timeout_secs: usize,
     #[serde(default)]
     pub traces: TracesConfig,
     #[serde(default)]
@@ -539,11 +541,16 @@ fn default_max_coupling_pairs() -> usize {
     50
 }
 
+fn default_kg_timeout() -> usize {
+    60
+}
+
 impl Default for CoverageConfig {
     fn default() -> Self {
         Self {
             enabled: false,
             max_coupling_pairs: default_max_coupling_pairs(),
+            kg_timeout_secs: default_kg_timeout(),
             traces: TracesConfig::default(),
             sdk: SdkConfig::default(),
             services: ServicesConfig::default(),
@@ -1211,6 +1218,7 @@ mod tests {
         let toml_str = r#"
             [coverage]
             enabled = true
+            kg_timeout_secs = 120
 
             [coverage.traces]
             enabled = true
@@ -1225,6 +1233,7 @@ mod tests {
         "#;
         let config: Config = toml::from_str(toml_str).unwrap();
         assert!(config.coverage.enabled);
+        assert_eq!(config.coverage.kg_timeout_secs, 120);
         assert!(config.coverage.traces.enabled);
         assert_eq!(
             config.coverage.traces.config_patterns,

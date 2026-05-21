@@ -10,9 +10,12 @@ use crate::config::load::load_config;
 use crate::config::model::Config;
 use crate::ledger::db::LedgerDb;
 use crate::ledger::transaction::TransactionManager;
-use crate::ledger::ui::{LedgerStatus, get_category_icon, get_change_type_icon, get_status_icon};
+use crate::ledger::ui::{get_category_icon, get_change_type_icon, get_status_icon, LedgerStatus};
 use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
+use crate::verify::results::{VERIFY_HISTORY, VerifyHistoryRecord};
+use crate::impact::hotspots::calculate_hotspots;
+use crate::impact::temporal::GixHistoryProvider;
 
 fn get_repo_root() -> Result<Utf8PathBuf> {
     let current_dir = env::current_dir().into_diagnostic()?;
@@ -124,6 +127,93 @@ fn audit_global(manager: &TransactionManager, include_unaudited: bool) -> Result
             }
             println!("{table}");
         }
+    }
+
+    let db = LedgerDb::new(manager.get_connection());
+    let layout = get_layout()?;
+
+    // 1. Commit Velocity (30d)
+    let velocity = db
+        .get_transaction_velocity(30)
+        .map_err(|e| miette::miette!("{}", e))?;
+    println!(
+        "\n{} {} commits in the last 30 days",
+        "Commit Velocity:".bold(),
+        velocity.cyan()
+    );
+
+    // 2. Top Churned Files
+    let churned = db
+        .get_top_churned_entities(5)
+        .map_err(|e| miette::miette!("{}", e))?;
+    println!("\n{}", "TOP CHURNED FILES".yellow().bold());
+    if churned.is_empty() {
+        println!("  None.");
+    } else {
+        for (entity, count) in churned {
+            println!("  {:<40} {:>5} commits", entity.cyan(), count.yellow());
+        }
+    }
+
+    // 3. Oldest ADR
+    let oldest_adr = db.get_oldest_adr().map_err(|e| miette::miette!("{}", e))?;
+    println!(
+        "\n{}",
+        "OLDEST ARCHITECTURAL DECISION (ADR)".yellow().bold()
+    );
+    if let Some(entry) = oldest_adr {
+        println!(
+            "  {} committed on {}",
+            entry.summary.bold(),
+            entry.committed_at.dimmed()
+        );
+        println!("  Entity: {}", entry.entity.cyan());
+    } else {
+        println!("  None.");
+    }
+
+    // 4. Hotspot Delta (Current Top 3)
+    let storage = StorageManager::open_read_only(&layout.root)?;
+    let discovered = gix::discover(&layout.root).into_diagnostic()?;
+    let history_provider = GixHistoryProvider::new(&discovered);
+    let hotspots = calculate_hotspots(&storage, &history_provider, 500, 3, false, None, None)
+        .unwrap_or_default();
+
+    println!("\n{}", "TOP 3 HOTSPOTS".yellow().bold());
+    if hotspots.is_empty() {
+        println!("  None.");
+    } else {
+        for h in hotspots {
+            println!(
+                "  {:<40} score: {:.2}",
+                h.path.display().to_string().cyan(),
+                h.display_score.yellow()
+            );
+        }
+    }
+
+    // 5. CI Trend
+    let history_path = layout.reports_dir().join(VERIFY_HISTORY);
+    println!("\n{}", "CI TREND (Last 10)".yellow().bold());
+    if history_path.exists() {
+        let content = std::fs::read_to_string(&history_path).into_diagnostic()?;
+        let history: Vec<VerifyHistoryRecord> = serde_json::from_str(&content).unwrap_or_default();
+        if history.is_empty() {
+            println!("  No history yet.");
+        } else {
+            let mut trend = String::new();
+            for h in history.iter().rev().take(10).rev() {
+                if h.passed {
+                    trend.push_str(&"✔".green().to_string());
+                } else {
+                    trend.push_str(&"✘".red().to_string());
+                }
+                trend.push(' ');
+            }
+            println!("  {}", trend);
+        }
+    } else {
+        println!("  No history yet.");
     }
 
     Ok(())
