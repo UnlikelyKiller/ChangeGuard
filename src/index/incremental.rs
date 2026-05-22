@@ -73,8 +73,16 @@ impl IncrementalSyncEngine {
             if !SUPPORTED_EXTENSIONS.contains(&ext) || BINARY_EXTENSIONS.contains(&ext) {
                 continue;
             }
-            // Last event wins for the same path
-            seen.insert(event.path.clone(), event.clone());
+            match seen.get(&event.path) {
+                Some(existing)
+                    if existing.kind != WatchEventKind::Unknown
+                        && event.kind == WatchEventKind::Unknown => {}
+                _ => {
+                    // Last meaningful event wins for the same path. Some platforms emit
+                    // Unknown events after Create/Modify; those must not erase actionable work.
+                    seen.insert(event.path.clone(), event.clone());
+                }
+            }
         }
         seen.into_values().collect()
     }
@@ -547,6 +555,30 @@ pub fn main() { helper(); }
             .run_script("?[id] := *node{id: id}, id = 'src/lib.rs'")
             .unwrap();
         assert_eq!(res.rows.len(), 1);
+    }
+
+    #[test]
+    fn test_process_batch_keeps_create_when_followed_by_unknown() {
+        let storage = in_memory_storage_with_cozo();
+        let (_dir, repo_path) = temp_repo_with_file("lib.rs", "pub fn foo() {}");
+
+        let indexer = ProjectIndexer::new(storage, repo_path.clone());
+        let mut engine = IncrementalSyncEngine::new(indexer, repo_path.clone());
+
+        let batch = WatchBatch::new(vec![
+            WatchEvent {
+                path: repo_path.join("src/lib.rs"),
+                kind: WatchEventKind::Create,
+            },
+            WatchEvent {
+                path: repo_path.join("src/lib.rs"),
+                kind: WatchEventKind::Unknown,
+            },
+        ]);
+
+        let delta = engine.process_batch(&batch).unwrap();
+        assert_eq!(delta.files_processed, 1);
+        assert!(delta.nodes_added >= 1);
     }
 
     #[test]

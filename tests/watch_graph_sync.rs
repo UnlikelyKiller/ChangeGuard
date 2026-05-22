@@ -18,6 +18,9 @@ fn test_watch_graph_sync() {
     setup_git_repo(root.as_std_path());
     let state_dir = root.join(".changeguard").join("state");
     fs::create_dir_all(&state_dir).unwrap();
+    let src_dir = root.join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    let file_path = src_dir.join("lib.rs");
     let db_path = state_dir.join("ledger.db");
 
     // Pre-initialize storage schema
@@ -47,15 +50,16 @@ fn test_watch_graph_sync() {
     let _watcher = Watcher::new(
         vec![root.clone()],
         Duration::from_millis(100),
-        Vec::new(),
+        vec![".git/**".to_string()],
         callback,
     )
     .unwrap();
 
-    let src_dir = root.join("src");
-    fs::create_dir_all(&src_dir).unwrap();
-    let file_path = src_dir.join("lib.rs");
-    fs::write(&file_path, "pub fn hello() {}\n").unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    for i in 0..3 {
+        fs::write(&file_path, format!("pub fn hello_{i}() {{}}\n")).unwrap();
+        std::thread::sleep(Duration::from_millis(150));
+    }
 
     let timeout = Duration::from_secs(30);
     let deadline = Instant::now() + timeout;

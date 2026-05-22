@@ -1,6 +1,8 @@
 use std::fs;
 use std::process::Command;
 
+use httpmock::prelude::*;
+
 mod common;
 use common::setup_git_repo;
 
@@ -31,6 +33,30 @@ fn test_cozodb_hard_migration_integrity() {
             String::from_utf8_lossy(&init_output.stderr)
         );
     }
+
+    let server = MockServer::start();
+    let _embedding_mock = server.mock(|when, then| {
+        when.method(POST).path("/v1/embeddings");
+        then.status(200)
+            .header("content-type", "application/json")
+            .json_body(serde_json::json!({
+                "data": [
+                    { "embedding": [1.0, 0.0, 0.0] }
+                ]
+            }));
+    });
+
+    let config_path = root.join(".changeguard").join("config.toml");
+    let config = format!(
+        r#"[local_model]
+base_url = "{}"
+embedding_model = "test-model"
+dimensions = 3
+timeout_secs = 5
+"#,
+        server.base_url()
+    );
+    fs::write(config_path, config).unwrap();
 
     // Loop 10 times: index -> hard migrate -> semantic index
     // This exercises the `robust_remove_dir` and checks for "Invalid neighbor degree" errors.

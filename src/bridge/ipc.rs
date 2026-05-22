@@ -1,5 +1,6 @@
 use crate::bridge::model::{BridgeRecord, deserialize_record, serialize_record};
 use miette::{IntoDiagnostic, Result};
+#[cfg(windows)]
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::sync::mpsc;
