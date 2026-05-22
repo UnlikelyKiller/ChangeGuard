@@ -836,6 +836,48 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Goal: Refactor `ledger audit` into a unified report abstraction where pagination applies holistically to ranked lists and entry tables.
     *   Key files: `src/commands/ledger_audit.rs`
 
+*   **Track K10: Ignore-Aware Scan Cleanliness**
+    *   Status: Planned
+    *   Spec: `conductor/trackK10/spec.md`
+    *   Plan: `conductor/trackK10/plan.md`
+    *   Goal: Align `scan` and `scan --impact` with actionable Git state by filtering ignored local agent/tool directories from dirty-state and unsupported-language output.
+    *   Key files: `src/commands/scan.rs`, `src/impact/orchestrator.rs`, `src/config/defaults.rs`, `src/config/model.rs`
+
+*   **Track K11: Read-Only CozoDB Lock Resilience**
+    *   Status: Planned
+    *   Spec: `conductor/trackK11/spec.md`
+    *   Plan: `conductor/trackK11/plan.md`
+    *   Goal: Prevent concurrent read-only ChangeGuard commands from failing immediately on CozoDB locks by adding bounded wait/retry behavior and avoiding unnecessary graph opens.
+    *   Key files: `src/state/storage_cozo.rs`, `src/state/storage.rs`, `src/main.rs`, `src/commands/*`
+
+*   **Track K12: Local Model Timeout and Readiness UX**
+    *   Status: Planned
+    *   Spec: `conductor/trackK12/spec.md`
+    *   Plan: `conductor/trackK12/plan.md`
+    *   Goal: Make `doctor` and local-model `ask` readiness checks fail fast with separate embedding/completion status, split embedding/generation base URLs for the LLM2 topology, and actionable timeout diagnostics.
+    *   Key files: `src/commands/doctor.rs`, `src/commands/ask.rs`, `src/local_model/client.rs`, `src/config/model.rs`
+
+*   **Track K13: Index Freshness Recovery Workflow**
+    *   Status: Planned
+    *   Spec: `conductor/trackK13/spec.md`
+    *   Plan: `conductor/trackK13/plan.md`
+    *   Goal: Improve stale-index reporting with sample paths, machine-readable recovery guidance, and consistent auto-index support across index-dependent commands.
+    *   Key files: `src/commands/index.rs`, `src/commands/search.rs`, `src/commands/ask.rs`, `src/commands/dead_code.rs`, `src/commands/hotspots.rs`
+
+*   **Track K14: Non-Mutating Federation Export**
+    *   Status: Planned
+    *   Spec: `conductor/trackK14/spec.md`
+    *   Plan: `conductor/trackK14/plan.md`
+    *   Goal: Add a true non-mutating federation export path so users can preview schema output without writing `.changeguard/state/schema.json`.
+    *   Key files: `src/commands/federate.rs`, `src/federated/schema.rs`, `src/federated/storage.rs`
+
+*   **Track K15: Semantic Search Readiness and Fallbacks**
+    *   Status: Planned
+    *   Spec: `conductor/trackK15/spec.md`
+    *   Plan: `conductor/trackK15/plan.md`
+    *   Goal: Make `search --semantic` readiness, embedding endpoint/model/dimension mismatches, empty-result causes, and lexical fallback behavior explicit so expensive semantic queries do not fail silently.
+    *   Key files: `src/commands/search.rs`, `src/semantic/*`, `src/search/tantivy_engine.rs`, `src/config/model.rs`
+
 ## Workflow
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.
