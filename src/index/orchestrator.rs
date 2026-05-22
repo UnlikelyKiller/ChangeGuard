@@ -126,7 +126,7 @@ impl ProjectIndexer {
         &mut self.storage
     }
 
-    pub fn build_kg_native(&self) -> Result<()> {
+    pub fn build_kg_native(&self, local_model_config: &crate::config::model::LocalModelConfig) -> Result<()> {
         let Some(cozo) = &self.storage.cozo else {
             info!("CozoDB not available, skipping native KG build");
             return Ok(());
@@ -141,8 +141,7 @@ impl ProjectIndexer {
                 let extractor = crate::ai::semantic_extractor::SemanticExtractor::new(
                     crate::ai::semantic_extractor::SemanticExtractorConfig::default(),
                 );
-                let config = crate::config::model::LocalModelConfig::default();
-                match extractor.extract_batch(sample_files, &config) {
+                match extractor.extract_batch(sample_files, local_model_config) {
                     Ok(result) => {
                         if let Err(e) =
                             crate::ai::semantic_extractor::SemanticExtractor::ingest_into_cozo(

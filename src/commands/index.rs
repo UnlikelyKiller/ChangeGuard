@@ -166,7 +166,7 @@ pub fn execute_index(args: IndexArgs) -> Result<()> {
 
     // Compute centrality if requested
     let cent_stats = if args.analyze_graph {
-        indexer.build_kg_native()?;
+        indexer.build_kg_native(&config.local_model)?;
         indexer.compute_centrality()?
     } else {
         info!("Centrality computation skipped (use --analyze-graph to enable).");
