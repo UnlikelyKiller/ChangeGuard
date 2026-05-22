@@ -5,6 +5,7 @@ pub enum Language {
     Rust,
     TypeScript,
     Python,
+    Markdown,
 }
 
 impl Language {
@@ -13,6 +14,7 @@ impl Language {
             "rs" => Some(Language::Rust),
             "ts" | "tsx" | "js" | "jsx" => Some(Language::TypeScript),
             "py" => Some(Language::Python),
+            "md" => Some(Language::Markdown),
             _ => None,
         }
     }

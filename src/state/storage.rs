@@ -2,7 +2,7 @@ use crate::impact::packet::{ChangedFile, ImpactPacket};
 use crate::index::storage::persist_symbols;
 use crate::state::layout::Layout;
 use crate::state::migrations::get_migrations;
-use camino::Utf8Path;
+use camino::{Utf8Path, Utf8PathBuf};
 use miette::{IntoDiagnostic, Result};
 use rusqlite::Connection;
 use std::collections::HashMap;
@@ -22,6 +22,7 @@ pub struct StorageManager {
     conn: Connection,
     pub cozo: Option<crate::state::storage_cozo::CozoStorage>,
     is_read_only: bool,
+    root_path: Utf8PathBuf,
 }
 
 impl StorageManager {
@@ -47,12 +48,25 @@ impl StorageManager {
             None
         };
 
+        let root_path = db_path
+            .parent() // state/
+            .and_then(|p| p.parent()) // .changeguard/
+            .and_then(|p| p.parent()) // root/
+            .unwrap_or(Path::new("."));
+        let root_path = Utf8PathBuf::from_path_buf(root_path.to_path_buf())
+            .map_err(|_| miette::miette!("Invalid UTF-8 in root path"))?;
+
         debug!("Initialized storage at {:?}", db_path);
         Ok(Self {
             conn,
             cozo,
             is_read_only: false,
+            root_path,
         })
+    }
+
+    pub fn root(&self) -> &Utf8Path {
+        &self.root_path
     }
 
     pub fn get_connection(&self) -> &Connection {
@@ -86,6 +100,16 @@ impl StorageManager {
     ///
     /// Returns `Err` if the SQLite database file does not exist.
     pub fn open_read_only(root: &Utf8Path) -> Result<Self> {
+        Self::open_read_only_with_options(root, true)
+    }
+
+    /// Open storage in read-only mode, skipping migration checks and NOT opening CozoDB.
+    /// This is the fastest path for commands that only need metadata or transaction status.
+    pub fn open_read_only_sqlite_only(root: &Utf8Path) -> Result<Self> {
+        Self::open_read_only_with_options(root, false)
+    }
+
+    fn open_read_only_with_options(root: &Utf8Path, include_cozo: bool) -> Result<Self> {
         let db_path = Layout::new(root).state_subdir().join("ledger.db");
 
         if !db_path.exists() {
@@ -95,7 +119,11 @@ impl StorageManager {
             ));
         }
 
-        tracing::debug!("Opening read-only storage at {:?}", db_path);
+        tracing::debug!(
+            "Opening read-only storage at {:?} (include_cozo: {})",
+            db_path,
+            include_cozo
+        );
         let conn = Connection::open(db_path.as_std_path()).into_diagnostic()?;
 
         conn.execute_batch(
@@ -105,17 +133,28 @@ impl StorageManager {
 
         // NOTE: migrations intentionally skipped — read-only fast path
 
-        let cozo_path = db_path
-            .parent()
-            .map(|p| p.join("ledger.cozo"))
-            .unwrap_or_default();
-        let cozo = crate::state::storage_cozo::CozoStorage::new(cozo_path.as_std_path()).ok();
+        let cozo = if include_cozo {
+            let cozo_path = db_path
+                .parent()
+                .map(|p| p.join("ledger.cozo"))
+                .unwrap_or_default();
+            if cozo_path.exists() {
+                Some(crate::state::storage_cozo::CozoStorage::new_read_only(
+                    cozo_path.as_std_path(),
+                )?)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
         tracing::debug!("Opened read-only storage at {:?}", db_path);
         Ok(Self {
             conn,
             cozo,
             is_read_only: true,
+            root_path: root.to_path_buf(),
         })
     }
 
@@ -124,6 +163,7 @@ impl StorageManager {
             conn,
             cozo: None,
             is_read_only: false,
+            root_path: Utf8PathBuf::from("."),
         }
     }
 
@@ -371,6 +411,7 @@ mod tests {
             conn,
             cozo: None,
             is_read_only: false,
+            root_path: Utf8PathBuf::from("."),
         }
     }
 

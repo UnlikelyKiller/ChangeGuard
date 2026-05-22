@@ -60,6 +60,12 @@ impl NativeComplexityScorer {
             });
         };
 
+        if matches!(language, Language::Markdown) {
+            return Ok(ComplexityResult::NotApplicable {
+                reason: "complexity analysis not applicable to markdown".to_string(),
+            });
+        }
+
         self.score_file(path, source, language)
             .map(ComplexityResult::Scored)
     }
@@ -111,6 +117,7 @@ impl NativeComplexityScorer {
                         | "and"
                         | "or"
                 ),
+                Language::Markdown => false,
             };
 
             if is_branch {
@@ -163,6 +170,7 @@ impl NativeComplexityScorer {
                 kind,
                 "if_statement" | "for_statement" | "while_statement" | "try_statement"
             ),
+            Language::Markdown => false,
         };
 
         if is_nesting_increment {
@@ -184,6 +192,7 @@ impl NativeComplexityScorer {
                         | "or"
                         | "conditional_expression"
                 ),
+                Language::Markdown => false,
             };
             if is_other_increment {
                 score += 1;
@@ -209,6 +218,17 @@ impl ComplexityScorer for NativeComplexityScorer {
         language: Language,
     ) -> Result<FileComplexity> {
         let total_sloc = source.lines().count();
+
+        // Fast-path for non-code languages
+        if matches!(language, Language::Markdown) {
+            return Ok(FileComplexity {
+                total_sloc,
+                functions: Vec::new(),
+                ast_incomplete: false,
+                complexity_capped: false,
+            });
+        }
+
         let complexity_capped = total_sloc > 10_000;
 
         if complexity_capped {
@@ -225,6 +245,7 @@ impl ComplexityScorer for NativeComplexityScorer {
             Language::Rust => tree_sitter_rust::LANGUAGE.into(),
             Language::TypeScript => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
             Language::Python => tree_sitter_python::LANGUAGE.into(),
+            Language::Markdown => unreachable!(), // Handled above
         };
         parser
             .set_language(&ts_language)

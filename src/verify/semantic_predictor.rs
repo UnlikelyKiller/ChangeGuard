@@ -416,6 +416,8 @@ mod tests {
 
         let config = LocalModelConfig {
             base_url: server.base_url(),
+            embedding_url: None,
+            generation_url: None,
             embedding_model: "test-model".to_string(),
             dimensions: 3,
             context_window: 8192,
@@ -508,6 +510,8 @@ mod tests {
         let conn = setup_db();
         let config = LocalModelConfig {
             base_url: "http://localhost:9999".to_string(),
+            embedding_url: None,
+            generation_url: None,
             embedding_model: "test-model".to_string(),
             dimensions: 3,
             ..LocalModelConfig::default()
@@ -537,6 +541,8 @@ mod tests {
         let conn = setup_db();
         let config = LocalModelConfig {
             base_url: "http://localhost:9999".to_string(),
+            embedding_url: None,
+            generation_url: None,
             embedding_model: "test-model".to_string(),
             dimensions: 3,
             ..LocalModelConfig::default()
@@ -558,6 +564,8 @@ mod tests {
         let conn = setup_db();
         let config = LocalModelConfig {
             base_url: "http://localhost:9999".to_string(),
+            embedding_url: None,
+            generation_url: None,
             embedding_model: "test-model".to_string(),
             dimensions: 3,
             ..LocalModelConfig::default()
@@ -582,6 +590,8 @@ mod tests {
 
         let config = LocalModelConfig {
             base_url: server.base_url(),
+            embedding_url: None,
+            generation_url: None,
             embedding_model: "test-model".to_string(),
             dimensions: 3,
             context_window: 8192,

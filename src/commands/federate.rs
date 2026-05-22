@@ -15,7 +15,7 @@ use owo_colors::OwoColorize;
 use std::env;
 use std::fs;
 
-pub fn execute_federate_export() -> Result<()> {
+pub fn execute_federate_export(dry_run: bool, out: Option<String>) -> Result<()> {
     let current_dir = env::current_dir().into_diagnostic()?;
     let repo = open_repo(&current_dir).into_diagnostic()?;
     let repo_root = repo
@@ -33,7 +33,9 @@ pub fn execute_federate_export() -> Result<()> {
         .ok_or_else(|| miette::miette!("Could not determine repository name for export"))?
         .to_string();
 
-    println!("Exporting public interfaces for {}...", repo_name.cyan());
+    if !dry_run && out.is_none() {
+        println!("Exporting public interfaces for {}...", repo_name.cyan());
+    }
 
     let symbols = get_public_symbols(storage.get_connection())?;
     let mut public_interfaces = symbols
@@ -61,14 +63,31 @@ pub fn execute_federate_export() -> Result<()> {
     let schema = FederatedSchema::new(repo_name, public_interfaces).with_ledger(ledger_entries);
     let schema_json = serde_json::to_string_pretty(&schema).into_diagnostic()?;
 
-    let schema_path = layout.state_subdir().join("schema.json");
-    fs::write(&schema_path, schema_json).into_diagnostic()?;
+    if let Some(out_path) = out {
+        let out_path = std::path::Path::new(&out_path);
+        if let Some(parent) = out_path.parent() {
+            fs::create_dir_all(parent).into_diagnostic()?;
+        }
+        fs::write(out_path, schema_json).into_diagnostic()?;
+        println!(
+            "{} Schema exported to {}",
+            "SUCCESS".green().bold(),
+            out_path.display().to_string().cyan()
+        );
+    } else if dry_run {
+        println!("\n{}", "--- FEDERATED SCHEMA PREVIEW ---".bold().yellow());
+        println!("{}", schema_json);
+        println!("{}", "--- END PREVIEW ---".bold().yellow());
+    } else {
+        let schema_path = layout.state_subdir().join("schema.json");
+        fs::write(&schema_path, schema_json).into_diagnostic()?;
 
-    println!(
-        "{} Schema exported to {}",
-        "SUCCESS".green().bold(),
-        schema_path.cyan()
-    );
+        println!(
+            "{} Schema exported to {}",
+            "SUCCESS".green().bold(),
+            schema_path.cyan()
+        );
+    }
     Ok(())
 }
 

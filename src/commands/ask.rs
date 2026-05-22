@@ -2,7 +2,7 @@ use crate::config::model::{Config, GeminiConfig};
 use crate::gemini::modes::GeminiMode;
 use crate::gemini::wrapper::run_query;
 use crate::impact::packet::ImpactPacket;
-use crate::index::{ProjectIndexer, warn_if_stale};
+use crate::index::warn_if_stale;
 use crate::local_model::pruner;
 use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
@@ -34,13 +34,12 @@ pub fn execute_ask(
 
     // --- Staleness check ---
     let threshold = config.index.stale_threshold_days;
-    if auto_index {
-        if let Err(e) = run_incremental_index(&layout, &storage) {
-            tracing::warn!("incremental index failed, proceeding with current index: {e}");
-        }
+    let storage = if auto_index {
+        crate::index::staleness::try_auto_index(storage, threshold)?
     } else {
         let _ = warn_if_stale(&storage, threshold);
-    }
+        storage
+    };
 
     let mut latest_packet = storage.get_latest_packet()?.ok_or_else(|| {
         miette::miette!("No impact report found. Run 'changeguard impact' first.")
@@ -108,6 +107,16 @@ pub fn execute_ask(
     match resolved_backend {
         Backend::Local => {
             let max_tokens = config.local_model.context_window;
+
+            // Phase 1: Probe local model completions endpoint for fail-fast
+            let mut probe_config = config.local_model.clone();
+            probe_config.timeout_secs = 5;
+            if let Err(e) = crate::local_model::client::ping_completions(&probe_config) {
+                return Err(miette::miette!(
+                    "Local completion model is unreachable ({}). Check your server or use --backend gemini.",
+                    e
+                ));
+            }
 
             // 3. Query relevant chunks from indexed docs
             let relevant_chunks = pruner::query_relevant_chunks(
@@ -184,16 +193,6 @@ pub fn execute_ask(
     }
 }
 
-/// Run an incremental index against the SQLite/CozoDB project index.
-fn run_incremental_index(layout: &Layout, _storage: &StorageManager) -> Result<()> {
-    let db_path = layout.state_subdir().join("ledger.db");
-    let storage = StorageManager::init(db_path.as_std_path())?;
-    let repo_path = layout.root.clone();
-    let mut indexer = ProjectIndexer::new(storage, repo_path);
-    let _stats = indexer.incremental_index()?;
-    Ok(())
-}
-
 fn get_working_tree_diff() -> Option<String> {
     let output = std::process::Command::new("git")
         .args(["diff", "HEAD"])
@@ -221,7 +220,11 @@ pub fn resolve_backend_with(
     if let Some(b) = explicit {
         return b;
     }
-    if config.local_model.prefer_local && !config.local_model.base_url.is_empty() {
+    if config.local_model.prefer_local
+        && (!config.local_model.base_url.is_empty()
+            || config.local_model.embedding_url.is_some()
+            || config.local_model.generation_url.is_some())
+    {
         return Backend::Local;
     }
 
@@ -229,7 +232,11 @@ pub fn resolve_backend_with(
         || env_reader("GEMINI_API_KEY").is_some()
         || dotenv_reader("GEMINI_API_KEY").is_some();
 
-    if !has_gemini_key && !config.local_model.base_url.is_empty() {
+    if !has_gemini_key
+        && (!config.local_model.base_url.is_empty()
+            || config.local_model.embedding_url.is_some()
+            || config.local_model.generation_url.is_some())
+    {
         return Backend::Local;
     }
     Backend::Gemini

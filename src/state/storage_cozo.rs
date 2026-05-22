@@ -28,6 +28,14 @@ pub struct CozoStorage {
 
 impl CozoStorage {
     pub fn new(db_path: &Path) -> Result<Self> {
+        Self::new_with_options(db_path, false)
+    }
+
+    pub fn new_read_only(db_path: &Path) -> Result<Self> {
+        Self::new_with_options(db_path, true)
+    }
+
+    fn new_with_options(db_path: &Path, read_only: bool) -> Result<Self> {
         // We use the sqlite engine for persistence
         let engine = if db_path.as_os_str().is_empty() {
             "mem"
@@ -35,8 +43,8 @@ impl CozoStorage {
             "sled"
         };
         debug!(
-            "CozoStorage selecting engine '{}' for path {:?}",
-            engine, db_path
+            "CozoStorage selecting engine '{}' for path {:?} (read_only: {})",
+            engine, db_path, read_only
         );
 
         let is_new = engine == "sled" && !db_path.exists();
@@ -44,8 +52,36 @@ impl CozoStorage {
             info!("[init] Creating new CozoDB storage at {:?}", db_path);
         }
 
-        let db = DbInstance::new(engine, db_path, Default::default())
-            .map_err(|e| miette::miette!("Failed to initialize CozoDB: {:?}", e))?;
+        // Bounded Retry Loop for Locks
+        let mut retries = 0;
+        let max_retries = if read_only { 15 } else { 5 };
+        let base_delay_ms = 100;
+
+        let db = loop {
+            match DbInstance::new(engine, db_path, Default::default()) {
+                Ok(db) => break db,
+                Err(e) if engine == "sled" && retries < max_retries => {
+                    let err_msg = format!("{:?}", e).to_lowercase();
+                    if err_msg.contains("lock")
+                        || err_msg.contains("process cannot access")
+                        || err_msg.contains("access is denied")
+                    {
+                        retries += 1;
+                        let delay = base_delay_ms * (2u64.pow(retries - 1));
+                        debug!(
+                            "CozoDB is locked, retrying in {}ms (attempt {}/{})",
+                            delay, retries, max_retries
+                        );
+                        std::thread::sleep(std::time::Duration::from_millis(delay));
+                        continue;
+                    }
+                    return Err(miette::miette!("Failed to initialize CozoDB: {:?}", e));
+                }
+                Err(e) => {
+                    return Err(miette::miette!("Failed to initialize CozoDB: {:?}", e));
+                }
+            }
+        };
 
         // Cold Start Verification: Detect HNSW metadata corruption immediately.
         // If this panics/errors internally in Cozo due to "Invalid neighbor degree",
@@ -65,7 +101,9 @@ impl CozoStorage {
         }
 
         let storage = Self { db };
-        storage.setup_schema()?;
+        if !read_only {
+            storage.setup_schema()?;
+        }
 
         debug!("Initialized CozoDB storage at {:?}", db_path);
         Ok(storage)

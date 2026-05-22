@@ -21,7 +21,7 @@ impl Dimensions {
 }
 
 pub fn check_local_model(config: &LocalModelConfig) -> Result<Dimensions, String> {
-    if config.base_url.is_empty() {
+    if config.base_url.is_empty() && config.embedding_url.is_none() {
         return Ok(Dimensions {
             dimensions: 0,
             model_name: String::new(),
@@ -29,12 +29,9 @@ pub fn check_local_model(config: &LocalModelConfig) -> Result<Dimensions, String
         });
     }
 
-    let vectors = embed_batch(
-        &config.base_url,
-        &config.embedding_model,
-        &["ping"],
-        config.timeout_secs,
-    )?;
+    let url = config.embedding_url.as_deref().unwrap_or(&config.base_url);
+
+    let vectors = embed_batch(url, &config.embedding_model, &["ping"], config.timeout_secs)?;
 
     let dims = vectors.first().map(|v| v.len()).unwrap_or(0);
 
@@ -51,13 +48,10 @@ pub fn embed_long_text(config: &LocalModelConfig, text: &str) -> Result<Vec<f32>
     let max_chars = std::cmp::min(config.context_window * 4, 2000);
     let overlap_chars = 256;
 
+    let url = config.embedding_url.as_deref().unwrap_or(&config.base_url);
+
     if text.len() <= max_chars {
-        let vectors = embed_batch(
-            &config.base_url,
-            &config.embedding_model,
-            &[text],
-            config.timeout_secs,
-        )?;
+        let vectors = embed_batch(url, &config.embedding_model, &[text], config.timeout_secs)?;
         return vectors
             .into_iter()
             .next()
@@ -84,7 +78,7 @@ pub fn embed_long_text(config: &LocalModelConfig, text: &str) -> Result<Vec<f32>
     for batch in chunks.chunks(MAX_BATCH_SIZE) {
         let chunk_refs: Vec<&str> = batch.to_vec();
         let batch_vectors = embed_batch(
-            &config.base_url,
+            url,
             &config.embedding_model,
             &chunk_refs,
             config.timeout_secs,
@@ -130,6 +124,7 @@ pub fn embed_batch(
     }
 
     let url = format!("{base_url}/v1/embeddings");
+    tracing::debug!("Using embedding URL: {}", url);
     let body = serde_json::json!({
         "model": model,
         "input": texts,
@@ -221,6 +216,8 @@ mod tests {
     fn test_check_local_model_unreachable() {
         let config = LocalModelConfig {
             base_url: "http://127.0.0.1:1".to_string(),
+            embedding_url: None,
+            generation_url: None,
             embedding_model: "test-model".to_string(),
             timeout_secs: 1,
             ..LocalModelConfig::default()
@@ -246,6 +243,8 @@ mod tests {
 
         let config = LocalModelConfig {
             base_url: server.base_url(),
+            embedding_url: None,
+            generation_url: None,
             embedding_model: "test-model".to_string(),
             context_window: 8192,
             timeout_secs: 30,
@@ -279,6 +278,8 @@ mod tests {
         // (step=1 when overlap > max_chars). Both chunks fit in one batch.
         let config = LocalModelConfig {
             base_url: server.base_url(),
+            embedding_url: None,
+            generation_url: None,
             embedding_model: "test-model".to_string(),
             context_window: 4,
             timeout_secs: 30,

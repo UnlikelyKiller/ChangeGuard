@@ -29,12 +29,21 @@ pub fn execute_hotspots(args: HotspotArgs) -> Result<()> {
     let repo = open_repo(&current_dir)?;
     let layout = Layout::new(current_dir.to_string_lossy().as_ref());
 
-    let storage = StorageManager::open_read_only(&layout.root)?;
+    let storage = if args.semantic {
+        StorageManager::open_read_only(&layout.root)?
+    } else {
+        StorageManager::open_read_only_sqlite_only(&layout.root)?
+    };
 
     // --- Staleness check ---
     let config = load_config(&layout).unwrap_or_default();
     let threshold_days = config.index.stale_threshold_days;
-    let _ = warn_if_stale(&storage, threshold_days);
+    let storage = if args.auto_index {
+        crate::index::staleness::try_auto_index(storage, threshold_days)?
+    } else {
+        let _ = warn_if_stale(&storage, threshold_days);
+        storage
+    };
 
     if args.semantic {
         let cozo = storage

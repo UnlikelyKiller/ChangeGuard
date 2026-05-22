@@ -23,6 +23,9 @@ pub fn load_config(layout: &Layout) -> Result<Config> {
     let mut config: Config =
         toml::from_str(&content).map_err(|e| ConfigError::ParseFailed { source: e })?;
 
+    // Apply environment variable overrides and resolve model settings
+    config.local_model = crate::config::model::resolve_local_model_config(&config.local_model);
+
     // Sanitize verify steps: warn and filter invalid ones rather than failing hard
     sanitize_verify_steps(&mut config);
 

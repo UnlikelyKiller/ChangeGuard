@@ -14,9 +14,22 @@ use crate::state::storage_cozo::CozoStorage;
 use miette::Result;
 use std::path::Path;
 
+use serde::Serialize;
+
+#[derive(Debug, Serialize)]
+pub struct SemanticReadiness {
+    pub endpoint_available: bool,
+    pub model_name: String,
+    pub dimensions: usize,
+    pub vector_count: usize,
+    pub is_stale: bool,
+    pub dimension_mismatch: bool,
+}
+
 pub struct SemanticDiscovery<'a> {
     embedder: SemanticEmbedder,
     vector_store: VectorStore<'a>,
+    config: LocalModelConfig,
 }
 
 impl<'a> SemanticDiscovery<'a> {
@@ -38,11 +51,40 @@ impl<'a> SemanticDiscovery<'a> {
 
         let dim = config.dimensions;
         let skip_hnsw = config.disable_hnsw;
-        let embedder = SemanticEmbedder::new(config);
+        let embedder = SemanticEmbedder::new(config.clone());
         let vector_store = VectorStore::new(storage, dim, skip_hnsw)?;
         Ok(Self {
             embedder,
             vector_store,
+            config,
+        })
+    }
+
+    pub fn check_readiness(&self) -> Result<SemanticReadiness> {
+        let probe = crate::embed::client::check_local_model(&self.config);
+        let endpoint_available = probe.is_ok();
+        let model_name = probe
+            .as_ref()
+            .map(|d| d.model_name.clone())
+            .unwrap_or_else(|_| self.config.embedding_model.clone());
+        let model_dims = probe.as_ref().map(|d| d.dimensions).unwrap_or(0);
+
+        let vector_count = self.vector_store.get_vector_count().unwrap_or(0);
+
+        // Check for dimension mismatch between model and store
+        let dimension_mismatch = if model_dims > 0 && self.config.dimensions > 0 {
+            model_dims != self.config.dimensions
+        } else {
+            false
+        };
+
+        Ok(SemanticReadiness {
+            endpoint_available,
+            model_name,
+            dimensions: self.config.dimensions,
+            vector_count,
+            is_stale: false, // Stale check handled at command level
+            dimension_mismatch,
         })
     }
 

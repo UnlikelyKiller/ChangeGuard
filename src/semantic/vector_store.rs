@@ -78,6 +78,21 @@ impl<'a> VectorStore<'a> {
         Ok(())
     }
 
+    pub fn get_vector_count(&self) -> Result<usize> {
+        let relations = self.storage.get_relations()?;
+        if !relations.contains(&"snippet_embedding".to_string()) {
+            return Ok(0);
+        }
+        let script = "?[count(file_path)] := *snippet_embedding{file_path}";
+        let res = self.storage.run_script(script)?;
+        if let Some(row) = res.rows.first()
+            && let Some(DataValue::Num(Num::Int(count))) = row.first()
+        {
+            return Ok(*count as usize);
+        }
+        Ok(0)
+    }
+
     pub fn index_chunks(&self, chunks: Vec<AstChunk>, embeddings: Vec<Vec<f32>>) -> Result<()> {
         if chunks.len() != embeddings.len() {
             return Err(miette!("Mismatch between chunks and embeddings length"));

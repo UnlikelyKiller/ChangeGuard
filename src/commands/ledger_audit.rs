@@ -111,35 +111,45 @@ pub fn execute_ledger_audit(
     json: bool,
 ) -> Result<()> {
     let layout = get_layout()?;
-    let mut storage = StorageManager::open_read_only(&layout.root)?;
-    let config = load_ledger_config(&layout);
-    let manager = TransactionManager::new(
-        storage.get_connection_mut(),
-        layout.root.clone().into(),
-        config,
-    );
+    let mut storage = StorageManager::open_read_only_sqlite_only(&layout.root)?;
 
     if !json {
         println!("{}", "ChangeGuard Project Audit".bold().underline());
     }
 
     if let Some(path) = entity {
+        let config = load_ledger_config(&layout);
+        let manager = TransactionManager::new(
+            storage.get_connection_mut(),
+            layout.root.clone().into(),
+            config,
+        );
         audit_entity(&manager, &path, limit, offset, json)?;
     } else {
-        audit_global(&manager, include_unaudited, limit, offset, json)?;
+        audit_global(&storage, include_unaudited, limit, offset, json)?;
     }
 
     Ok(())
 }
 
 fn gather_audit_data(
-    manager: &TransactionManager,
-    layout: &Layout,
+    storage: &StorageManager,
     include_unaudited: bool,
     limit: usize,
     offset: usize,
 ) -> Result<ProjectAuditReport> {
-    let db = LedgerDb::new(manager.get_connection());
+    let layout = get_layout()?;
+    let db = LedgerDb::new(storage.get_connection());
+    let config = load_ledger_config(&layout);
+
+    // Opening a second connection for the manager avoids borrow conflicts
+    // while maintaining read-only isolation.
+    let mut storage_mut = StorageManager::open_read_only_sqlite_only(&layout.root)?;
+    let manager = TransactionManager::new(
+        storage_mut.get_connection_mut(),
+        layout.root.clone().into(),
+        config,
+    );
 
     // 1. Velocity
     let v_7 = db
@@ -200,11 +210,10 @@ fn gather_audit_data(
     };
 
     // 4. Hotspots (respecting limit)
-    let storage = StorageManager::open_read_only(&layout.root)?;
     let discovered = gix::discover(&layout.root).into_diagnostic()?;
     let history_provider = GixHistoryProvider::new(&discovered);
     let hotspots = calculate_hotspots(
-        &storage,
+        storage,
         &history_provider,
         &crate::impact::hotspots::HotspotQuery {
             commits: 500,
@@ -286,14 +295,13 @@ fn audit_entries_from_ledger_entries(
 }
 
 fn audit_global(
-    manager: &TransactionManager,
+    storage: &StorageManager,
     include_unaudited: bool,
     limit: usize,
     offset: usize,
     json: bool,
 ) -> Result<()> {
-    let layout = get_layout()?;
-    let report = gather_audit_data(manager, &layout, include_unaudited, limit, offset)?;
+    let report = gather_audit_data(storage, include_unaudited, limit, offset)?;
 
     if json {
         println!(

@@ -85,6 +85,8 @@ mod tests {
 
         let config = LocalModelConfig {
             base_url: server.base_url(),
+            embedding_url: None,
+            generation_url: None,
             embedding_model: "test-model".to_string(),
             dimensions: 3,
             context_window: 8192,
@@ -114,6 +116,8 @@ mod tests {
 
         let config = LocalModelConfig {
             base_url: server.base_url(),
+            embedding_url: None,
+            generation_url: None,
             embedding_model: "test-model".to_string(),
             dimensions: 3,
             context_window: 8192,

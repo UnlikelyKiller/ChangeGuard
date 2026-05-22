@@ -238,6 +238,9 @@ pub enum Commands {
         /// Maximum number of findings to display
         #[arg(long, default_value_t = 50)]
         limit: usize,
+        /// Automatically run incremental index before detection if the index is stale
+        #[arg(long)]
+        auto_index: bool,
     },
     /// Generate an interactive visualization of the knowledge graph
     Viz {
@@ -327,7 +330,14 @@ pub enum BridgeCommands {
 #[derive(Subcommand)]
 pub enum FederateCommands {
     /// Export public interfaces for other repositories to consume
-    Export,
+    Export {
+        /// Preview the schema without writing to .changeguard/state/schema.json
+        #[arg(long, short = 'd')]
+        dry_run: bool,
+        /// Custom output path for the schema file
+        #[arg(long, short)]
+        out: Option<String>,
+    },
     /// Scan sibling directories for ChangeGuard schemas
     Scan,
     /// Show status of federated links
@@ -649,7 +659,9 @@ pub fn run_with(cli: Cli) -> Result<()> {
         ),
         Commands::Hotspots { args } => crate::commands::hotspots::execute_hotspots(args),
         Commands::Federate { command } => match command {
-            FederateCommands::Export => crate::commands::federate::execute_federate_export(),
+            FederateCommands::Export { dry_run, out } => {
+                crate::commands::federate::execute_federate_export(dry_run, out)
+            }
             FederateCommands::Scan => crate::commands::federate::execute_federate_scan(),
             FederateCommands::Status => crate::commands::federate::execute_federate_status(),
         },
@@ -766,9 +778,11 @@ pub fn run_with(cli: Cli) -> Result<()> {
             ConfigCommands::Verify => crate::commands::config::execute_config_verify(),
             ConfigCommands::View { json } => crate::commands::config::execute_config_view(json),
         },
-        Commands::DeadCode { threshold, limit } => {
-            crate::commands::dead_code::execute_dead_code(threshold, limit)
-        }
+        Commands::DeadCode {
+            threshold,
+            limit,
+            auto_index,
+        } => crate::commands::dead_code::execute_dead_code(threshold, limit, auto_index),
         #[cfg(feature = "daemon")]
         Commands::Daemon { interval } => crate::commands::daemon::execute_daemon(interval),
         Commands::Audit {
@@ -829,6 +843,9 @@ pub struct HotspotArgs {
     /// Include centrality data (requires prior `index --analyze-graph`)
     #[arg(long)]
     pub centrality: bool,
+    /// Automatically run incremental index before calculation if the index is stale
+    #[arg(long)]
+    pub auto_index: bool,
     /// Find semantically similar code clusters (duplication hotspots)
     #[arg(long, short)]
     pub semantic: bool,

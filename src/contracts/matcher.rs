@@ -239,6 +239,8 @@ mod tests {
         let config = ContractsConfig::default();
         let embed_config = LocalModelConfig {
             base_url: "http://localhost:11434".to_string(),
+            embedding_url: None,
+            generation_url: None,
             embedding_model: "test-model".to_string(),
             ..Default::default()
         };
@@ -256,6 +258,8 @@ mod tests {
         let config = ContractsConfig::default();
         let embed_config = LocalModelConfig {
             base_url: "http://localhost:11434".to_string(),
+            embedding_url: None,
+            generation_url: None,
             embedding_model: "test-model".to_string(),
             ..Default::default()
         };
@@ -282,6 +286,8 @@ mod tests {
         let config = ContractsConfig::default();
         let embed_config = LocalModelConfig {
             base_url: "http://localhost:11434".to_string(),
+            embedding_url: None,
+            generation_url: None,
             embedding_model: "test-model".to_string(),
             ..Default::default()
         };
@@ -324,6 +330,8 @@ mod tests {
         let config = ContractsConfig::default();
         let embed_config = LocalModelConfig {
             base_url: "http://localhost:11434".to_string(),
+            embedding_url: None,
+            generation_url: None,
             embedding_model: "test-model".to_string(),
             ..Default::default()
         };
@@ -345,6 +353,8 @@ mod tests {
         let config = ContractsConfig::default();
         let embed_config = LocalModelConfig {
             base_url: "http://localhost:11434".to_string(),
+            embedding_url: None,
+            generation_url: None,
             embedding_model: "test-model".to_string(),
             ..Default::default()
         };

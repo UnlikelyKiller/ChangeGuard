@@ -7,7 +7,7 @@ use crate::state::layout::Layout;
 use miette::Result;
 use std::env;
 
-pub fn execute_dead_code(threshold: f64, limit: usize) -> Result<()> {
+pub fn execute_dead_code(threshold: f64, limit: usize, auto_index: bool) -> Result<()> {
     let current_dir = env::current_dir()
         .map_err(|e| miette::miette!("Failed to get current directory: {}", e))?;
 
@@ -21,7 +21,13 @@ pub fn execute_dead_code(threshold: f64, limit: usize) -> Result<()> {
     let db_path = layout.state_subdir().join("ledger.db");
     let storage = crate::state::storage::StorageManager::init(db_path.as_std_path())?;
     let threshold_days = config.index.stale_threshold_days;
-    let _ = warn_if_stale(&storage, threshold_days);
+
+    let storage = if auto_index {
+        crate::index::staleness::try_auto_index(storage, threshold_days)?
+    } else {
+        let _ = warn_if_stale(&storage, threshold_days);
+        storage
+    };
 
     // CLI overrides
     config.dead_code.enabled = true;

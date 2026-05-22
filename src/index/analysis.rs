@@ -37,7 +37,10 @@ pub fn analyze_file(relative_path: &Path, base_dir: &Path) -> AnalysisOutcome {
         };
     };
 
-    let supported = matches!(extension, "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go");
+    let supported = matches!(
+        extension,
+        "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go" | "md"
+    );
     if !supported {
         status.symbols = AnalysisStatus::Unsupported;
         status.imports = AnalysisStatus::Unsupported;

@@ -24,6 +24,8 @@ fn test_ci_outcome_recording_and_query() {
     let server = MockServer::start();
     let embed_config = LocalModelConfig {
         base_url: server.base_url(),
+        embedding_url: None,
+        generation_url: None,
         embedding_model: "test-embed".to_string(),
         ..LocalModelConfig::default()
     };

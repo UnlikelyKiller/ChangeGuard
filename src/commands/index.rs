@@ -498,6 +498,15 @@ fn execute_semantic_index(
         .cozo
         .as_ref()
         .ok_or_else(|| miette::miette!("CozoDB storage not initialized"))?;
+
+    tracing::debug!(
+        "Using embedding URL: {:?}",
+        config
+            .local_model
+            .embedding_url
+            .as_deref()
+            .unwrap_or(&config.local_model.base_url)
+    );
     let semantic = SemanticDiscovery::new(config.local_model.clone(), cozo)?;
 
     info!("Indexing repository for semantic search...");

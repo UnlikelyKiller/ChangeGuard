@@ -10,6 +10,7 @@ pub fn get_repo_status(repo: &Repository) -> Result<Vec<FileChange>, GitError> {
     let status = repo
         .status(gix::progress::Discard)
         .map_err(|e| GitError::MetadataError { source: e.into() })?
+        .untracked_files(gix::status::UntrackedFiles::Files)
         .index_worktree_rewrites(Some(gix::diff::Rewrites::default()));
 
     let items = status

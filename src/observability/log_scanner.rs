@@ -453,6 +453,8 @@ mod tests {
 
         let local_model = LocalModelConfig {
             base_url: server.base_url(),
+            embedding_url: None,
+            generation_url: None,
             embedding_model: "test-model".to_string(),
             timeout_secs: 5,
             ..LocalModelConfig::default()

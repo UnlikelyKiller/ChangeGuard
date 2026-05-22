@@ -39,11 +39,16 @@ struct CompletionResponse {
 }
 
 pub fn ping_completions(config: &LocalModelConfig) -> Result<String, String> {
-    if config.base_url.is_empty() {
+    if config.base_url.is_empty() && config.generation_url.is_none() {
         return Err("not configured".to_string());
     }
 
-    let url = format!("{}/v1/chat/completions", config.base_url);
+    let url = if let Some(gen_url) = &config.generation_url {
+        format!("{}/v1/chat/completions", gen_url)
+    } else {
+        format!("{}/v1/chat/completions", config.base_url)
+    };
+    tracing::debug!("Using completion URL: {}", url);
 
     let body = serde_json::json!({
         "model": config.generation_model,
@@ -64,11 +69,19 @@ pub fn ping_completions(config: &LocalModelConfig) -> Result<String, String> {
         .send_json(&body)
     {
         Ok(resp) => resp,
-        Err(ureq::Error::Status(code, _)) => {
-            return Err(format!("{code} from server"));
+        Err(ureq::Error::Status(code, response)) => {
+            let body = response.into_string().unwrap_or_default();
+            return Err(format!(
+                "{} server error ({})",
+                code,
+                body.chars().take(100).collect::<String>()
+            ));
         }
         Err(ureq::Error::Transport(inner)) => {
-            return Err(format!("unreachable — {inner}"));
+            if format!("{:?}", inner).to_lowercase().contains("timeout") {
+                return Err(format!("timed out after {}s", config.timeout_secs));
+            }
+            return Err(format!("unreachable ({})", inner));
         }
     };
 
@@ -97,7 +110,12 @@ pub fn complete(
         ));
     }
 
-    let url = format!("{}/v1/chat/completions", config.base_url);
+    let url = if let Some(gen_url) = &config.generation_url {
+        format!("{}/v1/chat/completions", gen_url)
+    } else {
+        format!("{}/v1/chat/completions", config.base_url)
+    };
+    tracing::debug!("Using completion URL: {}", url);
 
     let body = serde_json::json!({
         "model": config.generation_model,
@@ -172,6 +190,8 @@ mod tests {
     fn test_config(base_url: &str) -> LocalModelConfig {
         LocalModelConfig {
             base_url: base_url.to_string(),
+            embedding_url: None,
+            generation_url: None,
             generation_model: "test-model".to_string(),
             timeout_secs: 30,
             ..LocalModelConfig::default()

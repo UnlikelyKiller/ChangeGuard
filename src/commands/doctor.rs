@@ -42,26 +42,46 @@ pub fn execute_doctor() -> Result<()> {
 
     let config = crate::config::load::load_config(&layout).unwrap_or_else(|_| Config::default());
 
-    let embedding_model_status = if config.local_model.base_url.is_empty() {
-        "Not configured".to_string()
-    } else {
-        match crate::embed::client::check_local_model(&config.local_model) {
-            Ok(dims) => format!(
-                "{} ({} dims) @ {}",
-                dims.model_name, dims.dimensions, config.local_model.base_url
-            ),
-            Err(e) => format!("unreachable ({})", e),
-        }
-    };
+    let embedding_model_status =
+        if config.local_model.base_url.is_empty() && config.local_model.embedding_url.is_none() {
+            "Not configured".to_string()
+        } else {
+            let mut probe_config = config.local_model.clone();
+            probe_config.timeout_secs = 5; // Fail fast for doctor
+            match crate::embed::client::check_local_model(&probe_config) {
+                Ok(dims) => format!(
+                    "{} ({} dims) @ {}",
+                    dims.model_name,
+                    dims.dimensions,
+                    config
+                        .local_model
+                        .embedding_url
+                        .as_deref()
+                        .unwrap_or(&config.local_model.base_url)
+                ),
+                Err(e) => format!("unreachable ({})", e),
+            }
+        };
 
-    let completion_model_status = if config.local_model.base_url.is_empty() {
-        "Not configured".to_string()
-    } else {
-        match crate::local_model::client::ping_completions(&config.local_model) {
-            Ok(model) => format!("{} @ {}", model, config.local_model.base_url),
-            Err(e) => format!("unreachable ({})", e),
-        }
-    };
+    let completion_model_status =
+        if config.local_model.base_url.is_empty() && config.local_model.generation_url.is_none() {
+            "Not configured".to_string()
+        } else {
+            let mut probe_config = config.local_model.clone();
+            probe_config.timeout_secs = 5; // Fail fast for doctor
+            match crate::local_model::client::ping_completions(&probe_config) {
+                Ok(model) => format!(
+                    "{} @ {}",
+                    model,
+                    config
+                        .local_model
+                        .generation_url
+                        .as_deref()
+                        .unwrap_or(&config.local_model.base_url)
+                ),
+                Err(e) => format!("unreachable ({})", e),
+            }
+        };
 
     let cozo_path = layout.state_subdir().join("ledger.cozo");
     let native_graph_status = if cozo_path.exists() {

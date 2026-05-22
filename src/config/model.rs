@@ -347,13 +347,22 @@ fn default_debounce_ms() -> u64 {
 }
 fn default_ignore_patterns() -> Vec<String> {
     vec![
+        "target".to_string(),
         "target/**".to_string(),
+        ".git".to_string(),
         ".git/**".to_string(),
+        "node_modules".to_string(),
         "node_modules/**".to_string(),
+        ".claude".to_string(),
         ".claude/**".to_string(),
+        ".codex".to_string(),
         ".codex/**".to_string(),
+        ".opencode".to_string(),
         ".opencode/**".to_string(),
+        ".agents".to_string(),
         ".agents/**".to_string(),
+        ".changeguard".to_string(),
+        ".changeguard/**".to_string(),
     ]
 }
 
@@ -379,6 +388,10 @@ fn default_context_window() -> usize {
 pub struct LocalModelConfig {
     #[serde(default)]
     pub base_url: String,
+    #[serde(default)]
+    pub embedding_url: Option<String>,
+    #[serde(default)]
+    pub generation_url: Option<String>,
     #[serde(default)]
     pub embedding_model: String,
     #[serde(default)]
@@ -424,6 +437,8 @@ impl Default for LocalModelConfig {
     fn default() -> Self {
         Self {
             base_url: String::new(),
+            embedding_url: None,
+            generation_url: None,
             embedding_model: String::new(),
             generation_model: String::new(),
             rerank_model: String::new(),
@@ -913,6 +928,17 @@ fn resolve_local_model_config_with(
     };
 
     resolved.base_url = resolve_string(&config.base_url, "CHANGEGUARD_LOCAL_MODEL_URL");
+    resolved.embedding_url = Some(resolve_string(
+        config.embedding_url.as_deref().unwrap_or(""),
+        "CHANGEGUARD_LOCAL_EMBEDDING_URL",
+    ))
+    .filter(|s| !s.is_empty());
+    resolved.generation_url = Some(resolve_string(
+        config.generation_url.as_deref().unwrap_or(""),
+        "CHANGEGUARD_LOCAL_GENERATION_URL",
+    ))
+    .filter(|s| !s.is_empty());
+
     resolved.embedding_model =
         resolve_string(&config.embedding_model, "CHANGEGUARD_EMBEDDING_MODEL");
     resolved.generation_model =
@@ -1287,6 +1313,8 @@ mod tests {
 
         let raw = LocalModelConfig {
             base_url: "http://config:9999".to_string(),
+            embedding_url: None,
+            generation_url: None,
             embedding_model: "config-model".to_string(),
             generation_model: "".to_string(),
             rerank_model: "".to_string(),

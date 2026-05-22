@@ -26,7 +26,7 @@ fn test_federate_export_from_subdirectory() {
     let _subguard = DirGuard::from_utf8(&subdir);
 
     // This should find the repo root and work correctly
-    execute_federate_export().unwrap();
+    execute_federate_export(false, None).unwrap();
 
     assert!(
         root.join(".changeguard")
@@ -77,7 +77,7 @@ fn test_federate_scan_from_subdirectory() {
     {
         let _guard = DirGuard::from_utf8(&repo2);
         execute_init(false).unwrap();
-        execute_federate_export().unwrap();
+        execute_federate_export(false, None).unwrap();
     }
 
     // Init and scan from repo1 subdirectory

@@ -6,7 +6,6 @@ use crate::git::status::get_repo_status;
 use crate::output::human::print_scan_summary;
 use crate::state::layout::Layout;
 use crate::state::reports::{ScanDiffSummary, ScanReport, write_scan_report};
-use globset::{Glob, GlobSetBuilder};
 use miette::{IntoDiagnostic, Result};
 use std::env;
 use std::path::PathBuf;
@@ -25,27 +24,9 @@ pub fn execute_scan(run_impact: bool, json: bool, out: Option<PathBuf>) -> Resul
 
     // Filter changes against config ignore_patterns
     let layout = Layout::new(current_dir.to_string_lossy().as_ref());
-    let changes = if let Ok(config) = load_config(&layout) {
-        let mut builder = GlobSetBuilder::new();
-        for pattern in &config.watch.ignore_patterns {
-            builder.add(
-                Glob::new(pattern)
-                    .map_err(|e| miette::miette!("Invalid glob pattern '{}': {}", pattern, e))?,
-            );
-        }
-        let ignore_set = builder
-            .build()
-            .map_err(|e| miette::miette!("Failed to build glob set: {}", e))?;
-        all_changes
-            .into_iter()
-            .filter(|change| {
-                let path_str = change.path.to_string_lossy();
-                !ignore_set.is_match(path_str.as_ref())
-            })
-            .collect()
-    } else {
-        all_changes
-    };
+    let config = load_config(&layout).unwrap_or_default();
+    let changes =
+        crate::git::ignore::filter_ignored_changes(all_changes, &config.watch.ignore_patterns)?;
 
     let is_clean = changes.is_empty();
 

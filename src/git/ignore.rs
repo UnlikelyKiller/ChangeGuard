@@ -4,6 +4,9 @@ use miette::Result;
 use std::fs;
 use std::io::{Read, Write};
 
+use crate::git::{ChangeType, FileChange};
+use globset::{Glob, GlobSetBuilder};
+
 pub fn add_to_gitignore(root: &Utf8Path, pattern: &str) -> Result<bool> {
     let ignore_path = root.join(".gitignore");
 
@@ -71,6 +74,41 @@ pub fn add_to_gitignore(root: &Utf8Path, pattern: &str) -> Result<bool> {
         })?;
 
     Ok(true)
+}
+
+/// Filter changes against config `watch.ignore_patterns` using glob matching.
+/// By default, it only filters untracked (unstaged Added) files, preserving
+/// tracked changes even if they match an ignore pattern.
+pub fn filter_ignored_changes(
+    changes: Vec<FileChange>,
+    ignore_patterns: &[String],
+) -> Result<Vec<FileChange>> {
+    if ignore_patterns.is_empty() {
+        return Ok(changes);
+    }
+    let mut builder = GlobSetBuilder::new();
+    for pattern in ignore_patterns {
+        builder.add(
+            Glob::new(pattern)
+                .map_err(|e| miette::miette!("Invalid glob pattern '{}': {}", pattern, e))?,
+        );
+    }
+    let ignore_set = builder
+        .build()
+        .map_err(|e| miette::miette!("Failed to build glob set: {}", e))?;
+    Ok(changes
+        .into_iter()
+        .filter(|change| {
+            // Only filter Added + Unstaged (which means untracked in this context)
+            if matches!(change.change_type, ChangeType::Added) && !change.is_staged {
+                let path_str = change.path.to_string_lossy().replace('\\', "/");
+                if ignore_set.is_match(path_str) {
+                    return false;
+                }
+            }
+            true
+        })
+        .collect())
 }
 
 #[cfg(test)]

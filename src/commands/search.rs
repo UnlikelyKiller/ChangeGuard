@@ -1,6 +1,6 @@
 use crate::bridge::model::{BridgeDirection, BridgePayload, BridgeRecord, Privacy};
 use crate::config::load_config;
-use crate::index::{ProjectIndexer, warn_if_stale};
+use crate::index::warn_if_stale;
 use crate::search::{RegexFilter, StreamIndexer, TantivySearchEngine};
 use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
@@ -30,16 +30,12 @@ pub fn execute_search(
     // Otherwise use read-only fast-path, gracefully skipping if DB not initialized.
     if !index {
         let config = load_config(&layout)?;
-        let mut storage_opt = StorageManager::open_read_only(&layout.root).ok();
+        let storage_opt = StorageManager::open_read_only(&layout.root).ok();
 
-        if let Some(storage) = storage_opt.take() {
+        if let Some(storage) = storage_opt {
             let threshold = config.index.stale_threshold_days;
             if auto_index {
-                // Drop read-only handle so run_incremental_index can take an exclusive lock
-                drop(storage);
-                if let Err(e) = run_incremental_index(&layout) {
-                    tracing::warn!("incremental index failed, proceeding with current index: {e}");
-                }
+                let _ = crate::index::staleness::try_auto_index(storage, threshold);
             } else {
                 let _ = warn_if_stale(&storage, threshold);
             }
@@ -57,47 +53,98 @@ pub fn execute_search(
         let semantic_engine =
             crate::semantic::SemanticDiscovery::new(config.local_model.clone(), cozo)?;
 
+        // --- Phase 1: Readiness Check ---
+        let readiness = semantic_engine.check_readiness()?;
+        if json {
+            let record = BridgeRecord {
+                bridge_version: BridgeRecord::VERSION.to_string(),
+                direction: BridgeDirection::Outbound,
+                timestamp: chrono::Utc::now(),
+                parent_hash: None,
+                project_id: project_id.clone(),
+                session_id: None,
+                tx_id: None,
+                record_kind: "semantic_readiness".to_string(),
+                payload: BridgePayload::Insight {
+                    memory_id: "readiness".to_string(),
+                    relevance: 1.0,
+                    content: serde_json::to_string(&readiness).unwrap_or_default(),
+                },
+                privacy: Privacy::ProjectLocal,
+            };
+            println!("{}", serde_json::to_string(&record).unwrap_or_default());
+        } else {
+            if !readiness.endpoint_available {
+                println!(
+                    "{} Local embedding endpoint unreachable. Check your model server.",
+                    "WARN".yellow().bold()
+                );
+            }
+            if readiness.vector_count == 0 {
+                println!(
+                    "{} Semantic index is empty. Run {} to populate.",
+                    "WARN".yellow().bold(),
+                    "changeguard index --semantic".cyan().bold()
+                );
+            }
+            if readiness.dimension_mismatch {
+                println!(
+                    "{} Model/Index dimension mismatch ({} vs {}). Run {} to fix.",
+                    "ERROR".red().bold(),
+                    readiness.model_name,
+                    readiness.dimensions,
+                    "changeguard update --migrate".cyan().bold()
+                );
+            }
+        }
+
         debug!("Performing semantic search for: {}", query);
         let results = semantic_engine.query(&query, limit)?;
 
-        if results.is_empty() {
-            if !json {
-                println!("No relevant code snippets found.");
+        if !results.is_empty() {
+            if json {
+                for (path, name, offset, dist) in results {
+                    let record = BridgeRecord {
+                        bridge_version: BridgeRecord::VERSION.to_string(),
+                        direction: BridgeDirection::Outbound,
+                        timestamp: chrono::Utc::now(),
+                        parent_hash: None,
+                        project_id: project_id.clone(),
+                        session_id: None,
+                        tx_id: None,
+                        record_kind: "insight".to_string(),
+                        payload: BridgePayload::Insight {
+                            memory_id: format!("{}::{}", path, name),
+                            relevance: 1.0 - dist as f64,
+                            content: format!("{} (offset {}, dist {:.4})", name, offset, dist),
+                        },
+                        privacy: Privacy::ProjectLocal,
+                    };
+                    println!("{}", serde_json::to_string(&record).unwrap_or_default());
+                }
+            } else {
+                println!("\n{}", "Semantic Search Results:".bold().cyan());
+                for (path, name, offset, dist) in results {
+                    println!(
+                        "- {} ({} at offset {}) [dist: {:.4}]",
+                        name.bold(),
+                        path,
+                        offset,
+                        dist
+                    );
+                }
+                println!();
             }
-        } else if json {
-            for (path, name, offset, dist) in results {
-                let record = BridgeRecord {
-                    bridge_version: BridgeRecord::VERSION.to_string(),
-                    direction: BridgeDirection::Outbound,
-                    timestamp: chrono::Utc::now(),
-                    parent_hash: None,
-                    project_id: project_id.clone(),
-                    session_id: None,
-                    tx_id: None,
-                    record_kind: "insight".to_string(),
-                    payload: BridgePayload::Insight {
-                        memory_id: format!("{}::{}", path, name),
-                        relevance: 1.0 - dist as f64,
-                        content: format!("{} (offset {}, dist {:.4})", name, offset, dist),
-                    },
-                    privacy: Privacy::ProjectLocal,
-                };
-                println!("{}", serde_json::to_string(&record).unwrap_or_default());
-            }
-        } else {
-            println!("\n{}", "Semantic Search Results:".bold().cyan());
-            for (path, name, offset, dist) in results {
-                println!(
-                    "- {} ({} at offset {}) [dist: {:.4}]",
-                    name.bold(),
-                    path,
-                    offset,
-                    dist
-                );
-            }
-            println!();
+            return Ok(());
         }
-        return Ok(());
+
+        if !json {
+            println!(
+                "{} No relevant code snippets found semantically. Falling back to keyword search...",
+                "INFO".blue().bold()
+            );
+        }
+        // Fall through to Tantivy search
     }
 
     let index_path = layout.search_index_dir();
@@ -123,17 +170,6 @@ pub fn execute_search(
         perform_search(engine, &root, query, regex, limit, json, &project_id)?;
     }
 
-    Ok(())
-}
-
-/// Run an incremental index against the SQLite/CozoDB project index.
-fn run_incremental_index(layout: &Layout) -> Result<()> {
-    let repo_path = layout.root.clone();
-    // We need an owned StorageManager — clone the connection by re-initializing.
-    let db_path = layout.state_subdir().join("ledger.db");
-    let storage = StorageManager::init(db_path.as_std_path())?;
-    let mut indexer = ProjectIndexer::new(storage, repo_path);
-    let _stats = indexer.incremental_index()?;
     Ok(())
 }
 
