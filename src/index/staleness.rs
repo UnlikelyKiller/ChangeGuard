@@ -267,7 +267,10 @@ mod tests {
         let storage = in_memory_storage();
         // No project_files rows at all.
         let result = check_index_staleness(&storage, 3);
-        assert!(result.is_some(), "empty DB should warn as stale to trigger initial index");
+        assert!(
+            result.is_some(),
+            "empty DB should warn as stale to trigger initial index"
+        );
         assert_eq!(result.unwrap().days_since_indexed, 999);
     }
 

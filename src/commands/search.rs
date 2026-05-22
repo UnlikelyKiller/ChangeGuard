@@ -1,40 +1,38 @@
 use crate::bridge::model::{BridgeDirection, BridgePayload, BridgeRecord, Privacy};
+use crate::commands::helpers::{get_layout, get_repo_root};
 use crate::config::load_config;
 use crate::index::warn_if_stale;
 use crate::search::{RegexFilter, StreamIndexer, TantivySearchEngine};
-use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
-use camino::Utf8PathBuf;
-use miette::{IntoDiagnostic, Result};
+use camino::Utf8Path;
+use miette::Result;
 use owo_colors::OwoColorize;
-use std::env;
 use tracing::debug;
 
-#[allow(clippy::too_many_arguments)]
-pub fn execute_search(
-    query: String,
-    regex: bool,
-    semantic: bool,
-    limit: usize,
-    index: bool,
-    json: bool,
-    auto_index: bool,
-) -> Result<()> {
-    let root = get_repo_root()?;
-    let layout = Layout::new(&root);
-    layout.ensure_state_dir()?;
-    let project_id = layout.get_project_id();
+#[derive(Debug, Clone)]
+pub struct SearchArgs {
+    pub query: String,
+    pub regex: bool,
+    pub semantic: bool,
+    pub limit: usize,
+    pub index: bool,
+    pub json: bool,
+    pub auto_index: bool,
+    pub project_id: String,
+}
+
+pub fn execute_search(args: SearchArgs) -> Result<()> {
+    let layout = get_layout()?;
+    let _root = get_repo_root()?;
 
     // --- Staleness check (applies to both semantic and BM25 paths) ---
-    // When --index is used, skip staleness check (full re-index supersedes it).
-    // Otherwise use read-only fast-path, gracefully skipping if DB not initialized.
-    if !index {
+    if !args.index {
         let config = load_config(&layout)?;
         let storage_opt = StorageManager::open_read_only(&layout.root).ok();
 
         if let Some(storage) = storage_opt {
             let threshold = config.index.stale_threshold_days;
-            if auto_index {
+            if args.auto_index {
                 let _ = crate::index::staleness::try_auto_index(storage, threshold);
             } else {
                 let _ = warn_if_stale(&storage, threshold);
@@ -42,7 +40,7 @@ pub fn execute_search(
         }
     }
 
-    if semantic {
+    if args.semantic {
         let config = load_config(&layout)?;
         let storage = StorageManager::open_read_only(&layout.root)?;
         let cozo = storage
@@ -55,13 +53,13 @@ pub fn execute_search(
 
         // --- Phase 1: Readiness Check ---
         let readiness = semantic_engine.check_readiness()?;
-        if json {
+        if args.json {
             let record = BridgeRecord {
                 bridge_version: BridgeRecord::VERSION.to_string(),
                 direction: BridgeDirection::Outbound,
                 timestamp: chrono::Utc::now(),
                 parent_hash: None,
-                project_id: project_id.clone(),
+                project_id: args.project_id.clone(),
                 session_id: None,
                 tx_id: None,
                 record_kind: "semantic_readiness".to_string(),
@@ -98,18 +96,18 @@ pub fn execute_search(
             }
         }
 
-        debug!("Performing semantic search for: {}", query);
-        let results = semantic_engine.query(&query, limit)?;
+        debug!("Performing semantic search for: {}", args.query);
+        let results = semantic_engine.query(&args.query, args.limit)?;
 
         if !results.is_empty() {
-            if json {
+            if args.json {
                 for (path, name, offset, dist) in results {
                     let record = BridgeRecord {
                         bridge_version: BridgeRecord::VERSION.to_string(),
                         direction: BridgeDirection::Outbound,
                         timestamp: chrono::Utc::now(),
                         parent_hash: None,
-                        project_id: project_id.clone(),
+                        project_id: args.project_id.clone(),
                         session_id: None,
                         tx_id: None,
                         record_kind: "insight".to_string(),
@@ -138,146 +136,136 @@ pub fn execute_search(
             return Ok(());
         }
 
-        if !json {
+        if !args.json {
             println!(
                 "{} No relevant code snippets found semantically. Falling back to keyword search...",
                 "INFO".blue().bold()
             );
         }
-        // Fall through to Tantivy search
     }
 
     let index_path = layout.search_index_dir();
     let engine = TantivySearchEngine::open_or_create(index_path.as_std_path())?;
 
-    if index || is_index_empty(&index_path) {
+    if args.index || engine.document_count() == 0 {
         debug!("Indexing repository for search...");
         {
             engine.clear()?;
             let indexer = StreamIndexer::new(engine);
-            indexer.index_repository(&root)?;
+            indexer.index_repository(&layout.root)?;
         }
 
-        // Re-open engine to pick up new index
         let engine = TantivySearchEngine::open_or_create(index_path.as_std_path())?;
-
-        // Verify physical integrity on disk (crucial for Windows)
         engine.verify_index_integrity(index_path.as_std_path())?;
         debug!("Tantivy index integrity verified.");
 
-        perform_search(engine, &root, query, regex, limit, json, &project_id)?;
+        perform_search(engine, &layout.root, &args)?;
     } else {
-        perform_search(engine, &root, query, regex, limit, json, &project_id)?;
+        perform_search(engine, &layout.root, &args)?;
     }
 
     Ok(())
 }
 
-fn perform_search(
-    engine: TantivySearchEngine,
-    root: &camino::Utf8Path,
-    query: String,
-    regex: bool,
-    limit: usize,
-    json: bool,
-    project_id: &str,
-) -> Result<()> {
-    if regex {
+fn perform_search(engine: TantivySearchEngine, root: &Utf8Path, args: &SearchArgs) -> Result<()> {
+    if args.regex {
         let filter = RegexFilter::new(&engine);
-        let matches = filter.search(root, &query, limit)?;
-        if matches.is_empty() {
-            if !json {
-                println!("No matches found.");
-            }
-        } else if json {
+        let matches = filter.search(root, &args.query, args.limit)?;
+
+        if args.json {
             for m in matches {
                 let record = BridgeRecord {
                     bridge_version: BridgeRecord::VERSION.to_string(),
                     direction: BridgeDirection::Outbound,
                     timestamp: chrono::Utc::now(),
                     parent_hash: None,
-                    project_id: project_id.to_string(),
+                    project_id: args.project_id.clone(),
                     session_id: None,
                     tx_id: None,
-                    record_kind: "insight".to_string(),
+                    record_kind: "regex_match".to_string(),
                     payload: BridgePayload::Insight {
-                        memory_id: format!("{}:{}", m.path, m.line_number),
+                        memory_id: format!("{}::{}", m.path, m.line_number),
                         relevance: 1.0,
-                        content: m.content,
+                        content: format!("{}:{}: {}", m.path, m.line_number, m.content),
                     },
                     privacy: Privacy::ProjectLocal,
                 };
                 println!("{}", serde_json::to_string(&record).unwrap_or_default());
             }
         } else {
-            for m in matches {
-                println!("{}:{}: {}", m.path, m.line_number, m.content);
+            println!("\n{}", "Regex Search Results:".bold().cyan());
+            if matches.is_empty() {
+                println!("No matches found.");
+            } else {
+                for m in matches {
+                    println!(
+                        "{}:{}: {}",
+                        m.path.cyan(),
+                        m.line_number.to_string().yellow(),
+                        m.content.trim()
+                    );
+                }
             }
+            println!();
         }
     } else {
-        let results = engine.search(&query, limit)?;
-        if results.is_empty() {
-            if !json {
-                println!("No matches found.");
-            }
-        } else if json {
+        let results = engine.search(&args.query, args.limit)?;
+
+        if args.json {
             for r in results {
                 let record = BridgeRecord {
                     bridge_version: BridgeRecord::VERSION.to_string(),
                     direction: BridgeDirection::Outbound,
                     timestamp: chrono::Utc::now(),
                     parent_hash: None,
-                    project_id: project_id.to_string(),
+                    project_id: args.project_id.clone(),
                     session_id: None,
                     tx_id: None,
-                    record_kind: "insight".to_string(),
+                    record_kind: "bm25_match".to_string(),
                     payload: BridgePayload::Insight {
                         memory_id: r.path.clone(),
                         relevance: r.score as f64,
-                        content: r.snippet.unwrap_or(r.path),
+                        content: format!("{} ({})", r.path, r.snippet.unwrap_or_default()),
                     },
                     privacy: Privacy::ProjectLocal,
                 };
                 println!("{}", serde_json::to_string(&record).unwrap_or_default());
             }
         } else {
-            let any_missing_snippets = results.iter().any(|r| r.highlighted.is_none());
-            if any_missing_snippets {
-                println!(
-                    "{}",
-                    "Warning: Index needs re-building for snippets. Run 'changeguard index --semantic --force'."
-                        .yellow()
-                );
-            }
-
-            for r in results {
-                if let (Some(snippet), Some(line)) = (r.highlighted, r.line_number) {
-                    println!("{}:{}: {}", r.path, line, snippet);
-                } else {
-                    println!("{} (score: {:.2})", r.path, r.score);
+            println!("\n{}", "Ranked Search Results (BM25):".bold().cyan());
+            if results.is_empty() {
+                println!("No matches found.");
+            } else {
+                for r in results {
+                    let line_info = if let Some(line) = r.line_number {
+                        format!(":{}", line.to_string().yellow())
+                    } else {
+                        String::new()
+                    };
+                    println!(
+                        "{} [score: {:.2}]",
+                        format!("{}{}", r.path.cyan(), line_info).bold(),
+                        r.score.to_string().yellow()
+                    );
+                    if let Some(snippet) = r.highlighted {
+                        println!("  {}", snippet.trim());
+                    }
                 }
             }
+            println!();
         }
     }
+
     Ok(())
 }
 
-fn get_repo_root() -> Result<Utf8PathBuf> {
-    let current_dir = env::current_dir().into_diagnostic()?;
-    let discovered = gix::discover(&current_dir).into_diagnostic()?;
-    let root = discovered
-        .workdir()
-        .ok_or_else(|| miette::miette!("Failed to find work directory for repository"))?;
-
-    Utf8PathBuf::from_path_buf(root.to_path_buf())
-        .map_err(|_| miette::miette!("Repository root is not valid UTF-8"))
-}
-
-fn is_index_empty(path: &camino::Utf8Path) -> bool {
-    if !path.exists() {
-        return true;
+pub fn execute_search_trigrams(trigrams: Vec<String>, limit: usize) -> Result<()> {
+    let layout = get_layout()?;
+    let index_path = layout.search_index_dir();
+    let engine = TantivySearchEngine::open_or_create(index_path.as_std_path())?;
+    let results = engine.search_trigrams(&trigrams, limit)?;
+    for path in results {
+        println!("{path}");
     }
-    std::fs::read_dir(path)
-        .map(|mut entries| entries.next().is_none())
-        .unwrap_or(true)
+    Ok(())
 }

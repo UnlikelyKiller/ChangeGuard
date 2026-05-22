@@ -665,3 +665,32 @@ fn execute_contracts_index(
 
     Ok(summary)
 }
+
+pub fn execute_index_check(
+    path: &std::path::Path,
+    threshold: u64,
+    json: bool,
+    strict: bool,
+) -> Result<()> {
+    let root = camino::Utf8PathBuf::from_path_buf(path.to_path_buf())
+        .map_err(|_| miette::miette!("Invalid UTF-8 in path"))?;
+    let layout = Layout::new(root.as_str());
+    let storage = StorageManager::open_read_only(&layout.root)?;
+
+    if let Some(warning) = crate::index::staleness::check_index_staleness(&storage, threshold) {
+        if json {
+            println!("{}", serde_json::to_string(&warning).unwrap_or_default());
+        } else {
+            crate::index::staleness::print_staleness_warning(&warning);
+        }
+        if strict {
+            std::process::exit(1);
+        }
+    } else if json {
+        println!(r#"{{"status": "fresh"}}"#);
+    } else {
+        println!("Index is fresh.");
+    }
+
+    Ok(())
+}

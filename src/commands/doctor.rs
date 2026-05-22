@@ -3,44 +3,25 @@ use crate::output::human::print_doctor_report;
 use crate::platform::{check_tools, classify_path, current_platform, detect_shell};
 use crate::state::layout::Layout;
 use miette::{IntoDiagnostic, Result};
-use owo_colors::OwoColorize;
 use std::env;
 
 pub fn execute_doctor() -> Result<()> {
     let platform = current_platform();
-    let platform_str = match platform {
-        crate::platform::PlatformType::Windows => "Windows".green().to_string(),
-        crate::platform::PlatformType::Linux => "Linux".green().to_string(),
-        crate::platform::PlatformType::Wsl => {
-            "Windows Subsystem for Linux (WSL)".green().to_string()
-        }
-        crate::platform::PlatformType::Unknown => "Unknown".yellow().to_string(),
-    };
-
     let shell = detect_shell();
-    let shell_str = match shell {
-        crate::platform::ShellType::Powershell => "PowerShell".green().to_string(),
-        crate::platform::ShellType::Bash => "Bash".green().to_string(),
-        crate::platform::ShellType::Zsh => "Zsh".green().to_string(),
-        crate::platform::ShellType::Cmd => "Command Prompt".green().to_string(),
-        crate::platform::ShellType::Unknown => "Unknown".yellow().to_string(),
-    };
-
     let tools = check_tools();
+
     let current_dir = env::current_dir().into_diagnostic()?;
-    let path_kind = classify_path(&current_dir);
-    let kind_str = match path_kind {
-        crate::platform::PathKind::Native => "Native".green().to_string(),
-        crate::platform::PathKind::WslMounted => "WSL Mounted (Cross-FS)".yellow().to_string(),
-        crate::platform::PathKind::Network => "Network Drive".yellow().to_string(),
-        crate::platform::PathKind::Unknown => "Unknown".red().to_string(),
-    };
-
     let current_dir_display = current_dir.display().to_string();
-    let current_dir_utf8: &camino::Utf8Path = camino::Utf8Path::new(&current_dir_display);
-    let layout = Layout::new(current_dir_utf8);
+    let path_kind = classify_path(&current_dir);
 
-    let config = crate::config::load::load_config(&layout).unwrap_or_else(|_| Config::default());
+    let platform_str = format!("{platform:?}");
+    let shell_str = format!("{shell:?}");
+    let kind_str = format!("{path_kind:?}");
+
+    let current_dir_utf8: &camino::Utf8Path = camino::Utf8Path::new(&current_dir_display);
+    let layout = Layout::new(current_dir_utf8.as_str());
+
+    let config = crate::config::load_config(&layout).unwrap_or_else(|_| Config::default());
 
     let embedding_model_status =
         if config.local_model.base_url.is_empty() && config.local_model.embedding_url.is_none() {
@@ -85,14 +66,14 @@ pub fn execute_doctor() -> Result<()> {
 
     let cozo_path = layout.state_subdir().join("ledger.cozo");
     let native_graph_status = if cozo_path.exists() {
-        match crate::state::storage_cozo::CozoStorage::new(cozo_path.as_std_path()) {
+        match crate::state::storage_cozo::CozoStorage::new_read_only(cozo_path.as_std_path()) {
             Ok(cozo) => match (cozo.node_count(), cozo.edge_count()) {
                 (Ok(nodes), Ok(edges)) => {
                     format!("Ready (CozoDB active, {} nodes, {} edges)", nodes, edges)
                 }
                 _ => "Ready (CozoDB active)".to_string(),
             },
-            Err(_) => "Unavailable".to_string(),
+            Err(e) => format!("Unavailable ({})", e),
         }
     } else {
         "Not initialized (run `changeguard index --analyze-graph`)".to_string()
@@ -119,25 +100,38 @@ pub fn execute_doctor() -> Result<()> {
 }
 
 fn print_vram_section() {
+    use owo_colors::OwoColorize;
+
     #[cfg(target_os = "windows")]
     {
         match crate::platform::gpu::query_vram_usage() {
             Ok(info) => {
-                let used_gb = info.current_usage as f64 / 1_000_000_000.0;
-                let budget_gb = info.budget_bytes as f64 / 1_000_000_000.0;
+                let usage_gb = info.current_usage as f64 / 1_073_741_824.0;
+                let budget_gb = info.budget_bytes as f64 / 1_073_741_824.0;
                 let pressure = crate::platform::gpu::classify(&info);
-                let icon = match pressure {
-                    crate::platform::gpu::VramPressure::Critical => "X".red().to_string(),
-                    crate::platform::gpu::VramPressure::High => "!".yellow().to_string(),
-                    crate::platform::gpu::VramPressure::Ok => "V".green().to_string(),
+
+                let status = match pressure {
+                    crate::platform::gpu::VramPressure::Ok => {
+                        format!("{:.1} GB / {:.1} GB", usage_gb, budget_gb)
+                            .green()
+                            .to_string()
+                    }
+                    crate::platform::gpu::VramPressure::High => {
+                        format!("{:.1} GB / {:.1} GB (HIGH)", usage_gb, budget_gb)
+                            .yellow()
+                            .to_string()
+                    }
+                    crate::platform::gpu::VramPressure::Critical => format!(
+                        "{:.1} GB / {:.1} GB (CRITICAL - may block model load)",
+                        usage_gb, budget_gb
+                    )
+                    .red()
+                    .bold()
+                    .to_string(),
                 };
-                println!(
-                    "{:<20} {:.1} GB / {:.1} GB  {}",
-                    "GPU VRAM:".bold(),
-                    used_gb,
-                    budget_gb,
-                    icon,
-                );
+
+                println!("{:<20} {}", "GPU VRAM:".bold(), status);
+
                 if matches!(
                     pressure,
                     crate::platform::gpu::VramPressure::Critical
@@ -145,7 +139,7 @@ fn print_vram_section() {
                 ) {
                     println!(
                         "{}",
-                        "  High VRAM pressure detected — avoid running both models simultaneously"
+                        "  Warning: High VRAM pressure may cause model load failures. \n  Only one model (Embedding or Completion) may fit."
                             .yellow()
                             .italic()
                     );

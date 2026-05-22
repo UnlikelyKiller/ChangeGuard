@@ -1,14 +1,11 @@
-use camino::Utf8PathBuf;
 use comfy_table::modifiers::UTF8_ROUND_CORNERS;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::{Cell, Color, Table};
 use miette::{IntoDiagnostic, Result};
 use owo_colors::OwoColorize;
 use serde::Serialize;
-use std::env;
 
-use crate::config::load::load_config;
-use crate::config::model::Config;
+use crate::commands::helpers::{get_layout, load_ledger_config};
 use crate::impact::hotspots::calculate_hotspots;
 use crate::impact::packet::Hotspot;
 use crate::impact::temporal::GixHistoryProvider;
@@ -16,9 +13,8 @@ use crate::ledger::db::LedgerDb;
 use crate::ledger::transaction::TransactionManager;
 use crate::ledger::types::LedgerEntry;
 use crate::ledger::ui::{LedgerStatus, get_change_type_icon, get_status_icon};
-use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
-use crate::verify::results::{VERIFY_HISTORY, VerifyHistoryRecord};
+use crate::verify::results::VERIFY_HISTORY;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -80,29 +76,6 @@ pub struct ProvenanceEntry {
     pub action: crate::ledger::provenance::ProvenanceAction,
 }
 
-fn get_repo_root() -> Result<Utf8PathBuf> {
-    let current_dir = env::current_dir().into_diagnostic()?;
-    let discovered = gix::discover(&current_dir).into_diagnostic()?;
-    let root = discovered
-        .workdir()
-        .ok_or_else(|| miette::miette!("Failed to find work directory for repository"))?;
-
-    Utf8PathBuf::from_path_buf(root.to_path_buf())
-        .map_err(|_| miette::miette!("Repository root is not valid UTF-8"))
-}
-
-fn get_layout() -> Result<Layout> {
-    let root = get_repo_root()?;
-    Ok(Layout::new(root))
-}
-
-fn load_ledger_config(layout: &Layout) -> Config {
-    load_config(layout).unwrap_or_else(|e| {
-        tracing::warn!("Failed to load config: {e}. Using defaults.");
-        Config::default()
-    })
-}
-
 pub fn execute_ledger_audit(
     entity: Option<String>,
     include_unaudited: bool,
@@ -143,7 +116,6 @@ fn gather_audit_data(
     let config = load_ledger_config(&layout);
 
     // Opening a second connection for the manager avoids borrow conflicts
-    // while maintaining read-only isolation.
     let mut storage_mut = StorageManager::open_read_only_sqlite_only(&layout.root)?;
     let manager = TransactionManager::new(
         storage_mut.get_connection_mut(),
@@ -151,7 +123,6 @@ fn gather_audit_data(
         config,
     );
 
-    // 1. Velocity
     let v_7 = db
         .get_transaction_velocity(7)
         .map_err(|e| miette::miette!("{}", e))?;
@@ -159,14 +130,13 @@ fn gather_audit_data(
         .get_transaction_velocity(30)
         .map_err(|e| miette::miette!("{}", e))?;
     let total = db
-        .get_transaction_velocity(36500) // ~100 years
+        .get_transaction_velocity(36500)
         .map_err(|e| miette::miette!("{}", e))?;
     let pending_count = manager
         .get_all_pending()
         .map_err(|e| miette::miette!("{}", e))?
         .len() as i64;
 
-    // We don't have a specific get_total_federated_commit_count, so we'll query for them
     let federated_count = db
         .get_federated_entries_by_entity("%", "%", 1000000)
         .map(|entries| entries.len() as i64)
@@ -180,7 +150,6 @@ fn gather_audit_data(
         federated: federated_count,
     };
 
-    // 2. Churn (respecting limit)
     let churn_data = db
         .get_top_churned_entities(limit)
         .map_err(|e| miette::miette!("{}", e))?;
@@ -192,24 +161,21 @@ fn gather_audit_data(
         })
         .collect();
 
-    // 3. Unaudited Drift
     let unaudited_drift = if include_unaudited {
         let unaudited = manager
             .get_all_unaudited()
             .map_err(|e| miette::miette!("{}", e))?;
-        // Use the entity field since get_all_unaudited returns Transaction objects
         unaudited
             .into_iter()
             .map(|u| DriftEntry {
                 file_path: u.entity,
-                change_type: format!("{:?}", u.category), // Stale transactions don't have a ChangeType, category is close enough for drift
+                change_type: format!("{:?}", u.category),
             })
             .collect()
     } else {
         vec![]
     };
 
-    // 4. Hotspots (respecting limit)
     let discovered = gix::discover(&layout.root).into_diagnostic()?;
     let history_provider = GixHistoryProvider::new(&discovered);
     let hotspots = calculate_hotspots(
@@ -218,17 +184,17 @@ fn gather_audit_data(
         &crate::impact::hotspots::HotspotQuery {
             commits: 500,
             limit,
-            decay_half_life: 100, // Default decay half-life for audit summary
+            decay_half_life: 100,
             ..Default::default()
         },
     )
     .unwrap_or_default();
 
-    // 5. CI Trend
     let history_path = layout.reports_dir().join(VERIFY_HISTORY);
     let ci_trend = if history_path.exists() {
         let content = std::fs::read_to_string(&history_path).into_diagnostic()?;
-        let history: Vec<VerifyHistoryRecord> = serde_json::from_str(&content).unwrap_or_default();
+        let history: Vec<crate::verify::results::VerifyHistoryRecord> =
+            serde_json::from_str(&content).unwrap_or_default();
         history
             .into_iter()
             .rev()
@@ -239,7 +205,6 @@ fn gather_audit_data(
         vec![]
     };
 
-    // 6. Recent Entries
     let recent = db
         .get_recent_ledger_entries_paginated(limit, offset)
         .map_err(|e| miette::miette!("{}", e))?;
@@ -319,9 +284,8 @@ fn render_project_audit_human(
     report: &ProjectAuditReport,
     include_unaudited: bool,
     limit: usize,
-    offset: usize,
+    _offset: usize,
 ) {
-    // Print Human Readable Report
     println!("\n{}", "PROJECT VELOCITY".blue().bold());
     println!(
         "  Last 7 Days:   {}",
@@ -394,7 +358,6 @@ fn render_project_audit_human(
         println!("  No history yet.");
     } else {
         let mut trend_str = String::new();
-        // The gather function gives them newest first, so we rev() to print oldest to newest left to right
         for passed in report.ci_trend.iter().rev() {
             if *passed {
                 trend_str.push_str(&"PASS".green().to_string());
@@ -406,15 +369,7 @@ fn render_project_audit_human(
         println!("  {}", trend_str);
     }
 
-    println!(
-        "\n{}",
-        format!(
-            "RECENT COMMITTED ENTRIES (Limit: {}, Offset: {})",
-            limit, offset
-        )
-        .green()
-        .bold()
-    );
+    println!("\n{}", "RECENT COMMITTED ENTRIES".green().bold());
     if report.recent_entries.is_empty() {
         println!("  None.");
     } else {
@@ -432,18 +387,10 @@ fn render_project_audit_human(
             ]);
 
         for entry in &report.recent_entries {
-            // Pick an entity to display in the table, or "Multiple"
             let entity_display = if entry.provenance.is_empty() {
                 entry.entity.clone()
-            } else if entry.provenance.len() == 1 {
-                entry.provenance[0].entity.clone()
             } else {
-                let first = &entry.provenance[0].entity;
-                if entry.provenance.iter().all(|p| p.entity == *first) {
-                    first.clone()
-                } else {
-                    format!("{} (+{})", first, entry.provenance.len() - 1)
-                }
+                entry.provenance[0].entity.clone()
             };
 
             table.add_row(vec![
@@ -518,12 +465,9 @@ fn audit_entity(
             );
             println!("  Reason:  {}", entry.reason);
 
-            // Show token provenance
             let provenance = db
                 .get_token_provenance_for_tx(&entry.tx_id)
                 .map_err(|e| miette::miette!("{}", e))?;
-
-            // Filter provenance by this entity (since a TX could span multiple, though usually one per start)
             let entity_prov: Vec<_> = provenance
                 .into_iter()
                 .filter(|p| p.entity == entity)

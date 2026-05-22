@@ -933,4 +933,45 @@ impl<'a> LedgerDb<'a> {
             .optional()
             .map_err(LedgerError::from)
     }
+
+    pub fn register_forbidden_term(
+        &self,
+        term: &str,
+        category: &str,
+        _reason: &str,
+    ) -> Result<(), LedgerError> {
+        let rule = TechStackRule {
+            category: category.to_string(),
+            name: term.to_string(),
+            version_constraint: Some("*".to_string()),
+            rules: vec![format!("NO {}", term)],
+            locked: true,
+            status: "FORBIDDEN".to_string(),
+            entity_type: "TERM".to_string(),
+            registered_at: chrono::Utc::now().to_rfc3339(),
+        };
+        self.insert_tech_stack_rule(&rule)
+    }
+
+    pub fn register_validator(
+        &self,
+        name: &str,
+        command: &str,
+        category: &str,
+        timeout_secs: u64,
+    ) -> Result<(), LedgerError> {
+        let validator = CommitValidator {
+            id: None,
+            category: category.to_string(),
+            name: name.to_string(),
+            description: Some(format!("Manual validator: {}", name)),
+            executable: command.to_string(),
+            args: vec![],
+            timeout_ms: (timeout_secs * 1000) as i32,
+            glob: Some("*".to_string()),
+            validation_level: ValidationLevel::Error,
+            enabled: true,
+        };
+        self.insert_commit_validator(&validator)
+    }
 }

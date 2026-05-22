@@ -192,6 +192,35 @@ impl<'a> CentralityComputer<'a> {
     }
 }
 
+pub fn enrich_hotspots_with_centrality(
+    hotspots: &mut [crate::impact::packet::Hotspot],
+    cozo: &crate::state::storage_cozo::CozoStorage,
+) -> Result<()> {
+    use cozo::{DataValue, Num};
+    let script = "?[file_path, max(reachable)] := *symbol_centrality{file_id, entrypoints_reachable: reachable}, *project_files{id: file_id, file_path}";
+    let res = cozo.run_script(script)?;
+
+    let mut file_centrality = HashMap::new();
+    for row in res.rows {
+        if let (Some(DataValue::Str(path)), Some(DataValue::Num(Num::Int(reachable)))) =
+            (row.first(), row.get(1))
+        {
+            file_centrality.insert(path.to_string(), *reachable as f64);
+        }
+    }
+
+    for h in hotspots {
+        let path_str = h.path.to_string_lossy().to_string().replace('\\', "/");
+        if let Some(reachable) = file_centrality.get(&path_str) {
+            h.centrality = Some(*reachable as usize);
+            // Update score to include centrality (weighted log scale)
+            h.display_score += (reachable.ln_1p() as f32) * 0.5;
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

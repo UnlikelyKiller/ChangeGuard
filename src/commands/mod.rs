@@ -6,6 +6,7 @@ pub mod daemon;
 pub mod dead_code;
 pub mod doctor;
 pub mod federate;
+pub mod helpers;
 pub mod hotspots;
 pub mod impact;
 pub mod index;

@@ -61,10 +61,16 @@ impl CozoStorage {
             match DbInstance::new(engine, db_path, Default::default()) {
                 Ok(db) => break db,
                 Err(e) if engine == "sled" && retries < max_retries => {
-                    let err_msg = format!("{:?}", e).to_lowercase();
-                    if err_msg.contains("lock")
-                        || err_msg.contains("process cannot access")
-                        || err_msg.contains("access is denied")
+                    let err_debug = format!("{:?}", e).to_lowercase();
+                    let err_display = format!("{}", e).to_lowercase();
+
+                    if err_debug.contains("lock")
+                        || err_debug.contains("process cannot access")
+                        || err_debug.contains("access is denied")
+                        || err_debug.contains("os error 33")
+                        || err_display.contains("lock")
+                        || err_display.contains("process cannot access")
+                        || err_display.contains("os error 33")
                     {
                         retries += 1;
                         let delay = base_delay_ms * (2u64.pow(retries - 1));

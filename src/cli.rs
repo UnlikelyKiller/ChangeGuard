@@ -1,83 +1,155 @@
 use crate::commands::ask::Backend;
+use crate::commands::search::SearchArgs;
+use crate::commands::bridge::BridgeCommands;
 use clap::{Args, Parser, Subcommand};
-use miette::Result;
+use miette::{IntoDiagnostic, Result};
+use std::env;
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "changeguard")]
+#[command(about = "Change Intelligence and Transactional Provenance for Software Engineering", long_about = None)]
 #[command(version)]
-#[command(about = "ChangeGuard: Local-first change intelligence and Gemini-assisted development", long_about = None)]
 pub struct Cli {
-    /// Enable verbose (debug) logging output
-    #[arg(long, short = 'v', global = true)]
-    pub verbose: bool,
     #[command(subcommand)]
     pub command: Commands,
+
+    /// Enable verbose logging output
+    #[arg(long, short, global = true)]
+    pub verbose: bool,
 }
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Initialize Changeguard in the current repository
+    /// Initialize ChangeGuard in the current repository
     Init {
-        /// Do not update .gitignore
-        #[arg(long)]
-        no_gitignore: bool,
+        /// Force re-initialization (overwrites existing config)
+        #[arg(short, long)]
+        force: bool,
     },
-    /// Check the health of the environment and tools
-    Doctor,
-    /// Scan the repository for changes
+    /// Scan git changes and identify affected symbols
     Scan {
-        /// Also run impact analysis after scanning
-        #[arg(long)]
+        /// Run impact analysis on changes
+        #[arg(short, long)]
         impact: bool,
-        /// Output impact report as JSON (requires --impact)
-        #[arg(long, requires = "impact")]
+        /// Output as JSON (requires --impact)
+        #[arg(short, long)]
         json: bool,
-        /// Save impact JSON output to a file (requires --impact)
-        #[arg(long, short, requires = "impact")]
-        out: Option<std::path::PathBuf>,
+        /// Write JSON output to file
+        #[arg(short, long)]
+        out: Option<PathBuf>,
     },
-    /// Watch the repository for changes and batch them
-    Watch {
-        /// The interval in milliseconds to batch events
-        #[arg(long, short, default_value_t = 1000)]
-        interval: u64,
-        /// Output events as line-delimited JSON
-        #[arg(long)]
-        json: bool,
-        /// Disable live Knowledge Graph updates
-        #[arg(long)]
-        no_graph_sync: bool,
-    },
-    /// Analyze the impact of changes and generate a report
+    /// Analyze impact of current changes
     Impact {
-        /// Enable full history traversal (default is first-parent only)
+        /// Traverse all parent commits for temporal coupling
         #[arg(long)]
         all_parents: bool,
-        /// Show condensed one-line summary instead of full analysis
-        #[arg(long)]
+        /// Output a concise summary
+        #[arg(short, long)]
         summary: bool,
-        /// Warn about files with API routes/handlers but no telemetry instrumentation
+        /// Enable telemetry coverage analysis
         #[arg(long)]
-        telemetry_coverage: bool,
-        /// Enable dead code detection for changed files
+        telemetry: bool,
+        /// Run dead-code analysis on affected files
         #[arg(long)]
         dead_code: bool,
     },
-    /// Plan and run targeted verification
-    Verify {
-        /// The command to run for verification
+    /// Index the project for search and discovery
+    Index {
+        /// Perform incremental index (only changed files)
         #[arg(long, short)]
+        incremental: bool,
+        /// Force a full re-index
+        #[arg(long, short)]
+        full: bool,
+        /// Refresh the knowledge graph (analyze structure)
+        #[arg(long)]
+        analyze_graph: bool,
+        /// Index documentation files
+        #[arg(long)]
+        docs: bool,
+        /// Index API contract files (OpenAPI/Swagger)
+        #[arg(long)]
+        contracts: bool,
+        /// Index code snippets for semantic search (local embeddings)
+        #[arg(long)]
+        semantic: bool,
+        /// Ingest an external SCIP index (Protobuf)
+        #[arg(long)]
+        scip: Option<std::path::PathBuf>,
+        /// Export knowledge graph data to passive documentation
+        #[arg(long)]
+        export_docs: bool,
+        /// Filter exported documentation by type (e.g. mermaid, markdown)
+        #[arg(long)]
+        doc_type: Option<String>,
+        /// Check index freshness
+        #[arg(long)]
+        check: bool,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+        /// Strict mode for check (exit 1 if stale)
+        #[arg(long)]
+        strict: bool,
+    },
+    /// Search the codebase using high-performance regex or semantic search
+    Search {
+        /// The query string
+        query: String,
+        /// Use regular expression search
+        #[arg(short, long)]
+        regex: bool,
+        /// Use semantic search (requires local model and indexed snippets)
+        #[arg(short, long)]
+        semantic: bool,
+        /// Limit the number of results
+        #[arg(short, long, default_value_t = 10)]
+        limit: usize,
+        /// Force re-index before searching
+        #[arg(short, long)]
+        index: bool,
+        /// Output results as NDJSON BridgeRecord entries
+        #[arg(long)]
+        json: bool,
+        /// Automatically run incremental index before searching if the index is stale
+        #[arg(long)]
+        auto_index: bool,
+    },
+    /// Rank files by change frequency and complexity (Hotspots)
+    Hotspots {
+        #[command(flatten)]
+        args: HotspotArgs,
+    },
+    /// Manage cross-repo federation
+    Federate {
+        #[command(subcommand)]
+        command: FederateCommands,
+    },
+    /// Manage ChangeGuard bridge (AI-Brains integration)
+    Bridge {
+        #[command(subcommand)]
+        subcommand: BridgeCommands,
+    },
+    /// Manage project ledger and transactional provenance
+    Ledger {
+        #[command(subcommand)]
+        command: LedgerCommands,
+    },
+    /// Run verification plan (predictive Bayesian testing)
+    Verify {
+        /// Optional specific command or step to run
         command: Option<String>,
         /// Timeout in seconds
-        #[arg(long, short, default_value_t = 60)]
+        #[arg(long, short, default_value_t = 600)]
         timeout: u64,
-        /// Disable predictive verification
+        /// Disable Bayesian failure prediction
         #[arg(long)]
         no_predict: bool,
-        /// Show rationale for predicted verification targets
+        /// Explain failure probability via local LLM
         #[arg(long)]
         explain: bool,
-        /// Emit ledger health warnings even on clean verify passes
+        /// Show detailed health of the verification system
         #[arg(long)]
         health: bool,
     },
@@ -88,6 +160,9 @@ pub enum Commands {
         /// Use semantic search for code snippets instead of full impact context
         #[arg(long, short)]
         semantic: bool,
+        /// Maximum number of code snippets to include in context
+        #[arg(long, short, default_value_t = 10)]
+        limit: usize,
         /// Gemini interaction mode
         #[arg(long, short, default_value = "analyze")]
         mode: crate::gemini::modes::GeminiMode,
@@ -101,131 +176,27 @@ pub enum Commands {
         #[arg(long)]
         auto_index: bool,
     },
-    /// Reset the local state
+    /// Reset ChangeGuard state or configuration
     Reset {
-        /// Also remove .changeguard/config.toml
+        /// Remove configuration file
         #[arg(long)]
         remove_config: bool,
-        /// Also remove .changeguard/rules.toml
+        /// Remove local rules
         #[arg(long)]
         remove_rules: bool,
-        /// Also remove .changeguard/state/ledger.db
+        /// Reset the ledger (history and pending transactions)
         #[arg(long)]
         include_ledger: bool,
-        /// Remove the entire .changeguard/ tree
-        #[arg(long)]
+        /// Remove all state and configuration (total reset)
+        #[arg(long, short)]
         all: bool,
-        /// Confirm destructive reset actions
-        #[arg(long)]
+        /// Skip confirmation prompt
+        #[arg(long, short)]
         yes: bool,
     },
-    /// Index all supported source files in the repository
-    Index {
-        /// Only re-index files that have changed since the last index
-        #[arg(long)]
-        incremental: bool,
-        /// Show index status without re-indexing
-        #[arg(long)]
-        check: bool,
-        /// Exit with code 1 if the index is stale (used with --check)
-        #[arg(long)]
-        strict: bool,
-        /// Output as JSON
-        #[arg(long)]
-        json: bool,
-        /// Compute symbol centrality from the call graph (entrypoints_reachable)
-        #[arg(long)]
-        analyze_graph: bool,
-        /// Index document files (crawl, chunk, embed) from configured docs paths
-        #[arg(long)]
-        docs: bool,
-        /// Index API contract specs (OpenAPI/Swagger)
-        #[arg(long)]
-        contracts: bool,
-        /// Index code snippets for semantic search (local embeddings)
-        #[arg(long)]
-        semantic: bool,
-        /// Ingest an external SCIP index (Protobuf)
-        #[arg(long)]
-        scip: Option<std::path::PathBuf>,
-        /// Export structural documentation from the Knowledge Graph
-        #[arg(long)]
-        export_docs: bool,
-        /// Generate only the specified doc type (comma-separated)
-        #[arg(long)]
-        doc_type: Option<String>,
-    },
-    /// Search the codebase using ranked BM25 or trigram-accelerated regex
-    Search {
-        /// The search query or regex pattern
-        query: String,
-        /// Use regex search instead of ranked full-text
-        #[arg(long, short)]
-        regex: bool,
-        /// Use semantic search for code snippets
-        #[arg(long, short)]
-        semantic: bool,
-        /// Maximum number of results to return
-        #[arg(long, short, default_value_t = 10)]
-        limit: usize,
-        /// Force re-indexing before search
-        #[arg(long, short)]
-        index: bool,
-        /// Output results as NDJSON BridgeRecord entries
-        #[arg(long)]
-        json: bool,
-        /// Automatically run incremental index before searching if the index is stale
-        #[arg(long)]
-        auto_index: bool,
-    },
-    /// Identify high-risk hotspots in the codebase
-    Hotspots {
-        #[command(flatten)]
-        args: HotspotArgs,
-    },
-    /// Manage federated intelligence across multiple repositories
-    Federate {
-        #[command(subcommand)]
-        command: FederateCommands,
-    },
-    /// Bridge to external AI memory vaults (AI-Brains)
-    Bridge {
-        #[command(subcommand)]
-        subcommand: BridgeCommands,
-    },
-    /// Manage the ChangeGuard Ledger (transactional provenance)
-    Ledger {
-        #[command(flatten)]
-        global_opts: LedgerGlobalOpts,
-        #[command(subcommand)]
-        command: LedgerCommands,
-    },
-    /// Start the LSP-Lite ChangeGuard daemon
-    #[cfg(feature = "daemon")]
-    Daemon {
-        /// The interval in milliseconds to batch events
-        #[arg(long, short, default_value_t = 1000)]
-        interval: u64,
-    },
-    /// Perform a holistic project audit or history for an entity
-    Audit {
-        /// Show history for a specific entity
-        #[arg(long, short)]
-        entity: Option<String>,
-        /// Include UNAUDITED drift in global view
-        #[arg(long)]
-        include_unaudited: bool,
-        /// Limit the number of entries displayed
-        #[arg(long, short, default_value_t = 50)]
-        limit: usize,
-        /// Offset for pagination
-        #[arg(long, default_value_t = 0)]
-        offset: usize,
-        /// Output audit report as JSON
-        #[arg(long)]
-        json: bool,
-    },
-    /// Manage configuration
+    /// Health check for ChangeGuard and local model stack
+    Doctor,
+    /// Configuration management
     Config {
         #[command(subcommand)]
         command: ConfigCommands,
@@ -242,89 +213,116 @@ pub enum Commands {
         #[arg(long)]
         auto_index: bool,
     },
+    /// Perform a holistic project audit or history for an entity
+    Audit {
+        /// Entity path to audit (e.g. src/main.rs)
+        entity: Option<String>,
+        /// Include unaudited drift in the report
+        #[arg(long, short)]
+        include_unaudited: bool,
+        /// Maximum number of entries to display
+        #[arg(long, short, default_value_t = 10)]
+        limit: usize,
+        /// Offset for pagination
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// Generate an interactive visualization of the knowledge graph
     Viz {
         /// Custom output path for the HTML file
-        #[arg(long, short)]
-        output: Option<std::path::PathBuf>,
+        #[arg(long, short, alias = "out")]
+        output: Option<String>,
     },
     /// Update ChangeGuard binary or migrate repository state
     #[command(visible_alias = "upgrade")]
     Update {
         /// Perform repository state migration (re-index and schema upgrade)
-        #[arg(long, short)]
+        #[arg(long)]
         migrate: bool,
-        /// Update the ChangeGuard binary (runs cargo install --path .)
-        #[arg(long, short)]
+        /// Update ChangeGuard binary to the latest version
+        #[arg(long)]
         binary: bool,
-        /// Force update without confirmation
+        /// Skip confirmation prompts
         #[arg(long, short)]
         force: bool,
     },
-    /// Start a live WebSocket viz server with an Arc Diagram
+    /// High-performance trigram-based search (low-level)
+    #[command(hide = true)]
+    SearchTrigrams {
+        /// Trigrams to search for (space separated)
+        trigrams: Vec<String>,
+        /// Limit results
+        #[arg(long, short, default_value_t = 100)]
+        limit: usize,
+    },
+    #[cfg(feature = "daemon")]
+    Daemon {
+        /// The interval in milliseconds to batch events
+        #[arg(long, short, default_value_t = 1000)]
+        interval: u64,
+    },
+    /// Knowledge graph visualization server
     #[cfg(feature = "viz-server")]
     VizServer {
-        /// WebSocket server port
-        #[arg(long, short, default_value_t = 8765)]
+        /// Port to listen on
+        #[arg(long, short, default_value_t = 9000)]
         port: u16,
-        /// Bind address
+        /// Address to bind to
         #[arg(long, short, default_value = "127.0.0.1")]
         bind: String,
-        /// Automatically open the browser on startup
-        #[arg(long, short)]
+        /// Open the visualization in the default browser
+        #[arg(long)]
         open: bool,
-        /// Stop a running viz server (reads PID file and terminates process)
+        /// Stop a running visualization server
         #[arg(long)]
         stop: bool,
     },
 }
 
-#[derive(Subcommand)]
-pub enum BridgeCommands {
-    /// Export hotspots and ledger deltas to NDJSON
-    Export {
-        /// The output file path (default: stdout)
-        #[arg(long, short)]
-        out: Option<String>,
-        /// Export hotspot data
-        #[arg(long)]
-        hotspots: bool,
-        /// Optional specific targets (files or directories) to scope the export
-        #[arg(long)]
-        targets: Option<Vec<String>>,
-        /// Optional comma-separated file/directory list for scope-based risk analysis
-        #[arg(long, value_delimiter = ',')]
-        scope: Option<Vec<String>>,
-        /// Export ledger delta data
-        #[arg(long)]
-        ledger: bool,
-        /// Export structured MADR fields from architecture and breaking-change ledger entries
-        #[arg(long)]
-        madr: bool,
-    },
-    /// Import insights and enrich impact packets
-    Import {
-        /// The input file path (spec-compliant)
-        #[arg(long, short = 'f')]
-        from: Option<String>,
-        /// The input file path (alias for --from)
-        #[arg(long = "in", short = 'i')]
-        input: Option<String>,
-    },
-    /// Query external memories
-    Query {
-        /// The query string
-        query: String,
-    },
-    /// Run predictive verification on a scoped set of files (IPC endpoint for AI-Brains capture gate)
-    Verify {
-        /// Comma-separated file or directory paths to scope the prediction
-        #[arg(long, value_delimiter = ',')]
-        scope: Option<Vec<String>>,
-        /// Output file for the result (prints to stdout if omitted)
-        #[arg(long, short)]
-        out: Option<String>,
-    },
+#[derive(Args, Debug)]
+pub struct HotspotArgs {
+    /// Limit the number of hotspots displayed
+    #[arg(short, long)]
+    pub limit: Option<usize>,
+
+    /// Number of commits to analyze
+    #[arg(short, long)]
+    pub commits: Option<usize>,
+
+    /// Number of days to analyze
+    #[arg(short, long)]
+    pub days: Option<u32>,
+
+    /// Specific commit to start from
+    #[arg(long)]
+    pub since: Option<String>,
+
+    /// Output as JSON
+    #[arg(long)]
+    pub json: bool,
+
+    /// Automatically run incremental index before calculation if the index is stale
+    #[arg(long)]
+    pub auto_index: bool,
+
+    /// Traverse all parent commits (useful for branch merges)
+    #[arg(long)]
+    pub all_parents: bool,
+
+    /// Include centrality data (requires prior `index --analyze-graph`)
+    #[arg(long)]
+    pub centrality: bool,
+
+    /// Filter by entity path
+    #[arg(short, long)]
+    pub entity: Option<String>,
+
+    /// Find semantically similar code clusters (duplication hotspots)
+    #[arg(long, short)]
+    pub semantic: bool,
 }
 
 #[derive(Subcommand)]
@@ -345,10 +343,173 @@ pub enum FederateCommands {
 }
 
 #[derive(Subcommand)]
+pub enum LedgerCommands {
+    /// Start a new change transaction
+    Start {
+        /// Entity path to track
+        entity: String,
+        /// Category of change (FEATURE, BUGFIX, ARCHITECTURE, etc.)
+        #[arg(short, long)]
+        category: String,
+        /// Intent message for the change
+        #[arg(short, long)]
+        message: String,
+    },
+    /// Finalize and commit a change transaction
+    Commit {
+        /// Transaction ID to commit (optional, defaults to current)
+        tx_id: Option<String>,
+        /// Summary of the change
+        #[arg(short, long)]
+        summary: String,
+        /// Reason for the change (Architecture Decision)
+        #[arg(short, long)]
+        reason: String,
+        /// Mark as a breaking change
+        #[arg(long)]
+        breaking: bool,
+    },
+    /// Roll back an active transaction
+    Rollback {
+        /// Transaction ID to rollback (optional, defaults to current)
+        tx_id: Option<String>,
+    },
+    /// Record a surgical atomic change without a full session
+    Atomic {
+        /// Entity path
+        entity: String,
+        /// Category of change
+        #[arg(short, long)]
+        category: String,
+        /// Summary
+        #[arg(short, long)]
+        summary: String,
+        /// Reason
+        #[arg(short, long)]
+        reason: String,
+    },
+    /// Show status of active transactions and uncommitted drift
+    Status {
+        /// Filter status by entity path
+        #[arg(short, long)]
+        entity: Option<String>,
+        /// Output a compact view
+        #[arg(short, long)]
+        compact: bool,
+        /// Exit with 1 if there is unaudited drift
+        #[arg(long)]
+        exit_code: bool,
+    },
+    /// Register a new tech stack rule or commit validator
+    Register {
+        #[command(subcommand)]
+        command: RegisterCommands,
+    },
+    /// Show active tech stack enforcement rules
+    Stack {
+        /// Filter by category (e.g. Database, Auth)
+        category: Option<String>,
+    },
+    /// Generate Architectural Decision Records (MADR format)
+    Adr {
+        /// Output path for ADR files
+        #[arg(short, long, default_value = "docs/adr")]
+        output: String,
+    },
+    /// Full-text search across ledger history
+    Search {
+        /// Search query
+        query: String,
+        /// Filter by category
+        #[arg(short, long)]
+        category: Option<String>,
+    },
+    /// Reconcile detected drift with a transaction or pattern
+    Reconcile {
+        /// Transaction ID to associate drift with
+        #[arg(short, long)]
+        tx_id: Option<String>,
+        /// File pattern to reconcile (glob)
+        #[arg(short, long)]
+        pattern: Option<String>,
+        /// Reconcile all current drift
+        #[arg(long)]
+        all: bool,
+        /// Reason for reconciliation
+        #[arg(short, long)]
+        reason: Option<String>,
+    },
+    /// Adopt drift as a new committed transaction
+    Adopt {
+        /// File pattern to adopt
+        #[arg(short, long)]
+        pattern: Option<String>,
+        /// Adopt all current drift
+        #[arg(long)]
+        all: bool,
+        /// Category for the new transaction
+        #[arg(short, long)]
+        category: String,
+        /// Summary for the new transaction
+        #[arg(short, long)]
+        summary: String,
+        /// Reason for the new transaction
+        #[arg(short, long)]
+        reason: String,
+    },
+    /// Perform a holistic project audit or history for an entity
+    Audit {
+        /// Entity path to audit (e.g. src/main.rs)
+        entity: Option<String>,
+        /// Include unaudited drift in the report
+        #[arg(long, short)]
+        include_unaudited: bool,
+        /// Maximum number of entries to display
+        #[arg(long, short, default_value_t = 10)]
+        limit: usize,
+        /// Offset for pagination
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum RegisterCommands {
+    /// Register a forbidden term (tech stack enforcement)
+    Rule {
+        /// Forbidden term or technology name
+        term: String,
+        /// Category (e.g. Database, ORM)
+        #[arg(short, long)]
+        category: String,
+        /// Reason for prohibition
+        #[arg(short, long)]
+        reason: String,
+    },
+    /// Register a commit validator script
+    Validator {
+        /// Name of the validator
+        name: String,
+        /// Command to execute (supports {entity} placeholder)
+        #[arg(short, long)]
+        command: String,
+        /// Category this validator applies to (or 'ALL')
+        #[arg(short, long)]
+        category: String,
+        /// Timeout in seconds
+        #[arg(long, default_value_t = 30)]
+        timeout: u64,
+    },
+}
+
+#[derive(Subcommand)]
 pub enum ConfigCommands {
-    /// Verify the configuration files
+    /// Verify current configuration and environment health
     Verify,
-    /// View the resolved configuration
+    /// View resolved project configuration
     View {
         /// Output as JSON
         #[arg(long)]
@@ -356,276 +517,21 @@ pub enum ConfigCommands {
     },
 }
 
-/// Shared flags available to all ledger subcommands.
-#[derive(Args)]
-pub struct LedgerGlobalOpts {
-    /// Simulate the operation without making changes
-    #[arg(long)]
-    pub dry_run: bool,
-}
-
-/// Ledger subcommands follow a single schema rule:
-/// **Mandatory primary subject** (entity, tx_id, query) is positional;
-/// **all other mandatory fields** (summary, reason, message) are required named flags.
-/// Optional identifiers and metadata always use named flags.
-/// No command has more than one mandatory positional argument.
-#[derive(Subcommand)]
-pub enum LedgerCommands {
-    /// Start a new transaction
-    Start {
-        /// The entity being changed (path/symbol)
-        entity: String,
-        /// The category of change
-        #[arg(long, short, value_enum, default_value_t = crate::ledger::Category::Feature)]
-        category: crate::ledger::Category,
-        /// A brief description of the planned action
-        #[arg(long, short)]
-        message: Option<String>,
-        /// Associated issue reference (e.g., JIRA-123)
-        #[arg(long)]
-        issue: Option<String>,
-    },
-    /// Commit a PENDING transaction to the ledger
-    Commit {
-        /// Transaction ID or unique prefix
-        tx_id: String,
-        /// High-level summary of the change
-        #[arg(long, short)]
-        summary: String,
-        /// Technical reasoning for the change
-        #[arg(long, short)]
-        reason: String,
-        /// Type of change performed
-        #[arg(long, value_enum, default_value_t = crate::ledger::ChangeType::Modify)]
-        change_type: crate::ledger::ChangeType,
-        /// Mark as a breaking change
-        #[arg(long)]
-        breaking: bool,
-        /// Automatically reconcile matching UNAUDITED drift
-        #[arg(long, overrides_with = "no_auto_reconcile")]
-        auto_reconcile: bool,
-        /// Do not auto-reconcile drift (overrides config)
-        #[arg(long)]
-        no_auto_reconcile: bool,
-        /// Skip verification gate enforcement (use with caution)
-        #[arg(long)]
-        force: bool,
-        /// Also create a git commit after ledger commit succeeds
-        #[arg(long)]
-        with_git: bool,
-        /// Override the auto-generated git commit message
-        #[arg(long)]
-        git_message: Option<String>,
-        /// Do not add Signed-off-by to the git commit
-        #[arg(long)]
-        no_signoff: bool,
-    },
-    /// Roll back a PENDING transaction
-    Rollback {
-        /// Transaction ID or unique prefix
-        tx_id: String,
-        /// Reason for rolling back
-        #[arg(long, short)]
-        reason: String,
-    },
-    /// Reconcile UNAUDITED drift
-    Reconcile {
-        /// Specific transaction ID or unique prefix
-        #[arg(long)]
-        tx_id: Option<String>,
-        /// Reconcile by entity pattern (glob)
-        #[arg(long = "entity-pattern")]
-        pattern: Option<String>,
-        /// Reconcile all UNAUDITED drift
-        #[arg(long)]
-        all: bool,
-        /// Technical reasoning for the reconciliation
-        #[arg(long, short)]
-        reason: String,
-    },
-    /// Adopt UNAUDITED drift into a PENDING transaction
-    Adopt {
-        /// Specific transaction ID or unique prefix
-        #[arg(long)]
-        tx_id: Option<String>,
-        /// Adopt by entity pattern (glob)
-        #[arg(long = "entity-pattern")]
-        pattern: Option<String>,
-        /// Adopt all UNAUDITED drift
-        #[arg(long)]
-        all: bool,
-        /// Reason for adopting the drift (required, for audit provenance)
-        #[arg(long, short)]
-        reason: String,
-    },
-    /// Atomically start and commit a change
-    Atomic {
-        /// The entity being changed (path/symbol)
-        entity: String,
-        /// High-level summary of the change
-        #[arg(long, short)]
-        summary: String,
-        /// Technical reasoning for the change
-        #[arg(long, short)]
-        reason: String,
-        /// The category of change
-        #[arg(long, short, value_enum, default_value_t = crate::ledger::Category::Chore)]
-        category: crate::ledger::Category,
-    },
-    /// Add a note/lesson to the most recent transaction for an entity
-    Note {
-        /// The entity (path/symbol)
-        entity: String,
-        /// The note or lesson learned (required if positional note is not provided)
-        #[arg(long, short)]
-        message: Option<String>,
-        /// The note or lesson learned (positional fallback for --message)
-        #[arg(verbatim_doc_comment)]
-        note: Option<String>,
-    },
-    /// Show the current status of the ledger and pending transactions
-    Status {
-        /// Show full history for an entity
-        #[arg(long)]
-        entity: Option<String>,
-        /// Show condensed counts only
-        #[arg(long)]
-        compact: bool,
-        /// Exit with code 1 if there are pending or unaudited entries (useful in git hooks)
-        #[arg(long)]
-        exit_code: bool,
-    },
-    /// Resume a PENDING transaction (set as active in session)
-    Resume {
-        /// Transaction ID or unique prefix (optional: find most recent for context)
-        tx_id: Option<String>,
-    },
-    /// Register a tech stack rule or commit validator
-    Register {
-        /// Type of rule to register (TECH_STACK, VALIDATOR)
-        #[arg(long, value_enum)]
-        rule_type: crate::ledger::enforcement::RuleType,
-        /// JSON payload for the rule/validator
-        #[arg(long)]
-        payload: String,
-        /// Overwrite existing locked rules
-        #[arg(long)]
-        force: bool,
-    },
-    /// View the currently registered tech stack and validators
-    Stack {
-        /// Filter by category
-        #[arg(long)]
-        category: Option<String>,
-    },
-    /// Perform a holistic project audit or history for an entity
-    Audit {
-        /// Show history for a specific entity
-        #[arg(long, short)]
-        entity: Option<String>,
-        /// Include UNAUDITED drift in global view
-        #[arg(long)]
-        include_unaudited: bool,
-        /// Limit the number of entries displayed
-        #[arg(long, short, default_value_t = 50)]
-        limit: usize,
-        /// Offset for pagination
-        #[arg(long, default_value_t = 0)]
-        offset: usize,
-        /// Output audit report as JSON
-        #[arg(long)]
-        json: bool,
-    },
-    /// Export architectural decisions as MADR-format markdown
-    Adr {
-        /// The directory to export ADRs to
-        #[arg(long, short)]
-        output_dir: Option<camino::Utf8PathBuf>,
-        /// Only export ADRs from the last N days
-        #[arg(long, short)]
-        days: Option<u64>,
-    },
-    /// Search the ledger using full-text search
-    Search {
-        /// The search query
-        query: String,
-        /// Filter by category
-        #[arg(long, short, value_enum)]
-        category: Option<crate::ledger::Category>,
-        /// Only search entries from the last N days
-        #[arg(long, short)]
-        days: Option<u64>,
-        /// Only search for breaking changes
-        #[arg(long, short)]
-        breaking: bool,
-        /// Limit the number of results
-        #[arg(long, short, default_value_t = 50)]
-        limit: usize,
-        /// Offset for pagination
-        #[arg(long, default_value_t = 0)]
-        offset: usize,
-    },
-}
-
-pub fn run() -> Result<()> {
-    run_with(Cli::parse())
-}
-
 pub fn run_with(cli: Cli) -> Result<()> {
+    let current_dir = env::current_dir().into_diagnostic()?;
+
     match cli.command {
-        Commands::Init { no_gitignore } => crate::commands::init::execute_init(no_gitignore),
-        Commands::Doctor => crate::commands::doctor::execute_doctor(),
-        Commands::Scan { impact, json, out } => {
-            crate::commands::scan::execute_scan(impact, json, out)
-        }
-        Commands::Watch {
-            interval,
-            json,
-            no_graph_sync,
-        } => crate::commands::watch::execute_watch(interval, json, no_graph_sync),
+        Commands::Init { force } => crate::commands::init::execute_init(force),
+        Commands::Scan { impact, json, out } => crate::commands::scan::execute_scan(impact, json, out),
         Commands::Impact {
             all_parents,
             summary,
-            telemetry_coverage,
+            telemetry,
             dead_code,
-        } => crate::commands::impact::execute_impact(
-            all_parents,
-            summary,
-            telemetry_coverage,
-            dead_code,
-        ),
-        Commands::Verify {
-            command,
-            timeout,
-            no_predict,
-            explain,
-            health,
-        } => crate::commands::verify::execute_verify(command, timeout, no_predict, explain, health),
-        Commands::Ask {
-            query,
-            narrative,
-            backend,
-            auto_index,
-            ..
-        } => crate::commands::ask::execute_ask(query, narrative, backend, auto_index),
-        Commands::Reset {
-            remove_config,
-            remove_rules,
-            include_ledger,
-            all,
-            yes,
-        } => crate::commands::reset::execute_reset(
-            remove_config,
-            remove_rules,
-            include_ledger,
-            all,
-            yes,
-        ),
+        } => crate::commands::impact::execute_impact(all_parents, summary, telemetry, dead_code),
         Commands::Index {
             incremental,
-            check,
-            strict,
-            json,
+            full,
             analyze_graph,
             docs,
             contracts,
@@ -633,19 +539,28 @@ pub fn run_with(cli: Cli) -> Result<()> {
             scip,
             export_docs,
             doc_type,
-        } => crate::commands::index::execute_index(crate::commands::index::IndexArgs {
-            incremental,
             check,
-            strict,
             json,
-            analyze_graph,
-            docs,
-            contracts,
-            semantic,
-            scip,
-            export_docs,
-            doc_type,
-        }),
+            strict,
+        } => {
+            if check {
+                crate::commands::index::execute_index_check(std::path::Path::new("."), 3, json, strict)
+            } else {
+                crate::commands::index::execute_index(crate::commands::index::IndexArgs {
+                    incremental: incremental && !full,
+                    check: false,
+                    strict,
+                    json,
+                    analyze_graph,
+                    docs,
+                    contracts,
+                    semantic,
+                    scip,
+                    export_docs,
+                    doc_type,
+                })
+            }
+        }
         Commands::Search {
             query,
             regex,
@@ -654,9 +569,22 @@ pub fn run_with(cli: Cli) -> Result<()> {
             index,
             json,
             auto_index,
-        } => crate::commands::search::execute_search(
-            query, regex, semantic, limit, index, json, auto_index,
-        ),
+        } => {
+            let project_id = current_dir
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+            crate::commands::search::execute_search(SearchArgs {
+                query,
+                regex,
+                semantic,
+                limit,
+                index,
+                json,
+                auto_index,
+                project_id,
+            })
+        }
         Commands::Hotspots { args } => crate::commands::hotspots::execute_hotspots(args),
         Commands::Federate { command } => match command {
             FederateCommands::Export { dry_run, out } => {
@@ -666,44 +594,53 @@ pub fn run_with(cli: Cli) -> Result<()> {
             FederateCommands::Status => crate::commands::federate::execute_federate_status(),
         },
         Commands::Bridge { subcommand } => crate::commands::bridge::execute(subcommand),
-        Commands::Ledger {
-            command,
-            global_opts,
-        } => match command {
+        Commands::Ledger { command } => match command {
             LedgerCommands::Start {
                 entity,
                 category,
                 message,
-                issue,
-            } => crate::commands::ledger::execute_ledger_start(entity, category, message, issue),
+            } => crate::commands::ledger::execute_ledger_start(entity, &category, &message),
             LedgerCommands::Commit {
                 tx_id,
                 summary,
                 reason,
-                change_type,
                 breaking,
-                auto_reconcile,
-                no_auto_reconcile,
-                force,
-                with_git,
-                git_message,
-                no_signoff,
-            } => crate::commands::ledger::execute_ledger_commit(
-                tx_id,
+            } => crate::commands::ledger::execute_ledger_commit(tx_id, &summary, &reason, breaking),
+            LedgerCommands::Rollback { tx_id } => {
+                crate::commands::ledger::execute_ledger_rollback(tx_id)
+            }
+            LedgerCommands::Atomic {
+                entity,
+                category,
                 summary,
                 reason,
-                change_type,
-                breaking,
-                auto_reconcile,
-                no_auto_reconcile,
-                force,
-                with_git,
-                git_message,
-                no_signoff,
-                global_opts.dry_run,
-            ),
-            LedgerCommands::Rollback { tx_id, reason } => {
-                crate::commands::ledger::execute_ledger_rollback(tx_id, reason)
+            } => crate::commands::ledger::execute_ledger_atomic(&entity, &category, &summary, &reason),
+            LedgerCommands::Status {
+                entity,
+                compact,
+                exit_code,
+            } => crate::commands::ledger::execute_ledger_status(entity, compact, exit_code),
+            LedgerCommands::Register { command } => match command {
+                RegisterCommands::Rule {
+                    term,
+                    category,
+                    reason,
+                } => crate::commands::ledger::execute_ledger_register_rule(&term, &category, &reason),
+                RegisterCommands::Validator {
+                    name,
+                    command,
+                    category,
+                    timeout,
+                } => crate::commands::ledger::execute_ledger_register_validator(
+                    &name, &command, &category, timeout,
+                ),
+            },
+            LedgerCommands::Stack { category } => {
+                crate::commands::ledger_stack::execute_ledger_stack(category)
+            }
+            LedgerCommands::Adr { output } => crate::commands::ledger_adr::execute_ledger_adr(Some(camino::Utf8PathBuf::from(output)), None),
+            LedgerCommands::Search { query, category } => {
+                crate::commands::ledger::execute_ledger_search(&query, category)
             }
             LedgerCommands::Reconcile {
                 tx_id,
@@ -712,40 +649,12 @@ pub fn run_with(cli: Cli) -> Result<()> {
                 reason,
             } => crate::commands::ledger::execute_ledger_reconcile(tx_id, pattern, all, reason),
             LedgerCommands::Adopt {
-                tx_id,
                 pattern,
                 all,
-                reason,
-            } => crate::commands::ledger::execute_ledger_adopt(tx_id, pattern, all, reason),
-            LedgerCommands::Atomic {
-                entity,
+                category,
                 summary,
                 reason,
-                category,
-            } => crate::commands::ledger::execute_ledger_atomic(entity, summary, reason, category),
-            LedgerCommands::Note {
-                entity,
-                message,
-                note,
-            } => crate::commands::ledger::execute_ledger_note(entity, message, note),
-            LedgerCommands::Status {
-                entity,
-                compact,
-                exit_code,
-            } => crate::commands::ledger::execute_ledger_status(entity, compact, exit_code),
-            LedgerCommands::Resume { tx_id } => {
-                crate::commands::ledger::execute_ledger_resume(tx_id)
-            }
-            LedgerCommands::Register {
-                rule_type,
-                payload,
-                force,
-            } => {
-                crate::commands::ledger_register::execute_ledger_register(rule_type, payload, force)
-            }
-            LedgerCommands::Stack { category } => {
-                crate::commands::ledger_stack::execute_ledger_stack(category)
-            }
+            } => crate::commands::ledger::execute_ledger_adopt(pattern, all, &category, &summary, &reason),
             LedgerCommands::Audit {
                 entity,
                 include_unaudited,
@@ -759,21 +668,39 @@ pub fn run_with(cli: Cli) -> Result<()> {
                 offset,
                 json,
             ),
-            LedgerCommands::Adr { output_dir, days } => {
-                crate::commands::ledger_adr::execute_ledger_adr(output_dir, days)
-            }
-
-            LedgerCommands::Search {
-                query,
-                category,
-                days,
-                breaking,
-                limit,
-                offset,
-            } => crate::commands::ledger_search::execute_ledger_search(
-                query, category, days, breaking, limit, offset,
-            ),
         },
+        Commands::Verify {
+            command,
+            timeout,
+            no_predict,
+            explain,
+            health,
+        } => crate::commands::verify::execute_verify(command, timeout, no_predict, explain, health),
+        Commands::Ask {
+            query,
+            semantic,
+            limit,
+            mode,
+            narrative,
+            backend,
+            auto_index,
+        } => crate::commands::ask::execute_ask(
+            query, semantic, limit, mode, narrative, backend, auto_index,
+        ),
+        Commands::Reset {
+            remove_config,
+            remove_rules,
+            include_ledger,
+            all,
+            yes,
+        } => crate::commands::reset::execute_reset(
+            remove_config,
+            remove_rules,
+            include_ledger,
+            all,
+            yes,
+        ),
+        Commands::Doctor => crate::commands::doctor::execute_doctor(),
         Commands::Config { command } => match command {
             ConfigCommands::Verify => crate::commands::config::execute_config_verify(),
             ConfigCommands::View { json } => crate::commands::config::execute_config_view(json),
@@ -783,8 +710,18 @@ pub fn run_with(cli: Cli) -> Result<()> {
             limit,
             auto_index,
         } => crate::commands::dead_code::execute_dead_code(threshold, limit, auto_index),
-        #[cfg(feature = "daemon")]
-        Commands::Daemon { interval } => crate::commands::daemon::execute_daemon(interval),
+        Commands::Viz { output } => {
+            let path = output.map(std::path::PathBuf::from);
+            crate::commands::viz::execute_viz(path)
+        }
+        Commands::Update {
+            migrate,
+            binary,
+            force,
+        } => crate::commands::update::execute_update(migrate, binary, force),
+        Commands::SearchTrigrams { trigrams, limit } => {
+            crate::commands::search::execute_search_trigrams(trigrams, limit)
+        }
         Commands::Audit {
             entity,
             include_unaudited,
@@ -798,7 +735,8 @@ pub fn run_with(cli: Cli) -> Result<()> {
             offset,
             json,
         ),
-        Commands::Viz { output } => crate::commands::viz::execute_viz(output),
+        #[cfg(feature = "daemon")]
+        Commands::Daemon { interval } => crate::commands::daemon::execute_daemon(interval),
         #[cfg(feature = "viz-server")]
         Commands::VizServer {
             port,
@@ -806,47 +744,5 @@ pub fn run_with(cli: Cli) -> Result<()> {
             open,
             stop,
         } => crate::commands::viz_server::execute_viz_server(port, bind, open, stop),
-        Commands::Update {
-            migrate,
-            binary,
-            force,
-        } => crate::commands::update::execute_update(migrate, binary, force),
     }
-}
-
-#[derive(clap::Args, Debug, Clone)]
-pub struct HotspotArgs {
-    /// Maximum number of hotspots to show
-    #[arg(long, short, default_value_t = 10)]
-    pub limit: usize,
-    /// Commit history window to analyze
-    #[arg(long, short, default_value_t = 100)]
-    pub commits: usize,
-    /// Only analyze commits from the last N days
-    #[arg(long, short)]
-    pub days: Option<u64>,
-    /// Only analyze commits since this reference
-    #[arg(long)]
-    pub since: Option<String>,
-    /// Output hotspots as JSON
-    #[arg(long)]
-    pub json: bool,
-    /// Filter by directory
-    #[arg(long)]
-    pub dir: Option<String>,
-    /// Filter by language (extension)
-    #[arg(long)]
-    pub lang: Option<String>,
-    /// Enable full history traversal (default is first-parent only)
-    #[arg(long)]
-    pub all_parents: bool,
-    /// Include centrality data (requires prior `index --analyze-graph`)
-    #[arg(long)]
-    pub centrality: bool,
-    /// Automatically run incremental index before calculation if the index is stale
-    #[arg(long)]
-    pub auto_index: bool,
-    /// Find semantically similar code clusters (duplication hotspots)
-    #[arg(long, short)]
-    pub semantic: bool,
 }

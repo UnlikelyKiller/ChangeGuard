@@ -3,7 +3,6 @@ use crate::git::RepoSnapshot;
 use crate::git::repo::{get_head_info, open_repo};
 use crate::git::status::get_repo_status;
 use crate::output::diagnostics::success_marker;
-use crate::output::human::print_impact_summary;
 use crate::state::layout::Layout;
 use crate::state::reports::write_impact_report;
 use miette::Result;
@@ -124,7 +123,7 @@ pub fn execute_impact(
     if summary {
         crate::output::human::print_impact_brief(&packet);
     } else {
-        print_impact_summary(&packet, &config);
+        crate::output::human::print_impact_summary(&packet);
     }
 
     println!(

@@ -1,30 +1,12 @@
+use crate::commands::helpers::get_layout;
 use crate::ledger::*;
-use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
-use camino::Utf8PathBuf;
-use miette::{IntoDiagnostic, Result};
+use miette::Result;
 use owo_colors::OwoColorize;
-use std::env;
-
-fn get_repo_root() -> Result<Utf8PathBuf> {
-    let current_dir = env::current_dir().into_diagnostic()?;
-    let discovered = gix::discover(&current_dir).into_diagnostic()?;
-    let root = discovered
-        .workdir()
-        .ok_or_else(|| miette::miette!("Failed to find work directory for repository"))?;
-
-    Utf8PathBuf::from_path_buf(root.to_path_buf())
-        .map_err(|_| miette::miette!("Repository root is not valid UTF-8"))
-}
-
-fn get_layout() -> Result<Layout> {
-    let root = get_repo_root()?;
-    Ok(Layout::new(root))
-}
 
 pub fn execute_ledger_stack(category: Option<String>) -> Result<()> {
     let layout = get_layout()?;
-    let storage = StorageManager::open_read_only(&layout.root)?;
+    let storage = StorageManager::open_read_only_sqlite_only(&layout.root)?;
     let db = LedgerDb::new(storage.get_connection());
 
     println!(

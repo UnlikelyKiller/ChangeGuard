@@ -107,6 +107,7 @@ to bypass it.
   unless the user directs otherwise.
 - If `scan --impact` cannot complete, continue cautiously and include the error
   in the final report.
+- If a command reports that the index is `[STALE]`, you can append the `--auto-index` flag to commands like `search`, `ask`, `hotspots`, or `dead-code` to automatically refresh it before executing.
 - Do not edit `.changeguard/` state files directly.
 
 ## Ledger Provenance

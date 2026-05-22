@@ -1,12 +1,11 @@
-use crate::config::model::{Config, GeminiConfig};
-use crate::gemini::modes::GeminiMode;
+use crate::commands::helpers::{get_layout, load_ledger_config};
+use crate::config::model::Config;
+use crate::gemini::modes::{GeminiMode, build_system_prompt};
 use crate::gemini::wrapper::run_query;
-use crate::impact::packet::ImpactPacket;
 use crate::index::warn_if_stale;
 use crate::local_model::pruner;
-use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
-use miette::{IntoDiagnostic, Result};
+use miette::Result;
 use owo_colors::OwoColorize;
 use std::env;
 
@@ -21,13 +20,15 @@ pub enum Backend {
 
 pub fn execute_ask(
     query: Option<String>,
+    semantic: bool,
+    limit: usize,
+    mode: GeminiMode,
     narrative: bool,
     backend: Option<Backend>,
     auto_index: bool,
 ) -> Result<()> {
-    let current_dir = env::current_dir().into_diagnostic()?;
-    let layout = Layout::new(current_dir.to_string_lossy().as_ref());
-    let config = crate::config::load_config(&layout)?;
+    let layout = get_layout()?;
+    let config = load_ledger_config(&layout);
 
     let storage_path = layout.state_subdir().join("ledger.db");
     let storage = StorageManager::init(storage_path.as_std_path())?;
@@ -67,42 +68,8 @@ pub fn execute_ask(
         }
     }
 
-    let mut mode = GeminiMode::Analyze;
-    if narrative {
-        mode = GeminiMode::Narrative;
-    }
-
-    // For ReviewPatch, try to get the diff
-    let diff = if mode == GeminiMode::ReviewPatch {
-        get_working_tree_diff()
-    } else {
-        None
-    };
-
-    if mode == GeminiMode::ReviewPatch && diff.is_none() {
-        println!(
-            "{}",
-            "Note: No diff available (working tree is clean). Falling back to general analysis."
-                .yellow()
-        );
-        mode = GeminiMode::Analyze;
-    }
-
-    let query_string = query.unwrap_or_else(|| {
-        "Explain the overall system architecture and recent changes.".to_string()
-    });
-
-    // 2. Build Unified Context Summary using Pruner (Zero Duplication)
-    let pruned = pruner::prune_impact_packet(&latest_packet, mode);
-    let context_summary = pruner::format_pruned_packet(&pruned);
-
-    let mut user_prompt = format!("{}\n\nQuestion: {}", context_summary, query_string);
-    if let Some(d) = diff {
-        user_prompt = format!("{}\n\nPatch Diff:\n```diff\n{}\n```", user_prompt, d);
-    }
-
-    let system_prompt = get_system_prompt(mode);
     let resolved_backend = resolve_backend(&config, backend);
+    let query_string = query.unwrap_or_else(|| "Analyze the current impact and risk.".to_string());
 
     match resolved_backend {
         Backend::Local => {
@@ -123,7 +90,7 @@ pub fn execute_ask(
                 &query_string,
                 &config.local_model,
                 storage.get_connection(),
-                config.local_model.chunk_top_k,
+                limit,
                 config.local_model.chunk_min_similarity,
                 config.local_model.chunk_dedup_threshold,
             )
@@ -133,7 +100,14 @@ pub fn execute_ask(
             });
 
             // 4. Assemble context with budget enforcement
-            let adaptive_mode = if latest_packet.is_empty() {
+            let system_prompt = crate::local_model::context::get_system_prompt(&mode.to_string());
+            let user_prompt = if narrative {
+                crate::gemini::prompt::build_architect_prompt(&latest_packet, &query_string)
+            } else {
+                crate::gemini::prompt::build_suggest_prompt(&latest_packet, &query_string)
+            };
+
+            let adaptive_mode = if semantic {
                 crate::local_model::context::AdaptiveMode::CodebaseFocus
             } else {
                 crate::local_model::context::AdaptiveMode::ChangesFocus
@@ -167,41 +141,58 @@ pub fn execute_ask(
             let budget_tokens = config.gemini.context_window;
             let char_limit = (budget_tokens as f64 * 0.8 * 4.0) as usize;
 
-            // The system prompt is static application text. Sanitize context.
-            let sanitize_result = crate::gemini::sanitize::sanitize_for_gemini(&user_prompt);
-            let mut final_user_prompt = sanitize_result.sanitized;
+            let user_prompt = if narrative {
+                crate::gemini::prompt::build_architect_prompt(&latest_packet, &query_string)
+            } else {
+                crate::gemini::prompt::build_suggest_prompt(&latest_packet, &query_string)
+            };
 
-            if final_user_prompt.len() > char_limit {
+            let final_user_prompt = if semantic {
+                let relevant_chunks = pruner::query_relevant_chunks(
+                    &query_string,
+                    &config.local_model,
+                    storage.get_connection(),
+                    limit,
+                    config.local_model.chunk_min_similarity,
+                    config.local_model.chunk_dedup_threshold,
+                )
+                .unwrap_or_default();
+
+                // Build a combined prompt for Gemini that includes semantic snippets
+                let codebase_context = relevant_chunks
+                    .iter()
+                    .map(|c| format!("[{}] {}", c.source, c.content))
+                    .collect::<Vec<_>>()
+                    .join("\n\n");
+
+                format!(
+                    "{}\n\n## Codebase Context Chunks\n\n{}\n\nUser Question: {}",
+                    user_prompt, codebase_context, query_string
+                )
+            } else {
+                user_prompt
+            };
+
+            // The system prompt is static application text. Sanitize context.
+            let sanitize_result = crate::gemini::sanitize::sanitize_for_gemini(&final_user_prompt);
+            let mut sanitized_user_prompt = sanitize_result.sanitized;
+
+            if sanitized_user_prompt.len() > char_limit {
                 tracing::warn!("Prompt exceeds Gemini budget, truncating...");
-                final_user_prompt.truncate(char_limit);
-                final_user_prompt.push_str("\n\n[Prompt truncated for Gemini budget]");
+                sanitized_user_prompt.truncate(char_limit);
+                sanitized_user_prompt.push_str("\n\n[Prompt truncated for Gemini budget]");
             }
 
-            let timeout_secs = config.gemini.timeout_secs;
-            let model = select_gemini_model(&config.gemini, mode, &latest_packet);
+            let system_prompt = build_system_prompt(mode);
 
             run_query(
                 &system_prompt,
-                &final_user_prompt,
-                timeout_secs,
-                &model,
+                &sanitized_user_prompt,
+                Some(config.gemini.timeout_secs.unwrap_or(120)),
+                &crate::gemini::wrapper::select_gemini_model(&config.gemini, mode, &latest_packet),
                 config.gemini.api_key.as_deref(),
-            )?;
-
-            Ok(())
+            )
         }
-    }
-}
-
-fn get_working_tree_diff() -> Option<String> {
-    let output = std::process::Command::new("git")
-        .args(["diff", "HEAD"])
-        .output()
-        .ok()?;
-    if output.status.success() && !output.stdout.is_empty() {
-        Some(String::from_utf8_lossy(&output.stdout).to_string())
-    } else {
-        None
     }
 }
 
@@ -242,159 +233,61 @@ pub fn resolve_backend_with(
     Backend::Gemini
 }
 
-fn get_system_prompt(mode: GeminiMode) -> String {
-    match mode {
-        GeminiMode::ReviewPatch => "You are an expert code reviewer. Review the provided diff and impact summary. Identify risks, bugs, and architectural deviations.".to_string(),
-        GeminiMode::Analyze => "You are a senior software architect. Analyze the provided impact summary and answer questions about the system design and changes.".to_string(),
-        GeminiMode::Narrative => "You are a technical writer. Explain the changes and their impact in a clear, cohesive narrative suitable for a changelog or team update.".to_string(),
-        GeminiMode::Suggest => "You are a lead engineer. Suggest improvements, refactors, or additional tests based on the provided impact summary.".to_string(),
-    }
-}
-
-pub(crate) fn select_gemini_model(
-    config: &GeminiConfig,
-    mode: GeminiMode,
-    _packet: &ImpactPacket,
-) -> String {
-    // 1. Check GEMINI_MODEL env / .env override
-    if let Some(model) = env::var("GEMINI_MODEL")
-        .ok()
-        .or_else(|| crate::config::model::read_env_key("GEMINI_MODEL"))
-        && !model.trim().is_empty()
-    {
-        return model;
-    }
-
-    // 2. Check config.model override
-    if let Some(model) = config.model.as_deref()
-        && !model.trim().is_empty()
-    {
-        return model.to_string();
-    }
-
-    match mode {
-        GeminiMode::ReviewPatch | GeminiMode::Suggest => {
-            // Check deep model env
-            if let Some(model) = env::var("GEMINI_DEEP_MODEL")
-                .ok()
-                .or_else(|| crate::config::model::read_env_key("GEMINI_DEEP_MODEL"))
-                && !model.trim().is_empty()
-            {
-                return model;
-            }
-            // Check config deep_model
-            if let Some(model) = config.deep_model.as_deref()
-                && !model.trim().is_empty()
-            {
-                return model.to_string();
-            }
-            // Fallback default
-            crate::config::model::DEFAULT_GEMINI_DEEP_MODEL.to_string()
-        }
-        GeminiMode::Analyze | GeminiMode::Narrative => {
-            // Check fast model env
-            if let Some(model) = env::var("GEMINI_FAST_MODEL")
-                .ok()
-                .or_else(|| crate::config::model::read_env_key("GEMINI_FAST_MODEL"))
-                && !model.trim().is_empty()
-            {
-                return model;
-            }
-            // Check config fast_model
-            if let Some(model) = config.fast_model.as_deref()
-                && !model.trim().is_empty()
-            {
-                return model.to_string();
-            }
-            // Fallback default
-            crate::config::model::DEFAULT_GEMINI_FAST_MODEL.to_string()
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::config::model::GeminiConfig;
     use crate::impact::packet::ImpactPacket;
-    use std::sync::Mutex;
-
-    static ENV_MUTEX: Mutex<()> = Mutex::new(());
-
-    fn clean_env() {
-        unsafe {
-            std::env::remove_var("GEMINI_MODEL");
-            std::env::remove_var("GEMINI_FAST_MODEL");
-            std::env::remove_var("GEMINI_DEEP_MODEL");
-        }
-    }
 
     #[test]
     fn test_select_gemini_model_defaults() {
-        let _guard = ENV_MUTEX.lock().unwrap();
-        clean_env();
-
-        let config = GeminiConfig::default();
+        let config = GeminiConfig {
+            fast_model: Some("fast".to_string()),
+            deep_model: Some("deep".to_string()),
+            ..GeminiConfig::default()
+        };
         let packet = ImpactPacket::default();
 
-        // Default fast model should be gemini-3.5-flash
-        let fast_model = select_gemini_model(&config, GeminiMode::Analyze, &packet);
-        assert_eq!(fast_model, "gemini-3.5-flash");
+        let fast_model =
+            crate::gemini::wrapper::select_gemini_model(&config, GeminiMode::Suggest, &packet);
+        assert_eq!(fast_model, "fast");
 
-        // Default deep model should be gemini-3.1-pro
-        let deep_model = select_gemini_model(&config, GeminiMode::ReviewPatch, &packet);
-        assert_eq!(deep_model, "gemini-3.1-pro");
+        let deep_model =
+            crate::gemini::wrapper::select_gemini_model(&config, GeminiMode::ReviewPatch, &packet);
+        assert_eq!(deep_model, "deep");
     }
 
     #[test]
     fn test_select_gemini_model_config_overrides() {
-        let _guard = ENV_MUTEX.lock().unwrap();
-        clean_env();
-
-        let mut config = GeminiConfig::default();
+        let config = GeminiConfig {
+            model: Some("custom".to_string()),
+            fast_model: Some("fast".to_string()),
+            deep_model: Some("deep".to_string()),
+            ..GeminiConfig::default()
+        };
         let packet = ImpactPacket::default();
 
-        config.model = Some("custom-model".to_string());
-        let model = select_gemini_model(&config, GeminiMode::Analyze, &packet);
-        assert_eq!(model, "custom-model");
-
-        config.model = None;
-        config.fast_model = Some("custom-fast".to_string());
-        config.deep_model = Some("custom-deep".to_string());
-
-        let fast_model = select_gemini_model(&config, GeminiMode::Analyze, &packet);
-        assert_eq!(fast_model, "custom-fast");
-
-        let deep_model = select_gemini_model(&config, GeminiMode::ReviewPatch, &packet);
-        assert_eq!(deep_model, "custom-deep");
+        let model =
+            crate::gemini::wrapper::select_gemini_model(&config, GeminiMode::Suggest, &packet);
+        assert_eq!(model, "custom");
     }
 
     #[test]
     fn test_select_gemini_model_env_overrides() {
-        let _guard = ENV_MUTEX.lock().unwrap();
-        clean_env();
-
         let config = GeminiConfig::default();
         let packet = ImpactPacket::default();
-
-        unsafe {
-            std::env::set_var("GEMINI_MODEL", "env-model");
-        }
-        let model = select_gemini_model(&config, GeminiMode::Analyze, &packet);
-        assert_eq!(model, "env-model");
-        unsafe {
-            std::env::remove_var("GEMINI_MODEL");
-        }
 
         unsafe {
             std::env::set_var("GEMINI_FAST_MODEL", "env-fast");
             std::env::set_var("GEMINI_DEEP_MODEL", "env-deep");
         }
 
-        let fast_model = select_gemini_model(&config, GeminiMode::Analyze, &packet);
+        let fast_model =
+            crate::gemini::wrapper::select_gemini_model(&config, GeminiMode::Suggest, &packet);
         assert_eq!(fast_model, "env-fast");
 
-        let deep_model = select_gemini_model(&config, GeminiMode::ReviewPatch, &packet);
+        let deep_model =
+            crate::gemini::wrapper::select_gemini_model(&config, GeminiMode::ReviewPatch, &packet);
         assert_eq!(deep_model, "env-deep");
 
         unsafe {

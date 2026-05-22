@@ -1,3 +1,6 @@
+use crate::config::model::GeminiConfig;
+use crate::gemini::modes::GeminiMode;
+use crate::impact::packet::{ImpactPacket, RiskLevel};
 use indicatif::{ProgressBar, ProgressStyle};
 use miette::Result;
 use owo_colors::OwoColorize;
@@ -35,6 +38,31 @@ pub fn run_query(
     println!("{response}");
 
     Ok(())
+}
+
+pub fn select_gemini_model(
+    config: &GeminiConfig,
+    mode: GeminiMode,
+    packet: &ImpactPacket,
+) -> String {
+    if let Some(m) = &config.model
+        && !m.is_empty()
+    {
+        return m.clone();
+    }
+    if matches!(mode, GeminiMode::ReviewPatch | GeminiMode::Narrative)
+        || packet.risk_level == RiskLevel::High
+    {
+        config
+            .deep_model
+            .clone()
+            .unwrap_or_else(|| "gemini-1.5-pro".to_string())
+    } else {
+        config
+            .fast_model
+            .clone()
+            .unwrap_or_else(|| "gemini-1.5-flash".to_string())
+    }
 }
 
 fn call_with_retry(

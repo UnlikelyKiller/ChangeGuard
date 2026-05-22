@@ -1,45 +1,15 @@
-use camino::Utf8PathBuf;
 use chrono::{DateTime, Utc};
+use clap::ValueEnum;
 use miette::{IntoDiagnostic, Result};
 use owo_colors::OwoColorize;
-use std::env;
 
-use crate::config::load::load_config;
-use crate::config::model::Config;
+use crate::commands::helpers::{get_layout, load_ledger_config};
 use crate::ledger::*;
-use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
 use crate::util::clock::{Clock, SystemClock};
 
-fn get_repo_root() -> Result<Utf8PathBuf> {
-    let current_dir = env::current_dir().into_diagnostic()?;
-    let discovered = gix::discover(&current_dir).into_diagnostic()?;
-    let root = discovered
-        .workdir()
-        .ok_or_else(|| miette::miette!("Failed to find work directory for repository"))?;
-
-    Utf8PathBuf::from_path_buf(root.to_path_buf())
-        .map_err(|_| miette::miette!("Repository root is not valid UTF-8"))
-}
-
-fn get_layout() -> Result<Layout> {
-    let root = get_repo_root()?;
-    Ok(Layout::new(root))
-}
-
-fn load_ledger_config(layout: &Layout) -> Config {
-    load_config(layout).unwrap_or_else(|e| {
-        tracing::warn!("Failed to load config: {e}. Using defaults.");
-        Config::default()
-    })
-}
-
-pub fn execute_ledger_start(
-    entity: String,
-    category: Category,
-    message: Option<String>,
-    issue: Option<String>,
-) -> Result<()> {
+pub fn execute_ledger_start(entity: String, category: &str, message: &str) -> Result<()> {
+    let category = Category::from_str(category, true).map_err(|e| miette::miette!("{}", e))?;
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
     let config = load_ledger_config(&layout);
@@ -50,8 +20,7 @@ pub fn execute_ledger_start(
         .start_change(TransactionRequest {
             category,
             entity,
-            planned_action: message,
-            issue_ref: issue,
+            planned_action: Some(message.to_string()),
             ..Default::default()
         })
         .map_err(|e| miette::miette!("{}", e))?;
@@ -60,163 +29,78 @@ pub fn execute_ledger_start(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn execute_ledger_commit(
-    tx_id: String,
-    summary: String,
-    reason: String,
-    change_type: ChangeType,
+    tx_id: Option<String>,
+    summary: &str,
+    reason: &str,
     breaking: bool,
-    auto_reconcile: bool,
-    no_auto_reconcile: bool,
-    force: bool,
-    with_git: bool,
-    git_message: Option<String>,
-    no_signoff: bool,
-    dry_run: bool,
 ) -> Result<()> {
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
     let config = load_ledger_config(&layout);
-    let should_auto_reconcile = if no_auto_reconcile {
-        false
-    } else if auto_reconcile {
-        true
-    } else {
-        config.ledger.auto_reconcile
-    };
+
     let mut tx_mgr = TransactionManager::new(
         storage.get_connection_mut(),
         layout.root.into(),
         config.clone(),
     );
 
-    if should_auto_reconcile {
-        let full_id = tx_mgr
-            .resolve_tx_id(&tx_id)
-            .map_err(|e| miette::miette!("{}", e))?;
-        if let Some(tx) = tx_mgr
-            .get_transaction(&full_id)
+    let resolved_id = if let Some(id) = tx_id {
+        tx_mgr
+            .resolve_tx_id(&id)
             .map_err(|e| miette::miette!("{}", e))?
-        {
-            tx_mgr
-                .auto_reconcile_entity(
-                    &tx.entity_normalized,
-                    format!("Auto-reconciled by commit {}", full_id),
-                )
-                .map_err(|e| miette::miette!("{}", e))?;
-        }
-    }
-
-    // Clone values needed for git commit message before they are moved
-    let tx_id_for_git = tx_id.clone();
-    let summary_for_git = summary.clone();
-    let full_id_resolved = tx_mgr
-        .resolve_tx_id(&tx_id_for_git)
-        .map_err(|e| miette::miette!("{}", e))?;
-    let tx_info = tx_mgr
-        .get_transaction(&full_id_resolved)
-        .map_err(|e| miette::miette!("{}", e))?;
+    } else {
+        tx_mgr
+            .get_all_pending()
+            .map_err(|e| miette::miette!("{}", e))?
+            .first()
+            .map(|t| t.tx_id.clone())
+            .ok_or_else(|| miette::miette!("No active transaction found to commit"))?
+    };
 
     tx_mgr
         .commit_change(
-            tx_id,
+            resolved_id,
             CommitRequest {
-                change_type,
-                summary,
-                reason,
+                change_type: ChangeType::Modify,
+                summary: summary.to_string(),
+                reason: reason.to_string(),
                 is_breaking: breaking,
                 ..Default::default()
             },
-            force,
+            false,
         )
         .map_err(|e| miette::miette!("{}", e))?;
 
     println!("{}", "Transaction committed.".green().bold());
-
-    if with_git {
-        let category_str = tx_info
-            .as_ref()
-            .map(|t| format!("{:?}", t.category))
-            .unwrap_or_else(|| "Unknown".to_string());
-
-        let msg = if let Some(ref gm) = git_message {
-            gm.clone()
-        } else {
-            let template = config
-                .ledger
-                .git_commit_template
-                .clone()
-                .unwrap_or_else(|| crate::git::commit::DEFAULT_COMMIT_MESSAGE_TEMPLATE.to_string());
-            crate::git::commit::format_commit_message(
-                &template,
-                &category_str,
-                &summary_for_git,
-                &full_id_resolved,
-            )
-        };
-
-        if dry_run {
-            let signoff_flag = if no_signoff { "" } else { " --signoff" };
-            println!(
-                "[DRY RUN] Would execute: git commit -m \"{}\"{}",
-                msg, signoff_flag
-            );
-            return Ok(());
-        }
-
-        // Pre-flight check
-        match crate::git::commit::can_commit() {
-            Ok(false) => {
-                eprintln!(
-                    "Warning: No staged changes detected. Stage files with `git add` first, then use `git commit --amend` if needed."
-                );
-            }
-            Err(e) => {
-                eprintln!("Warning: Cannot create git commit: {}", e);
-            }
-            Ok(true) => {
-                // Only attempt git commit if can_commit returns true
-                match crate::git::commit::git_commit(&msg, !no_signoff) {
-                    Ok(()) => {
-                        println!("{}", "Git commit created successfully.".green());
-                    }
-                    Err(ref e) => {
-                        let retry_msg = msg.replace('"', "\\\"");
-                        match e {
-                            crate::git::commit::GitCommitError::NothingToCommit => {
-                                eprintln!(
-                                    "Git commit skipped: nothing to commit. Ledger commit is complete."
-                                );
-                            }
-                            _ => {
-                                eprintln!(
-                                    "Git commit failed: {}. Ledger commit is complete. Retry with: git commit -m \"{}\"",
-                                    e, retry_msg
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     Ok(())
 }
 
-pub fn execute_ledger_rollback(tx_id: String, reason: String) -> Result<()> {
+pub fn execute_ledger_rollback(tx_id: Option<String>) -> Result<()> {
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
     let config = load_ledger_config(&layout);
     let mut tx_mgr =
         TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
 
+    let resolved_id = if let Some(id) = tx_id {
+        tx_mgr
+            .resolve_tx_id(&id)
+            .map_err(|e| miette::miette!("{}", e))?
+    } else {
+        tx_mgr
+            .get_all_pending()
+            .map_err(|e| miette::miette!("{}", e))?
+            .first()
+            .map(|t| t.tx_id.clone())
+            .ok_or_else(|| miette::miette!("No active transaction found to rollback"))?
+    };
+
     tx_mgr
-        .rollback_change(tx_id)
+        .rollback_change(resolved_id)
         .map_err(|e| miette::miette!("{}", e))?;
 
-    println!("Transaction rolled back. Reason: {}", reason.dimmed());
+    println!("Transaction rolled back.");
     Ok(())
 }
 
@@ -224,7 +108,7 @@ pub fn execute_ledger_reconcile(
     tx_id: Option<String>,
     pattern: Option<String>,
     all: bool,
-    reason: String,
+    reason: Option<String>,
 ) -> Result<()> {
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
@@ -233,7 +117,7 @@ pub fn execute_ledger_reconcile(
         TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
 
     tx_mgr
-        .reconcile_drift(tx_id, pattern, all, reason)
+        .reconcile_drift(tx_id, pattern, all, reason.unwrap_or_default())
         .map_err(|e| miette::miette!("{}", e))?;
 
     println!("{}", "Drift reconciled.".green());
@@ -241,31 +125,56 @@ pub fn execute_ledger_reconcile(
 }
 
 pub fn execute_ledger_adopt(
-    tx_id: Option<String>,
     pattern: Option<String>,
     all: bool,
-    reason: String,
+    category: &str,
+    summary: &str,
+    reason: &str,
 ) -> Result<()> {
+    let category = Category::from_str(category, true).map_err(|e| miette::miette!("{}", e))?;
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
     let config = load_ledger_config(&layout);
     let mut tx_mgr =
         TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
 
-    tx_mgr
-        .adopt_drift(tx_id, pattern, all, Some(reason))
+    let tx_id = tx_mgr
+        .start_change(TransactionRequest {
+            category,
+            entity: "drift_adoption".to_string(),
+            planned_action: Some(summary.to_string()),
+            ..Default::default()
+        })
         .map_err(|e| miette::miette!("{}", e))?;
 
-    println!("{}", "Drift adopted into pending transactions.".green());
+    tx_mgr
+        .adopt_drift(Some(tx_id.clone()), pattern, all, Some(reason.to_string()))
+        .map_err(|e| miette::miette!("{}", e))?;
+
+    tx_mgr
+        .commit_change(
+            tx_id,
+            CommitRequest {
+                change_type: ChangeType::Modify,
+                summary: summary.to_string(),
+                reason: reason.to_string(),
+                ..Default::default()
+            },
+            false,
+        )
+        .map_err(|e| miette::miette!("{}", e))?;
+
+    println!("{}", "Drift adopted and committed.".green());
     Ok(())
 }
 
 pub fn execute_ledger_atomic(
-    entity: String,
-    summary: String,
-    reason: String,
-    category: Category,
+    entity: &str,
+    category: &str,
+    summary: &str,
+    reason: &str,
 ) -> Result<()> {
+    let category = Category::from_str(category, true).map_err(|e| miette::miette!("{}", e))?;
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
     let config = load_ledger_config(&layout);
@@ -276,63 +185,20 @@ pub fn execute_ledger_atomic(
         .atomic_change(
             TransactionRequest {
                 category,
-                entity,
+                entity: entity.to_string(),
                 ..Default::default()
             },
             CommitRequest {
                 change_type: ChangeType::Modify,
-                summary,
-                reason,
+                summary: summary.to_string(),
+                reason: reason.to_string(),
                 ..Default::default()
             },
-            false, // atomic commits don't support --force bypass
+            false,
         )
         .map_err(|e| miette::miette!("{}", e))?;
 
     println!("{}", "Atomic change committed.".green().bold());
-    Ok(())
-}
-
-pub fn execute_ledger_note(
-    entity: String,
-    message: Option<String>,
-    note: Option<String>,
-) -> Result<()> {
-    let note_text = match (message, note) {
-        (Some(msg), None) => msg,
-        (None, Some(pos)) => pos,
-        (Some(msg), Some(_)) => msg,
-        (None, None) => {
-            return Err(miette::miette!(
-                "Missing required note text. Use --message <note> or pass it as a positional argument."
-            ));
-        }
-    };
-
-    let layout = get_layout()?;
-    let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
-    let config = load_ledger_config(&layout);
-    let mut tx_mgr =
-        TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
-
-    tx_mgr
-        .atomic_change(
-            TransactionRequest {
-                category: Category::Chore,
-                entity,
-                ..Default::default()
-            },
-            CommitRequest {
-                change_type: ChangeType::Modify,
-                summary: note_text,
-                reason: "Lightweight note".to_string(),
-                ..Default::default()
-            },
-            false, // note commits use Chore category, never requires verification
-        )
-        .map_err(|e| miette::miette!("{}", e))?;
-
-    println!("{}", "Note added to ledger.".green());
     Ok(())
 }
 
@@ -417,8 +283,8 @@ pub fn execute_ledger_status(
         if compact {
             println!(
                 "Ledger: {} pending, {} unaudited drift.",
-                pending_count.yellow(),
-                unaudited_count.red()
+                pending_count.to_string().yellow(),
+                unaudited_count.to_string().red()
             );
             if exit_code && (pending_count > 0 || unaudited_count > 0) {
                 std::process::exit(1);
@@ -519,6 +385,72 @@ pub fn execute_ledger_resume(tx_id: Option<String>) -> Result<()> {
             );
         } else {
             println!("No pending transactions found to resume.");
+        }
+    }
+    Ok(())
+}
+
+pub fn execute_ledger_register_rule(term: &str, category: &str, reason: &str) -> Result<()> {
+    let layout = get_layout()?;
+    let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
+    let config = load_ledger_config(&layout);
+    let tx_mgr = TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
+
+    let db = LedgerDb::new(tx_mgr.get_connection());
+    db.register_forbidden_term(term, category, reason)
+        .map_err(|e| miette::miette!("{}", e))?;
+
+    println!(
+        "Rule registered: NO {} in {}",
+        term.red().bold(),
+        category.yellow()
+    );
+    Ok(())
+}
+
+pub fn execute_ledger_register_validator(
+    name: &str,
+    command: &str,
+    category: &str,
+    timeout: u64,
+) -> Result<()> {
+    let layout = get_layout()?;
+    let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
+    let config = load_ledger_config(&layout);
+    let tx_mgr = TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
+
+    let db = LedgerDb::new(tx_mgr.get_connection());
+    db.register_validator(name, command, category, timeout)
+        .map_err(|e| miette::miette!("{}", e))?;
+
+    println!(
+        "Validator registered: {} for {}",
+        name.cyan().bold(),
+        category.yellow()
+    );
+    Ok(())
+}
+
+pub fn execute_ledger_search(query: &str, category: Option<String>) -> Result<()> {
+    let layout = get_layout()?;
+    let storage = StorageManager::open_read_only_sqlite_only(&layout.root)?;
+    let db = LedgerDb::new(storage.get_connection());
+
+    let results = db
+        .search_ledger(query, category.as_deref(), None, false, Some(10), 0)
+        .map_err(|e| miette::miette!("{}", e))?;
+
+    if results.is_empty() {
+        println!("No matching ledger entries found.");
+    } else {
+        println!("Found {} matching entries:", results.len());
+        for r in results {
+            println!(
+                "- [{}] {}: {}",
+                r.tx_id[..8].to_string().yellow(),
+                r.entity.cyan().to_string(),
+                r.summary
+            );
         }
     }
     Ok(())

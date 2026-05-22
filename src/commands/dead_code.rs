@@ -1,21 +1,12 @@
-use crate::config::load::load_config;
-use crate::config::model::Config;
+use crate::commands::helpers::{get_layout, load_ledger_config};
 use crate::impact::analysis::dead_code::ConfidenceScorer;
 use crate::index::warn_if_stale;
 use crate::output::diagnostics::success_marker;
-use crate::state::layout::Layout;
 use miette::Result;
-use std::env;
 
 pub fn execute_dead_code(threshold: f64, limit: usize, auto_index: bool) -> Result<()> {
-    let current_dir = env::current_dir()
-        .map_err(|e| miette::miette!("Failed to get current directory: {}", e))?;
-
-    let layout = Layout::new(current_dir.to_string_lossy().as_ref());
-    let mut config = load_config(&layout).unwrap_or_else(|e| {
-        tracing::warn!("Failed to load config: {e}. Using defaults.");
-        Config::default()
-    });
+    let layout = get_layout()?;
+    let mut config = load_ledger_config(&layout);
 
     // --- Staleness check ---
     let db_path = layout.state_subdir().join("ledger.db");
@@ -34,9 +25,13 @@ pub fn execute_dead_code(threshold: f64, limit: usize, auto_index: bool) -> Resu
     config.dead_code.confidence_threshold = threshold;
 
     let cozo = storage.cozo.as_ref();
-    let scorer = ConfidenceScorer::new(cozo, &storage, &config.dead_code, &current_dir);
+    let repo_path = layout.root.as_std_path();
 
-    let findings = scorer.scan_repo(limit)?;
+    let scorer = ConfidenceScorer::new(cozo, &storage, &config.dead_code, repo_path);
+    let mut findings = scorer.scan_repo(limit)?;
+
+    findings.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap());
+    findings.truncate(limit);
 
     crate::output::human::print_dead_code_summary(&findings, threshold);
 

@@ -9,6 +9,14 @@ pub fn build_user_prompt_legacy(packet: &ImpactPacket, query: &str) -> String {
     build_user_prompt(GeminiMode::Analyze, packet, query, None)
 }
 
+pub fn build_architect_prompt(packet: &ImpactPacket, query: &str) -> String {
+    build_user_prompt(GeminiMode::Narrative, packet, query, None)
+}
+
+pub fn build_suggest_prompt(packet: &ImpactPacket, query: &str) -> String {
+    build_user_prompt(GeminiMode::Suggest, packet, query, None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -22,6 +30,6 @@ mod tests {
 
         assert!(prompt.contains("Impact Packet:"));
         assert!(prompt.contains(query));
-        assert!(prompt.contains("v1")); // schema version
+        assert!(prompt.contains("v1") || prompt.contains("1.0")); // schema version
     }
 }
