@@ -57,6 +57,10 @@ fn test_search_basic() {
         outcome_notes: None,
         origin: "LOCAL".to_string(),
         trace_id: None,
+        signature: None,
+        public_key: None,
+        risk: None,
+        related_tickets: None,
     };
 
     let entry2 = LedgerEntry {
@@ -76,6 +80,10 @@ fn test_search_basic() {
         outcome_notes: None,
         origin: "LOCAL".to_string(),
         trace_id: None,
+        signature: None,
+        public_key: None,
+        risk: None,
+        related_tickets: None,
     };
 
     db.insert_ledger_entry(&entry1).unwrap();
@@ -120,6 +128,10 @@ fn test_search_filters() {
         outcome_notes: None,
         origin: "LOCAL".to_string(),
         trace_id: None,
+        signature: None,
+        public_key: None,
+        risk: None,
+        related_tickets: None,
     };
 
     let entry2 = LedgerEntry {
@@ -139,6 +151,10 @@ fn test_search_filters() {
         outcome_notes: None,
         origin: "LOCAL".to_string(),
         trace_id: None,
+        signature: None,
+        public_key: None,
+        risk: None,
+        related_tickets: None,
     };
 
     db.insert_ledger_entry(&entry1).unwrap();
@@ -182,6 +198,10 @@ fn test_search_ranking() {
         outcome_notes: None,
         origin: "LOCAL".to_string(),
         trace_id: None,
+        signature: None,
+        public_key: None,
+        risk: None,
+        related_tickets: None,
     };
 
     let entry2 = LedgerEntry {
@@ -201,6 +221,10 @@ fn test_search_ranking() {
         outcome_notes: None,
         origin: "LOCAL".to_string(),
         trace_id: None,
+        signature: None,
+        public_key: None,
+        risk: None,
+        related_tickets: None,
     };
 
     db.insert_ledger_entry(&entry1).unwrap();
@@ -263,6 +287,10 @@ fn test_search_days_filtering() {
         outcome_notes: None,
         origin: "LOCAL".to_string(),
         trace_id: None,
+        signature: None,
+        public_key: None,
+        risk: None,
+        related_tickets: None,
     };
 
     let entry2 = LedgerEntry {
@@ -282,6 +310,10 @@ fn test_search_days_filtering() {
         outcome_notes: None,
         origin: "LOCAL".to_string(),
         trace_id: None,
+        signature: None,
+        public_key: None,
+        risk: None,
+        related_tickets: None,
     };
 
     db.insert_ledger_entry(&entry1).unwrap();

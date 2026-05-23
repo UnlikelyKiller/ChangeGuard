@@ -31,6 +31,13 @@ changeguard reset --include-ledger --yes   # Destructive: wipe ledger.db
 changeguard reset --all --yes              # Destructive: wipe the entire .changeguard tree
 ```
 
+### Intent & Capture (Milestone O)
+
+```bash
+changeguard intent demo                    # Launch the interactive intent capture TUI demo
+changeguard verify --signatures            # Mathematical verification of the entire ledger
+```
+
 ### Audit & Search
 
 ```bash

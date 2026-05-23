@@ -135,7 +135,11 @@ pub fn print_staleness_warning(warning: &StalenessWarning) {
         warning.stale_files,
         if warning.stale_files == 1 { "" } else { "s" },
         warning.unindexed_files,
-        if warning.unindexed_files == 1 { "" } else { "s" },
+        if warning.unindexed_files == 1 {
+            ""
+        } else {
+            "s"
+        },
     );
 
     if !warning.sample_paths.is_empty() {

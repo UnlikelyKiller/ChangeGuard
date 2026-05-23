@@ -1,4 +1,5 @@
 pub mod adr;
+pub mod crypto;
 pub mod db;
 pub mod drift;
 pub mod enforcement;
@@ -11,6 +12,7 @@ pub mod types;
 pub mod ui;
 pub mod validators;
 
+pub use crypto::*;
 pub use db::*;
 pub use drift::*;
 pub use enforcement::*;

@@ -154,7 +154,7 @@ impl CozoStorage {
             self.run_script(":create ledger_link { node_id: String, ledger_id: String => interaction_type: String }")?;
         }
         if !existing.contains(&"ledger_entry".to_string()) {
-            self.run_script(":create ledger_entry { id: Int => tx_id: String, category: String, entry_type: String, entity_normalized: String, change_type: String, summary: String, reason: String, committed_at: String, is_breaking: Bool, verification_status: String, trace_id: String }")?;
+            self.run_script(":create ledger_entry { id: Int => tx_id: String, category: String, entry_type: String, entity_normalized: String, change_type: String, summary: String, reason: String, committed_at: String, is_breaking: Bool, verification_status: String, trace_id: String, signature: String, public_key: String, risk: String, related_tickets: String }")?;
         }
         if !existing.contains(&"project_symbol".to_string()) {
             self.run_script(":create project_symbol { id: Int => file_path: String, qualified_name: String, symbol_name: String, symbol_kind: String, is_public: Bool, line_start: Int, line_end: Int }")?;
@@ -206,6 +206,67 @@ impl CozoStorage {
         // ast_to_conversation query (Decision via Edge target):
         //   ?[entity_id] := *edge{target: '<id>', provenance_id: tx_id}, *Decision{id: entity_id, source_tx_id: tx_id}
 
+        // --- Track O1-R: Cozo Schema Versioning ---
+        if !existing.contains(&"cozo_meta".to_string()) {
+            self.run_script(":create cozo_meta { key: String => value: String }")?;
+        }
+
+        self.migrate_cozo_schema()?;
+
+        Ok(())
+    }
+
+    pub fn migrate_cozo_schema(&self) -> Result<()> {
+        let existing = self.get_relations()?;
+        if !existing.contains(&"cozo_meta".to_string()) {
+            self.run_script(":create cozo_meta { key: String => value: String }")?;
+        }
+
+        let res =
+            self.run_script("?[value] := *cozo_meta{key: 'cozo_schema_version', value: value}")?;
+        let version = res
+            .rows
+            .first()
+            .and_then(|r| r.first())
+            .and_then(|v| {
+                if let DataValue::Str(s) = v {
+                    s.parse::<u32>().ok()
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(1);
+
+        if version < 2 {
+            info!("Migrating Cozo schema from v{} to v2", version);
+            if existing.contains(&"ledger_entry".to_string()) {
+                let cols = self.run_script("::columns ledger_entry")?;
+                if cols.rows.len() < 16 {
+                    info!("Upgrading ledger_entry relation to 16 columns");
+                    let data = self.run_script("?[id, tx_id, category, entry_type, entity_normalized, change_type, summary, reason, committed_at, is_breaking, verification_status, trace_id] := *ledger_entry{id, tx_id, category, entry_type, entity_normalized, change_type, summary, reason, committed_at, is_breaking, verification_status, trace_id}")?;
+
+                    self.run_script("::remove ledger_entry")?;
+                    self.run_script(":create ledger_entry { id: Int => tx_id: String, category: String, entry_type: String, entity_normalized: String, change_type: String, summary: String, reason: String, committed_at: String, is_breaking: Bool, verification_status: String, trace_id: String, signature: String, public_key: String, risk: String, related_tickets: String }")?;
+
+                    if !data.rows.is_empty() {
+                        let mut batch_rows = Vec::new();
+                        for mut row in data.rows {
+                            row.push(DataValue::from("")); // signature
+                            row.push(DataValue::from("")); // public_key
+                            row.push(DataValue::from("")); // risk
+                            row.push(DataValue::from("")); // related_tickets
+                            batch_rows.push(DataValue::List(Box::new(row.into_vec())));
+                        }
+
+                        let mut params = std::collections::BTreeMap::new();
+                        params.insert("batch".to_string(), DataValue::List(Box::new(batch_rows)));
+                        self.run_script_with_params("?[id, tx_id, category, entry_type, entity_normalized, change_type, summary, reason, committed_at, is_breaking, verification_status, trace_id, signature, public_key, risk, related_tickets] <- $batch :put ledger_entry", params, ScriptMutability::Mutable)?;
+                    }
+                }
+            }
+            self.run_script("?[key, value] <- [['cozo_schema_version', '2']] :put cozo_meta")?;
+            info!("Cozo schema migration to v2 complete");
+        }
         Ok(())
     }
 

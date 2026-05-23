@@ -20,7 +20,7 @@ pub fn migrate_sqlite_to_cozo(sqlite: &StorageManager, cozo: &CozoStorage) -> Re
 fn migrate_ledger_entries(sqlite: &StorageManager, cozo: &CozoStorage) -> Result<()> {
     let conn = sqlite.get_connection();
     let mut stmt = conn.prepare(
-        "SELECT id, tx_id, category, entry_type, entity_normalized, change_type, summary, reason, committed_at, is_breaking, verification_status, trace_id 
+        "SELECT id, tx_id, category, entry_type, entity_normalized, change_type, summary, reason, committed_at, is_breaking, verification_status, trace_id, signature, public_key, risk, related_tickets 
          FROM ledger_entries"
     ).into_diagnostic()?;
 
@@ -39,6 +39,10 @@ fn migrate_ledger_entries(sqlite: &StorageManager, cozo: &CozoStorage) -> Result
                 row.get::<_, i32>(9)? != 0,
                 row.get::<_, Option<String>>(10)?.unwrap_or_default(),
                 row.get::<_, Option<String>>(11)?.unwrap_or_default(),
+                row.get::<_, Option<String>>(12)?.unwrap_or_default(),
+                row.get::<_, Option<String>>(13)?.unwrap_or_default(),
+                row.get::<_, Option<String>>(14)?.unwrap_or_default(),
+                row.get::<_, Option<String>>(15)?.unwrap_or_default(),
             ]))
         })
         .into_diagnostic()?;
@@ -50,7 +54,7 @@ fn migrate_ledger_entries(sqlite: &StorageManager, cozo: &CozoStorage) -> Result
 
     if !batch.is_empty() {
         let script = format!(
-            "?[id, tx_id, category, entry_type, entity_normalized, change_type, summary, reason, committed_at, is_breaking, verification_status, trace_id] <- {} :put ledger_entry",
+            "?[id, tx_id, category, entry_type, entity_normalized, change_type, summary, reason, committed_at, is_breaking, verification_status, trace_id, signature, public_key, risk, related_tickets] <- {} :put ledger_entry",
             serde_json::to_string(&batch).into_diagnostic()?
         );
         cozo.run_script(&script)?;

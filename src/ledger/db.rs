@@ -187,8 +187,8 @@ impl<'a> LedgerDb<'a> {
                 tx_id, category, entry_type, entity, entity_normalized,
                 change_type, summary, reason, is_breaking, committed_at,
                 verification_status, verification_basis, outcome_notes,
-                origin, trace_id
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                origin, trace_id, signature, public_key, risk, related_tickets
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
             params![
                 entry.tx_id,
                 serde_json::to_string(&entry.category)
@@ -225,6 +225,10 @@ impl<'a> LedgerDb<'a> {
                 entry.outcome_notes,
                 entry.origin,
                 entry.trace_id,
+                entry.signature,
+                entry.public_key,
+                entry.risk,
+                entry.related_tickets,
             ],
         )?;
         Ok(())
@@ -235,7 +239,7 @@ impl<'a> LedgerDb<'a> {
             "SELECT id, tx_id, category, entry_type, entity, entity_normalized,
                     change_type, summary, reason, is_breaking, committed_at,
                     verification_status, verification_basis, outcome_notes,
-                    origin, trace_id
+                    origin, trace_id, signature, public_key, risk, related_tickets
              FROM ledger_entries WHERE tx_id = ?1",
         )?;
 
@@ -265,7 +269,7 @@ impl<'a> LedgerDb<'a> {
             "SELECT id, tx_id, category, entry_type, entity, entity_normalized,
                     change_type, summary, reason, is_breaking, committed_at,
                     verification_status, verification_basis, outcome_notes,
-                    origin, trace_id
+                    origin, trace_id, signature, public_key, risk, related_tickets
              FROM ledger_entries WHERE entity_normalized = ?1
              ORDER BY committed_at DESC
              LIMIT ?2 OFFSET ?3",
@@ -292,7 +296,7 @@ impl<'a> LedgerDb<'a> {
             "SELECT id, tx_id, category, entry_type, entity, entity_normalized,
                     change_type, summary, reason, is_breaking, committed_at,
                     verification_status, verification_basis, outcome_notes,
-                    origin, trace_id
+                    origin, trace_id, signature, public_key, risk, related_tickets
              FROM ledger_entries
              ORDER BY committed_at DESC
              LIMIT ?1 OFFSET ?2",
@@ -319,7 +323,7 @@ impl<'a> LedgerDb<'a> {
             "SELECT id, tx_id, category, entry_type, entity, entity_normalized,
                     change_type, summary, reason, is_breaking, committed_at,
                     verification_status, verification_basis, outcome_notes,
-                    origin, trace_id
+                    origin, trace_id, signature, public_key, risk, related_tickets
              FROM ledger_entries 
              WHERE entity_normalized = ?1 
                AND origin = 'SIBLING' 
@@ -344,7 +348,7 @@ impl<'a> LedgerDb<'a> {
         let mut sql = "SELECT id, tx_id, category, entry_type, entity, entity_normalized,
                     change_type, summary, reason, is_breaking, committed_at,
                     verification_status, verification_basis, outcome_notes,
-                    origin, trace_id
+                    origin, trace_id, signature, public_key, risk, related_tickets
              FROM ledger_entries WHERE (entry_type = 'ARCHITECTURE' OR is_breaking = 1)"
             .to_string();
 
@@ -379,7 +383,7 @@ impl<'a> LedgerDb<'a> {
             "SELECT l.id, l.tx_id, l.category, l.entry_type, l.entity, l.entity_normalized,
                     l.change_type, l.summary, l.reason, l.is_breaking, l.committed_at,
                     l.verification_status, l.verification_basis, l.outcome_notes,
-                    l.origin, l.trace_id
+                    l.origin, l.trace_id, l.signature, l.public_key, l.risk, l.related_tickets
              FROM ledger_entries l
              JOIN ledger_fts f ON f.rowid = l.id
              WHERE ledger_fts MATCH ?1"
@@ -492,6 +496,10 @@ impl<'a> LedgerDb<'a> {
             outcome_notes: row.get(13)?,
             origin: row.get(14)?,
             trace_id: row.get(15)?,
+            signature: row.get(16)?,
+            public_key: row.get(17)?,
+            risk: row.get(18)?,
+            related_tickets: row.get(19)?,
         })
     }
 

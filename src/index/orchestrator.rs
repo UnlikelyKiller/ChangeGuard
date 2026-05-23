@@ -126,7 +126,10 @@ impl ProjectIndexer {
         &mut self.storage
     }
 
-    pub fn build_kg_native(&self, local_model_config: &crate::config::model::LocalModelConfig) -> Result<()> {
+    pub fn build_kg_native(
+        &self,
+        local_model_config: &crate::config::model::LocalModelConfig,
+    ) -> Result<()> {
         let Some(cozo) = &self.storage.cozo else {
             info!("CozoDB not available, skipping native KG build");
             return Ok(());

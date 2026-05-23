@@ -1,6 +1,6 @@
 use crate::commands::ask::Backend;
-use crate::commands::search::SearchArgs;
 use crate::commands::bridge::BridgeCommands;
+use crate::commands::search::SearchArgs;
 use clap::{Args, Parser, Subcommand};
 use miette::{IntoDiagnostic, Result};
 use std::env;
@@ -176,6 +176,11 @@ pub enum Commands {
         #[arg(long)]
         auto_index: bool,
     },
+    /// Manage ChangeGuard intent capture and TUI interaction
+    Intent {
+        #[command(subcommand)]
+        command: IntentCommands,
+    },
     /// Reset ChangeGuard state or configuration
     Reset {
         /// Remove configuration file
@@ -280,6 +285,25 @@ pub enum Commands {
         #[arg(long)]
         stop: bool,
     },
+    /// Internal helper commands for git hooks and lifecycle management
+    #[command(hide = true)]
+    Internal {
+        #[command(subcommand)]
+        command: InternalCommands,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum InternalCommands {
+    /// Internal git hook command for commit message validation
+    #[command(name = "hook-commit-msg")]
+    HookCommitMsg {
+        /// The file containing the commit message
+        msg_file: PathBuf,
+    },
+    /// Internal git hook command for post-commit processing
+    #[command(name = "hook-post-commit")]
+    HookPostCommit,
 }
 
 #[derive(Args, Debug)]
@@ -323,6 +347,12 @@ pub struct HotspotArgs {
     /// Find semantically similar code clusters (duplication hotspots)
     #[arg(long, short)]
     pub semantic: bool,
+}
+
+#[derive(Subcommand)]
+pub enum IntentCommands {
+    /// Launch the interactive intent confirmation UI with mock data
+    Demo,
 }
 
 #[derive(Subcommand)]
@@ -522,7 +552,9 @@ pub fn run_with(cli: Cli) -> Result<()> {
 
     match cli.command {
         Commands::Init { force } => crate::commands::init::execute_init(force),
-        Commands::Scan { impact, json, out } => crate::commands::scan::execute_scan(impact, json, out),
+        Commands::Scan { impact, json, out } => {
+            crate::commands::scan::execute_scan(impact, json, out)
+        }
         Commands::Impact {
             all_parents,
             summary,
@@ -544,7 +576,12 @@ pub fn run_with(cli: Cli) -> Result<()> {
             strict,
         } => {
             if check {
-                crate::commands::index::execute_index_check(std::path::Path::new("."), 3, json, strict)
+                crate::commands::index::execute_index_check(
+                    std::path::Path::new("."),
+                    3,
+                    json,
+                    strict,
+                )
             } else {
                 crate::commands::index::execute_index(crate::commands::index::IndexArgs {
                     incremental: incremental && !full,
@@ -614,7 +651,9 @@ pub fn run_with(cli: Cli) -> Result<()> {
                 category,
                 summary,
                 reason,
-            } => crate::commands::ledger::execute_ledger_atomic(&entity, &category, &summary, &reason),
+            } => crate::commands::ledger::execute_ledger_atomic(
+                &entity, &category, &summary, &reason,
+            ),
             LedgerCommands::Status {
                 entity,
                 compact,
@@ -625,7 +664,9 @@ pub fn run_with(cli: Cli) -> Result<()> {
                     term,
                     category,
                     reason,
-                } => crate::commands::ledger::execute_ledger_register_rule(&term, &category, &reason),
+                } => {
+                    crate::commands::ledger::execute_ledger_register_rule(&term, &category, &reason)
+                }
                 RegisterCommands::Validator {
                     name,
                     command,
@@ -638,7 +679,10 @@ pub fn run_with(cli: Cli) -> Result<()> {
             LedgerCommands::Stack { category } => {
                 crate::commands::ledger_stack::execute_ledger_stack(category)
             }
-            LedgerCommands::Adr { output } => crate::commands::ledger_adr::execute_ledger_adr(Some(camino::Utf8PathBuf::from(output)), None),
+            LedgerCommands::Adr { output } => crate::commands::ledger_adr::execute_ledger_adr(
+                Some(camino::Utf8PathBuf::from(output)),
+                None,
+            ),
             LedgerCommands::Search { query, category } => {
                 crate::commands::ledger::execute_ledger_search(&query, category)
             }
@@ -654,7 +698,9 @@ pub fn run_with(cli: Cli) -> Result<()> {
                 category,
                 summary,
                 reason,
-            } => crate::commands::ledger::execute_ledger_adopt(pattern, all, &category, &summary, &reason),
+            } => crate::commands::ledger::execute_ledger_adopt(
+                pattern, all, &category, &summary, &reason,
+            ),
             LedgerCommands::Audit {
                 entity,
                 include_unaudited,
@@ -687,6 +733,9 @@ pub fn run_with(cli: Cli) -> Result<()> {
         } => crate::commands::ask::execute_ask(
             query, semantic, limit, mode, narrative, backend, auto_index,
         ),
+        Commands::Intent { command } => match command {
+            IntentCommands::Demo => crate::commands::intent::execute_intent_demo(),
+        },
         Commands::Reset {
             remove_config,
             remove_rules,
@@ -744,5 +793,13 @@ pub fn run_with(cli: Cli) -> Result<()> {
             open,
             stop,
         } => crate::commands::viz_server::execute_viz_server(port, bind, open, stop),
+        Commands::Internal { command } => match command {
+            InternalCommands::HookCommitMsg { msg_file } => {
+                crate::commands::hook_commit_msg::execute_hook_commit_msg(&msg_file)
+            }
+            InternalCommands::HookPostCommit => {
+                crate::commands::hook_post_commit::execute_hook_post_commit()
+            }
+        },
     }
 }

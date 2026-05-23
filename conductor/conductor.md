@@ -916,7 +916,14 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Plan: `conductor/trackO1-6/plan.md`
     *   Goal: Provide an auditor-ready JSON/CSV export mapping ledger entries to AICPA TSP 100 controls.
 
-## Workflow
+*   **Track O1-R: Milestone O Remediation**
+    *   Status: Planned
+    *   Spec: `conductor/trackO1-R/spec.md`
+    *   Plan: `conductor/trackO1-R/plan.md`
+    *   Goal: Address all Critical, High, Medium, and Low findings from the GPT-5.4 Codex cross-model review of Milestone O. Key fixes: two-phase ledger write to eliminate phantom committed records; route hook writes through `TransactionManager::commit_change`; Cozo schema migration for existing repos; signing error propagation with `require_signing` config; commit trailer preservation; multi-file entity canonicalization; expanded category inference; and full test coverage for all new risk surfaces.
+    *   Key files: `src/commands/hook_commit_msg.rs`, `src/commands/hook_post_commit.rs` (new), `src/commands/init.rs`, `src/ledger/transaction.rs`, `src/ledger/types.rs`, `src/ledger/crypto.rs`, `src/state/storage_cozo.rs`, `src/config/model.rs`, `tests/hook_commit_msg.rs` (new), `tests/ledger_crypto.rs` (new), `tests/cozo_schema_migration.rs` (new), `tests/m33_migration.rs` (new)
+
+
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.
 2.  **Push Plan**: Commit and push plan to `main`.

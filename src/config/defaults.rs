@@ -54,6 +54,11 @@ stale_threshold_days = 3
 [local_model]
 # Use 127.0.0.1 — 'localhost' resolves to ::1 (IPv6) on Windows, which breaks IPv4-only servers
 base_url = "http://127.0.0.1:8081"
+
+[intent]
+required = "always"
+tui_enabled = true
+require_signing = false
 "#;
 
 pub const DEFAULT_CONFIG_TEMPLATE_ENV: &str = "CHANGEGUARD_DEFAULT_CONFIG";

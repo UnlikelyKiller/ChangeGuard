@@ -18,6 +18,22 @@ pub enum Category {
     Chore,
 }
 
+impl std::fmt::Display for Category {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Category::Architecture => "ARCHITECTURE",
+            Category::Feature => "FEATURE",
+            Category::Bugfix => "BUGFIX",
+            Category::Refactor => "REFACTOR",
+            Category::Infra => "INFRA",
+            Category::Tooling => "TOOLING",
+            Category::Docs => "DOCS",
+            Category::Chore => "CHORE",
+        };
+        write!(f, "{}", s)
+    }
+}
+
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, ValueEnum, Default,
 )]
@@ -83,6 +99,10 @@ pub struct CommitRequest {
     pub verification_basis: Option<VerificationBasis>,
     pub outcome_notes: Option<String>,
     pub issue_ref: Option<String>,
+    pub signature: Option<String>,
+    pub public_key: Option<String>,
+    pub risk: Option<String>,
+    pub related_tickets: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -123,6 +143,10 @@ pub struct LedgerEntry {
     pub outcome_notes: Option<String>,
     pub origin: String,
     pub trace_id: Option<String>,
+    pub signature: Option<String>,
+    pub public_key: Option<String>,
+    pub risk: Option<String>,
+    pub related_tickets: Option<String>,
 }
 
 #[cfg(test)]

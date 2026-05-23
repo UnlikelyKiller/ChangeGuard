@@ -1758,7 +1758,7 @@ mod tests {
                     trace_id,
                 )| {
                     format!(
-                        "[{id}, '{tx_id}', '{category}', '{entry_type}', '{entity}', '{change_type}', '{summary}', '{reason}', '{committed_at}', {is_breaking}, '{verification_status}', '{trace_id}']",
+                        "[{id}, '{tx_id}', '{category}', '{entry_type}', '{entity}', '{change_type}', '{summary}', '{reason}', '{committed_at}', {is_breaking}, '{verification_status}', '{trace_id}', '', '', '', '']",
                         is_breaking = if *is_breaking { "true" } else { "false" }
                     )
                 },
@@ -1766,7 +1766,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join(",\n");
         let script = format!(
-            "?[id, tx_id, category, entry_type, entity_normalized, change_type, summary, reason, committed_at, is_breaking, verification_status, trace_id] <- [\n{rows}\n] :put ledger_entry"
+            "?[id, tx_id, category, entry_type, entity_normalized, change_type, summary, reason, committed_at, is_breaking, verification_status, trace_id, signature, public_key, risk, related_tickets] <- [\n{rows}\n] :put ledger_entry"
         );
         cozo.run_script(&script).unwrap();
     }

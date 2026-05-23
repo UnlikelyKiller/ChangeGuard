@@ -213,6 +213,40 @@ pub struct Config {
     pub dead_code: DeadCodeConfig,
     #[serde(default)]
     pub index: IndexConfig,
+    #[serde(default)]
+    pub intent: IntentConfig,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct IntentConfig {
+    #[serde(default = "default_intent_required")]
+    pub required: String, // "always" | "never"
+    #[serde(default = "default_tui_enabled")]
+    pub tui_enabled: bool,
+    #[serde(default = "default_require_signing")]
+    pub require_signing: bool,
+}
+
+fn default_intent_required() -> String {
+    "always".to_string()
+}
+
+fn default_tui_enabled() -> bool {
+    true
+}
+
+fn default_require_signing() -> bool {
+    false
+}
+
+impl Default for IntentConfig {
+    fn default() -> Self {
+        Self {
+            required: default_intent_required(),
+            tui_enabled: default_tui_enabled(),
+            require_signing: default_require_signing(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

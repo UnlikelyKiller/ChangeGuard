@@ -90,6 +90,10 @@ mod tests {
             outcome_notes: Some("All modules now use thiserror.".to_string()),
             origin: "LOCAL".to_string(),
             trace_id: None,
+            signature: None,
+            public_key: None,
+            risk: None,
+            related_tickets: None,
         };
 
         let content = generate_madr_content(&entry);

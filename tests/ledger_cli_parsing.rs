@@ -76,7 +76,15 @@ fn test_start_success_with_all_args() {
 
 #[test]
 fn test_start_missing_entity() {
-    let text = parse_err(&["changeguard", "ledger", "start", "--category", "F", "--message", "m"]);
+    let text = parse_err(&[
+        "changeguard",
+        "ledger",
+        "start",
+        "--category",
+        "F",
+        "--message",
+        "m",
+    ]);
     assert!(
         text.contains("entity") || text.contains("required"),
         "expected entity requirement: {text}"
@@ -170,12 +178,7 @@ fn test_search_success() {
 // ===========================================================================
 #[test]
 fn test_reconcile_success() {
-    let cli = parse_ok(&[
-        "changeguard",
-        "ledger",
-        "reconcile",
-        "--all",
-    ]);
+    let cli = parse_ok(&["changeguard", "ledger", "reconcile", "--all"]);
     assert!(is_ledger(&cli.command));
 }
 

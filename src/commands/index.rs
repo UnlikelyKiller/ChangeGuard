@@ -537,7 +537,11 @@ fn execute_semantic_index(
                             *files_indexed += 1;
                         }
                         Err(e) => {
-                            warn!("Failed to process file for semantic indexing {}: {}", path.display(), e);
+                            warn!(
+                                "Failed to process file for semantic indexing {}: {}",
+                                path.display(),
+                                e
+                            );
                         }
                     }
                 }
@@ -546,10 +550,19 @@ fn execute_semantic_index(
         Ok(())
     }
 
-    collect_semantic_data(repo_root, &semantic, &mut all_chunks, &mut all_embeddings, &mut files_indexed)?;
+    collect_semantic_data(
+        repo_root,
+        &semantic,
+        &mut all_chunks,
+        &mut all_embeddings,
+        &mut files_indexed,
+    )?;
 
     if !all_chunks.is_empty() {
-        info!("Ingesting {} snippets into vector store...", all_chunks.len());
+        info!(
+            "Ingesting {} snippets into vector store...",
+            all_chunks.len()
+        );
         semantic.index_chunks_batched(all_chunks, all_embeddings)?;
     }
 
@@ -679,7 +692,7 @@ pub fn execute_index_check(
     let root = camino::Utf8PathBuf::from_path_buf(path.to_path_buf())
         .map_err(|_| miette::miette!("Invalid UTF-8 in path"))?;
     let layout = Layout::new(root.as_str());
-    
+
     let storage_res = StorageManager::open_read_only(&layout.root);
     let mut warning = match storage_res {
         Ok(ref storage) => crate::index::staleness::check_index_staleness(storage, threshold),
@@ -745,7 +758,8 @@ pub fn execute_index_check(
             if warning.unindexed_files > 0 {
                 std::process::exit(1);
             }
-        } else if strict && (warning.days_since_indexed > threshold || warning.unindexed_files > 0) {
+        } else if strict && (warning.days_since_indexed > threshold || warning.unindexed_files > 0)
+        {
             std::process::exit(1);
         }
     } else if json {

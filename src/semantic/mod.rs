@@ -93,7 +93,11 @@ impl<'a> SemanticDiscovery<'a> {
         Ok(())
     }
 
-    pub fn process_file(&self, path: &Path, content: &str) -> Result<(Vec<crate::semantic::chunker::AstChunk>, Vec<Vec<f32>>)> {
+    pub fn process_file(
+        &self,
+        path: &Path,
+        content: &str,
+    ) -> Result<(Vec<crate::semantic::chunker::AstChunk>, Vec<Vec<f32>>)> {
         let chunks = AstChunker::chunk_file(path, content)?;
         if chunks.is_empty() {
             return Ok((vec![], vec![]));
@@ -106,7 +110,11 @@ impl<'a> SemanticDiscovery<'a> {
         Ok((chunks, embeddings))
     }
 
-    pub fn index_chunks_batched(&self, chunks: Vec<crate::semantic::chunker::AstChunk>, embeddings: Vec<Vec<f32>>) -> Result<()> {
+    pub fn index_chunks_batched(
+        &self,
+        chunks: Vec<crate::semantic::chunker::AstChunk>,
+        embeddings: Vec<Vec<f32>>,
+    ) -> Result<()> {
         self.vector_store.index_chunks(chunks, embeddings)
     }
 

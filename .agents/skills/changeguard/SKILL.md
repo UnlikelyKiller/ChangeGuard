@@ -12,6 +12,8 @@ Use ChangeGuard as the local safety layer and engineering intelligence engine fo
 - **Search & Discovery**: High-performance regex (Tantivy), precise LSP navigation (SCIP), and conceptual semantic search (local embeddings) with parallel HNSW retrieval.
 - **Knowledge Graph**: Durable, billion-edge relational and vector storage (CozoDB-redux/Sled) with native code-aware tokenization (Tree-Sitter).
 - **Impact Analysis**: Deep "blast radius" analysis across 20+ specialized providers (Infra, Contracts, Observability, Temporal).
+- **Cryptographic Provenance**: Mathematical proof of intent via Ed25519 signing of every ledger entry. Offline verification via `verify --signatures`.
+- **Intent Capture TUI**: Interactive terminal UI for auditing and refining LLM-drafted intent payloads during the git commit process.
 - **Real-time Sync**: Incremental Knowledge Graph updates, AST re-parsing, and code-aware symbol indexing via the `watch` command.
 - **Predictable Verification**: Bayesian test reordering and CI failure prediction.
 - **Documentation Generation**: Export Knowledge Graph data to Markdown/Mermaid passive documentation (`index --export-docs`).
@@ -125,6 +127,22 @@ For surgical one-command provenance:
 ```bash
 changeguard ledger atomic <entity> --category <CAT> --summary "Task" --reason "Goal"
 ```
+
+### Git Hook Lifecycle (Milestone O)
+
+ChangeGuard uses a two-phase commit lifecycle to ensure zero phantom records:
+1. **`commit-msg`**: Launches the TUI to capture intent. Creates a `PENDING` transaction and a sidecar file.
+2. **`post-commit`**: Automatically promotes the `PENDING` transaction to `COMMITTED` once the Git commit is finalized. If the Git commit fails, the record remains pending or is safely rolled back on the next attempt.
+
+### Cryptographic Security
+
+If `intent.require_signing = true` is set in `.changeguard/config.toml`, all ledger entries must be signed by the developer's local Ed25519 key (generated during `init`).
+
+To verify the integrity of the entire ledger:
+```bash
+changeguard verify --signatures
+```
+This performs an offline mathematical validation of every record against its signature and public key.
 
 ## Reasoning Rules
 

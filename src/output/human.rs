@@ -1,8 +1,8 @@
-use crate::impact::packet::{ImpactPacket, RiskLevel, Hotspot, DeadCodeFinding, TemporalCoupling};
-use crate::observability::signal::{ObservabilitySignal, SignalSeverity};
-use crate::verify::plan::VerificationPlan;
-use crate::platform::env::ExecutableStatus;
 use crate::exec::ExecutionResult;
+use crate::impact::packet::{DeadCodeFinding, Hotspot, ImpactPacket, RiskLevel, TemporalCoupling};
+use crate::observability::signal::{ObservabilitySignal, SignalSeverity};
+use crate::platform::env::ExecutableStatus;
+use crate::verify::plan::VerificationPlan;
 use comfy_table::modifiers::UTF8_ROUND_CORNERS;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::{Cell, Color, Table};
@@ -25,7 +25,7 @@ pub fn print_doctor_report(report: &DoctorReport) {
     println!("==================================================");
     println!("{:<20} {}", "Environment:", report.platform);
     println!("{:<20} {}", "Active Shell:", report.shell);
-    
+
     println!("\nTools:");
     for (name, status) in report.tools {
         let status_str = match status {
@@ -48,10 +48,22 @@ pub fn print_doctor_report(report: &DoctorReport) {
 
 pub fn print_scan_summary(snapshot: &crate::git::RepoSnapshot) {
     println!("\n{}", "ChangeGuard Git Scan Summary".bold().underline());
-    println!("{:<15} {}", "Branch:".bold(), snapshot.branch_name.as_deref().unwrap_or("unknown"));
-    println!("{:<15} {}", "HEAD:".bold(), snapshot.head_hash.as_deref().unwrap_or("unknown"));
-    
-    let state_str = if snapshot.is_clean { "CLEAN".green().to_string() } else { "DIRTY".yellow().to_string() };
+    println!(
+        "{:<15} {}",
+        "Branch:".bold(),
+        snapshot.branch_name.as_deref().unwrap_or("unknown")
+    );
+    println!(
+        "{:<15} {}",
+        "HEAD:".bold(),
+        snapshot.head_hash.as_deref().unwrap_or("unknown")
+    );
+
+    let state_str = if snapshot.is_clean {
+        "CLEAN".green().to_string()
+    } else {
+        "DIRTY".yellow().to_string()
+    };
     println!("{:<15} {}", "State:".bold(), state_str);
 
     if !snapshot.changes.is_empty() {
@@ -62,12 +74,20 @@ pub fn print_scan_summary(snapshot: &crate::git::RepoSnapshot) {
             .set_header(vec!["State", "Action", "File Path"]);
 
         for change in &snapshot.changes {
-            let state = if change.is_staged { "Staged".green().to_string() } else { "Unstaged".dimmed().to_string() };
+            let state = if change.is_staged {
+                "Staged".green().to_string()
+            } else {
+                "Unstaged".dimmed().to_string()
+            };
             let action = match &change.change_type {
                 crate::git::ChangeType::Added => "Added".green().to_string(),
                 crate::git::ChangeType::Modified => "Modified".yellow().to_string(),
                 crate::git::ChangeType::Deleted => "Deleted".red().to_string(),
-                crate::git::ChangeType::Renamed { old_path } => format!("Renamed ({})", old_path.display()).blue().to_string(),
+                crate::git::ChangeType::Renamed { old_path } => {
+                    format!("Renamed ({})", old_path.display())
+                        .blue()
+                        .to_string()
+                }
             };
 
             table.add_row(vec![
@@ -82,7 +102,7 @@ pub fn print_scan_summary(snapshot: &crate::git::RepoSnapshot) {
 
 pub fn print_impact_summary(packet: &ImpactPacket) {
     println!("\n{}", "Change Impact Analysis".bold().underline());
-    
+
     let risk_color = match packet.risk_level {
         RiskLevel::High => Color::Red,
         RiskLevel::Medium => Color::Yellow,
@@ -95,8 +115,7 @@ pub fn print_impact_summary(packet: &ImpactPacket) {
         .apply_modifier(UTF8_ROUND_CORNERS)
         .add_row(vec![
             Cell::new("OVERALL RISK"),
-            Cell::new(format!("{:?}", packet.risk_level).to_uppercase())
-                .fg(risk_color),
+            Cell::new(format!("{:?}", packet.risk_level).to_uppercase()).fg(risk_color),
         ]);
     println!("{risk_table}");
 
@@ -155,7 +174,10 @@ pub fn print_hotspots_table_with_centrality(hotspots: &[Hotspot]) {
         .set_header(vec!["Rank", "Score", "Freq", "Comp", "Cent", "File Path"]);
 
     for (i, h) in hotspots.iter().enumerate() {
-        let cent = h.centrality.map(|c| c.to_string()).unwrap_or_else(|| "-".to_string());
+        let cent = h
+            .centrality
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "-".to_string());
         table.add_row(vec![
             Cell::new((i + 1).to_string()),
             Cell::new(format!("{:.3}", h.display_score)),
@@ -242,12 +264,13 @@ pub fn print_dead_code_summary(findings: &[DeadCodeFinding], _threshold: f64) {
         .set_header(vec!["Symbol", "File", "Confidence", "Factors"]);
 
     for f in findings {
-        let factors_str = f.factors
+        let factors_str = f
+            .factors
             .iter()
             .map(|fac| format!("{:?}", fac))
             .collect::<Vec<_>>()
             .join(", ");
-        
+
         table.add_row(vec![
             Cell::new(f.symbol_name.clone()),
             Cell::new(f.file_path.display().to_string()),
@@ -261,15 +284,27 @@ pub fn print_dead_code_summary(findings: &[DeadCodeFinding], _threshold: f64) {
 pub fn print_verify_plan(plan: &VerificationPlan) {
     println!("\n{}", "Verification Plan".bold().underline());
     for step in &plan.steps {
-        let desc = if step.description.is_empty() { &step.command } else { &step.description };
+        let desc = if step.description.is_empty() {
+            &step.command
+        } else {
+            &step.description
+        };
         println!("  {} {}", "•".dimmed(), desc);
     }
 }
 
 pub fn print_verify_result(name: &str, _timeout: u64, result: &ExecutionResult) {
     if result.exit_code == 0 {
-        println!("\n{} Verification passed for: {}", "SUCCESS".green().bold(), name);
+        println!(
+            "\n{} Verification passed for: {}",
+            "SUCCESS".green().bold(),
+            name
+        );
     } else {
-        println!("\n{} Verification failed for: {}", "FAILURE".red().bold(), name);
+        println!(
+            "\n{} Verification failed for: {}",
+            "FAILURE".red().bold(),
+            name
+        );
     }
 }

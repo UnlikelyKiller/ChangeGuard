@@ -44,7 +44,10 @@ impl<'a> VectorStore<'a> {
                 self.dim
             );
             self.storage.run_script(&script)?;
-            info!("Relation snippet_embedding created with {} dimensions", self.dim);
+            info!(
+                "Relation snippet_embedding created with {} dimensions",
+                self.dim
+            );
 
             if !self.skip_hnsw {
                 self.rebuild_hnsw_index()?;
@@ -56,9 +59,17 @@ impl<'a> VectorStore<'a> {
             )?;
         } else {
             // Verify existing dimension
-            if let Err(e) = self.storage.verify_embedding_dimension("snippet_embedding", self.dim) {
-                warn!("Dimension mismatch or verification failed: {}. Clearing stale snippet embeddings.", e);
-                let _ = self.storage.run_script("::hnsw drop snippet_embedding:snippet_idx");
+            if let Err(e) = self
+                .storage
+                .verify_embedding_dimension("snippet_embedding", self.dim)
+            {
+                warn!(
+                    "Dimension mismatch or verification failed: {}. Clearing stale snippet embeddings.",
+                    e
+                );
+                let _ = self
+                    .storage
+                    .run_script("::hnsw drop snippet_embedding:snippet_idx");
                 let _ = self.storage.run_script(":drop snippet_embedding");
                 return self.setup_schema();
             }
@@ -100,8 +111,13 @@ impl<'a> VectorStore<'a> {
         // For large batches, dropping the index and rebuilding is faster and safer on Windows.
         let is_large_batch = chunks.len() > 100;
         if is_large_batch && !self.skip_hnsw {
-            info!("Large batch detected ({} chunks). Temporarily dropping HNSW index for stable ingestion.", chunks.len());
-            let _ = self.storage.run_script("::hnsw drop snippet_embedding:snippet_idx");
+            info!(
+                "Large batch detected ({} chunks). Temporarily dropping HNSW index for stable ingestion.",
+                chunks.len()
+            );
+            let _ = self
+                .storage
+                .run_script("::hnsw drop snippet_embedding:snippet_idx");
         }
 
         let mut data_rows = Vec::new();
@@ -141,16 +157,31 @@ impl<'a> VectorStore<'a> {
                 ScriptMutability::Mutable,
             ) {
                 Ok(_) => break,
-                Err(e) if attempts < max_attempts && (e.to_string().contains("Invalid neighbor degree") || e.to_string().contains("corruption")) => {
+                Err(e)
+                    if attempts < max_attempts
+                        && (e.to_string().contains("Invalid neighbor degree")
+                            || e.to_string().contains("corruption")) =>
+                {
                     attempts += 1;
-                    warn!("HNSW storage issue detected ({}). Attempting self-healing (attempt {}/{})...", e, attempts, max_attempts);
-                    let _ = self.storage.run_script("::hnsw drop snippet_embedding:snippet_idx");
+                    warn!(
+                        "HNSW storage issue detected ({}). Attempting self-healing (attempt {}/{})...",
+                        e, attempts, max_attempts
+                    );
+                    let _ = self
+                        .storage
+                        .run_script("::hnsw drop snippet_embedding:snippet_idx");
                     // We'll rebuild after the loop if we succeed in putting data.
                 }
-                Err(e) if attempts < max_attempts && (e.to_string().contains("locked") || e.to_string().contains("busy")) => {
+                Err(e)
+                    if attempts < max_attempts
+                        && (e.to_string().contains("locked") || e.to_string().contains("busy")) =>
+                {
                     attempts += 1;
                     let delay = std::time::Duration::from_millis(200 * attempts as u64);
-                    warn!("Database busy, retrying in {:?} (attempt {}/{})...", delay, attempts, max_attempts);
+                    warn!(
+                        "Database busy, retrying in {:?} (attempt {}/{})...",
+                        delay, attempts, max_attempts
+                    );
                     std::thread::sleep(delay);
                 }
                 Err(e) => return Err(e),
@@ -167,29 +198,34 @@ impl<'a> VectorStore<'a> {
 
     pub fn rebuild_hnsw_index(&self) -> Result<()> {
         info!("Building HNSW index for snippet_embedding...");
-        
+
         // 1. Ensure any stale index is gone
-        let _ = self.storage.run_script("::hnsw drop snippet_embedding:snippet_idx");
-        
+        let _ = self
+            .storage
+            .run_script("::hnsw drop snippet_embedding:snippet_idx");
+
         // 2. Create the index
         let hnsw_script = format!(
             "::hnsw create snippet_embedding:snippet_idx {{dim:{},dtype:F32,fields:[embedding],distance:L2,m:16,ef_construction:200}}",
             self.dim
         );
-        
+
         // Wrap in retry for Windows filesystem sync
         let mut attempts = 0;
         loop {
             match self.storage.run_script(&hnsw_script) {
                 Ok(_) => break,
-                Err(e) if attempts < 3 && (e.to_string().contains("locked") || e.to_string().contains("busy")) => {
+                Err(e)
+                    if attempts < 3
+                        && (e.to_string().contains("locked") || e.to_string().contains("busy")) =>
+                {
                     attempts += 1;
                     std::thread::sleep(std::time::Duration::from_millis(500));
                 }
                 Err(e) => return Err(e),
             }
         }
-        
+
         info!("HNSW index built successfully");
         Ok(())
     }

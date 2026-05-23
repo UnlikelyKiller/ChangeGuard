@@ -67,6 +67,104 @@ fn install_git_hook(root: &Utf8PathBuf, hook_name: &str, bypass_command: &str) -
     Ok(true)
 }
 
+const COMMIT_MSG_MARKER: &str = "# changeguard-intent-gate";
+const COMMIT_MSG_HOOK_TEMPLATE: &str = "\
+# changeguard-intent-gate: auto-installed by `changeguard init`
+if command -v changeguard &>/dev/null; then
+    changeguard internal hook-commit-msg \"$1\"
+fi
+";
+
+const POST_COMMIT_MARKER: &str = "# changeguard-post-commit-gate";
+const POST_COMMIT_HOOK_TEMPLATE: &str = "\
+# changeguard-post-commit-gate: auto-installed by `changeguard init`
+if command -v changeguard &>/dev/null; then
+    changeguard internal hook-post-commit \"$@\"
+fi
+";
+
+fn install_commit_msg_hook(root: &Utf8PathBuf) -> Result<bool> {
+    let git_dir = root.join(".git");
+    if !git_dir.exists() {
+        return Ok(false);
+    }
+
+    let hooks_dir = git_dir.join("hooks");
+    fs::create_dir_all(&hooks_dir).into_diagnostic()?;
+
+    let hook_path = hooks_dir.join("commit-msg");
+
+    // Idempotent: skip if our block is already present
+    if hook_path.exists() {
+        let existing = fs::read_to_string(&hook_path).into_diagnostic()?;
+        if existing.contains(COMMIT_MSG_MARKER) {
+            return Ok(false);
+        }
+        // Append to existing hook
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(&hook_path)
+            .into_diagnostic()?;
+        let block = format!("\n{}\n", COMMIT_MSG_HOOK_TEMPLATE);
+        file.write_all(block.as_bytes()).into_diagnostic()?;
+    } else {
+        // Create new hook with shebang
+        let content = format!("#!/usr/bin/env bash\n\n{}\n", COMMIT_MSG_HOOK_TEMPLATE);
+        fs::write(&hook_path, content).into_diagnostic()?;
+        // Set executable bit on Unix; no-op on Windows
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(&hook_path).into_diagnostic()?.permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&hook_path, perms).into_diagnostic()?;
+        }
+    }
+
+    Ok(true)
+}
+
+fn install_post_commit_hook(root: &Utf8PathBuf) -> Result<bool> {
+    let git_dir = root.join(".git");
+    if !git_dir.exists() {
+        return Ok(false);
+    }
+
+    let hooks_dir = git_dir.join("hooks");
+    fs::create_dir_all(&hooks_dir).into_diagnostic()?;
+
+    let hook_path = hooks_dir.join("post-commit");
+
+    // Idempotent: skip if our block is already present
+    if hook_path.exists() {
+        let existing = fs::read_to_string(&hook_path).into_diagnostic()?;
+        if existing.contains(POST_COMMIT_MARKER) {
+            return Ok(false);
+        }
+        // Append to existing hook
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(&hook_path)
+            .into_diagnostic()?;
+        let block = format!("\n{}\n", POST_COMMIT_HOOK_TEMPLATE);
+        file.write_all(block.as_bytes()).into_diagnostic()?;
+    } else {
+        // Create new hook with shebang
+        let content = format!("#!/usr/bin/env bash\n\n{}\n", POST_COMMIT_HOOK_TEMPLATE);
+        fs::write(&hook_path, content).into_diagnostic()?;
+        // Set executable bit on Unix; no-op on Windows
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(&hook_path).into_diagnostic()?.permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&hook_path, perms).into_diagnostic()?;
+        }
+    }
+
+    Ok(true)
+}
+
 fn install_ledger_gate_hooks(root: &Utf8PathBuf) -> Result<Vec<&'static str>> {
     let mut installed = Vec::new();
 
@@ -76,6 +174,14 @@ fn install_ledger_gate_hooks(root: &Utf8PathBuf) -> Result<Vec<&'static str>> {
 
     if install_git_hook(root, "pre-push", "git push --no-verify")? {
         installed.push("pre-push");
+    }
+
+    if install_commit_msg_hook(root)? {
+        installed.push("commit-msg");
+    }
+
+    if install_post_commit_hook(root)? {
+        installed.push("post-commit");
     }
 
     Ok(installed)

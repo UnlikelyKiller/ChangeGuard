@@ -1,8 +1,8 @@
 use crate::bridge::model::{BridgeDirection, BridgePayload, BridgeRecord, SnapshotPayload};
 use crate::commands::helpers::get_layout;
+use crate::git::RepoSnapshot;
 use crate::git::repo::{get_head_info, open_repo};
 use crate::git::status::get_repo_status;
-use crate::git::RepoSnapshot;
 use crate::impact::hotspots::calculate_hotspots;
 use crate::impact::orchestrator::{ImpactOrchestrator, map_snapshot_to_packet};
 use crate::impact::temporal::GixHistoryProvider;
@@ -50,10 +50,11 @@ pub fn execute_export(args: ExportArgs) -> Result<()> {
     let repo = open_repo(layout.root.as_std_path())?;
     let (head_hash, branch_name) = get_head_info(&repo)?;
     let all_changes = get_repo_status(&repo)?;
-    
+
     let config = crate::config::load::load_config(&layout).unwrap_or_default();
-    let changes = crate::git::ignore::filter_ignored_changes(all_changes, &config.watch.ignore_patterns)?;
-    
+    let changes =
+        crate::git::ignore::filter_ignored_changes(all_changes, &config.watch.ignore_patterns)?;
+
     let snapshot = RepoSnapshot {
         head_hash,
         branch_name,

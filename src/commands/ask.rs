@@ -240,7 +240,10 @@ mod tests {
     use crate::impact::packet::ImpactPacket;
 
     #[test]
-    fn test_select_gemini_model_defaults() {
+    fn test_select_gemini_model_logic() {
+        let packet = ImpactPacket::default();
+
+        // 1. Defaults
         unsafe {
             std::env::remove_var("GEMINI_FAST_MODEL");
             std::env::remove_var("GEMINI_DEEP_MODEL");
@@ -250,8 +253,6 @@ mod tests {
             deep_model: Some("deep".to_string()),
             ..GeminiConfig::default()
         };
-        let packet = ImpactPacket::default();
-
         let fast_model =
             crate::gemini::wrapper::select_gemini_model(&config, GeminiMode::Suggest, &packet);
         assert_eq!(fast_model, "fast");
@@ -259,44 +260,38 @@ mod tests {
         let deep_model =
             crate::gemini::wrapper::select_gemini_model(&config, GeminiMode::ReviewPatch, &packet);
         assert_eq!(deep_model, "deep");
-    }
 
-    #[test]
-    fn test_select_gemini_model_config_overrides() {
-        unsafe {
-            std::env::remove_var("GEMINI_FAST_MODEL");
-            std::env::remove_var("GEMINI_DEEP_MODEL");
-        }
-        let config = GeminiConfig {
+        // 2. Config Overrides
+        let config_custom = GeminiConfig {
             model: Some("custom".to_string()),
-            fast_model: Some("fast".to_string()),
-            deep_model: Some("deep".to_string()),
             ..GeminiConfig::default()
         };
-        let packet = ImpactPacket::default();
-
-        let model =
-            crate::gemini::wrapper::select_gemini_model(&config, GeminiMode::Suggest, &packet);
+        let model = crate::gemini::wrapper::select_gemini_model(
+            &config_custom,
+            GeminiMode::Suggest,
+            &packet,
+        );
         assert_eq!(model, "custom");
-    }
 
-    #[test]
-    fn test_select_gemini_model_env_overrides() {
-        let config = GeminiConfig::default();
-        let packet = ImpactPacket::default();
-
+        // 3. Env Overrides
         unsafe {
             std::env::set_var("GEMINI_FAST_MODEL", "env-fast");
             std::env::set_var("GEMINI_DEEP_MODEL", "env-deep");
         }
+        let config_empty = GeminiConfig::default();
+        let fast_model_env = crate::gemini::wrapper::select_gemini_model(
+            &config_empty,
+            GeminiMode::Suggest,
+            &packet,
+        );
+        assert_eq!(fast_model_env, "env-fast");
 
-        let fast_model =
-            crate::gemini::wrapper::select_gemini_model(&config, GeminiMode::Suggest, &packet);
-        assert_eq!(fast_model, "env-fast");
-
-        let deep_model =
-            crate::gemini::wrapper::select_gemini_model(&config, GeminiMode::ReviewPatch, &packet);
-        assert_eq!(deep_model, "env-deep");
+        let deep_model_env = crate::gemini::wrapper::select_gemini_model(
+            &config_empty,
+            GeminiMode::ReviewPatch,
+            &packet,
+        );
+        assert_eq!(deep_model_env, "env-deep");
 
         unsafe {
             std::env::remove_var("GEMINI_FAST_MODEL");

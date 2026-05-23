@@ -250,6 +250,36 @@ impl<'a> TransactionManager<'a> {
                 EntryType::Implementation
             };
 
+            let mut outcome_notes = req.outcome_notes;
+            let (signature, pub_key) = if req.signature.is_some() {
+                (req.signature, req.public_key)
+            } else {
+                match crate::ledger::crypto::sign_ledger_entry(
+                    &tx_id,
+                    &tx.category.to_string(),
+                    &req.summary,
+                    &req.reason,
+                    &now,
+                ) {
+                    Ok(res) => res,
+                    Err(e) => {
+                        let err_msg = format!("Cryptographic signing failed: {}", e);
+                        if self.config.intent.require_signing {
+                            return Err(LedgerError::Validation(err_msg));
+                        } else {
+                            tracing::warn!("{} (non-blocking)", err_msg);
+                            let notes = outcome_notes.take().unwrap_or_default();
+                            outcome_notes = Some(
+                                format!("{}\n[Warning] {}", notes, err_msg)
+                                    .trim()
+                                    .to_string(),
+                            );
+                            (None, None)
+                        }
+                    }
+                }
+            };
+
             let entry = LedgerEntry {
                 id: 0, // DB will assign
                 tx_id,
@@ -264,9 +294,13 @@ impl<'a> TransactionManager<'a> {
                 committed_at: now,
                 verification_status: req.verification_status,
                 verification_basis: req.verification_basis,
-                outcome_notes: req.outcome_notes,
+                outcome_notes,
                 origin: "LOCAL".to_string(),
                 trace_id: None,
+                signature,
+                public_key: pub_key,
+                risk: req.risk,
+                related_tickets: req.related_tickets.or(req.issue_ref),
             };
 
             db.insert_ledger_entry(&entry)?;
@@ -363,6 +397,28 @@ impl<'a> TransactionManager<'a> {
             }
 
             for tx in to_reconcile {
+                let summary_text = format!("Reconciled drift ({} changes)", tx.drift_count);
+                let mut outcome_notes = None;
+                let (signature, pub_key) = match crate::ledger::crypto::sign_ledger_entry(
+                    &tx.tx_id,
+                    &tx.category.to_string(),
+                    &summary_text,
+                    &reason,
+                    &now,
+                ) {
+                    Ok(res) => res,
+                    Err(e) => {
+                        let err_msg = format!("Cryptographic signing failed: {}", e);
+                        if self.config.intent.require_signing {
+                            return Err(LedgerError::Validation(err_msg));
+                        } else {
+                            tracing::warn!("{} (non-blocking)", err_msg);
+                            outcome_notes = Some(format!("[Warning] {}", err_msg));
+                            (None, None)
+                        }
+                    }
+                };
+
                 let entry = LedgerEntry {
                     id: 0,
                     tx_id: tx.tx_id,
@@ -371,15 +427,19 @@ impl<'a> TransactionManager<'a> {
                     entity: tx.entity,
                     entity_normalized: tx.entity_normalized,
                     change_type: ChangeType::Modify,
-                    summary: format!("Reconciled drift ({} changes)", tx.drift_count),
+                    summary: summary_text,
                     reason: reason.clone(),
                     is_breaking: false,
                     committed_at: now.clone(),
                     verification_status: None,
                     verification_basis: None,
-                    outcome_notes: None,
+                    outcome_notes,
                     origin: "LOCAL".to_string(),
                     trace_id: None,
+                    signature,
+                    public_key: pub_key,
+                    risk: Some("TRIVIAL".to_string()),
+                    related_tickets: None,
                 };
                 db.insert_ledger_entry(&entry)?;
             }
