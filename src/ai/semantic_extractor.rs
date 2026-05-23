@@ -44,9 +44,9 @@ pub struct SemanticExtractorConfig {
 impl Default for SemanticExtractorConfig {
     fn default() -> Self {
         Self {
-            max_tokens_per_chunk: 30_000,
-            model_context_window: 4096,
-            overlap_chars: 500,
+            max_tokens_per_chunk: 24000,
+            model_context_window: 8192,
+            overlap_chars: 1000,
             max_retries: 3,
             enable_adaptive_recursion: true,
         }
@@ -119,7 +119,22 @@ impl SemanticExtractor {
         content: &str,
         local_model_config: &LocalModelConfig,
     ) -> Result<ExtractionResult, String> {
-        let chunks = self.chunk_for_extraction(content);
+        // Dynamically adjust based on the model's reported context window
+        let max_input_tokens = if local_model_config.context_window >= 64000 {
+            24000 // High-fidelity window for large models
+        } else if local_model_config.context_window >= 16000 {
+            8000
+        } else {
+            4000
+        };
+
+        let max_chars = max_input_tokens * 4;
+        let chunks = if content.len() <= max_chars {
+            vec![content.to_string()]
+        } else {
+            chunk_content(content, max_chars, self.config.overlap_chars)
+        };
+
         let mut all_nodes = Vec::new();
         let mut all_edges = Vec::new();
         let mut total_input_tokens = 0;
