@@ -81,6 +81,16 @@ pub enum BridgePayload {
         suggested_remediation: String,
         risk_level: String,
     },
+    Snapshot(Box<SnapshotPayload>),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnapshotPayload {
+    pub project_id: String,
+    pub impact: crate::impact::packet::ImpactPacket,
+    pub hotspots: Vec<crate::impact::packet::Hotspot>,
+    pub ledger: Vec<crate::ledger::types::LedgerEntry>,
+    pub metadata: std::collections::HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

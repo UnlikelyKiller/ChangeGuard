@@ -527,17 +527,17 @@ fn execute_semantic_index(
                 collect_semantic_data(&path, semantic, all_chunks, all_embeddings, files_indexed)?;
             } else {
                 let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                if matches!(ext, "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go") {
-                    if let Ok(content) = std::fs::read_to_string(&path) {
-                        match semantic.process_file(&path, &content) {
-                            Ok((chunks, embeddings)) => {
-                                all_chunks.extend(chunks);
-                                all_embeddings.extend(embeddings);
-                                *files_indexed += 1;
-                            }
-                            Err(e) => {
-                                warn!("Failed to process file for semantic indexing {}: {}", path.display(), e);
-                            }
+                if matches!(ext, "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go")
+                    && let Ok(content) = std::fs::read_to_string(&path)
+                {
+                    match semantic.process_file(&path, &content) {
+                        Ok((chunks, embeddings)) => {
+                            all_chunks.extend(chunks);
+                            all_embeddings.extend(embeddings);
+                            *files_indexed += 1;
+                        }
+                        Err(e) => {
+                            warn!("Failed to process file for semantic indexing {}: {}", path.display(), e);
                         }
                     }
                 }
@@ -679,15 +679,73 @@ pub fn execute_index_check(
     let root = camino::Utf8PathBuf::from_path_buf(path.to_path_buf())
         .map_err(|_| miette::miette!("Invalid UTF-8 in path"))?;
     let layout = Layout::new(root.as_str());
-    let storage = StorageManager::open_read_only(&layout.root)?;
+    
+    let storage_res = StorageManager::open_read_only(&layout.root);
+    let mut warning = match storage_res {
+        Ok(ref storage) => crate::index::staleness::check_index_staleness(storage, threshold),
+        Err(_) => {
+            // Storage missing = index missing (definitely stale)
+            Some(crate::index::staleness::StalenessWarning {
+                days_since_indexed: 999,
+                stale_files: 0,
+                unindexed_files: 0,
+                sample_paths: vec![],
+                last_indexed_at: None,
+                is_missing: true,
+            })
+        }
+    };
 
-    if let Some(warning) = crate::index::staleness::check_index_staleness(&storage, threshold) {
+    // Check for unindexed files if we haven't already marked it as missing
+    if let Ok(repo) = crate::git::repo::open_repo(path)
+        && let Ok(files) = crate::git::status::get_repo_status(&repo)
+    {
+        let indexed_files = if let Ok(ref storage) = storage_res {
+            storage.get_active_file_id_map().unwrap_or_default()
+        } else {
+            std::collections::HashMap::new()
+        };
+
+        let mut unindexed = 0;
+        for file in &files {
+            let rel_path = &file.path;
+            if !indexed_files.contains_key(rel_path) {
+                let ext = rel_path.extension().and_then(|s| s.to_str()).unwrap_or("");
+                if matches!(ext, "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go" | "md") {
+                    unindexed += 1;
+                }
+            }
+        }
+
+        if unindexed > 0 {
+            if let Some(ref mut w) = warning {
+                w.unindexed_files = unindexed;
+            } else {
+                warning = Some(crate::index::staleness::StalenessWarning {
+                    days_since_indexed: 0,
+                    stale_files: 0,
+                    unindexed_files: unindexed,
+                    sample_paths: vec![],
+                    last_indexed_at: None,
+                    is_missing: false,
+                });
+            }
+        }
+    }
+
+    if let Some(warning) = warning {
         if json {
             println!("{}", serde_json::to_string(&warning).unwrap_or_default());
         } else {
             crate::index::staleness::print_staleness_warning(&warning);
         }
-        if strict {
+
+        if warning.is_missing {
+            // If missing, only fail if there are actually files to index
+            if warning.unindexed_files > 0 {
+                std::process::exit(1);
+            }
+        } else if strict && (warning.days_since_indexed > threshold || warning.unindexed_files > 0) {
             std::process::exit(1);
         }
     } else if json {

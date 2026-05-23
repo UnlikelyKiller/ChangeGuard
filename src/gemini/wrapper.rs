@@ -50,14 +50,21 @@ pub fn select_gemini_model(
     {
         return m.clone();
     }
+
     if matches!(mode, GeminiMode::ReviewPatch | GeminiMode::Narrative)
         || packet.risk_level == RiskLevel::High
     {
+        if let Ok(env_deep) = std::env::var("GEMINI_DEEP_MODEL") {
+            return env_deep;
+        }
         config
             .deep_model
             .clone()
             .unwrap_or_else(|| "gemini-1.5-pro".to_string())
     } else {
+        if let Ok(env_fast) = std::env::var("GEMINI_FAST_MODEL") {
+            return env_fast;
+        }
         config
             .fast_model
             .clone()

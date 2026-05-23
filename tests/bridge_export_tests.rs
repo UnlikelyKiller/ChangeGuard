@@ -55,6 +55,18 @@ fn test_bridge_export_file_creation() {
         init_output
     );
 
+    // Run scan --impact to initialize the ledger database
+    let scan_output = Command::new(binary)
+        .args(["scan", "--impact"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to execute changeguard scan");
+    assert!(
+        scan_output.status.success(),
+        "changeguard scan failed: {:?}",
+        scan_output
+    );
+
     let out_path = dir.path().join("export.ndjson");
 
     let output = Command::new(binary)

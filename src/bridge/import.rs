@@ -132,6 +132,9 @@ pub fn execute_import(in_path: String) -> Result<()> {
                     BridgePayload::RiskAlert { .. } => {
                         other_records_count += 1;
                     }
+                    BridgePayload::Snapshot(_) => {
+                        other_records_count += 1;
+                    }
                 }
 
                 // Update state with this record's hash for next line (or next import)

@@ -1,41 +1,14 @@
-use camino::Utf8PathBuf;
 use comfy_table::modifiers::UTF8_ROUND_CORNERS;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::{Cell, Color, Table};
-use miette::{IntoDiagnostic, Result};
+use miette::Result;
 use owo_colors::OwoColorize;
-use std::env;
 
-use crate::config::load::load_config;
-use crate::config::model::Config;
+use crate::commands::helpers::{get_layout, load_ledger_config};
 use crate::ledger::transaction::TransactionManager;
 use crate::ledger::types::Category;
 use crate::ledger::ui::{breaking_icon, get_category_icon, get_change_type_icon};
-use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
-
-fn get_repo_root() -> Result<Utf8PathBuf> {
-    let current_dir = env::current_dir().into_diagnostic()?;
-    let discovered = gix::discover(&current_dir).into_diagnostic()?;
-    let root = discovered
-        .workdir()
-        .ok_or_else(|| miette::miette!("Failed to find work directory for repository"))?;
-
-    Utf8PathBuf::from_path_buf(root.to_path_buf())
-        .map_err(|_| miette::miette!("Repository root is not valid UTF-8"))
-}
-
-fn get_layout() -> Result<Layout> {
-    let root = get_repo_root()?;
-    Ok(Layout::new(root))
-}
-
-fn load_ledger_config(layout: &Layout) -> Config {
-    load_config(layout).unwrap_or_else(|e| {
-        tracing::warn!("Failed to load config: {e}. Using defaults.");
-        Config::default()
-    })
-}
 
 pub fn execute_ledger_search(
     query: String,
@@ -48,7 +21,7 @@ pub fn execute_ledger_search(
     let layout = get_layout()?;
     let db_path = layout.state_subdir().join("ledger.db");
     let mut storage = StorageManager::init(db_path.as_std_path())?;
-    let config = load_ledger_config(&layout);
+    let config = load_ledger_config(&layout)?;
     let manager = TransactionManager::new(
         storage.get_connection_mut(),
         layout.root.clone().into(),

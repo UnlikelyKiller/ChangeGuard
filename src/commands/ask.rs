@@ -28,7 +28,7 @@ pub fn execute_ask(
     auto_index: bool,
 ) -> Result<()> {
     let layout = get_layout()?;
-    let config = load_ledger_config(&layout);
+    let config = load_ledger_config(&layout)?;
 
     let storage_path = layout.state_subdir().join("ledger.db");
     let storage = StorageManager::init(storage_path.as_std_path())?;
@@ -241,6 +241,10 @@ mod tests {
 
     #[test]
     fn test_select_gemini_model_defaults() {
+        unsafe {
+            std::env::remove_var("GEMINI_FAST_MODEL");
+            std::env::remove_var("GEMINI_DEEP_MODEL");
+        }
         let config = GeminiConfig {
             fast_model: Some("fast".to_string()),
             deep_model: Some("deep".to_string()),
@@ -259,6 +263,10 @@ mod tests {
 
     #[test]
     fn test_select_gemini_model_config_overrides() {
+        unsafe {
+            std::env::remove_var("GEMINI_FAST_MODEL");
+            std::env::remove_var("GEMINI_DEEP_MODEL");
+        }
         let config = GeminiConfig {
             model: Some("custom".to_string()),
             fast_model: Some("fast".to_string()),

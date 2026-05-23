@@ -21,6 +21,13 @@ fn test_index_check_exit_codes() {
         .output()
         .unwrap();
 
+    // Run scan --impact to initialize the ledger database
+    Command::new(binary)
+        .args(["scan", "--impact"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
     // Check on empty/uninitialized index should exit 1 (or 0 if it's considered just empty but valid)
     let output = Command::new(binary)
         .args(["index", "--check"])
@@ -119,6 +126,13 @@ fn test_bridge_export_stdout() {
         .unwrap();
     Command::new(binary)
         .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    // Run scan --impact to initialize the ledger database
+    Command::new(binary)
+        .args(["scan", "--impact"])
         .current_dir(dir.path())
         .output()
         .unwrap();

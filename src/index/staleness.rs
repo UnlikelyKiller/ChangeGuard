@@ -11,10 +11,16 @@ pub struct StalenessWarning {
     pub days_since_indexed: u64,
     /// Number of files whose content has changed since they were last indexed.
     pub stale_files: usize,
+    /// Number of tracked files that have not been indexed yet.
+    #[serde(default)]
+    pub unindexed_files: usize,
     /// Sample paths that are stale.
     pub sample_paths: Vec<String>,
     /// Last successful index completion timestamp.
     pub last_indexed_at: Option<String>,
+    /// Whether the index is completely missing (no storage found).
+    #[serde(default)]
+    pub is_missing: bool,
 }
 
 /// Check whether the Tantivy/CozoDB index is stale relative to the configured
@@ -56,8 +62,10 @@ pub fn check_index_staleness(
             return Some(StalenessWarning {
                 days_since_indexed: 999, // Very stale
                 stale_files: 0,
+                unindexed_files: 0,
                 sample_paths: Vec::new(),
                 last_indexed_at: None,
+                is_missing: true,
             });
         }
     };
@@ -105,6 +113,8 @@ pub fn check_index_staleness(
         stale_files,
         sample_paths,
         last_indexed_at: Some(last_indexed.to_rfc3339()),
+        is_missing: false,
+        unindexed_files: 0,
     })
 }
 
@@ -114,7 +124,7 @@ pub fn print_staleness_warning(warning: &StalenessWarning) {
     use owo_colors::OwoColorize;
 
     eprintln!(
-        "\n{} [STALE] Index is {} day{} old with {} indexed file{}.",
+        "\n{} [STALE] Index is {} day{} old with {} indexed file{} and {} unindexed file{}.",
         "WARN".yellow().bold(),
         warning.days_since_indexed,
         if warning.days_since_indexed == 1 {
@@ -124,6 +134,8 @@ pub fn print_staleness_warning(warning: &StalenessWarning) {
         },
         warning.stale_files,
         if warning.stale_files == 1 { "" } else { "s" },
+        warning.unindexed_files,
+        if warning.unindexed_files == 1 { "" } else { "s" },
     );
 
     if !warning.sample_paths.is_empty() {

@@ -251,14 +251,6 @@ impl SemanticExtractor {
         Ok(())
     }
 
-    fn chunk_for_extraction(&self, content: &str) -> Vec<String> {
-        let max_chars = self.config.max_tokens_per_chunk * 4;
-        if content.len() <= max_chars {
-            return vec![content.to_string()];
-        }
-        chunk_content(content, max_chars, self.config.overlap_chars)
-    }
-
     fn call_llm(
         &self,
         path: &Path,
@@ -441,19 +433,11 @@ fn deduplicate(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     #[test]
     fn test_chunking_splits_long_content() {
-        let extractor = SemanticExtractor::new(SemanticExtractorConfig {
-            max_tokens_per_chunk: 10,
-            model_context_window: 4096,
-            overlap_chars: 5,
-            max_retries: 3,
-            enable_adaptive_recursion: true,
-        });
         let content = "A".repeat(100);
-        let chunks = extractor.chunk_for_extraction(&content);
+        let chunks = chunk_content(&content, 10, 5);
         assert!(
             chunks.len() > 1,
             "Expected multiple chunks, got {}",
@@ -529,33 +513,8 @@ mod tests {
     }
 
     #[test]
-    fn test_token_budget_enforcement() {
-        let extractor = SemanticExtractor::new(SemanticExtractorConfig {
-            max_tokens_per_chunk: 5,
-            model_context_window: 4096,
-            overlap_chars: 2,
-            max_retries: 3,
-            enable_adaptive_recursion: true,
-        });
-        let content = "B".repeat(50);
-        let chunks = extractor.chunk_for_extraction(&content);
-        assert!(
-            chunks.len() > 1,
-            "Expected multiple chunks due to budget, got {}",
-            chunks.len()
-        );
-        for chunk in &chunks {
-            assert!(
-                chunk.len() <= 5 * 4,
-                "Chunk exceeds char budget: {} > {}",
-                chunk.len(),
-                5 * 4
-            );
-        }
-    }
-
-    #[test]
     fn test_ingest_into_cozo() {
+        use std::path::PathBuf;
         let cozo = CozoStorage::new(&PathBuf::from("")).unwrap();
         let result = ExtractionResult {
             nodes: vec![

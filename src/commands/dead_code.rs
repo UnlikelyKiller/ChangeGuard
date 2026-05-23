@@ -6,7 +6,7 @@ use miette::Result;
 
 pub fn execute_dead_code(threshold: f64, limit: usize, auto_index: bool) -> Result<()> {
     let layout = get_layout()?;
-    let mut config = load_ledger_config(&layout);
+    let mut config = load_ledger_config(&layout)?;
 
     // --- Staleness check ---
     let db_path = layout.state_subdir().join("ledger.db");

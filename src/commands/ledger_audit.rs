@@ -91,7 +91,7 @@ pub fn execute_ledger_audit(
     }
 
     if let Some(path) = entity {
-        let config = load_ledger_config(&layout);
+        let config = load_ledger_config(&layout)?;
         let manager = TransactionManager::new(
             storage.get_connection_mut(),
             layout.root.clone().into(),
@@ -113,7 +113,7 @@ fn gather_audit_data(
 ) -> Result<ProjectAuditReport> {
     let layout = get_layout()?;
     let db = LedgerDb::new(storage.get_connection());
-    let config = load_ledger_config(&layout);
+    let config = load_ledger_config(&layout)?;
 
     // Opening a second connection for the manager avoids borrow conflicts
     let mut storage_mut = StorageManager::open_read_only_sqlite_only(&layout.root)?;

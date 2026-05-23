@@ -21,9 +21,6 @@ pub fn get_layout() -> Result<Layout> {
     Ok(Layout::new(root))
 }
 
-pub fn load_ledger_config(layout: &Layout) -> Config {
-    load_config(layout).unwrap_or_else(|e| {
-        tracing::warn!("Failed to load config: {e}. Using defaults.");
-        Config::default()
-    })
+pub fn load_ledger_config(layout: &Layout) -> Result<Config> {
+    load_config(layout)
 }

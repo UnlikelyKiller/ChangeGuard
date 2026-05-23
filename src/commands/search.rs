@@ -1,6 +1,6 @@
 use crate::bridge::model::{BridgeDirection, BridgePayload, BridgeRecord, Privacy};
-use crate::commands::helpers::{get_layout, get_repo_root};
-use crate::config::load_config;
+use crate::commands::helpers::get_layout;
+use crate::config::load::load_config;
 use crate::index::warn_if_stale;
 use crate::search::{RegexFilter, StreamIndexer, TantivySearchEngine};
 use crate::state::storage::StorageManager;
@@ -23,7 +23,6 @@ pub struct SearchArgs {
 
 pub fn execute_search(args: SearchArgs) -> Result<()> {
     let layout = get_layout()?;
-    let _root = get_repo_root()?;
 
     // --- Staleness check (applies to both semantic and BM25 paths) ---
     if !args.index {

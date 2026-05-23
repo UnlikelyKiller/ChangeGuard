@@ -12,7 +12,7 @@ pub fn execute_ledger_start(entity: String, category: &str, message: &str) -> Re
     let category = Category::from_str(category, true).map_err(|e| miette::miette!("{}", e))?;
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
-    let config = load_ledger_config(&layout);
+    let config = load_ledger_config(&layout)?;
     let mut tx_mgr =
         TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
 
@@ -37,7 +37,7 @@ pub fn execute_ledger_commit(
 ) -> Result<()> {
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
-    let config = load_ledger_config(&layout);
+    let config = load_ledger_config(&layout)?;
 
     let mut tx_mgr = TransactionManager::new(
         storage.get_connection_mut(),
@@ -79,7 +79,7 @@ pub fn execute_ledger_commit(
 pub fn execute_ledger_rollback(tx_id: Option<String>) -> Result<()> {
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
-    let config = load_ledger_config(&layout);
+    let config = load_ledger_config(&layout)?;
     let mut tx_mgr =
         TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
 
@@ -112,7 +112,7 @@ pub fn execute_ledger_reconcile(
 ) -> Result<()> {
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
-    let config = load_ledger_config(&layout);
+    let config = load_ledger_config(&layout)?;
     let mut tx_mgr =
         TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
 
@@ -134,7 +134,7 @@ pub fn execute_ledger_adopt(
     let category = Category::from_str(category, true).map_err(|e| miette::miette!("{}", e))?;
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
-    let config = load_ledger_config(&layout);
+    let config = load_ledger_config(&layout)?;
     let mut tx_mgr =
         TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
 
@@ -177,7 +177,7 @@ pub fn execute_ledger_atomic(
     let category = Category::from_str(category, true).map_err(|e| miette::miette!("{}", e))?;
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
-    let config = load_ledger_config(&layout);
+    let config = load_ledger_config(&layout)?;
     let mut tx_mgr =
         TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
 
@@ -209,7 +209,7 @@ pub fn execute_ledger_status(
 ) -> Result<()> {
     let layout = get_layout()?;
     let mut storage = StorageManager::open_read_only_sqlite_only(&layout.root)?;
-    let config = load_ledger_config(&layout);
+    let config = load_ledger_config(&layout)?;
     let stale_threshold = config.ledger.stale_threshold_hours as i64;
     let tx_mgr = TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
     let clock = SystemClock;
@@ -364,7 +364,7 @@ pub fn execute_ledger_status(
 pub fn execute_ledger_resume(tx_id: Option<String>) -> Result<()> {
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
-    let config = load_ledger_config(&layout);
+    let config = load_ledger_config(&layout)?;
     let tx_mgr = TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
 
     if let Some(id) = tx_id {
@@ -393,7 +393,7 @@ pub fn execute_ledger_resume(tx_id: Option<String>) -> Result<()> {
 pub fn execute_ledger_register_rule(term: &str, category: &str, reason: &str) -> Result<()> {
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
-    let config = load_ledger_config(&layout);
+    let config = load_ledger_config(&layout)?;
     let tx_mgr = TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
 
     let db = LedgerDb::new(tx_mgr.get_connection());
@@ -416,7 +416,7 @@ pub fn execute_ledger_register_validator(
 ) -> Result<()> {
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
-    let config = load_ledger_config(&layout);
+    let config = load_ledger_config(&layout)?;
     let tx_mgr = TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
 
     let db = LedgerDb::new(tx_mgr.get_connection());
@@ -448,7 +448,7 @@ pub fn execute_ledger_search(query: &str, category: Option<String>) -> Result<()
             println!(
                 "- [{}] {}: {}",
                 r.tx_id[..8].to_string().yellow(),
-                r.entity.cyan().to_string(),
+                r.entity.cyan(),
                 r.summary
             );
         }

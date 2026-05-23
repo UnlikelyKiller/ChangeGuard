@@ -423,7 +423,7 @@ mod tests {
     #[test]
     fn trigram_search_finds_underscore_identifier() {
         let dir = TempDir::new().expect("tempdir");
-        let mut engine = make_engine(&dir);
+        let engine = make_engine(&dir);
         index_doc(
             &engine,
             "src/search/regex_filter.rs",
@@ -439,7 +439,7 @@ mod tests {
     #[test]
     fn trigram_search_finds_storage_cozo() {
         let dir = TempDir::new().expect("tempdir");
-        let mut engine = make_engine(&dir);
+        let engine = make_engine(&dir);
         index_doc(&engine, "src/state/cozo.rs", "struct storage_cozo {}");
         let tgrams: Vec<String> = extract_trigrams("storage_cozo").into_iter().collect();
         let results = engine
@@ -451,7 +451,7 @@ mod tests {
     #[test]
     fn trigram_search_finds_non_underscore_pattern() {
         let dir = TempDir::new().expect("tempdir");
-        let mut engine = make_engine(&dir);
+        let engine = make_engine(&dir);
         index_doc(&engine, "src/main.rs", "struct MainRunner {}");
         let tgrams: Vec<String> = extract_trigrams("MainRunner").into_iter().collect();
         let results = engine
