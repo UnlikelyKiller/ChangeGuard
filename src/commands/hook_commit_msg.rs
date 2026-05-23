@@ -39,12 +39,11 @@ fn write_pending_sidecar(
     Ok(())
 }
 
-fn hash_file(path: &Path) -> Result<String> {
-    let content = fs::read(path).into_diagnostic()?;
+fn hash_message(msg: &str) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
-    hasher.update(content);
-    Ok(hex::encode(hasher.finalize()))
+    hasher.update(msg.as_bytes());
+    hex::encode(hasher.finalize())
 }
 
 pub fn extract_trailers(msg: &str) -> String {
@@ -214,7 +213,6 @@ pub fn execute_hook_commit_msg(msg_file: &Path) -> Result<()> {
             eprintln!("[ChangeGuard] Non-interactive shell detected; committing silently.");
         }
 
-        // Write to ledger
         silently_record_ledger(SilentRecordArgs {
             config: &config,
             entity: &entity,
@@ -222,8 +220,8 @@ pub fn execute_hook_commit_msg(msg_file: &Path) -> Result<()> {
             why: &drafted_why,
             risk: &drafted_risk,
             related: draft.related.clone(),
-            msg_file,
             related_files: &related_files,
+            raw_commit_msg: &raw_commit_msg,
         })?;
 
         // Update commit message file if LLM refined it
@@ -277,8 +275,8 @@ pub fn execute_hook_commit_msg(msg_file: &Path) -> Result<()> {
             why: &final_state.why,
             risk: &final_state.risk,
             related: final_state.related.clone(),
-            msg_file,
             related_files: &related_files,
+            raw_commit_msg: &raw_commit_msg,
         })?;
 
         // Update commit message file with TUI values
@@ -308,8 +306,8 @@ struct SilentRecordArgs<'a> {
     why: &'a str,
     risk: &'a str,
     related: Vec<String>,
-    msg_file: &'a Path,
     related_files: &'a str,
+    raw_commit_msg: &'a str,
 }
 
 fn silently_record_ledger(args: SilentRecordArgs) -> Result<()> {
@@ -367,7 +365,7 @@ fn silently_record_ledger(args: SilentRecordArgs) -> Result<()> {
 
     let pending = PendingHookTx {
         tx_id,
-        commit_msg_hash: hash_file(args.msg_file)?,
+        commit_msg_hash: hash_message(&crate::util::text::clean_commit_msg(args.raw_commit_msg)),
         summary: args.what.to_string(),
         reason: args.why.to_string(),
         risk: Some(args.risk.to_string()),

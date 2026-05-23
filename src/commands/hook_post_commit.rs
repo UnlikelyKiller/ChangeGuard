@@ -40,10 +40,11 @@ pub fn execute_hook_post_commit() -> Result<()> {
         .into_diagnostic()?;
 
     let current_commit_msg = String::from_utf8_lossy(&output.stdout).to_string();
+    let cleaned_msg = crate::util::text::clean_commit_msg(&current_commit_msg);
 
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
-    hasher.update(current_commit_msg.as_bytes());
+    hasher.update(cleaned_msg.as_bytes());
     let current_hash = hex::encode(hasher.finalize());
 
     if pending.commit_msg_hash != current_hash {
