@@ -10,5 +10,3 @@ pub fn clean_commit_msg(msg: &str) -> String {
         .trim()
         .to_string()
 }
-
-// Debug
