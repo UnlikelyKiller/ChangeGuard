@@ -878,6 +878,44 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Goal: Make `search --semantic` readiness, embedding endpoint/model/dimension mismatches, empty-result causes, and lexical fallback behavior explicit so expensive semantic queries do not fail silently.
     *   Key files: `src/commands/search.rs`, `src/semantic/*`, `src/search/tantivy_engine.rs`, `src/config/model.rs`
 
+## Milestone O: Intent & Provenance (Tier 1) (Planned)
+
+*   **Track O1-1: Intent Capture TUI Scaffold**
+    *   Status: Planned
+    *   Spec: `conductor/trackO1-1/spec.md`
+    *   Plan: `conductor/trackO1-1/plan.md`
+    *   Goal: Build the `ratatui` foundation for the interactive intent confirmation screen.
+
+*   **Track O1-2: Intent Capture LLM Pipeline**
+    *   Status: Planned
+    *   Spec: `conductor/trackO1-2/spec.md`
+    *   Plan: `conductor/trackO1-2/plan.md`
+    *   Goal: Implement local Gemma 4 integration to draft intent payloads from git diffs and commit messages.
+
+*   **Track O1-3: Git Hook Integration & UX Logic**
+    *   Status: Planned
+    *   Spec: `conductor/trackO1-3/spec.md`
+    *   Plan: `conductor/trackO1-3/plan.md`
+    *   Goal: Wire the TUI and LLM into a `commit-msg` git hook with adaptive bypass logic.
+
+*   **Track O1-4: Heuristic Ticket Extraction**
+    *   Status: Planned
+    *   Spec: `conductor/trackO1-4/spec.md`
+    *   Plan: `conductor/trackO1-4/plan.md`
+    *   Goal: Extract Linear/Jira ticket IDs from git context to enrich the LLM prompt and TUI without brittle webhooks.
+
+*   **Track O1-5: Cryptographic Provenance**
+    *   Status: Planned
+    *   Spec: `conductor/trackO1-5/spec.md`
+    *   Plan: `conductor/trackO1-5/plan.md`
+    *   Goal: Harden the ledger by signing every transaction with an Ed25519 developer key.
+
+*   **Track O1-6: SOC2 Evidence Export**
+    *   Status: Planned
+    *   Spec: `conductor/trackO1-6/spec.md`
+    *   Plan: `conductor/trackO1-6/plan.md`
+    *   Goal: Provide an auditor-ready JSON/CSV export mapping ledger entries to AICPA TSP 100 controls.
+
 ## Workflow
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.
