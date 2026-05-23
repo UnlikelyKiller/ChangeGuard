@@ -953,12 +953,51 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Spec: `conductor/trackRE5/spec.md`
     *   Plan: `conductor/trackRE5/plan.md`
     *   Goal: Split the monolithic `src/index/languages/rust.rs` into specialized sub-parsers by symbol type.
-
 *   **Track RE6: Standardize CozoDB Storage Layer**
     *   Status: Completed
     *   Spec: `conductor/trackRE6/spec.md`
     *   Plan: `conductor/trackRE6/plan.md`
     *   Goal: Decouple Datalog queries and schema management from the core `CozoStorage` manager.
+
+## Milestone H: Hardening & UX (Planned)
+
+*   **Track H1: Semantic Engine Audit**
+    *   Status: Planned
+    *   Spec: `conductor/trackH1/spec.md`
+    *   Plan: `conductor/trackH1/plan.md`
+    *   Goal: Fix mathematical instability (NaN distances) and calibrate BM25 search scoring.
+
+*   **Track H2: Advanced Snippet Ingestion**
+    *   Status: Planned
+    *   Spec: `conductor/trackH2/spec.md`
+    *   Plan: `conductor/trackH2/plan.md`
+    *   Goal: Transition to symbol-aware semantic indexing for improved retrieval precision.
+
+*   **Track H3: Global Knowledge Retrieval**
+    *   Status: Planned
+    *   Spec: `conductor/trackH3/spec.md`
+    *   Plan: `conductor/trackH3/plan.md`
+    *   Goal: Decouple `ask` from the impact analysis report, enabling repository-wide AI queries.
+
+*   **Track H4: Windows Deployment Safety**
+    *   Status: Planned
+    *   Spec: `conductor/trackH4/spec.md`
+    *   Plan: `conductor/trackH4/plan.md`
+    *   Goal: Implement shadow-copy mechanism for `update --binary` to prevent Windows file-lock errors.
+
+*   **Track H5: Process & Path Hardening**
+    *   Status: Planned
+    *   Spec: `conductor/trackH5/spec.md`
+    *   Plan: `conductor/trackH5/plan.md`
+    *   Goal: Fix PID management on Windows and implement encoding detection for non-UTF8 files.
+
+*   **Track H6: UX Lifecycle Polish**
+    *   Status: Planned
+    *   Spec: `conductor/trackH6/spec.md`
+    *   Plan: `conductor/trackH6/plan.md`
+    *   Goal: Support entity-based lookups for `ledger commit` and general CLI output cleanup.
+
+## Workflow
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.
 2.  **Push Plan**: Commit and push plan to `main`.
