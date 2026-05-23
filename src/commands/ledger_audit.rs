@@ -64,6 +64,10 @@ pub struct AuditEntry {
     pub change_type: crate::ledger::ChangeType,
     pub committed_at: String,
     pub is_breaking: bool,
+    pub signature: Option<String>,
+    pub public_key: Option<String>,
+    pub risk: Option<String>,
+    pub related_tickets: Option<String>,
     pub provenance: Vec<ProvenanceEntry>,
 }
 
@@ -252,6 +256,10 @@ fn audit_entries_from_ledger_entries(
             change_type: entry.change_type,
             committed_at: entry.committed_at,
             is_breaking: entry.is_breaking,
+            signature: entry.signature,
+            public_key: entry.public_key,
+            risk: entry.risk,
+            related_tickets: entry.related_tickets,
             provenance,
         });
     }
@@ -464,6 +472,12 @@ fn audit_entity(
                 entry.change_type
             );
             println!("  Reason:  {}", entry.reason);
+            if let Some(risk) = &entry.risk {
+                println!("  Risk:    {}", risk.yellow());
+            }
+            if let Some(sig) = &entry.signature {
+                println!("  Sig:     {}...", &sig[..16].dimmed());
+            }
 
             let provenance = db
                 .get_token_provenance_for_tx(&entry.tx_id)
