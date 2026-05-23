@@ -123,21 +123,28 @@ impl<'a> VectorStore<'a> {
         let mut data_rows = Vec::new();
         for (chunk, embedding) in chunks.into_iter().zip(embeddings) {
             if embedding.len() != self.dim {
-                return Err(miette!(
+                return Err(miette::miette!(
                     "Embedding dimension mismatch: expected {}, got {}",
                     self.dim,
                     embedding.len()
                 ));
             }
-            let embedding = normalize_vector(embedding);
-            let row = vec![
-                DataValue::from(chunk.file_path),
-                DataValue::from(chunk.name),
-                DataValue::from(chunk.offset as i64),
-                DataValue::Vec(Box::new(cozo::Vector::F32(embedding.into()))),
-            ];
-            data_rows.push(DataValue::from(row));
-        }
+            if let Some(normalized_embedding) = normalize_vector(embedding) {
+                let row = vec![
+                    DataValue::from(chunk.file_path),
+                    DataValue::from(chunk.name),
+                    DataValue::from(chunk.offset as i64),
+                    DataValue::Vec(Box::new(cozo::Vector::F32(normalized_embedding.into()))),
+                ];
+                data_rows.push(DataValue::List(Box::new(row)));
+            } else {
+                tracing::warn!(
+                    "Skipping snippet '{}' in '{}' due to invalid embedding (zero magnitude).",
+                    chunk.name, chunk.file_path
+                );
+            }
+            }
+
 
         if data_rows.is_empty() {
             return Ok(());
@@ -238,7 +245,14 @@ impl<'a> VectorStore<'a> {
         use cozo::ScriptMutability;
         use std::collections::BTreeMap;
 
-        let query_vector = normalize_vector(query_vector);
+        let query_vector = match normalize_vector(query_vector) {
+            Some(v) => v,
+            None => {
+                tracing::warn!("Query vector is invalid (zero magnitude). Aborting search.");
+                return Ok(Vec::new());
+            }
+        };
+
         let mut params = BTreeMap::new();
         params.insert(
             "query_vec".to_string(),
@@ -248,7 +262,7 @@ impl<'a> VectorStore<'a> {
         // Tier 1: HNSW candidate generation with exact Cozo-side cosine reranking.
         let candidate_k = k.saturating_mul(10).max(50);
         let hnsw_script = format!(
-            "?[file_path,name,line_offset,dist] := ~snippet_embedding:snippet_idx{{file_path,name,line_offset|query:$query_vec,k:{candidate_k},ef:100}}, *snippet_embedding{{file_path,name,line_offset,embedding}}, dist = cos_dist(embedding, $query_vec) :order +dist :limit {k}"
+            "?[file_path, name, line_offset, dist] := ~snippet_embedding:snippet_idx{{file_path, name, line_offset | query: $query_vec, k: {candidate_k}, ef: 100}}, *snippet_embedding{{file_path, name, line_offset, embedding}}, dist = cos_dist(embedding, $query_vec) :order +dist :limit {k}"
         );
         let res = self.storage.run_script_with_params(
             &hnsw_script,
@@ -271,9 +285,9 @@ impl<'a> VectorStore<'a> {
             Err(e) => return Err(e),
         }
 
-        // Tier 2: CozoDB-native cos_dist query (no materialization needed)
+        // Tier 2: CozoDB-native cos_dist query
         let cos_dist_script = format!(
-            "?[file_path,name,line_offset,dist] := *snippet_embedding{{file_path,name,line_offset,embedding}}, dist = cos_dist(embedding, $query_vec) :order +dist :limit {}",
+            "?[file_path, name, line_offset, dist] := *snippet_embedding{{file_path, name, line_offset, embedding}}, dist = cos_dist(embedding, $query_vec) :order +dist :limit {}",
             k
         );
         let cos_res = self.storage.run_script_with_params(
@@ -344,14 +358,29 @@ impl<'a> VectorStore<'a> {
     }
 }
 
-fn normalize_vector(mut vector: Vec<f32>) -> Vec<f32> {
+/// Normalize a vector to unit length.
+///
+/// Sanitizes any `NaN` or `Inf` values to `0.0` before computing the norm.
+/// If the resulting magnitude is zero or near-zero (< 1e-9), returns `None`
+/// to indicate the embedding is invalid and should not be stored or queried.
+fn normalize_vector(mut vector: Vec<f32>) -> Option<Vec<f32>> {
+    // 1. Sanitize: replace NaN/Inf with 0.0
+    for value in &mut vector {
+        if !value.is_finite() {
+            *value = 0.0;
+        }
+    }
+
+    // 2. Compute magnitude and normalise
     let norm = vector.iter().map(|v| v * v).sum::<f32>().sqrt();
-    if norm > 0.0 {
+    if norm > 1e-9 {
         for value in &mut vector {
             *value /= norm;
         }
+        Some(vector)
+    } else {
+        None
     }
-    vector
 }
 
 fn parse_hnsw_results(res: cozo::NamedRows) -> Result<Vec<(String, String, usize, f32)>> {
@@ -364,13 +393,69 @@ fn parse_hnsw_results(res: cozo::NamedRows) -> Result<Vec<(String, String, usize
             Some(DataValue::Num(Num::Float(dist))),
         ) = (row.first(), row.get(1), row.get(2), row.get(3))
         {
+            // Guard against NaN distances — clamp to a neutral large value so
+            // results are always finite and sortable.
+            let dist_f32 = *dist as f32;
+            if !dist_f32.is_finite() {
+                tracing::warn!("Non-finite distance detected in HNSW result: {dist_f32}");
+            }
+            let safe_dist = if dist_f32.is_finite() { dist_f32 } else { 2.0 };
             results.push((
                 file_path.to_string(),
                 name.to_string(),
                 *offset as usize,
-                *dist as f32,
+                safe_dist,
             ));
         }
     }
     Ok(results)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_regular_vector_has_unit_magnitude() {
+        let v = normalize_vector(vec![3.0_f32, 4.0_f32]);
+        let mag: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+        assert!(
+            (mag - 1.0).abs() < 1e-5,
+            "magnitude should be 1.0, got {mag}"
+        );
+        assert!(v.iter().all(|x| x.is_finite()));
+    }
+
+    #[test]
+    fn normalize_zero_vector_returns_stable_unit_vector() {
+        let v = normalize_vector(vec![0.0_f32, 0.0_f32, 0.0_f32]);
+        assert_eq!(v[0], 1.0);
+        assert_eq!(v[1], 0.0);
+        assert_eq!(v[2], 0.0);
+        assert!(v.iter().all(|x| x.is_finite()));
+    }
+
+    #[test]
+    fn normalize_nan_inputs_are_sanitized() {
+        let v = normalize_vector(vec![f32::NAN, 1.0_f32, 0.0_f32]);
+        assert!(
+            v.iter().all(|x| x.is_finite()),
+            "all elements must be finite"
+        );
+    }
+
+    #[test]
+    fn normalize_inf_inputs_are_sanitized() {
+        let v = normalize_vector(vec![f32::INFINITY, 0.0_f32]);
+        assert!(
+            v.iter().all(|x| x.is_finite()),
+            "all elements must be finite"
+        );
+    }
+
+    #[test]
+    fn normalize_empty_vector_does_not_panic() {
+        let v = normalize_vector(vec![]);
+        assert!(v.is_empty());
+    }
 }

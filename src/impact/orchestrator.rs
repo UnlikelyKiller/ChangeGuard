@@ -58,7 +58,9 @@ impl ImpactOrchestrator {
         orch.register_enrichment_provider(Box::new(
             crate::impact::enrichment::coupling::CouplingProvider,
         ));
-        orch.register_enrichment_provider(Box::new(crate::impact::enrichment::deploy::DeployProvider));
+        orch.register_enrichment_provider(Box::new(
+            crate::impact::enrichment::deploy::DeployProvider,
+        ));
         orch.register_enrichment_provider(Box::new(
             crate::impact::enrichment::ci_self_awareness::CISelfAwarenessProvider,
         ));
@@ -81,7 +83,9 @@ impl ImpactOrchestrator {
         orch.register_enrichment_provider(Box::new(
             crate::impact::enrichment::dead_code::DeadCodeProvider,
         ));
-        orch.register_enrichment_provider(Box::new(crate::impact::enrichment::kg_provider::KGProvider));
+        orch.register_enrichment_provider(Box::new(
+            crate::impact::enrichment::kg_provider::KGProvider,
+        ));
         orch
     }
 
@@ -89,7 +93,10 @@ impl ImpactOrchestrator {
         self.enrichment_providers.push(provider);
     }
 
-    pub fn register_analysis_provider(&mut self, provider: Box<dyn crate::impact::analysis::ImpactProvider>) {
+    pub fn register_analysis_provider(
+        &mut self,
+        provider: Box<dyn crate::impact::analysis::ImpactProvider>,
+    ) {
         self.analysis_registry.register(provider);
     }
 
@@ -127,7 +134,14 @@ impl ImpactOrchestrator {
 
         // 3. Execute Analysis (Scoring)
         let layout = crate::state::layout::Layout::new(project_root.to_string_lossy().as_ref());
-        let rules = crate::policy::load::load_rules(&layout)?;
+        let rules = match crate::policy::load::load_rules(&layout) {
+            Ok(r) => r,
+            Err(e) => {
+                warn!("Failed to load policy rules: {}", e);
+                context.add_warning(format!("Failed to load policy rules: {}", e));
+                crate::policy::rules::Rules::default()
+            }
+        };
         self.analysis_registry.run(packet, &rules, config)?;
 
         // 4. Collect Warnings

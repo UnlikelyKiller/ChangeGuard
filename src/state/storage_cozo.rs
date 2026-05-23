@@ -109,17 +109,16 @@ impl CozoStorage {
         for row in res.rows {
             if let (Some(DataValue::Str(name)), Some(DataValue::Str(typ))) =
                 (row.first(), row.get(1))
+                && name == "embedding"
             {
-                if name == "embedding" {
-                    let expected = format!("<F32; {}>", expected_dim);
-                    if typ != &expected {
-                        return Err(miette::miette!(
-                            "Dimension mismatch for relation '{}': expected {}, found {}.",
-                            relation,
-                            expected,
-                            typ
-                        ));
-                    }
+                let expected = format!("<F32; {}>", expected_dim);
+                if typ != &expected {
+                    return Err(miette::miette!(
+                        "Dimension mismatch for relation '{}': expected {}, found {}.",
+                        relation,
+                        expected,
+                        typ
+                    ));
                 }
             }
         }
@@ -128,20 +127,20 @@ impl CozoStorage {
 
     pub fn node_count(&self) -> Result<usize> {
         let res = self.run_script(queries::node_count_query())?;
-        if let Some(row) = res.rows.first() {
-            if let Some(DataValue::Num(Num::Int(count))) = row.first() {
-                return Ok(*count as usize);
-            }
+        if let Some(row) = res.rows.first()
+            && let Some(DataValue::Num(Num::Int(count))) = row.first()
+        {
+            return Ok(*count as usize);
         }
         Ok(0)
     }
 
     pub fn edge_count(&self) -> Result<usize> {
         let res = self.run_script(queries::edge_count_query())?;
-        if let Some(row) = res.rows.first() {
-            if let Some(DataValue::Num(Num::Int(count))) = row.first() {
-                return Ok(*count as usize);
-            }
+        if let Some(row) = res.rows.first()
+            && let Some(DataValue::Num(Num::Int(count))) = row.first()
+        {
+            return Ok(*count as usize);
         }
         Ok(0)
     }
@@ -155,10 +154,16 @@ impl CozoStorage {
     }
 
     pub fn remove_nodes_by_id(&self, ids: &[String]) -> Result<()> {
-        if ids.is_empty() { return Ok(()); }
+        if ids.is_empty() {
+            return Ok(());
+        }
         let mut script = String::from("?[id] <- [\n");
         for (i, id) in ids.iter().enumerate() {
-            script.push_str(&format!("  ['{}']{}\n", id, if i == ids.len() - 1 { "" } else { "," }));
+            script.push_str(&format!(
+                "  ['{}']{}\n",
+                id,
+                if i == ids.len() - 1 { "" } else { "," }
+            ));
         }
         script.push_str("] :rm node {id}");
         self.run_script(&script)?;
@@ -166,24 +171,67 @@ impl CozoStorage {
     }
 
     pub fn remove_edges_for_source(&self, source_ids: &[String]) -> Result<()> {
-        if source_ids.is_empty() { return Ok(()); }
-        let mut script = String::from("?[source] <- [\n");
-        for (i, id) in source_ids.iter().enumerate() {
-            script.push_str(&format!("  ['{}']{}\n", id, if i == source_ids.len() - 1 { "" } else { "," }));
+        if source_ids.is_empty() {
+            return Ok(());
         }
-        script.push_str("] :rm edge {source}");
+        let mut script = String::from("source_input[source] <- [\n");
+        for (i, id) in source_ids.iter().enumerate() {
+            script.push_str(&format!(
+                "  ['{}']{}\n",
+                id,
+                if i == source_ids.len() - 1 { "" } else { "," }
+            ));
+        }
+        script.push_str("]\n");
+        script.push_str("?[source, target, relation] := source_input[source], *edge{source, target, relation}\n");
+        script.push_str(":rm edge {source, target, relation}");
+        self.run_script(&script)?;
+        Ok(())
+    }
+
+    /// Remove all `snippet_embedding` rows for the given list of file paths.
+    ///
+    /// Called during incremental re-indexing to prune stale embeddings before
+    /// inserting updated ones, ensuring consistency between the KG and the
+    /// vector store.
+    pub fn remove_snippets_for_files(&self, file_paths: &[String]) -> Result<()> {
+        if file_paths.is_empty() {
+            return Ok(());
+        }
+        // Check whether the relation exists to avoid errors on fresh repos.
+        let relations = self.get_relations()?;
+        if !relations.contains(&"snippet_embedding".to_string()) {
+            return Ok(());
+        }
+        let mut script = String::from("paths[file_path] <- [\n");
+        for (i, fp) in file_paths.iter().enumerate() {
+            let escaped = fp.replace('\'', "\\'");
+            script.push_str(&format!(
+                "  ['{}']{}\n",
+                escaped,
+                if i == file_paths.len() - 1 { "" } else { "," }
+            ));
+        }
+        script.push_str("]\n");
+        script.push_str("?[file_path, name, line_offset] := paths[file_path], *snippet_embedding{file_path, name, line_offset}\n");
+        script.push_str(":rm snippet_embedding {file_path, name, line_offset}");
         self.run_script(&script)?;
         Ok(())
     }
 
     pub fn insert_nodes(&self, nodes: &[GraphNode]) -> Result<()> {
-        if nodes.is_empty() { return Ok(()); }
+        if nodes.is_empty() {
+            return Ok(());
+        }
         let mut script = String::from("?[id, label, category, risk_score, metadata] <- [\n");
         for (i, node) in nodes.iter().enumerate() {
             let metadata = node.metadata.as_ref().cloned().unwrap_or(json!({}));
             script.push_str(&format!(
                 "  ['{}', '{}', '{}', {}, {}]{}\n",
-                node.id, node.label, node.category, node.risk_score,
+                node.id,
+                node.label,
+                node.category,
+                node.risk_score,
                 metadata,
                 if i == nodes.len() - 1 { "" } else { "," }
             ));
@@ -194,12 +242,19 @@ impl CozoStorage {
     }
 
     pub fn insert_edges(&self, edges: &[GraphEdge]) -> Result<()> {
-        if edges.is_empty() { return Ok(()); }
-        let mut script = String::from("?[source, target, relation, confidence, provenance_id] <- [\n");
+        if edges.is_empty() {
+            return Ok(());
+        }
+        let mut script =
+            String::from("?[source, target, relation, confidence, provenance_id] <- [\n");
         for (i, edge) in edges.iter().enumerate() {
             script.push_str(&format!(
                 "  ['{}', '{}', '{}', {}, '{}']{}\n",
-                edge.source, edge.target, edge.relation, edge.confidence, edge.provenance_id,
+                edge.source,
+                edge.target,
+                edge.relation,
+                edge.confidence,
+                edge.provenance_id,
                 if i == edges.len() - 1 { "" } else { "," }
             ));
         }
@@ -209,12 +264,24 @@ impl CozoStorage {
     }
 
     pub fn run_community_louvain(&self) -> Result<Vec<(String, i64)>> {
-        let script = "::algo community_louvain {node: node, edge: edge, output: community}";
+        let script = "
+            edges[src, dst] := *edge{source: src, target: dst}
+            ?[community_id, node] <~ CommunityDetectionLouvain(edges[src, dst], undirected: true)
+        ";
         let res = self.run_script(script)?;
         let mut results = Vec::new();
         for row in res.rows {
-            if let (Some(DataValue::Str(node)), Some(DataValue::Num(Num::Int(comm)))) = (row.first(), row.get(1)) {
-                results.push((node.to_string(), *comm));
+            if let (Some(DataValue::List(list)), Some(DataValue::Str(node))) =
+                (row.first(), row.get(1))
+            {
+                let comm_id = list
+                    .first()
+                    .and_then(|v| match v {
+                        DataValue::Num(Num::Int(i)) => Some(*i),
+                        _ => None,
+                    })
+                    .unwrap_or(0);
+                results.push((node.to_string(), comm_id));
             }
         }
         Ok(results)

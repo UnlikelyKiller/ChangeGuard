@@ -1,5 +1,5 @@
-use crate::index::types::ProjectSymbol;
 use crate::index::symbols::SymbolKind as CGSymbolKind;
+use crate::index::types::ProjectSymbol;
 use chrono::Utc;
 use scip::types::{Occurrence, SymbolInformation, symbol_information::Kind};
 

@@ -1,6 +1,6 @@
 use crate::config::model::Config;
-use crate::impact::packet::{ImpactPacket, RiskImpact};
 use crate::impact::analysis::ImpactProvider;
+use crate::impact::packet::{ImpactPacket, RiskImpact};
 use crate::policy::rules::Rules;
 use miette::Result;
 
@@ -12,7 +12,12 @@ impl ImpactProvider for SemanticImpactProvider {
         "Semantic Impact Provider"
     }
 
-    fn analyze(&self, packet: &ImpactPacket, _rules: &Rules, _config: &Config) -> Result<RiskImpact> {
+    fn analyze(
+        &self,
+        packet: &ImpactPacket,
+        _rules: &Rules,
+        _config: &Config,
+    ) -> Result<RiskImpact> {
         let mut total_weight = 0;
         let mut reasons = Vec::new();
 

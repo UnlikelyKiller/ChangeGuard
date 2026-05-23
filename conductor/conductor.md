@@ -959,43 +959,49 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Plan: `conductor/trackRE6/plan.md`
     *   Goal: Decouple Datalog queries and schema management from the core `CozoStorage` manager.
 
-## Milestone H: Hardening & UX (Planned)
+## Milestone H: Hardening & UX (Completed)
 
 *   **Track H1: Semantic Engine Audit**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackH1/spec.md`
     *   Plan: `conductor/trackH1/plan.md`
     *   Goal: Fix mathematical instability (NaN distances) and calibrate BM25 search scoring.
+    *   Key additions: `normalize_vector` hardening in `vector_store.rs`, safe distance clamping, BM25 score calibration.
 
 *   **Track H2: Advanced Snippet Ingestion**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackH2/spec.md`
     *   Plan: `conductor/trackH2/plan.md`
     *   Goal: Transition to symbol-aware semantic indexing for improved retrieval precision.
+    *   Key additions: `AstChunker` with tree-sitter integration in `chunker.rs`, symbol-level embedding metadata.
 
 *   **Track H3: Global Knowledge Retrieval**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackH3/spec.md`
     *   Plan: `conductor/trackH3/plan.md`
     *   Goal: Decouple `ask` from the impact analysis report, enabling repository-wide AI queries.
+    *   Key additions: Global mode in `ask.rs` with automated Knowledge Graph context retrieval.
 
 *   **Track H4: Windows Deployment Safety**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackH4/spec.md`
     *   Plan: `conductor/trackH4/plan.md`
     *   Goal: Implement shadow-copy mechanism for `update --binary` to prevent Windows file-lock errors.
+    *   Key additions: `shadow_copy_current_exe` logic in `update.rs` with automatic cleanup.
 
 *   **Track H5: Process & Path Hardening**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackH5/spec.md`
     *   Plan: `conductor/trackH5/plan.md`
     *   Goal: Fix PID management on Windows and implement encoding detection for non-UTF8 files.
+    *   Key additions: PID-based process killing in `viz_server.rs`, `read_to_string_with_encoding` in `util/fs.rs`.
 
 *   **Track H6: UX Lifecycle Polish**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackH6/spec.md`
     *   Plan: `conductor/trackH6/plan.md`
     *   Goal: Support entity-based lookups for `ledger commit` and general CLI output cleanup.
+    *   Key additions: Entity name resolution for transactions in `transaction.rs`.
 
 ## Workflow
 

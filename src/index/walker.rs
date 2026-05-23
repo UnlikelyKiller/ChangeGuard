@@ -23,7 +23,7 @@ impl RepoWalker {
     /// Discover files in the repository, respecting .gitignore and filtering by extensions.
     pub fn discover_files(&self) -> Result<Vec<Utf8PathBuf>> {
         let mut files = Vec::new();
-        
+
         // WalkBuilder handles .gitignore automatically if it's in a git repo.
         let walker = WalkBuilder::new(&self.root)
             .hidden(true) // Skip hidden files/dirs like .git, .env
@@ -40,20 +40,21 @@ impl RepoWalker {
                     continue;
                 }
             };
-            
-            if entry.file_type().map_or(false, |ft| ft.is_file()) {
+
+            if entry.file_type().is_some_and(|ft| ft.is_file()) {
                 let path = entry.path();
                 let utf8_path = Utf8PathBuf::from_path_buf(path.to_path_buf())
                     .map_err(|_| miette::miette!("Invalid UTF-8 path: {:?}", path))?;
-                
-                if let Some(ext) = utf8_path.extension() {
-                    if self.supported_extensions.contains(ext) && !self.binary_extensions.contains(ext) {
-                        files.push(utf8_path);
-                    }
+
+                if let Some(ext) = utf8_path.extension()
+                    && self.supported_extensions.contains(ext)
+                    && !self.binary_extensions.contains(ext)
+                {
+                    files.push(utf8_path);
                 }
             }
         }
-        
+
         files.sort();
         Ok(files)
     }

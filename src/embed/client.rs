@@ -31,9 +31,16 @@ pub fn check_local_model(config: &LocalModelConfig) -> Result<Dimensions, String
 
     let url = config.embedding_url.as_deref().unwrap_or(&config.base_url);
 
-    let vectors = embed_batch(url, &config.embedding_model, &["ping"], config.timeout_secs)?;
+    let vectors = match embed_batch(url, &config.embedding_model, &["ping"], config.timeout_secs) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!("Probe failed at {}: {}", url, e);
+            return Err(e);
+        }
+    };
 
     let dims = vectors.first().map(|v| v.len()).unwrap_or(0);
+    tracing::info!("Probe at {} returned {} dimensions", url, dims);
 
     Ok(Dimensions {
         dimensions: dims,

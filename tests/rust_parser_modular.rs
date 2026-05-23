@@ -1,6 +1,6 @@
-use changeguard::index::languages::rust::extract_symbols;
-use changeguard::index::languages::rust::extract_routes;
 use changeguard::index::languages::rust::extract_calls;
+use changeguard::index::languages::rust::extract_routes;
+use changeguard::index::languages::rust::extract_symbols;
 use changeguard::index::symbols::SymbolKind;
 use std::path::Path;
 
@@ -16,9 +16,21 @@ fn test_rust_symbol_extraction() {
     "#;
     let symbols = extract_symbols(content).unwrap().unwrap();
     assert_eq!(symbols.len(), 6);
-    assert!(symbols.iter().any(|s| s.name == "foo" && s.kind == SymbolKind::Function && s.is_public));
-    assert!(symbols.iter().any(|s| s.name == "Bar" && s.kind == SymbolKind::Struct));
-    assert!(symbols.iter().any(|s| s.name == "Baz" && s.kind == SymbolKind::Enum));
+    assert!(
+        symbols
+            .iter()
+            .any(|s| s.name == "foo" && s.kind == SymbolKind::Function && s.is_public)
+    );
+    assert!(
+        symbols
+            .iter()
+            .any(|s| s.name == "Bar" && s.kind == SymbolKind::Struct)
+    );
+    assert!(
+        symbols
+            .iter()
+            .any(|s| s.name == "Baz" && s.kind == SymbolKind::Enum)
+    );
     assert!(symbols.iter().any(|s| s.name == "MyType" && s.is_public));
 }
 
@@ -63,8 +75,20 @@ fn test_rust_call_extraction() {
     "#;
     let path = Path::new("src/main.rs");
     let edges = extract_calls(path, content, &[]).unwrap();
-    
-    assert!(edges.iter().any(|e| e.caller_name == "main" && e.callee_name == "foo"));
-    assert!(edges.iter().any(|e| e.caller_name == "main" && e.callee_name == "new"));
-    assert!(edges.iter().any(|e| e.caller_name == "main" && e.callee_name == "process"));
+
+    assert!(
+        edges
+            .iter()
+            .any(|e| e.caller_name == "main" && e.callee_name == "foo")
+    );
+    assert!(
+        edges
+            .iter()
+            .any(|e| e.caller_name == "main" && e.callee_name == "new")
+    );
+    assert!(
+        edges
+            .iter()
+            .any(|e| e.caller_name == "main" && e.callee_name == "process")
+    );
 }

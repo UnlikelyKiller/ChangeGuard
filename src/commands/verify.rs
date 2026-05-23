@@ -1,15 +1,17 @@
+use crate::output::human::print_verify_plan;
+use crate::output::verification::VerificationReporter;
 use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
 use crate::verify::engine::{VerificationContext, VerifyEngine};
-use crate::verify::plan::{build_plan, build_plan_from_config, VerificationStep};
+use crate::verify::plan::{VerificationStep, build_plan, build_plan_from_config};
 use crate::verify::predictor::OutcomePredictor;
-use crate::verify::suggestions::{generate_health_suggestions, generate_suggestions, query_ledger_status};
+use crate::verify::suggestions::{
+    generate_health_suggestions, generate_suggestions, query_ledger_status,
+};
 use crate::verify::timeouts::{DEFAULT_AUTO_TIMEOUT_SECS, manual_timeout};
-use crate::output::human::print_verify_plan;
-use crate::output::verification::VerificationReporter;
 use miette::Result;
-use tracing::{info, warn};
 use std::env;
+use tracing::{info, warn};
 
 pub fn execute_verify(
     command_str: Option<String>,
@@ -43,7 +45,8 @@ pub fn execute_verify(
         Ok(storage) => Some(storage),
         Err(err) => {
             if !no_predict {
-                let warning = format!("Prediction disabled: failed to initialize SQLite storage: {err}");
+                let warning =
+                    format!("Prediction disabled: failed to initialize SQLite storage: {err}");
                 warn!("{warning}");
                 ctx.add_warning(warning);
             }
@@ -56,7 +59,8 @@ pub fn execute_verify(
             Ok(packet) => packet,
             Err(err) => {
                 if !no_predict {
-                    let warning = format!("Prediction disabled: failed to load latest packet: {err}");
+                    let warning =
+                        format!("Prediction disabled: failed to load latest packet: {err}");
                     warn!("{warning}");
                     ctx.add_warning(warning);
                 }
@@ -82,12 +86,16 @@ pub fn execute_verify(
                 };
 
                 // Apply probabilistic ordering if storage is available
-                if let Some(stg) = &ctx.storage {
-                    if let Ok(dataset) = crate::verify::probability::extract_dataset(stg.get_connection()) {
-                        let probs = crate::verify::probability::calculate_probabilities(&dataset);
-                        plan.apply_probability_ordering(&probs);
-                        info!("Probabilistic verification ordering applied ({} active models).", probs.len());
-                    }
+                if let Some(stg) = &ctx.storage
+                    && let Ok(dataset) =
+                        crate::verify::probability::extract_dataset(stg.get_connection())
+                {
+                    let probs = crate::verify::probability::calculate_probabilities(&dataset);
+                    plan.apply_probability_ordering(&probs);
+                    info!(
+                        "Probabilistic verification ordering applied ({} active models).",
+                        probs.len()
+                    );
                 }
 
                 print_verify_plan(&plan);
@@ -112,9 +120,10 @@ pub fn execute_verify(
 
     // 6. Final Reporting & IPC
     VerificationReporter::report(&ctx, &report);
-    
+
     // Push results to AI-Brains
-    let bridge_outcomes = report.results
+    let bridge_outcomes = report
+        .results
         .iter()
         .map(|res| crate::bridge::model::BridgeVerifyOutcome {
             success: res.exit_code == 0,

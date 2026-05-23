@@ -3,7 +3,7 @@ use crate::index::languages::{Language, parse_symbols};
 use crate::index::metrics::ComplexityScorer;
 use crate::index::references::extract_import_export;
 use crate::index::runtime_usage::extract_runtime_usage;
-use std::fs;
+use crate::util::fs::read_to_string_with_encoding;
 use std::path::Path;
 
 pub struct AnalysisOutcome {
@@ -59,7 +59,7 @@ pub fn analyze_file(relative_path: &Path, base_dir: &Path) -> AnalysisOutcome {
         };
     }
 
-    let content = match fs::read_to_string(&full_path) {
+    let content = match read_to_string_with_encoding(&full_path) {
         Ok(content) => content,
         Err(err) => {
             status.symbols = AnalysisStatus::ReadFailed;

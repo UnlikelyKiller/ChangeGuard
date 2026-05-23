@@ -79,14 +79,23 @@ impl DocTemplate for SymbolIndexTemplate {
         let mut lines = Vec::new();
         lines.push("# Symbol Index".to_string());
         lines.push(String::new());
-        lines.push("| Qualified Name | Symbol Name | Kind | File Path | Line Start | Line End | Public |".to_string());
+        lines.push(
+            "| Qualified Name | Symbol Name | Kind | File Path | Line Start | Line End | Public |"
+                .to_string(),
+        );
         lines.push("|---|---|---|---|---|---|---|".to_string());
 
         for row in rows {
             let public_str = if row.is_public { "Yes" } else { "No" };
             lines.push(format!(
                 "| {} | {} | {} | {} | {} | {} | {} |",
-                row.qualified_name, row.symbol_name, row.symbol_kind, row.file_path, row.line_start, row.line_end, public_str
+                row.qualified_name,
+                row.symbol_name,
+                row.symbol_kind,
+                row.file_path,
+                row.line_start,
+                row.line_end,
+                public_str
             ));
         }
 
@@ -108,7 +117,8 @@ impl DocTemplate for ApiContractIndexTemplate {
 
     fn generate(&self, _storage: &CozoStorage, output_dir: &Utf8Path) -> Result<Utf8PathBuf> {
         // Mocking metadata extraction for now
-        let content = "# API Contract Index\n\n*API documentation pending metadata extraction logic.*\n";
+        let content =
+            "# API Contract Index\n\n*API documentation pending metadata extraction logic.*\n";
         let path = output_dir.join("api_contract_index.md");
         write_file(&path, &content)?;
         Ok(path)

@@ -527,21 +527,26 @@ fn execute_semantic_index(
                 collect_semantic_data(&path, semantic, all_chunks, all_embeddings, files_indexed)?;
             } else {
                 let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                if matches!(ext, "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go")
-                    && let Ok(content) = std::fs::read_to_string(&path)
-                {
-                    match semantic.process_file(&path, &content) {
-                        Ok((chunks, embeddings)) => {
-                            all_chunks.extend(chunks);
-                            all_embeddings.extend(embeddings);
-                            *files_indexed += 1;
+                if matches!(ext, "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go") {
+                    match crate::util::fs::read_to_string_with_encoding(&path) {
+                        Ok(content) => {
+                            match semantic.process_file(&path, &content) {
+                                Ok((chunks, embeddings)) => {
+                                    all_chunks.extend(chunks);
+                                    all_embeddings.extend(embeddings);
+                                    *files_indexed += 1;
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        "Failed to process file for semantic indexing {}: {}",
+                                        path.display(),
+                                        e
+                                    );
+                                }
+                            }
                         }
                         Err(e) => {
-                            warn!(
-                                "Failed to process file for semantic indexing {}: {}",
-                                path.display(),
-                                e
-                            );
+                            warn!("Failed to read file for semantic indexing {}: {}", path.display(), e);
                         }
                     }
                 }

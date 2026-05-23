@@ -8,10 +8,13 @@ pub struct VerificationReporter;
 
 impl VerificationReporter {
     pub fn report(_ctx: &VerificationContext, report: &VerificationReport) {
-        // Suggested actions are already printed in execute_verify for now, 
+        // Suggested actions are already printed in execute_verify for now,
         // but let's move the printer here.
         if !report.suggested_actions.is_empty() {
-            Self::print_suggested_actions(&report.suggested_actions, std::env::var("NO_COLOR").is_ok());
+            Self::print_suggested_actions(
+                &report.suggested_actions,
+                std::env::var("NO_COLOR").is_ok(),
+            );
         }
     }
 
@@ -59,25 +62,28 @@ impl VerificationReporter {
         }
     }
 
-    pub fn print_ci_predictions(similar_ci: &[(crate::verify::ci_predictor::CIJobOutcome, f32)], explain: bool, embed_config: &crate::config::model::LocalModelConfig, diff_text: &str) {
+    pub fn print_ci_predictions(
+        similar_ci: &[(crate::verify::ci_predictor::CIJobOutcome, f32)],
+        explain: bool,
+        embed_config: &crate::config::model::LocalModelConfig,
+        diff_text: &str,
+    ) {
         if similar_ci.is_empty() {
             return;
         }
 
         println!("\n{}", "Predicted CI Failures:".bold().bright_red());
-        
+
         let engine = if explain {
-            Some(crate::verify::explanation::ExplanationEngine::new(embed_config.clone()))
+            Some(crate::verify::explanation::ExplanationEngine::new(
+                embed_config.clone(),
+            ))
         } else {
             None
         };
 
-        let mut table = crate::output::table::build_table([
-            "Job Name",
-            "Platform",
-            "Probability",
-        ]);
-        
+        let mut table = crate::output::table::build_table(["Job Name", "Platform", "Probability"]);
+
         let failure_scores = crate::verify::ci_predictor::compute_ci_failure_scores(similar_ci);
 
         for (job_name, score) in &failure_scores {
@@ -86,7 +92,7 @@ impl VerificationReporter {
                 .find(|(o, _)| &o.job_name == job_name)
                 .map(|(o, _)| o.platform.clone())
                 .unwrap_or_else(|| "unknown".to_string());
-            
+
             let prob_color = if *score > 0.7 {
                 format!("{:.0}%", *score * 100.0).red().bold().to_string()
             } else if *score > 0.4 {
@@ -94,7 +100,7 @@ impl VerificationReporter {
             } else {
                 format!("{:.0}%", *score * 100.0).green().to_string()
             };
-            
+
             table.add_row(vec![job_name.clone(), platform.clone(), prob_color]);
         }
         println!("{table}");
@@ -107,7 +113,7 @@ impl VerificationReporter {
                         .find(|(o, _)| o.job_name == job_name)
                         .map(|(o, _)| o.platform.clone())
                         .unwrap_or_else(|| "unknown".to_string());
-                    
+
                     match engine.explain_ci_failure(
                         &job_name,
                         &platform,

@@ -1,4 +1,7 @@
-use crate::docs::types::{DocTemplate, query_module_groups, query_file_dependencies, mermaid_id, write_file, DocGenerationError};
+use crate::docs::types::{
+    DocGenerationError, DocTemplate, mermaid_id, query_file_dependencies, query_module_groups,
+    write_file,
+};
 use crate::state::storage_cozo::CozoStorage;
 use camino::{Utf8Path, Utf8PathBuf};
 use miette::Result;
@@ -132,19 +135,24 @@ impl DocTemplate for FederationSummaryTemplate {
 
     fn generate(&self, storage: &CozoStorage, output_dir: &Utf8Path) -> Result<Utf8PathBuf> {
         let script = r#"
-            ?[remote_repo, entity] := *ledger_entry{entity_normalized: entity, remote_origin: remote_repo},
-                                      is_not_null(remote_repo)
+            ?[remote_repo, entity] := *ledger_entry{entity_normalized: entity, trace_id: remote_repo},
+                                      remote_repo != ""
         "#;
-        let res = storage.run_script(script).map_err(|e| miette::miette!("Query failed: {}", e))?;
-        
-        let mut lines = Vec::new();
-        lines.push("# Federation Summary".to_string());
-        lines.push(String::new());
-        lines.push("| Remote Repository | Linked Entity |".to_string());
-        lines.push("|---|---|".to_string());
+        let res = storage
+            .run_script(script)
+            .map_err(|e| miette::miette!("Query failed: {}", e))?;
+
+        let mut lines = vec![
+            "# Federation Summary".to_string(),
+            String::new(),
+            "| Remote Repository | Linked Entity |".to_string(),
+            "|---|---|".to_string(),
+        ];
 
         for row in res.rows {
-            if let (Some(cozo::DataValue::Str(repo)), Some(cozo::DataValue::Str(entity))) = (row.first(), row.get(1)) {
+            if let (Some(cozo::DataValue::Str(repo)), Some(cozo::DataValue::Str(entity))) =
+                (row.first(), row.get(1))
+            {
                 lines.push(format!("| {} | {} |", repo, entity));
             }
         }

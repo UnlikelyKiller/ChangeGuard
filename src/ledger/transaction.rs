@@ -510,22 +510,63 @@ impl<'a> TransactionManager<'a> {
 
     pub fn resolve_tx_id(&self, tx_id_or_prefix: &str) -> Result<String, LedgerError> {
         let db = LedgerDb::new(self.conn);
+
+        // 1. Exact full UUID match
         if tx_id_or_prefix.len() == 36 && db.get_transaction(tx_id_or_prefix)?.is_some() {
             return Ok(tx_id_or_prefix.to_string());
         }
 
-        let matches = db.resolve_tx_id_fuzzy(tx_id_or_prefix)?;
-        if matches.is_empty() {
-            return Err(LedgerError::NotFound(tx_id_or_prefix.to_string()));
+        // 2. UUID prefix match (existing behaviour)
+        let uuid_matches = db.resolve_tx_id_fuzzy(tx_id_or_prefix)?;
+        if uuid_matches.len() == 1 {
+            return Ok(uuid_matches[0].clone());
         }
-        if matches.len() > 1 {
+        if uuid_matches.len() > 1 {
             return Err(LedgerError::Config(format!(
                 "Ambiguous transaction ID prefix '{}': matched {}",
                 tx_id_or_prefix,
-                matches.join(", ")
+                uuid_matches.join(", ")
             )));
         }
-        Ok(matches[0].clone())
+
+        // 3. Entity / basename fuzzy match against PENDING transactions (H6)
+        // Normalise the lookup term: strip any path separators and lowercase.
+        let needle = tx_id_or_prefix.to_lowercase();
+        let needle_base = std::path::Path::new(tx_id_or_prefix)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(tx_id_or_prefix)
+            .to_lowercase();
+
+        let pending = db.get_all_pending()?;
+        let entity_matches: Vec<String> = pending
+            .into_iter()
+            .filter(|tx| {
+                let entity_lower = tx.entity.to_lowercase();
+                let norm_lower = tx.entity_normalized.to_lowercase();
+                let entity_base = std::path::Path::new(&tx.entity_normalized)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(&tx.entity_normalized)
+                    .to_lowercase();
+
+                entity_lower.contains(&needle)
+                    || norm_lower.contains(&needle)
+                    || entity_base == needle_base
+            })
+            .map(|tx| tx.tx_id)
+            .collect();
+
+        match entity_matches.len() {
+            0 => Err(LedgerError::NotFound(tx_id_or_prefix.to_string())),
+            1 => Ok(entity_matches[0].clone()),
+            _ => Err(LedgerError::Config(format!(
+                "Ambiguous entity lookup '{}': matched {} pending transactions. \
+                 Use the transaction ID prefix instead.",
+                tx_id_or_prefix,
+                entity_matches.len()
+            ))),
+        }
     }
 
     pub fn get_pending(&self, entity: &str) -> Result<Option<Transaction>, LedgerError> {

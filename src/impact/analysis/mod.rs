@@ -3,12 +3,12 @@ use crate::impact::packet::{ImpactPacket, RiskImpact};
 use crate::policy::rules::Rules;
 use miette::Result;
 
-pub mod git;
+pub mod dead_code;
 pub mod dependencies;
+pub mod environment;
+pub mod git;
 pub mod semantic;
 pub mod temporal;
-pub mod environment;
-pub mod dead_code;
 
 /// Trait for modular impact analysis and risk scoring components.
 pub trait ImpactProvider: Send + Sync {
@@ -109,7 +109,12 @@ mod tests {
         analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         assert_eq!(packet.risk_level, RiskLevel::High);
-        assert!(packet.risk_reasons.iter().any(|r| r.contains("Protected path hit")));
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Protected path hit"))
+        );
     }
 
     #[test]
@@ -123,20 +128,32 @@ mod tests {
                 ..ChangedFile::default()
             });
         }
-        
+
         // 1 structural coupling -> 15 weight (Dependency)
-        packet.structural_couplings.push(crate::impact::packet::StructuralCoupling {
-            caller_symbol_name: "A".to_string(),
-            callee_symbol_name: "B".to_string(),
-            caller_file_path: PathBuf::from("src/a.rs"),
-        });
+        packet
+            .structural_couplings
+            .push(crate::impact::packet::StructuralCoupling {
+                caller_symbol_name: "A".to_string(),
+                callee_symbol_name: "B".to_string(),
+                caller_file_path: PathBuf::from("src/a.rs"),
+            });
 
         let rules = Rules::default();
         analyze_risk(&mut packet, &rules, &Config::default()).unwrap();
 
         // Total weight = 20 + 15 = 35 (> 20 -> Medium)
         assert_eq!(packet.risk_level, RiskLevel::Medium);
-        assert!(packet.risk_reasons.iter().any(|r| r.contains("High volume")));
-        assert!(packet.risk_reasons.iter().any(|r| r.contains("Structurally coupled")));
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("High volume"))
+        );
+        assert!(
+            packet
+                .risk_reasons
+                .iter()
+                .any(|r| r.contains("Structurally coupled"))
+        );
     }
 }

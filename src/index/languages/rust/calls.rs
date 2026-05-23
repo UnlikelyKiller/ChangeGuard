@@ -1,8 +1,8 @@
 use crate::index::call_graph::{CallEdge, CallKind, ResolutionStatus};
 use crate::index::symbols::Symbol;
 use miette::{IntoDiagnostic, Result};
-use tree_sitter::{Parser, Node};
 use std::path::Path;
+use tree_sitter::{Node, Parser};
 
 pub fn extract_calls(path: &Path, content: &str, _symbols: &[Symbol]) -> Result<Vec<CallEdge>> {
     let mut parser = Parser::new();
@@ -18,12 +18,7 @@ pub fn extract_calls(path: &Path, content: &str, _symbols: &[Symbol]) -> Result<
     Ok(edges)
 }
 
-fn collect_call_edges(
-    path: &Path,
-    node: Node,
-    content: &str,
-    edges: &mut Vec<CallEdge>,
-) {
+fn collect_call_edges(path: &Path, node: Node, content: &str, edges: &mut Vec<CallEdge>) {
     let kind = node.kind();
 
     if kind == "call_expression" {
@@ -32,7 +27,10 @@ fn collect_call_edges(
         if let Some(callee) = callee_node {
             match callee.kind() {
                 "identifier" => {
-                    let name = callee.utf8_text(content.as_bytes()).unwrap_or("").to_string();
+                    let name = callee
+                        .utf8_text(content.as_bytes())
+                        .unwrap_or("")
+                        .to_string();
                     if !name.is_empty() {
                         let evidence = format!("call_expr:{}()", name);
                         edges.push(CallEdge {
@@ -50,7 +48,8 @@ fn collect_call_edges(
                 "method_call_expression" | "field_expression" => {
                     let callee_name = extract_method_call_name(callee, content);
                     if !callee_name.is_empty() {
-                        let full_text = node.utf8_text(content.as_bytes()).unwrap_or("").to_string();
+                        let full_text =
+                            node.utf8_text(content.as_bytes()).unwrap_or("").to_string();
                         let evidence = format!("method_call:{}", full_text);
                         edges.push(CallEdge {
                             caller_name,
@@ -65,7 +64,10 @@ fn collect_call_edges(
                     }
                 }
                 "scoped_identifier" => {
-                    let name = callee.utf8_text(content.as_bytes()).unwrap_or("").to_string();
+                    let name = callee
+                        .utf8_text(content.as_bytes())
+                        .unwrap_or("")
+                        .to_string();
                     if !name.is_empty() {
                         let short_name = name.rsplit("::").next().unwrap_or(&name).to_string();
                         let evidence = format!("call_expr:{}", name);
@@ -82,7 +84,11 @@ fn collect_call_edges(
                     }
                 }
                 "generic_function" => {
-                    let func_name = callee.child(0).and_then(|c| c.utf8_text(content.as_bytes()).ok()).unwrap_or("").to_string();
+                    let func_name = callee
+                        .child(0)
+                        .and_then(|c| c.utf8_text(content.as_bytes()).ok())
+                        .unwrap_or("")
+                        .to_string();
                     if !func_name.is_empty() {
                         let evidence = format!("trait_dispatch:{}", func_name);
                         edges.push(CallEdge {
@@ -98,7 +104,10 @@ fn collect_call_edges(
                     }
                 }
                 _ => {
-                    let text = callee.utf8_text(content.as_bytes()).unwrap_or("").to_string();
+                    let text = callee
+                        .utf8_text(content.as_bytes())
+                        .unwrap_or("")
+                        .to_string();
                     if !text.is_empty() {
                         let evidence = format!("dynamic:{}", text);
                         edges.push(CallEdge {
@@ -128,7 +137,10 @@ fn extract_method_call_name(node: Node, content: &str) -> String {
     let mut last_ident = String::new();
     for child in node.children(&mut cursor) {
         if child.kind() == "identifier" || child.kind() == "field_identifier" {
-            last_ident = child.utf8_text(content.as_bytes()).unwrap_or("").to_string();
+            last_ident = child
+                .utf8_text(content.as_bytes())
+                .unwrap_or("")
+                .to_string();
         }
     }
     last_ident
@@ -141,7 +153,10 @@ fn find_enclosing_function(node: Node, content: &str) -> String {
             let mut cursor = parent.walk();
             for child in parent.children(&mut cursor) {
                 if child.kind() == "identifier" {
-                    return child.utf8_text(content.as_bytes()).unwrap_or("").to_string();
+                    return child
+                        .utf8_text(content.as_bytes())
+                        .unwrap_or("")
+                        .to_string();
                 }
             }
         }

@@ -1,6 +1,6 @@
 use crate::config::model::Config;
-use crate::impact::packet::{ImpactPacket, RiskImpact};
 use crate::impact::analysis::ImpactProvider;
+use crate::impact::packet::{ImpactPacket, RiskImpact};
 use crate::policy::rules::Rules;
 use miette::Result;
 
@@ -12,7 +12,12 @@ impl ImpactProvider for DependencyImpactProvider {
         "Dependency Impact Provider"
     }
 
-    fn analyze(&self, packet: &ImpactPacket, _rules: &Rules, config: &Config) -> Result<RiskImpact> {
+    fn analyze(
+        &self,
+        packet: &ImpactPacket,
+        _rules: &Rules,
+        config: &Config,
+    ) -> Result<RiskImpact> {
         let mut total_weight = 0;
         let mut reasons = Vec::new();
 
@@ -20,7 +25,9 @@ impl ImpactProvider for DependencyImpactProvider {
         let weight_per_caller = 15;
         let mut structural_weight = 0;
         for (i, coupling) in packet.structural_couplings.iter().enumerate() {
-            if i >= 2 { break; } // Cap at 2 to avoid weight explosion
+            if i >= 2 {
+                break;
+            } // Cap at 2 to avoid weight explosion
             structural_weight += weight_per_caller;
             reasons.push(format!(
                 "Structurally coupled: {} calls {}",
@@ -32,16 +39,26 @@ impl ImpactProvider for DependencyImpactProvider {
         // 2. Data Contract Risk
         for change in &packet.changes {
             for model in &change.data_models {
-                let weight = if model.model_kind == "GENERATED" { 20 } else { 35 };
+                let weight = if model.model_kind == "GENERATED" {
+                    20
+                } else {
+                    35
+                };
                 total_weight += weight;
-                reasons.push(format!("Data model changed: {} ({})", model.model_name, model.model_kind));
+                reasons.push(format!(
+                    "Data model changed: {} ({})",
+                    model.model_name, model.model_kind
+                ));
             }
         }
 
         // 3. API Surface Risk
         for change in &packet.changes {
             for route in &change.api_routes {
-                reasons.push(format!("Public API route change: {} {}", route.method, route.path_pattern));
+                reasons.push(format!(
+                    "Public API route change: {} {}",
+                    route.method, route.path_pattern
+                ));
                 total_weight += 30;
             }
         }
@@ -62,8 +79,8 @@ impl ImpactProvider for DependencyImpactProvider {
         if let Some(ref delta) = packet.service_map_delta {
             let count = delta.affected_services.len();
             if count >= config.coverage.services.cross_service_elevation_threshold as usize {
-                 reasons.push(format!("Cross-service change affecting {} services", count));
-                 total_weight += 10;
+                reasons.push(format!("Cross-service change affecting {} services", count));
+                total_weight += 10;
             }
         }
 

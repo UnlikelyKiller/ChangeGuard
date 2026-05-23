@@ -2,9 +2,9 @@ use camino::{Utf8Path, Utf8PathBuf};
 use miette::Result;
 use tracing::{info, warn};
 
-use crate::state::storage_cozo::CozoStorage;
-use crate::docs::types::{DocTemplate};
 use crate::docs::templates::*;
+use crate::docs::types::DocTemplate;
+use crate::state::storage_cozo::CozoStorage;
 
 pub struct DocRegistry {
     templates: Vec<Box<dyn DocTemplate>>,
@@ -103,7 +103,8 @@ pub fn execute_export(
     templates: Option<Vec<String>>,
 ) -> Result<Vec<Utf8PathBuf>> {
     if !output_dir.exists() {
-        std::fs::create_dir_all(output_dir).map_err(|e| miette::miette!("Failed to create output dir: {}", e))?;
+        std::fs::create_dir_all(output_dir)
+            .map_err(|e| miette::miette!("Failed to create output dir: {}", e))?;
     }
 
     let registry = DocRegistry::default();
@@ -120,25 +121,35 @@ pub fn execute_export(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::storage_cozo::CozoStorage;
+    use crate::state::storage_cozo::{CozoStorage, GraphEdge, GraphNode};
     use camino::Utf8Path;
-    use cozo::DataValue;
 
     fn in_memory_cozo() -> CozoStorage {
         CozoStorage::new_in_memory().unwrap()
     }
 
     fn populate_file_nodes(cozo: &CozoStorage, paths: &[&str]) {
-        for path in paths {
-            let script = format!(":insert project_file {{file_path: \"{}\", language: \"Rust\", content_hash: \"h\", parser_version: \"1\", parse_status: \"OK\", last_indexed_at: \"now\"}}", path);
-            cozo.run_script(&script).unwrap();
-        }
+        let nodes: Vec<GraphNode> = paths
+            .iter()
+            .map(|path| GraphNode {
+                id: path.to_string(),
+                label: path.to_string(),
+                category: "file".to_string(),
+                risk_score: 0.0,
+                metadata: None,
+            })
+            .collect();
+        cozo.insert_nodes(&nodes).unwrap();
     }
 
-    fn populate_symbols(cozo: &CozoStorage, symbols: &[(i64, &str, &str, &str, &str, bool, i64, i64)]) {
+    #[allow(clippy::type_complexity)]
+    fn populate_symbols(
+        cozo: &CozoStorage,
+        symbols: &[(i64, &str, &str, &str, &str, bool, i64, i64)],
+    ) {
         for s in symbols {
             let script = format!(
-                ":insert project_symbol {{id: {}, file_path: \"{}\", qualified_name: \"{}\", symbol_name: \"{}\", symbol_kind: \"{}\", is_public: {}, line_start: {}, line_end: {}, entrypoint_kind: \"INTERNAL\", confidence: 1.0, last_indexed_at: \"now\"}}",
+                "?[id, file_path, qualified_name, symbol_name, symbol_kind, is_public, line_start, line_end] <- [[{}, \"{}\", \"{}\", \"{}\", \"{}\", {}, {}, {}]] :put project_symbol",
                 s.0, s.1, s.2, s.3, s.4, s.5, s.6, s.7
             );
             cozo.run_script(&script).unwrap();
@@ -146,10 +157,17 @@ mod tests {
     }
 
     fn populate_edges(cozo: &CozoStorage, edges: &[(&str, &str)]) {
-        for (src, tgt) in edges {
-            let script = format!(":insert edge {{source: \"{}\", target: \"{}\", category: \"call\", confidence: 1.0, evidence: \"ev\"}}", src, tgt);
-            cozo.run_script(&script).unwrap();
-        }
+        let graph_edges: Vec<GraphEdge> = edges
+            .iter()
+            .map(|(src, tgt)| GraphEdge {
+                source: src.to_string(),
+                target: tgt.to_string(),
+                relation: "call".to_string(),
+                confidence: 1.0,
+                provenance_id: "ev".to_string(),
+            })
+            .collect();
+        cozo.insert_edges(&graph_edges).unwrap();
     }
 
     #[test]
@@ -159,7 +177,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let output_dir = Utf8Path::from_path(tmp.path()).unwrap();
         let paths = registry.run_all(&cozo, output_dir).unwrap();
-        assert_eq!(paths.len(), 18);
+        assert_eq!(paths.len(), registry.templates.len());
         for path in &paths {
             let content = std::fs::read_to_string(path).unwrap();
             assert!(!content.is_empty());
@@ -170,10 +188,13 @@ mod tests {
     fn test_dependency_graph_output() {
         let cozo = in_memory_cozo();
         populate_file_nodes(&cozo, &["src/a.rs", "src/b.rs"]);
-        populate_symbols(&cozo, &[
-            (1, "src/a.rs", "A", "A", "fn", true, 1, 5),
-            (2, "src/b.rs", "B", "B", "fn", true, 1, 5),
-        ]);
+        populate_symbols(
+            &cozo,
+            &[
+                (1, "src/a.rs", "A", "A", "fn", true, 1, 5),
+                (2, "src/b.rs", "B", "B", "fn", true, 1, 5),
+            ],
+        );
         populate_edges(&cozo, &[("A", "B")]);
 
         let template = DependencyGraphTemplate;

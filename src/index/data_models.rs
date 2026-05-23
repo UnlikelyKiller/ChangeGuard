@@ -439,9 +439,9 @@ pub struct User {
         // 3. Insert project_files and project_symbols entries
         let conn = storage.get_connection();
         conn.execute(
-            "INSERT INTO project_files (file_path, language, content_hash, file_size, last_indexed_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            ("src/models/user.rs", "Rust", "hash_e2e_dm", 200, "2026-05-01T00:00:00Z"),
+            "INSERT INTO project_files (file_path, language, content_hash, file_size, parse_status, last_indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            ("src/models/user.rs", "Rust", "hash_e2e_dm", 200, "OK", "2026-05-01T00:00:00Z"),
         ).unwrap();
         let file_id = conn.last_insert_rowid();
 

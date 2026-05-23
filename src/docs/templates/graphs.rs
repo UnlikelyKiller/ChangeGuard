@@ -1,4 +1,6 @@
-use crate::docs::types::{DocTemplate, query_file_dependencies, query_module_groups, mermaid_id, write_file};
+use crate::docs::types::{
+    DocTemplate, mermaid_id, query_file_dependencies, query_module_groups, write_file,
+};
 use crate::state::storage_cozo::CozoStorage;
 use camino::{Utf8Path, Utf8PathBuf};
 use miette::Result;
@@ -98,7 +100,7 @@ impl DocTemplate for DataFlowDiagramTemplate {
     }
 
     fn generate(&self, storage: &CozoStorage, output_dir: &Utf8Path) -> Result<Utf8PathBuf> {
-        use crate::docs::types::{query_symbols_with_kinds, query_all_edges};
+        use crate::docs::types::{query_all_edges, query_symbols_with_kinds};
         use std::collections::{BTreeMap, BTreeSet};
 
         let symbols = query_symbols_with_kinds(storage)?;
@@ -184,17 +186,25 @@ impl DocTemplate for CiPipelineMapTemplate {
             ?[ci_file, target] := *edge{source: ci_file, target: target},
                                   *node{id: ci_file, category: 'ci_config'}
         "#;
-        let res = storage.run_script(script).map_err(|e| miette::miette!("Query failed: {}", e))?;
-        
+        let res = storage
+            .run_script(script)
+            .map_err(|e| miette::miette!("Query failed: {}", e))?;
+
         let mut lines = Vec::new();
         lines.push("graph TD".to_string());
-        
+
         for row in res.rows {
-            if let (Some(cozo::DataValue::Str(src)), Some(cozo::DataValue::Str(tgt))) = (row.first(), row.get(1)) {
-                lines.push(format!("    {} --> {}", mermaid_id(src.as_str()), mermaid_id(tgt.as_str())));
+            if let (Some(cozo::DataValue::Str(src)), Some(cozo::DataValue::Str(tgt))) =
+                (row.first(), row.get(1))
+            {
+                lines.push(format!(
+                    "    {} --> {}",
+                    mermaid_id(src.as_str()),
+                    mermaid_id(tgt.as_str())
+                ));
             }
         }
-        
+
         let content = lines.join("\n") + "\n";
         let path = output_dir.join("ci_pipeline_map.md");
         write_file(&path, &content)?;

@@ -1,7 +1,7 @@
 use crate::index::call_graph::CallEdge;
 use crate::index::orchestrator::{
-    BINARY_EXTENSIONS, ProjectIndexer, SUPPORTED_EXTENSIONS,
-    delete_file_index_dependents, get_file_id_by_path, insert_symbol_row, upsert_file_row,
+    BINARY_EXTENSIONS, ProjectIndexer, SUPPORTED_EXTENSIONS, delete_file_index_dependents,
+    get_file_id_by_path, insert_symbol_row, upsert_file_row,
 };
 use crate::index::types::{ProjectFile, ProjectSymbol};
 use crate::state::storage_cozo::{GraphEdge, GraphNode};
@@ -387,6 +387,14 @@ impl IncrementalSyncEngine {
 
         cozo.remove_nodes_by_id(&nodes_to_remove)?;
         cozo.remove_edges_for_source(&edges_to_remove_sources)?;
+
+        // H2: Prune stale snippet embeddings for all affected file paths so the
+        // vector store stays consistent after re-indexing.
+        let affected_paths: Vec<String> = affected.iter().map(|r| r.file_path.clone()).collect();
+        if let Err(e) = cozo.remove_snippets_for_files(&affected_paths) {
+            warn!("Failed to prune stale snippet embeddings: {e}");
+        }
+
         cozo.put_node_batch(&nodes_to_add)?;
         cozo.put_edge_batch(&edges_to_add)?;
 

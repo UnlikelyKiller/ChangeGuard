@@ -15,7 +15,14 @@ use tracing::info;
 const ARC_DIAGRAM_HTML: &str = include_str!("../../templates/arc_diagram.html");
 
 pub fn execute_viz_server(port: u16, bind: String, open: bool, stop: bool) -> Result<()> {
-    let layout = Layout::new(".");
+    // Resolve repository root dynamically to ensure PID is found correctly
+    // regardless of where in the repo the command is executed.
+    let current_dir = std::env::current_dir().into_diagnostic()?;
+    let layout = if let Ok(repo) = gix::discover(&current_dir) {
+        Layout::new(repo.workdir().unwrap_or_else(|| repo.path()).to_string_lossy().as_ref())
+    } else {
+        Layout::new(current_dir.to_string_lossy().as_ref())
+    };
 
     if stop {
         return kill_viz_server(&layout);
@@ -82,6 +89,19 @@ fn kill_viz_server(layout: &Layout) -> Result<()> {
             println!("Stopping viz server (PID {})...", pid);
             #[cfg(target_os = "windows")]
             {
+                // Verify process name first
+                let verify_output = std::process::Command::new("tasklist")
+                    .args(["/FI", &format!("PID eq {}", pid), "/FO", "CSV", "/NH"])
+                    .output()
+                    .map_err(|e| miette!("Failed to verify process: {}", e))?;
+                
+                let out_str = String::from_utf8_lossy(&verify_output.stdout);
+                if !out_str.to_lowercase().contains("changeguard") {
+                    println!("Process {} is not changeguard (may have exited).", pid);
+                    remove_pid_file(layout);
+                    return Ok(());
+                }
+
                 let output = std::process::Command::new("taskkill")
                     .args(["/PID", &pid.to_string(), "/F"])
                     .output()
@@ -103,6 +123,19 @@ fn kill_viz_server(layout: &Layout) -> Result<()> {
             }
             #[cfg(not(target_os = "windows"))]
             {
+                // Verify process name first via ps
+                let verify_output = std::process::Command::new("ps")
+                    .args(["-p", &pid.to_string(), "-o", "comm="])
+                    .output()
+                    .map_err(|e| miette!("Failed to verify process: {}", e))?;
+                
+                let out_str = String::from_utf8_lossy(&verify_output.stdout);
+                if !out_str.to_lowercase().contains("changeguard") {
+                    println!("Process {} is not changeguard (may have exited).", pid);
+                    remove_pid_file(layout);
+                    return Ok(());
+                }
+
                 let output = std::process::Command::new("kill")
                     .args(["-9", &pid.to_string()])
                     .output()

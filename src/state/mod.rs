@@ -1,3 +1,4 @@
+pub mod cozo;
 pub mod delta;
 pub mod layout;
 pub mod locks;
@@ -6,7 +7,6 @@ pub mod migrations;
 pub mod reports;
 pub mod storage;
 pub mod storage_cozo;
-pub mod cozo;
 
 use miette::Diagnostic;
 use thiserror::Error;

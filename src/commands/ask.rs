@@ -30,6 +30,7 @@ pub fn execute_ask(
     let layout = get_layout()?;
     let config = load_ledger_config(&layout)?;
 
+    layout.ensure_state_dir()?;
     let storage_path = layout.state_subdir().join("ledger.db");
     let storage = StorageManager::init(storage_path.as_std_path())?;
 
@@ -42,9 +43,15 @@ pub fn execute_ask(
         storage
     };
 
-    let mut latest_packet = storage.get_latest_packet()?.ok_or_else(|| {
-        miette::miette!("No impact report found. Run 'changeguard impact' first.")
-    })?;
+    let (mut latest_packet, is_global) = match storage.get_latest_packet()? {
+        Some(pkt) => (pkt, false),
+        None => {
+            tracing::info!(
+                "No impact report found — falling back to global knowledge retrieval mode."
+            );
+            (crate::impact::packet::ImpactPacket::default(), true)
+        }
+    };
 
     // 1. Integrate external AI-Brains context
     if let Some(ref q) = query
@@ -69,7 +76,24 @@ pub fn execute_ask(
     }
 
     let resolved_backend = resolve_backend(&config, backend);
-    let query_string = query.unwrap_or_else(|| "Analyze the current impact and risk.".to_string());
+    let query_string = query.unwrap_or_else(|| {
+        if is_global {
+            "Give me an overview of this codebase and its key components.".to_string()
+        } else {
+            "Analyze the current impact and risk.".to_string()
+        }
+    });
+
+    // In global mode, always use semantic retrieval to pull relevant context
+    let semantic = semantic || is_global;
+
+    if is_global {
+        println!(
+            "{}",
+            "[Global Mode] No pending changes found — querying the full Knowledge Graph for context."
+                .cyan()
+        );
+    }
 
     match resolved_backend {
         Backend::Local => {
@@ -85,23 +109,86 @@ pub fn execute_ask(
                 ));
             }
 
-            // 3. Query relevant chunks from indexed docs
-            let relevant_chunks = pruner::query_relevant_chunks(
-                &query_string,
-                &config.local_model,
-                storage.get_connection(),
-                limit,
-                config.local_model.chunk_min_similarity,
-                config.local_model.chunk_dedup_threshold,
-            )
-            .unwrap_or_else(|e| {
-                tracing::warn!("Chunk retrieval failed: {e}, proceeding without chunks");
-                Vec::new()
-            });
+            // 3. Query relevant chunks from semantic index
+            let mut relevant_chunks = Vec::new();
+            let mut semantic_symbols = std::collections::HashSet::new();
+            if let Some(cozo) = &storage.cozo {
+                if let Ok(vector_store) = crate::semantic::vector_store::VectorStore::new(
+                    cozo,
+                    config.local_model.dimensions,
+                    config.local_model.disable_hnsw,
+                ) {
+                    if let Ok(embedder) = crate::semantic::embedder::SemanticEmbedder::new(config.local_model.clone()).embed(&query_string) {
+                        if let Ok(results) = vector_store.query(embedder, limit) {
+                            for (file_path, name, _offset, dist) in results {
+                                let score = 1.0 - (dist / 2.0); // Normalize distance to 0..1 score
+                                if score >= config.local_model.chunk_min_similarity {
+                                    semantic_symbols.insert(name.clone());
+                                    if let Ok(content) = crate::util::fs::read_to_string_with_encoding(std::path::Path::new(&file_path)) {
+                                        // A heuristic chunking for now since we just have the offset
+                                        let snippet = content.chars().take(1000).collect::<String>();
+                                        relevant_chunks.push(crate::local_model::pruner::RankedChunk {
+                                            source: format!("{}::{}", file_path, name),
+                                            content: snippet,
+                                            score,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Knowledge Graph Neighborhood Context
+                if is_global && !semantic_symbols.is_empty() {
+                    let symbols_array = semantic_symbols.into_iter().map(|s| format!("'{}'", s)).collect::<Vec<_>>().join(", ");
+                    let script = format!(r#"
+                        ?[caller, callee, relation] := *edge{{source: caller, target: callee, relation: relation}}, 
+                                                       caller in [{symbols_array}] or callee in [{symbols_array}]
+                        :limit 50
+                    "#);
+                    if let Ok(res) = cozo.run_script(&script) {
+                        let mut kg_context = String::from("Knowledge Graph Relationships:\n");
+                        for row in res.rows {
+                            if let (Some(cozo::DataValue::Str(caller)), Some(cozo::DataValue::Str(callee)), Some(cozo::DataValue::Str(rel))) = (row.first(), row.get(1), row.get(2)) {
+                                kg_context.push_str(&format!("- {} {} {}\n", caller, rel, callee));
+                            }
+                        }
+                        if kg_context.len() > 30 {
+                            relevant_chunks.push(crate::local_model::pruner::RankedChunk {
+                                source: "Knowledge Graph".to_string(),
+                                content: kg_context,
+                                score: 1.0,
+                            });
+                        }
+                    }
+                }
+            }
+            if relevant_chunks.is_empty() {
+                // Fallback to old pruner
+                relevant_chunks = pruner::query_relevant_chunks(
+                    &query_string,
+                    &config.local_model,
+                    storage.get_connection(),
+                    limit,
+                    config.local_model.chunk_min_similarity,
+                    config.local_model.chunk_dedup_threshold,
+                )
+                .unwrap_or_else(|e| {
+                    tracing::warn!("Chunk retrieval failed: {e}, proceeding without chunks");
+                    Vec::new()
+                });
+            }
 
             // 4. Assemble context with budget enforcement
-            let system_prompt = crate::local_model::context::get_system_prompt(&mode.to_string());
-            let user_prompt = if narrative {
+            let system_prompt = if is_global {
+                "You are ChangeGuard, an expert software engineering assistant. You act as a codebase oracle answering architectural and implementation questions based on retrieved knowledge graph and semantic context snippets. Provide direct, technical, and accurate answers citing the retrieved snippets where relevant.".to_string()
+            } else {
+                crate::local_model::context::get_system_prompt(&mode.to_string())
+            };
+            let user_prompt = if is_global {
+                format!("Answer the following codebase query:\n\nQuery: {}", query_string)
+            } else if narrative {
                 crate::gemini::prompt::build_architect_prompt(&latest_packet, &query_string)
             } else {
                 crate::gemini::prompt::build_suggest_prompt(&latest_packet, &query_string)
@@ -141,22 +228,80 @@ pub fn execute_ask(
             let budget_tokens = config.gemini.context_window;
             let char_limit = (budget_tokens as f64 * 0.8 * 4.0) as usize;
 
-            let user_prompt = if narrative {
+            let user_prompt = if is_global {
+                format!("Answer the following codebase query:\n\nQuery: {}", query_string)
+            } else if narrative {
                 crate::gemini::prompt::build_architect_prompt(&latest_packet, &query_string)
             } else {
                 crate::gemini::prompt::build_suggest_prompt(&latest_packet, &query_string)
             };
 
             let final_user_prompt = if semantic {
-                let relevant_chunks = pruner::query_relevant_chunks(
-                    &query_string,
-                    &config.local_model,
-                    storage.get_connection(),
-                    limit,
-                    config.local_model.chunk_min_similarity,
-                    config.local_model.chunk_dedup_threshold,
-                )
-                .unwrap_or_default();
+                let mut relevant_chunks = Vec::new();
+                let mut semantic_symbols = std::collections::HashSet::new();
+                
+                if let Some(cozo) = &storage.cozo {
+                    if let Ok(vector_store) = crate::semantic::vector_store::VectorStore::new(
+                        cozo,
+                        config.local_model.dimensions,
+                        config.local_model.disable_hnsw,
+                    ) {
+                        if let Ok(embedder) = crate::semantic::embedder::SemanticEmbedder::new(config.local_model.clone()).embed(&query_string) {
+                            if let Ok(results) = vector_store.query(embedder, limit) {
+                                for (file_path, name, _offset, dist) in results {
+                                    let score = 1.0 - (dist / 2.0); // Normalize distance to 0..1 score
+                                    if score >= config.local_model.chunk_min_similarity {
+                                        semantic_symbols.insert(name.clone());
+                                        if let Ok(content) = crate::util::fs::read_to_string_with_encoding(std::path::Path::new(&file_path)) {
+                                            let snippet = content.chars().take(1000).collect::<String>();
+                                            relevant_chunks.push(crate::local_model::pruner::RankedChunk {
+                                                source: format!("{}::{}", file_path, name),
+                                                content: snippet,
+                                                score,
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Knowledge Graph Neighborhood Context
+                    if is_global && !semantic_symbols.is_empty() {
+                        let symbols_array = semantic_symbols.into_iter().map(|s| format!("'{}'", s)).collect::<Vec<_>>().join(", ");
+                        let script = format!(r#"
+                            ?[caller, callee, relation] := *edge{{source: caller, target: callee, relation: relation}}, 
+                                                           caller in [{symbols_array}] or callee in [{symbols_array}]
+                            :limit 50
+                        "#);
+                        if let Ok(res) = cozo.run_script(&script) {
+                            let mut kg_context = String::from("Knowledge Graph Relationships:\n");
+                            for row in res.rows {
+                                if let (Some(cozo::DataValue::Str(caller)), Some(cozo::DataValue::Str(callee)), Some(cozo::DataValue::Str(rel))) = (row.first(), row.get(1), row.get(2)) {
+                                    kg_context.push_str(&format!("- {} {} {}\n", caller, rel, callee));
+                                }
+                            }
+                            if kg_context.len() > 30 {
+                                relevant_chunks.push(crate::local_model::pruner::RankedChunk {
+                                    source: "Knowledge Graph".to_string(),
+                                    content: kg_context,
+                                    score: 1.0,
+                                });
+                            }
+                        }
+                    }
+                }
+                if relevant_chunks.is_empty() {
+                    relevant_chunks = pruner::query_relevant_chunks(
+                        &query_string,
+                        &config.local_model,
+                        storage.get_connection(),
+                        limit,
+                        config.local_model.chunk_min_similarity,
+                        config.local_model.chunk_dedup_threshold,
+                    )
+                    .unwrap_or_default();
+                }
 
                 // Build a combined prompt for Gemini that includes semantic snippets
                 let codebase_context = relevant_chunks
@@ -183,7 +328,11 @@ pub fn execute_ask(
                 sanitized_user_prompt.push_str("\n\n[Prompt truncated for Gemini budget]");
             }
 
-            let system_prompt = build_system_prompt(mode);
+            let system_prompt = if is_global {
+                "You are ChangeGuard, an expert software engineering assistant. You act as a codebase oracle answering architectural and implementation questions based on retrieved knowledge graph and semantic context snippets. Provide direct, technical, and accurate answers citing the retrieved snippets where relevant.".to_string()
+            } else {
+                build_system_prompt(mode)
+            };
 
             run_query(
                 &system_prompt,

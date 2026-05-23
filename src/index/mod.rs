@@ -31,10 +31,8 @@ pub mod worker_pool;
 pub use orchestrator::{
     BATCH_SIZE, BINARY_EXTENSIONS, MAX_FILES, PARSER_VERSION, SUPPORTED_EXTENSIONS,
 };
-pub use orchestrator::{
-    IndexStats, IndexStatus, ProjectIndexer, ServiceIndexStats,
-};
-pub use types::{ProjectFile, ProjectSymbol, symbol_to_project_symbol};
+pub use orchestrator::{IndexStats, IndexStatus, ProjectIndexer, ServiceIndexStats};
 pub use staleness::{
     StalenessWarning, check_index_staleness, print_staleness_warning, warn_if_stale,
 };
+pub use types::{ProjectFile, ProjectSymbol, symbol_to_project_symbol};

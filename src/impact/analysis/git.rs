@@ -1,6 +1,6 @@
 use crate::config::model::Config;
-use crate::impact::packet::{ImpactPacket, RiskImpact};
 use crate::impact::analysis::ImpactProvider;
+use crate::impact::packet::{ImpactPacket, RiskImpact};
 use crate::policy::protected_paths::ProtectedPathChecker;
 use crate::policy::rules::Rules;
 use miette::Result;
@@ -85,8 +85,12 @@ impl ImpactProvider for GitImpactProvider {
                         config.coverage.ci_self_awareness.ci_changed_weight
                     };
                 }
-                if !ci_change.pre_commit_files.is_empty() { ci_weight += 2; }
-                if !ci_change.unknown_ci_files.is_empty() { ci_weight += 1; }
+                if !ci_change.pre_commit_files.is_empty() {
+                    ci_weight += 2;
+                }
+                if !ci_change.unknown_ci_files.is_empty() {
+                    ci_weight += 1;
+                }
 
                 total_weight += ci_weight;
                 reasons.extend(ci_reasons);

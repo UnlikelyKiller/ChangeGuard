@@ -1,7 +1,7 @@
 use crate::index::routes::ExtractedRoute;
 use crate::index::symbols::Symbol;
 use miette::{IntoDiagnostic, Result};
-use tree_sitter::{Parser, Node};
+use tree_sitter::{Node, Parser};
 
 pub fn extract_routes(content: &str, _symbols: &[Symbol]) -> Result<Vec<ExtractedRoute>> {
     let mut parser = Parser::new();
@@ -114,11 +114,17 @@ fn find_next_function_name(node: Node, content: &str) -> String {
             if found_self {
                 if child.kind() == "function_item" {
                     if let Some(name_node) = child.child_by_field_name("name") {
-                        return name_node.utf8_text(content.as_bytes()).unwrap_or("").to_string();
+                        return name_node
+                            .utf8_text(content.as_bytes())
+                            .unwrap_or("")
+                            .to_string();
                     }
                 }
                 // Skip unrelated nodes like line comments but stop if we hit another significant item
-                if child.kind() != "line_comment" && child.kind() != "block_comment" && child.kind() != "attribute_item" {
+                if child.kind() != "line_comment"
+                    && child.kind() != "block_comment"
+                    && child.kind() != "attribute_item"
+                {
                     break;
                 }
             }
@@ -132,7 +138,10 @@ fn extract_method_call_name_simple(node: Node, content: &str) -> String {
     let mut last_ident = String::new();
     for child in node.children(&mut cursor) {
         if child.kind() == "identifier" || child.kind() == "field_identifier" {
-            last_ident = child.utf8_text(content.as_bytes()).unwrap_or("").to_string();
+            last_ident = child
+                .utf8_text(content.as_bytes())
+                .unwrap_or("")
+                .to_string();
         }
     }
     last_ident
@@ -141,7 +150,9 @@ fn extract_method_call_name_simple(node: Node, content: &str) -> String {
 fn extract_axum_route(node: &Node, content: &str, routes: &mut Vec<ExtractedRoute>) {
     let mut cursor = node.walk();
     let args: Vec<Node> = node.children(&mut cursor).collect();
-    if args.len() < 3 { return; }
+    if args.len() < 3 {
+        return;
+    }
 
     let path_arg = args.iter().find(|n| n.kind() == "string_literal");
     let path = match path_arg {

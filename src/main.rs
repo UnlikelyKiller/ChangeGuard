@@ -30,10 +30,41 @@ fn run() -> Result<()> {
         .with(build_log_filter(verbose))
         .init();
 
+    // H4: Sweep for stale shadow-copy binaries left over from a prior update
+    // attempt (e.g. `changeguard.old.exe` next to the current executable).
+    sweep_stale_old_binaries();
+
     cli::run_with(cli_args)?;
 
     Ok(())
 }
+
+/// Remove any `*.old.exe` files adjacent to the current executable.
+/// These are left when a previous `update --binary` was interrupted.
+/// Errors are silently ignored — this is best-effort cleanup.
+#[cfg(target_os = "windows")]
+fn sweep_stale_old_binaries() {
+    if let Ok(current) = std::env::current_exe() {
+        if let Some(dir) = current.parent() {
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|n| n.ends_with(".old.exe"))
+                        .unwrap_or(false)
+                    {
+                        let _ = std::fs::remove_file(&path);
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn sweep_stale_old_binaries() {}
 
 fn main() {
     // Windows debug builds with many clap subcommands can overflow the default

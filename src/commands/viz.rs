@@ -35,23 +35,27 @@ pub fn execute_viz(output_path: Option<PathBuf>) -> Result<()> {
 
     // 1. Run Louvain community detection
     let louvain_script = "
-        edges[src, dst] := *edge[src, dst, _, _, _]
-        ?[node, community_id] <~ CommunityDetectionLouvain(edges[src, dst])
+        edges[src, dst] := *edge{source: src, target: dst}
+        ?[community_id, node] <~ CommunityDetectionLouvain(edges[src, dst], undirected: true)
     ";
 
     let mut communities = std::collections::HashMap::new();
     if let Ok(res) = cozo.run_script(louvain_script) {
         for row in res.rows {
-            if let (
-                Some(cozo::DataValue::Str(node)),
-                Some(cozo::DataValue::Num(cozo::Num::Int(comm))),
-            ) = (row.first().cloned(), row.get(1).cloned())
+            if let (Some(cozo::DataValue::List(list)), Some(cozo::DataValue::Str(node))) =
+                (row.first(), row.get(1))
             {
+                let comm = list
+                    .first()
+                    .and_then(|v| match v {
+                        cozo::DataValue::Num(cozo::Num::Int(i)) => Some(*i),
+                        _ => None,
+                    })
+                    .unwrap_or(0);
                 communities.insert(node.to_string(), comm);
             }
         }
-    }
- else {
+    } else {
         tracing::warn!("Community detection failed. Is graph-algo enabled?");
     }
 
@@ -66,8 +70,12 @@ pub fn execute_viz(output_path: Option<PathBuf>) -> Result<()> {
             Some(cozo::DataValue::Str(label)),
             Some(cozo::DataValue::Str(category)),
             Some(cozo::DataValue::Num(cozo::Num::Float(risk))),
-        ) = (row.first().cloned(), row.get(1).cloned(), row.get(2).cloned(), row.get(3).cloned())
-        {
+        ) = (
+            row.first().cloned(),
+            row.get(1).cloned(),
+            row.get(2).cloned(),
+            row.get(3).cloned(),
+        ) {
             let community = communities.get(id.as_str()).copied();
             nodes.push(VizNode {
                 id: id.to_string(),
@@ -88,8 +96,11 @@ pub fn execute_viz(output_path: Option<PathBuf>) -> Result<()> {
             Some(cozo::DataValue::Str(source)),
             Some(cozo::DataValue::Str(target)),
             Some(cozo::DataValue::Str(relation)),
-        ) = (row.first().cloned(), row.get(1).cloned(), row.get(2).cloned())
-        {
+        ) = (
+            row.first().cloned(),
+            row.get(1).cloned(),
+            row.get(2).cloned(),
+        ) {
             edges.push(VizEdge {
                 from: source.to_string(),
                 to: target.to_string(),

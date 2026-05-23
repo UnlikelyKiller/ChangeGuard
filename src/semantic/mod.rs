@@ -34,11 +34,18 @@ impl<'a> SemanticDiscovery<'a> {
         if config.dimensions == 0 && !config.base_url.is_empty() {
             match crate::embed::client::check_local_model(&config) {
                 Ok(dims) if dims.dimensions > 0 => {
-                    tracing::info!("Probed local model: {} dimensions", dims.dimensions);
+                    tracing::info!(
+                        "Probed local model: {} ({} dimensions)",
+                        dims.model_name, dims.dimensions
+                    );
                     config.dimensions = dims.dimensions;
                 }
+                Err(e) => {
+                    tracing::warn!("Failed to probe local model at {}: {}. Defaulting to 384.", config.base_url, e);
+                    config.dimensions = 384;
+                }
                 _ => {
-                    tracing::warn!("Failed to probe local model dimensions, defaulting to 384");
+                    tracing::warn!("Probed model returned zero dimensions. Defaulting to 384.");
                     config.dimensions = 384;
                 }
             }
@@ -48,6 +55,7 @@ impl<'a> SemanticDiscovery<'a> {
 
         let dim = config.dimensions;
         let skip_hnsw = config.disable_hnsw;
+        tracing::info!("Initializing VectorStore with {} dimensions", dim);
         let embedder = SemanticEmbedder::new(config.clone());
         let vector_store = VectorStore::new(storage, dim, skip_hnsw)?;
         Ok(Self {
@@ -106,7 +114,19 @@ impl<'a> SemanticDiscovery<'a> {
         let texts: Vec<String> = chunks.iter().map(|c| c.to_embedding_text()).collect();
         let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
 
+        tracing::debug!("Embedding {} chunks for {}", chunks.len(), path.display());
         let embeddings = self.embedder.embed_batch(&text_refs)?;
+
+        if !embeddings.is_empty() {
+            tracing::info!("Received {} embeddings of dimension {}", embeddings.len(), embeddings[0].len());
+        }
+
+        // Verify we got non-zero embeddings
+        let zero_count = embeddings.iter().filter(|v| v.iter().all(|&x| x == 0.0)).count();
+        if zero_count > 0 {
+            tracing::warn!("Found {} zero-magnitude embeddings for {}", zero_count, path.display());
+        }
+
         Ok((chunks, embeddings))
     }
 

@@ -3,7 +3,7 @@ use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
 use crate::verify::engine::VerificationContext;
 use crate::verify::predict::{
-    enrich_with_semantic, PredictionResult, Predictor, StructuralCallData, TestMappingData,
+    PredictionResult, Predictor, StructuralCallData, TestMappingData, enrich_with_semantic,
 };
 use crate::verify::semantic_predictor;
 use miette::Result;
@@ -95,10 +95,11 @@ impl OutcomePredictor {
 
         // Semantic prediction enrichment
         let semantic_weight = ctx.config.verify.semantic_weight;
-        if semantic_weight > 0.0 && ctx.storage.is_some() {
+        if semantic_weight > 0.0
+            && let Some(storage) = &ctx.storage
+        {
             let diff_text = semantic_predictor::build_diff_text(ctx.packet.as_ref().unwrap());
             let embed_config = ctx.config.local_model.clone();
-            let storage = ctx.storage.as_ref().unwrap();
             let conn = storage.get_connection();
             let history_count = crate::verify::predict::count_history_rows(conn).unwrap_or(0);
 
@@ -148,8 +149,9 @@ impl OutcomePredictor {
         }
 
         // CI prediction enrichment
-        if semantic_weight > 0.0 && ctx.storage.is_some() {
-            let storage = ctx.storage.as_ref().unwrap();
+        if semantic_weight > 0.0
+            && let Some(storage) = &ctx.storage
+        {
             let diff_text = semantic_predictor::build_diff_text(ctx.packet.as_ref().unwrap());
             let embed_config = &ctx.config.local_model;
 
@@ -337,7 +339,7 @@ impl OutcomePredictor {
             .optional()
         {
             Ok(Some(count)) if count > 0 => Some(count),
-            Ok(_) => None, // Table exists but is empty
+            Ok(_) => None,                               // Table exists but is empty
             Err(_) => return TestMappingData::default(), // Table doesn't exist
         };
 

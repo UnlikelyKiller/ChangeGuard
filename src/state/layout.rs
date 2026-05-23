@@ -81,7 +81,7 @@ impl Layout {
     }
 
     pub fn pid_file(&self) -> Utf8PathBuf {
-        self.state_subdir().join("viz-server.pid")
+        self.tmp_dir().join("viz-server.pid")
     }
 
     pub fn ensure_state_dir(&self) -> Result<()> {

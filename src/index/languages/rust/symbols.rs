@@ -1,7 +1,7 @@
 use crate::index::symbols::{Symbol, SymbolKind};
 use miette::{IntoDiagnostic, Result};
-use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator};
 use std::collections::BTreeMap;
+use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator};
 
 pub fn extract_symbols(content: &str) -> Result<Option<Vec<Symbol>>> {
     let mut parser = Parser::new();

@@ -36,26 +36,93 @@ fn update_binary() -> Result<()> {
     let root = get_repo_root()?;
     let cargo_toml = root.as_std_path().join("Cargo.toml");
 
-    if cargo_toml.exists() {
-        info!("Detected local source repository. Running 'cargo install --path .'");
-        let status = Command::new("cargo")
-            .args(["install", "--path", root.as_str()])
-            .status()
-            .into_diagnostic()?;
-
-        if status.success() {
-            println!("{}", "Binary updated successfully.".green());
-        } else {
-            return Err(miette::miette!(
-                "Failed to update binary via cargo install."
-            ));
-        }
-    } else {
+    if !cargo_toml.exists() {
         println!("{}", "Not in a ChangeGuard source repository. Binary update via CLI is only supported from the source root.".yellow());
         println!("Try running: cargo install --git https://github.com/UnlikelyKiller/ChangeGuard");
+        return Ok(());
+    }
+
+    info!("Detected local source repository. Running 'cargo install --path .'");
+
+    // --- H4: Windows shadow-copy ---
+    // On Windows the running executable is locked by the OS. We rename it to
+    // `<name>.old` so that the file handle is still valid (Windows allows
+    // renaming locked files) but the path is free for the new binary.
+    let old_path_opt = shadow_copy_current_exe();
+    if let Some(ref old_path) = old_path_opt {
+        info!("Shadow-copied running binary to {:?}", old_path);
+    }
+
+    let status = Command::new("cargo")
+        .args(["install", "--path", root.as_str()])
+        .status()
+        .into_diagnostic()?;
+
+    if status.success() {
+        println!("{}", "Binary updated successfully.".green());
+
+        // Attempt to clean up the .old file now that the new binary is in place.
+        if let Some(ref old_path) = old_path_opt {
+            if let Err(e) = std::fs::remove_file(old_path) {
+                println!(
+                    "{}",
+                    format!(
+                        "[CLEANUP] Could not remove old binary {:?}: {}. You may delete it manually.",
+                        old_path, e
+                    )
+                    .yellow()
+                );
+            } else {
+                info!("Removed stale binary {:?}", old_path);
+            }
+        }
+    } else {
+        // Restore the old binary on failure so the user is not left without a working binary.
+        if let Some(ref old_path) = old_path_opt
+            && old_path.exists()
+            && let Ok(cur) = env::current_exe()
+        {
+            let _ = std::fs::rename(old_path, &cur);
+        }
+        return Err(miette::miette!(
+            "Failed to update binary via cargo install.\n\
+             If you see 'Access is denied', close any other running ChangeGuard processes and retry."
+        ));
     }
 
     Ok(())
+}
+
+/// On Windows, rename `current_exe` to `<same_path>.old` so that `cargo install`
+/// can write the new binary without hitting the OS file-lock.
+/// Returns `Some(old_path)` on success, `None` on non-Windows or on error.
+fn shadow_copy_current_exe() -> Option<std::path::PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        let current = env::current_exe().ok()?;
+        let mut old_path = current.clone();
+        let stem = current
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("changeguard");
+        let ext = current
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("exe");
+        
+        let timestamp = chrono::Utc::now().format("%Y%m%d%H%M%S").to_string();
+        old_path.set_file_name(format!("{stem}.old.{timestamp}.{ext}"));
+        
+        if let Err(e) = std::fs::rename(&current, &old_path) {
+            tracing::warn!("Failed to shadow-copy binary to {:?}: {}", old_path, e);
+            return None;
+        }
+        Some(old_path)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
 }
 
 fn migrate_state(force: bool) -> Result<()> {

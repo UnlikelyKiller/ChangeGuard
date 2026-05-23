@@ -1,6 +1,6 @@
 use crate::config::model::Config;
-use crate::impact::packet::{ImpactPacket, RiskImpact};
 use crate::impact::analysis::ImpactProvider;
+use crate::impact::packet::{ImpactPacket, RiskImpact};
 use crate::policy::rules::Rules;
 use miette::Result;
 
@@ -12,14 +12,22 @@ impl ImpactProvider for EnvironmentImpactProvider {
         "Environment Impact Provider"
     }
 
-    fn analyze(&self, packet: &ImpactPacket, _rules: &Rules, config: &Config) -> Result<RiskImpact> {
+    fn analyze(
+        &self,
+        packet: &ImpactPacket,
+        _rules: &Rules,
+        config: &Config,
+    ) -> Result<RiskImpact> {
         let mut total_weight = 0;
         let mut reasons = Vec::new();
 
         // 1. Env Var Risk
         for dep in &packet.env_var_deps {
             if !dep.declared {
-                reasons.push(format!("New environment variable dependency: {}", dep.var_name));
+                reasons.push(format!(
+                    "New environment variable dependency: {}",
+                    dep.var_name
+                ));
                 total_weight += 15;
             }
         }
@@ -27,24 +35,36 @@ impl ImpactProvider for EnvironmentImpactProvider {
         // 2. Runtime Usage Delta Risk
         for delta in &packet.runtime_usage_delta {
             if delta.env_vars_current_count > delta.env_vars_previous_count {
-                reasons.push(format!("Environment variable references changed in {}", delta.file_path));
+                reasons.push(format!(
+                    "Environment variable references changed in {}",
+                    delta.file_path
+                ));
                 total_weight += 20;
             }
             if delta.config_keys_current_count > delta.config_keys_previous_count {
-                reasons.push(format!("Configuration key references changed in {}", delta.file_path));
+                reasons.push(format!(
+                    "Configuration key references changed in {}",
+                    delta.file_path
+                ));
                 total_weight += 20;
             }
         }
 
         // 3. Infrastructure Risk (Manifests)
         for manifest in &packet.deploy_manifest_changes {
-            reasons.push(format!("Deployment manifest change: {}", manifest.file.display()));
+            reasons.push(format!(
+                "Deployment manifest change: {}",
+                manifest.file.display()
+            ));
             total_weight += 3;
         }
 
         // 4. Observability Risk
         for drift in &packet.trace_config_drift {
-            reasons.push(format!("Observability config drift: {}", drift.file.display()));
+            reasons.push(format!(
+                "Observability config drift: {}",
+                drift.file.display()
+            ));
             total_weight += drift.risk_weight as u32;
         }
 
@@ -55,7 +75,8 @@ impl ImpactProvider for EnvironmentImpactProvider {
                     if days > config.coverage.adr_staleness.threshold_days {
                         reasons.push(format!(
                             "Stale architectural context: {} ({} days old)",
-                            decision.file_path.display(), days
+                            decision.file_path.display(),
+                            days
                         ));
                     }
                 }

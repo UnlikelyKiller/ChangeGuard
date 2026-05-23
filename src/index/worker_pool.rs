@@ -1,9 +1,9 @@
 use crate::index::types::{ProjectFile, ProjectSymbol};
 use camino::Utf8PathBuf;
 use crossbeam::channel::{Receiver, unbounded};
+use indicatif::ProgressBar;
 use miette::Result;
 use std::sync::Arc;
-use indicatif::ProgressBar;
 
 pub enum JobResult {
     Parsed(ProjectFile, Vec<ProjectSymbol>),
@@ -34,12 +34,15 @@ impl WorkerPool {
         parser: F,
     ) -> Result<Receiver<JobResult>>
     where
-        F: Fn(&camino::Utf8Path) -> Result<(ProjectFile, Vec<ProjectSymbol>)> + Send + Sync + 'static,
+        F: Fn(&camino::Utf8Path) -> Result<(ProjectFile, Vec<ProjectSymbol>)>
+            + Send
+            + Sync
+            + 'static,
     {
         let (tx, rx) = unbounded();
         let parser = Arc::new(parser);
         let pb = pb.map(Arc::new);
-        
+
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(self.num_threads)
             .build()

@@ -1,6 +1,6 @@
 use crate::config::model::Config;
-use crate::impact::packet::{ImpactPacket, RiskImpact};
 use crate::impact::analysis::ImpactProvider;
+use crate::impact::packet::{ImpactPacket, RiskImpact};
 use crate::policy::rules::Rules;
 use miette::Result;
 
@@ -12,7 +12,12 @@ impl ImpactProvider for TemporalImpactProvider {
         "Temporal Impact Provider"
     }
 
-    fn analyze(&self, packet: &ImpactPacket, _rules: &Rules, _config: &Config) -> Result<RiskImpact> {
+    fn analyze(
+        &self,
+        packet: &ImpactPacket,
+        _rules: &Rules,
+        _config: &Config,
+    ) -> Result<RiskImpact> {
         let mut total_weight = 0;
         let mut reasons = Vec::new();
 
@@ -21,7 +26,9 @@ impl ImpactProvider for TemporalImpactProvider {
             if coupling.score >= 0.7 {
                 reasons.push(format!(
                     "High temporal coupling: {} and {} often change together ({:.0}%)",
-                    coupling.file_a.display(), coupling.file_b.display(), coupling.score * 100.0
+                    coupling.file_a.display(),
+                    coupling.file_b.display(),
+                    coupling.score * 100.0
                 ));
                 total_weight += 10;
             }
