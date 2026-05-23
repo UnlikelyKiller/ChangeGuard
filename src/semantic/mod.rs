@@ -4,9 +4,6 @@ pub mod hotspots;
 pub mod vector_store;
 
 use crate::config::model::LocalModelConfig;
-use crate::search::code_tokenizer::{
-    get_go_tokenizer, get_rust_tokenizer, get_typescript_tokenizer,
-};
 use crate::semantic::chunker::AstChunker;
 use crate::semantic::embedder::SemanticEmbedder;
 use crate::semantic::vector_store::VectorStore;
