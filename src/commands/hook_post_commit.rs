@@ -44,7 +44,7 @@ pub fn execute_hook_post_commit() -> Result<()> {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(current_commit_msg.as_bytes());
-    let current_hash = format!("{:x}", hasher.finalize());
+    let current_hash = hex::encode(hasher.finalize());
 
     if pending.commit_msg_hash != current_hash {
         eprintln!(

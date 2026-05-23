@@ -476,7 +476,8 @@ fn audit_entity(
                 println!("  Risk:    {}", risk.yellow());
             }
             if let Some(sig) = &entry.signature {
-                println!("  Sig:     {}...", &sig[..16].dimmed());
+                let display_sig = if sig.len() > 16 { &sig[..16] } else { sig };
+                println!("  Sig:     {}...", display_sig.to_string().dimmed());
             }
 
             let provenance = db

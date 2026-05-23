@@ -44,7 +44,7 @@ fn hash_file(path: &Path) -> Result<String> {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(content);
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(hex::encode(hasher.finalize()))
 }
 
 pub fn extract_trailers(msg: &str) -> String {
@@ -187,10 +187,12 @@ pub fn execute_hook_commit_msg(msg_file: &Path) -> Result<()> {
     };
 
     // 6. Check if we can commit silently (confidence >= 0.85)
-    let is_terminal = std::io::stdout().is_terminal();
-    let env_no_tui = std::env::var("CHANGEGUARD_NO_TUI")
-        .map(|v| v == "true" || v == "1")
-        .unwrap_or(false)
+    let is_terminal = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
+    let term_env = std::env::var("TERM").unwrap_or_default();
+    let env_no_tui = term_env == "dumb"
+        || std::env::var("CHANGEGUARD_NO_TUI")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(false)
         || std::env::var("CHANGEGUARD_NON_INTERACTIVE")
             .map(|v| v == "true" || v == "1")
             .unwrap_or(false)
@@ -198,6 +200,9 @@ pub fn execute_hook_commit_msg(msg_file: &Path) -> Result<()> {
             .map(|v| v == "true" || v == "1")
             .unwrap_or(false)
         || std::env::var("CI")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(false)
+        || std::env::var("ANTIGRAVITY_AGENT")
             .map(|v| v == "true" || v == "1")
             .unwrap_or(false);
     let tui_allowed = config.intent.tui_enabled && is_terminal && !env_no_tui;
