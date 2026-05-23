@@ -89,33 +89,28 @@ impl<'a> SemanticDiscovery<'a> {
     }
 
     pub fn index_file(&self, path: &Path, content: &str) -> Result<()> {
+        let (chunks, embeddings) = self.process_file(path, content)?;
+        if !chunks.is_empty() {
+            self.vector_store.index_chunks(chunks, embeddings)?;
+        }
+        Ok(())
+    }
+
+    pub fn process_file(&self, path: &Path, content: &str) -> Result<(Vec<crate::semantic::chunker::AstChunk>, Vec<Vec<f32>>)> {
         let chunks = AstChunker::chunk_file(path, content)?;
         if chunks.is_empty() {
-            return Ok(());
-        }
-
-        let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-        let tokens = match extension {
-            "rs" => Some(get_rust_tokenizer().tokenize(content)),
-            "ts" | "tsx" => Some(get_typescript_tokenizer().tokenize(content)),
-            "go" => Some(get_go_tokenizer().tokenize(content)),
-            _ => None,
-        };
-
-        if let Some(tokens) = tokens {
-            // Index tokens in CozoDB FTS (or just use them to enrich the metadata)
-            // For now, we are just implementing the logic.
-            // The VectorStore::index_chunks could be updated to accept tokens.
-            tracing::info!("Extracted {} tokens from {}", tokens.len(), path.display());
+            return Ok((vec![], vec![]));
         }
 
         let texts: Vec<String> = chunks.iter().map(|c| c.to_embedding_text()).collect();
         let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
 
         let embeddings = self.embedder.embed_batch(&text_refs)?;
-        self.vector_store.index_chunks(chunks, embeddings)?;
+        Ok((chunks, embeddings))
+    }
 
-        Ok(())
+    pub fn index_chunks_batched(&self, chunks: Vec<crate::semantic::chunker::AstChunk>, embeddings: Vec<Vec<f32>>) -> Result<()> {
+        self.vector_store.index_chunks(chunks, embeddings)
     }
 
     pub fn query(&self, query_text: &str, k: usize) -> Result<Vec<(String, String, usize, f32)>> {

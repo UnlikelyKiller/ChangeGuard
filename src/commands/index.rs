@@ -499,31 +499,21 @@ fn execute_semantic_index(
         .as_ref()
         .ok_or_else(|| miette::miette!("CozoDB storage not initialized"))?;
 
-    tracing::debug!(
-        "Using embedding URL: {:?}",
-        config
-            .local_model
-            .embedding_url
-            .as_deref()
-            .unwrap_or(&config.local_model.base_url)
-    );
     let semantic = SemanticDiscovery::new(config.local_model.clone(), cozo)?;
 
     info!("Indexing repository for semantic search...");
 
-    // We'll iterate over all source files from git
     let repo_root = layout.root.as_std_path();
-    let discovered = gix::discover(repo_root).into_diagnostic()?;
-    let _workdir = discovered
-        .workdir()
-        .ok_or_else(|| miette::miette!("No workdir"))?;
-
     let mut files_indexed = 0usize;
+    let mut all_chunks = Vec::new();
+    let mut all_embeddings = Vec::new();
 
-    // For simplicity, we'll walk the tree and filter by extension
-    fn walk_semantic(
+    // Recursive helper to collect chunks from supported files
+    fn collect_semantic_data(
         dir: &std::path::Path,
         semantic: &SemanticDiscovery,
+        all_chunks: &mut Vec<crate::semantic::chunker::AstChunk>,
+        all_embeddings: &mut Vec<Vec<f32>>,
         files_indexed: &mut usize,
     ) -> Result<()> {
         for entry in std::fs::read_dir(dir).into_diagnostic()? {
@@ -534,20 +524,34 @@ fn execute_semantic_index(
                 if matches!(name, ".git" | ".changeguard" | "target" | "node_modules") {
                     continue;
                 }
-                walk_semantic(&path, semantic, files_indexed)?;
+                collect_semantic_data(&path, semantic, all_chunks, all_embeddings, files_indexed)?;
             } else {
                 let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                if matches!(ext, "rs" | "ts" | "tsx" | "js" | "jsx" | "py") {
-                    let content = std::fs::read_to_string(&path).into_diagnostic()?;
-                    semantic.index_file(&path, &content)?;
-                    *files_indexed += 1;
+                if matches!(ext, "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go") {
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        match semantic.process_file(&path, &content) {
+                            Ok((chunks, embeddings)) => {
+                                all_chunks.extend(chunks);
+                                all_embeddings.extend(embeddings);
+                                *files_indexed += 1;
+                            }
+                            Err(e) => {
+                                warn!("Failed to process file for semantic indexing {}: {}", path.display(), e);
+                            }
+                        }
+                    }
                 }
             }
         }
         Ok(())
     }
 
-    walk_semantic(repo_root, &semantic, &mut files_indexed)?;
+    collect_semantic_data(repo_root, &semantic, &mut all_chunks, &mut all_embeddings, &mut files_indexed)?;
+
+    if !all_chunks.is_empty() {
+        info!("Ingesting {} snippets into vector store...", all_chunks.len());
+        semantic.index_chunks_batched(all_chunks, all_embeddings)?;
+    }
 
     println!(
         "Semantic indexing complete: {} files processed.",
