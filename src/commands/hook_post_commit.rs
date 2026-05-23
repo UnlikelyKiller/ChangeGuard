@@ -48,10 +48,10 @@ pub fn execute_hook_post_commit() -> Result<()> {
     let current_hash = hex::encode(hasher.finalize());
 
     if pending.commit_msg_hash != current_hash {
-        eprintln!(
-            "[ChangeGuard] Pending transaction {} does not match current HEAD commit. Removing stale sidecar.",
-            pending.tx_id
-        );
+        eprintln!("[ChangeGuard] DEBUG: Sidecar hash: {}", pending.commit_msg_hash);
+        eprintln!("[ChangeGuard] DEBUG: Current hash: {}", current_hash);
+        eprintln!("[ChangeGuard] DEBUG: Cleaned msg: |{}|", cleaned_msg);
+        eprintln!("[ChangeGuard] Pending transaction {} does not match current HEAD commit. Removing stale sidecar.", pending.tx_id);
         let _ = fs::remove_file(sidecar_path);
         return Ok(());
     }
