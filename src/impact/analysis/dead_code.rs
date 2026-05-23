@@ -1,5 +1,5 @@
 use crate::config::model::DeadCodeConfig;
-use crate::impact::packet::{ConfidenceFactor, DeadCodeFinding};
+use crate::impact::packet::{ConfidenceFactor, DeadCodeFinding, ImpactPacket};
 use crate::index::symbols::Symbol;
 use crate::state::storage::StorageManager;
 use crate::state::storage_cozo::CozoStorage;
@@ -7,6 +7,44 @@ use miette::{IntoDiagnostic, Result};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use tracing::{debug, warn};
+
+pub struct DeadCodeImpactProvider;
+
+impl super::ImpactProvider for DeadCodeImpactProvider {
+    fn name(&self) -> &'static str {
+        "Dead Code Impact Provider"
+    }
+
+    fn analyze(
+        &self,
+        packet: &ImpactPacket,
+        _rules: &crate::policy::rules::Rules,
+        config: &crate::config::model::Config,
+    ) -> Result<crate::impact::packet::RiskImpact> {
+        let mut impact = crate::impact::packet::RiskImpact {
+            weight: 0,
+            reasons: Vec::new(),
+        };
+
+        if !config.dead_code.enabled {
+            return Ok(impact);
+        }
+
+        for finding in &packet.dead_code_findings {
+            if finding.confidence >= config.dead_code.confidence_threshold {
+                let reason = format!(
+                    "Advisory: changed symbol '{}' in {} is likely dead code (confidence: {:.0}%)",
+                    finding.symbol_name,
+                    finding.file_path.display(),
+                    finding.confidence * 100.0
+                );
+                impact.reasons.push(reason);
+            }
+        }
+
+        Ok(impact)
+    }
+}
 
 pub struct ConfidenceScorer<'a> {
     cozo: Option<&'a CozoStorage>,

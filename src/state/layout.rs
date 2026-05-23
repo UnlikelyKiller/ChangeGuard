@@ -13,6 +13,7 @@ pub const DOCS_DIR: &str = "docs";
 pub const CONFIG_FILE: &str = "config.toml";
 pub const RULES_FILE: &str = "rules.toml";
 
+#[derive(Debug, Clone)]
 pub struct Layout {
     pub root: Utf8PathBuf,
     pub state_dir: Utf8PathBuf,

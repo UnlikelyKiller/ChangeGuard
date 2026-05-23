@@ -24,13 +24,17 @@ pub mod storage;
 pub mod symbols;
 pub mod test_mapping;
 pub mod topology;
+pub mod types;
+pub mod walker;
+pub mod worker_pool;
 
 pub use orchestrator::{
     BATCH_SIZE, BINARY_EXTENSIONS, MAX_FILES, PARSER_VERSION, SUPPORTED_EXTENSIONS,
 };
 pub use orchestrator::{
-    IndexStats, IndexStatus, ProjectFile, ProjectIndexer, ProjectSymbol, ServiceIndexStats,
+    IndexStats, IndexStatus, ProjectIndexer, ServiceIndexStats,
 };
+pub use types::{ProjectFile, ProjectSymbol, symbol_to_project_symbol};
 pub use staleness::{
     StalenessWarning, check_index_staleness, print_staleness_warning, warn_if_stale,
 };

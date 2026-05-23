@@ -1,8 +1,9 @@
 use crate::index::call_graph::CallEdge;
 use crate::index::orchestrator::{
-    BINARY_EXTENSIONS, ProjectFile, ProjectIndexer, ProjectSymbol, SUPPORTED_EXTENSIONS,
+    BINARY_EXTENSIONS, ProjectIndexer, SUPPORTED_EXTENSIONS,
     delete_file_index_dependents, get_file_id_by_path, insert_symbol_row, upsert_file_row,
 };
+use crate::index::types::{ProjectFile, ProjectSymbol};
 use crate::state::storage_cozo::{GraphEdge, GraphNode};
 use crate::watch::batch::{WatchBatch, WatchEvent, WatchEventKind};
 use camino::Utf8PathBuf;

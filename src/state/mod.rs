@@ -6,6 +6,7 @@ pub mod migrations;
 pub mod reports;
 pub mod storage;
 pub mod storage_cozo;
+pub mod cozo;
 
 use miette::Diagnostic;
 use thiserror::Error;

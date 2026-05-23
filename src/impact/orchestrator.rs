@@ -1,5 +1,6 @@
 use crate::config::model::Config;
 use crate::git::{ChangeType, RepoSnapshot};
+use crate::impact::analysis::AnalysisRegistry;
 use crate::impact::enrichment::{EnrichmentContext, EnrichmentProvider};
 use crate::impact::packet::{ChangedFile, FileAnalysisStatus, ImpactPacket};
 use crate::index::analysis::{AnalysisOutcome, analyze_file};
@@ -12,7 +13,8 @@ use std::sync::{Arc, Mutex};
 use tracing::{debug, warn};
 
 pub struct ImpactOrchestrator {
-    providers: Vec<Box<dyn EnrichmentProvider>>,
+    enrichment_providers: Vec<Box<dyn EnrichmentProvider>>,
+    analysis_registry: AnalysisRegistry,
 }
 
 impl Default for ImpactOrchestrator {
@@ -24,66 +26,71 @@ impl Default for ImpactOrchestrator {
 impl ImpactOrchestrator {
     pub fn new() -> Self {
         Self {
-            providers: Vec::new(),
+            enrichment_providers: Vec::new(),
+            analysis_registry: AnalysisRegistry::default(),
         }
     }
 
     pub fn with_builtins() -> Self {
         let mut orch = Self::new();
-        orch.register_provider(Box::new(
+        orch.register_enrichment_provider(Box::new(
             crate::impact::enrichment::federated::FederatedProvider,
         ));
-        orch.register_provider(Box::new(crate::impact::enrichment::api::ApiProvider));
-        orch.register_provider(Box::new(
+        orch.register_enrichment_provider(Box::new(crate::impact::enrichment::api::ApiProvider));
+        orch.register_enrichment_provider(Box::new(
             crate::impact::enrichment::data_models::DataModelProvider,
         ));
-        orch.register_provider(Box::new(
+        orch.register_enrichment_provider(Box::new(
             crate::impact::enrichment::contracts::ContractProvider,
         ));
-        orch.register_provider(Box::new(
+        orch.register_enrichment_provider(Box::new(
             crate::impact::enrichment::ci_gates::CIGateProvider,
         ));
-        orch.register_provider(Box::new(
+        orch.register_enrichment_provider(Box::new(
             crate::impact::enrichment::infrastructure::InfrastructureProvider,
         ));
-        orch.register_provider(Box::new(
+        orch.register_enrichment_provider(Box::new(
             crate::impact::enrichment::environment::EnvironmentProvider,
         ));
-        orch.register_provider(Box::new(
+        orch.register_enrichment_provider(Box::new(
             crate::impact::enrichment::observability::ObservabilityProvider,
         ));
-        orch.register_provider(Box::new(
+        orch.register_enrichment_provider(Box::new(
             crate::impact::enrichment::coupling::CouplingProvider,
         ));
-        orch.register_provider(Box::new(crate::impact::enrichment::deploy::DeployProvider));
-        orch.register_provider(Box::new(
+        orch.register_enrichment_provider(Box::new(crate::impact::enrichment::deploy::DeployProvider));
+        orch.register_enrichment_provider(Box::new(
             crate::impact::enrichment::ci_self_awareness::CISelfAwarenessProvider,
         ));
-        orch.register_provider(Box::new(
+        orch.register_enrichment_provider(Box::new(
             crate::impact::enrichment::ci_predictor::CIPredictorProvider,
         ));
-        orch.register_provider(Box::new(
+        orch.register_enrichment_provider(Box::new(
             crate::impact::enrichment::hotspots::HotspotProvider,
         ));
-        orch.register_provider(Box::new(
+        orch.register_enrichment_provider(Box::new(
             crate::impact::enrichment::coverage::CoverageProvider,
         ));
-        orch.register_provider(Box::new(
+        orch.register_enrichment_provider(Box::new(
             crate::impact::enrichment::services::ServiceProvider,
         ));
-        orch.register_provider(Box::new(
+        orch.register_enrichment_provider(Box::new(
             crate::impact::enrichment::runtime_usage::RuntimeUsageProvider,
         ));
-        orch.register_provider(Box::new(crate::impact::enrichment::risk::RiskProvider));
-        orch.register_provider(Box::new(
+        // RiskProvider is removed from enrichment and handled by analysis_registry.
+        orch.register_enrichment_provider(Box::new(
             crate::impact::enrichment::dead_code::DeadCodeProvider,
         ));
-        orch.register_provider(Box::new(crate::impact::enrichment::kg_provider::KGProvider));
+        orch.register_enrichment_provider(Box::new(crate::impact::enrichment::kg_provider::KGProvider));
         orch
     }
 
-    pub fn register_provider(&mut self, provider: Box<dyn EnrichmentProvider>) {
-        self.providers.push(provider);
+    pub fn register_enrichment_provider(&mut self, provider: Box<dyn EnrichmentProvider>) {
+        self.enrichment_providers.push(provider);
+    }
+
+    pub fn register_analysis_provider(&mut self, provider: Box<dyn crate::impact::analysis::ImpactProvider>) {
+        self.analysis_registry.register(provider);
     }
 
     pub fn run(
@@ -107,8 +114,8 @@ impl ImpactOrchestrator {
             warnings: Arc::clone(&warnings_collector),
         };
 
-        // 2. Execute Providers (Resilient Execution)
-        for provider in &self.providers {
+        // 2. Execute Enrichment Providers (Resilient Execution)
+        for provider in &self.enrichment_providers {
             let name = provider.name();
             debug!("Running enrichment provider: {}", name);
 
@@ -118,7 +125,12 @@ impl ImpactOrchestrator {
             }
         }
 
-        // 3. Collect Warnings
+        // 3. Execute Analysis (Scoring)
+        let layout = crate::state::layout::Layout::new(project_root.to_string_lossy().as_ref());
+        let rules = crate::policy::load::load_rules(&layout)?;
+        self.analysis_registry.run(packet, &rules, config)?;
+
+        // 4. Collect Warnings
         if let Ok(w) = warnings_collector.lock() {
             packet.analysis_warnings.extend(w.iter().cloned());
         }

@@ -17,7 +17,6 @@ pub mod infrastructure;
 pub mod kg_provider;
 pub mod knowledge;
 pub mod observability;
-pub mod risk;
 pub mod runtime_usage;
 pub mod services;
 use crate::state::storage::StorageManager;

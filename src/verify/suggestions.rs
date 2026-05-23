@@ -1,3 +1,5 @@
+use crate::state::layout::Layout;
+use crate::state::storage::StorageManager;
 use serde::{Deserialize, Serialize};
 
 use super::results::VerificationReport;
@@ -179,6 +181,55 @@ pub fn generate_health_suggestions(ledger_status: &LedgerStatus) -> Vec<Suggesti
     });
 
     suggestions
+}
+
+/// Query the ledger database for the status snapshot needed by the suggestion engine.
+pub fn query_ledger_status(layout: &Layout) -> LedgerStatus {
+    let db_path = layout.state_subdir().join("ledger.db");
+    let storage = match StorageManager::init(db_path.as_std_path()) {
+        Ok(s) => s,
+        Err(_) => {
+            // No db means no packets — flag it
+            return LedgerStatus {
+                no_impact_report: true,
+                ..Default::default()
+            };
+        }
+    };
+
+    let conn = storage.get_connection();
+    let ledger = crate::ledger::db::LedgerDb::new(conn);
+
+    let unaudited_count = ledger.get_all_unaudited().map(|v| v.len()).unwrap_or(0);
+
+    let has_stale_pending = ledger
+        .get_all_pending()
+        .map(|pending| {
+            pending.iter().any(|tx| {
+                // Check if pending since > 24h
+                is_stale_pending(&tx.started_at)
+            })
+        })
+        .unwrap_or(false);
+
+    let no_impact_report = storage.get_latest_packet().ok().flatten().is_none();
+
+    LedgerStatus {
+        unaudited_count,
+        has_stale_pending,
+        no_impact_report,
+    }
+}
+
+/// Returns true when the given ISO-8601 start timestamp is > 24 hours ago.
+fn is_stale_pending(started_at: &str) -> bool {
+    use chrono::{DateTime, Duration, Utc};
+    let Ok(start) = DateTime::parse_from_rfc3339(started_at) else {
+        return false;
+    };
+    let now = Utc::now();
+    let since = now.signed_duration_since(start.with_timezone(&Utc));
+    since > Duration::hours(24)
 }
 
 // ---------------------------------------------------------------------------

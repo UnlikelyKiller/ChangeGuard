@@ -922,40 +922,40 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Plan: `conductor/trackO1-R/plan.md`
     *   Goal: Address all Critical, High, Medium, and Low findings from the GPT-5.4 Codex cross-model review of Milestone O. Key fixes: two-phase ledger write; consistent hashing; trailer preservation; TUI skip logic fixes; and full test coverage.
 
-## Milestone RE: Refactoring Evolution (Planned)
+## Milestone RE: Refactoring Evolution (Completed)
 
 *   **Track RE1: Decompose `src/commands/verify.rs`**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackRE1/spec.md`
     *   Plan: `conductor/trackRE1/plan.md`
     *   Goal: Reduce the extreme complexity (224) of the verification engine by splitting it into specialized components.
 
 *   **Track RE2: Modularize Monolithic Impact Analysis**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackRE2/spec.md`
     *   Plan: `conductor/trackRE2/plan.md`
     *   Goal: Decompose `src/impact/analysis/mod.rs` (2,281 lines) into modular analysis providers.
 
 *   **Track RE3: Decouple Project Index Orchestrator**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackRE3/spec.md`
     *   Plan: `conductor/trackRE3/plan.md`
     *   Goal: Separate worker coordination from indexing logic in `src/index/orchestrator.rs`.
 
 *   **Track RE4: Plugin-ize Document Generator**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackRE4/spec.md`
     *   Plan: `conductor/trackRE4/plan.md`
     *   Goal: Transition `src/docs/generator.rs` to a trait-based plugin architecture for document exports.
 
 *   **Track RE5: Segment Rust AST Parser**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackRE5/spec.md`
     *   Plan: `conductor/trackRE5/plan.md`
     *   Goal: Split the monolithic `src/index/languages/rust.rs` into specialized sub-parsers by symbol type.
 
 *   **Track RE6: Standardize CozoDB Storage Layer**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackRE6/spec.md`
     *   Plan: `conductor/trackRE6/plan.md`
     *   Goal: Decouple Datalog queries and schema management from the core `CozoStorage` manager.

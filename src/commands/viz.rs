@@ -45,12 +45,13 @@ pub fn execute_viz(output_path: Option<PathBuf>) -> Result<()> {
             if let (
                 Some(cozo::DataValue::Str(node)),
                 Some(cozo::DataValue::Num(cozo::Num::Int(comm))),
-            ) = (row.first(), row.get(1))
+            ) = (row.first().cloned(), row.get(1).cloned())
             {
-                communities.insert(node.to_string(), *comm);
+                communities.insert(node.to_string(), comm);
             }
         }
-    } else {
+    }
+ else {
         tracing::warn!("Community detection failed. Is graph-algo enabled?");
     }
 
@@ -65,14 +66,14 @@ pub fn execute_viz(output_path: Option<PathBuf>) -> Result<()> {
             Some(cozo::DataValue::Str(label)),
             Some(cozo::DataValue::Str(category)),
             Some(cozo::DataValue::Num(cozo::Num::Float(risk))),
-        ) = (row.first(), row.get(1), row.get(2), row.get(3))
+        ) = (row.first().cloned(), row.get(1).cloned(), row.get(2).cloned(), row.get(3).cloned())
         {
             let community = communities.get(id.as_str()).copied();
             nodes.push(VizNode {
                 id: id.to_string(),
                 label: label.to_string(),
                 category: category.to_string(),
-                risk_score: *risk,
+                risk_score: risk,
                 community,
             });
         }
@@ -87,7 +88,7 @@ pub fn execute_viz(output_path: Option<PathBuf>) -> Result<()> {
             Some(cozo::DataValue::Str(source)),
             Some(cozo::DataValue::Str(target)),
             Some(cozo::DataValue::Str(relation)),
-        ) = (row.first(), row.get(1), row.get(2))
+        ) = (row.first().cloned(), row.get(1).cloned(), row.get(2).cloned())
         {
             edges.push(VizEdge {
                 from: source.to_string(),

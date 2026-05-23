@@ -1,8 +1,10 @@
 pub mod ci_predictor;
+pub mod engine;
 pub mod explanation;
 pub mod ipc_verify;
 pub mod plan;
 pub mod predict;
+pub mod predictor;
 pub mod probability;
 pub mod results;
 pub mod runner;

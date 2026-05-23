@@ -1,4 +1,4 @@
-use crate::index::orchestrator::ProjectSymbol;
+use crate::index::types::ProjectSymbol;
 use crate::index::symbols::SymbolKind as CGSymbolKind;
 use chrono::Utc;
 use scip::types::{Occurrence, SymbolInformation, symbol_information::Kind};
