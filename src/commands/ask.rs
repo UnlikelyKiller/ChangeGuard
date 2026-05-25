@@ -131,13 +131,16 @@ pub fn execute_ask(
                     Vec::new()
                 });
                 // CR7: Apply KG neighborhood to pruner fallback chunks as well.
+                // Pruner chunks only have file paths as source, so extract the file
+                // stem (module name) as a candidate symbol for KG lookups.
                 if is_global
                     && !relevant_chunks.is_empty()
                     && let Some(cozo) = &storage.cozo
                 {
-                    let syms = relevant_chunks
-                        .iter()
-                        .filter_map(|c| c.source.split("::").nth(1));
+                    let syms = relevant_chunks.iter().filter_map(|c| {
+                        let path = std::path::Path::new(&c.source);
+                        path.file_stem()?.to_str()
+                    });
                     if let Some(kg_ctx) = fetch_kg_neighborhood(cozo, syms) {
                         relevant_chunks.push(crate::local_model::pruner::RankedChunk {
                             source: "Knowledge Graph".to_string(),

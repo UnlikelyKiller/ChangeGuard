@@ -19,6 +19,10 @@ pub fn verify_ledger_signatures(layout: &Layout) -> Result<()> {
     let mut storage = StorageManager::init(db_path.as_std_path())?;
     let db = crate::ledger::db::LedgerDb::new(storage.get_connection_mut());
 
+    // Load config to determine whether signing is required.
+    let config = crate::config::load::load_config(layout).unwrap_or_default();
+    let signing_required = config.intent.require_signing;
+
     let entries = db
         .get_all_committed_ledger_entries()
         .map_err(|e| miette::miette!("Failed to read ledger entries: {}", e))?;
@@ -29,8 +33,9 @@ pub fn verify_ledger_signatures(layout: &Layout) -> Result<()> {
     }
 
     println!(
-        "Verifying signatures for {} ledger entries...",
-        entries.len()
+        "Verifying signatures for {} ledger entries (require_signing={})...",
+        entries.len(),
+        signing_required
     );
     let mut all_valid = true;
     for entry in &entries {
@@ -62,12 +67,20 @@ pub fn verify_ledger_signatures(layout: &Layout) -> Result<()> {
                 }
             }
             _ => {
-                println!(
-                    "  [{}] TX {} has no signature — treating as verification failure.",
-                    "UNSIGNED".yellow(),
-                    &entry.tx_id[..8]
-                );
-                all_valid = false;
+                if signing_required {
+                    println!(
+                        "  [{}] TX {} has no signature — treating as verification failure.",
+                        "UNSIGNED".yellow(),
+                        &entry.tx_id[..8]
+                    );
+                    all_valid = false;
+                } else {
+                    println!(
+                        "  [{}] TX {} has no signature (signing not required, skipping).",
+                        "SKIP".yellow(),
+                        &entry.tx_id[..8]
+                    );
+                }
             }
         }
     }

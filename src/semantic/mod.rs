@@ -278,7 +278,8 @@ impl<'a> SemanticDiscovery<'a> {
     /// Remove the content hash for `file_path` from `semantic_file_hash`.
     pub fn remove_file_hash(&self, file_path: &str) -> Result<()> {
         let path_normalized = file_path.replace('\\', "/");
-        let escaped = path_normalized.replace('\'', "\\'");
+        // Cozo escapes single quotes by doubling them, not with backslash.
+        let escaped = path_normalized.replace('\'', "''");
         let script = format!(
             "paths[file_path] <- [['{}']]\n\
              ?[file_path, content_hash] := paths[file_path], *semantic_file_hash{{file_path, content_hash}}\n\
