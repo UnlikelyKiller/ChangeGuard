@@ -548,6 +548,26 @@ fn execute_semantic_index(
 
     // HP3: On incremental runs filter to only files whose hash has changed.
     let files_to_process: Vec<std::path::PathBuf> = if incremental {
+        let tracked_files = semantic.get_tracked_files()?;
+        for tracked in tracked_files {
+            let path = std::path::Path::new(&tracked);
+            if !path.exists() {
+                info!("Pruning deleted file from semantic index: {}", tracked);
+                if let Err(e) = semantic.remove_file_snippets(&tracked) {
+                    warn!(
+                        "Failed to prune snippets for deleted file {}: {}",
+                        tracked, e
+                    );
+                }
+                if let Err(e) = semantic.remove_file_hash(&tracked) {
+                    warn!(
+                        "Failed to remove file hash for deleted file {}: {}",
+                        tracked, e
+                    );
+                }
+            }
+        }
+
         candidate_paths
             .into_iter()
             .filter(|path| {

@@ -150,7 +150,7 @@ impl<'a> VectorStore<'a> {
             }
             if let Some(normalized_embedding) = normalize_vector(embedding) {
                 let row = vec![
-                    DataValue::from(chunk.file_path),
+                    DataValue::from(chunk.file_path.replace('\\', "/")),
                     DataValue::from(chunk.name),
                     DataValue::from(chunk.offset as i64),
                     DataValue::Vec(Box::new(cozo::Vector::F32(normalized_embedding.into()))),

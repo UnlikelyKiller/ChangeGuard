@@ -202,3 +202,110 @@ fn test_file_hash_tracking() {
     let path_b = Path::new("src/bar.rs");
     assert!(!semantic.is_file_hash_current(path_b, hash_a));
 }
+
+/// Verify get_tracked_files and remove_file_hash helpers.
+#[test]
+fn test_get_tracked_files_and_remove_file_hash() {
+    use changeguard::config::model::LocalModelConfig;
+    use changeguard::semantic::SemanticDiscovery;
+    use std::path::Path;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let storage = sled_cozo(&tmp);
+
+    let config = LocalModelConfig {
+        dimensions: 3,
+        disable_hnsw: true,
+        ..Default::default()
+    };
+
+    let semantic = SemanticDiscovery::new(config, &storage).unwrap();
+    semantic.ensure_file_hash_schema().unwrap();
+
+    let path_a = Path::new("src/foo.rs");
+    let path_b = Path::new("src/bar.rs");
+
+    semantic.record_file_hash(path_a, "hasha").unwrap();
+    semantic.record_file_hash(path_b, "hashb").unwrap();
+
+    let mut tracked = semantic.get_tracked_files().unwrap();
+    tracked.sort();
+    assert_eq!(tracked.len(), 2);
+    assert_eq!(tracked[0], "src/bar.rs");
+    assert_eq!(tracked[1], "src/foo.rs");
+
+    // Remove one hash
+    semantic.remove_file_hash("src/foo.rs").unwrap();
+
+    let tracked = semantic.get_tracked_files().unwrap();
+    assert_eq!(tracked.len(), 1);
+    assert_eq!(tracked[0], "src/bar.rs");
+}
+
+/// Verify that on incremental indexing, files missing from filesystem are pruned from both snippets and hashes.
+#[test]
+fn test_incremental_deletions_pruning() {
+    use changeguard::config::model::LocalModelConfig;
+    use changeguard::semantic::SemanticDiscovery;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let storage = sled_cozo(&tmp);
+
+    let config = LocalModelConfig {
+        dimensions: 3,
+        disable_hnsw: true,
+        ..Default::default()
+    };
+
+    let semantic = SemanticDiscovery::new(config, &storage).unwrap();
+    semantic.ensure_file_hash_schema().unwrap();
+
+    // Create a temporary workspace
+    let ws_dir = tempfile::tempdir().unwrap();
+    let file_a = ws_dir.path().join("a.rs");
+    let file_b = ws_dir.path().join("b.rs");
+
+    std::fs::write(&file_a, "fn a() {}").unwrap();
+    std::fs::write(&file_b, "fn b() {}").unwrap();
+
+    // Mock record hashes and snippets
+    let path_a_str = file_a.to_string_lossy().to_string();
+    let path_b_str = file_b.to_string_lossy().to_string();
+
+    semantic.record_file_hash(&file_a, "hasha").unwrap();
+    semantic.record_file_hash(&file_b, "hashb").unwrap();
+
+    let chunks = vec![
+        make_chunk(&path_a_str, "fn_a", 0, "fn a() {}"),
+        make_chunk(&path_b_str, "fn_b", 0, "fn b() {}"),
+    ];
+    let embeddings = vec![vec![1.0, 0.0, 0.0], vec![0.0, 1.0, 0.0]];
+    semantic.index_chunks_batched(chunks, embeddings).unwrap();
+
+    // Verify initial state
+    assert_eq!(semantic.get_tracked_files().unwrap().len(), 2);
+    assert_eq!(semantic.get_vector_count().unwrap(), 2);
+
+    // Now remove file_a from the filesystem
+    std::fs::remove_file(&file_a).unwrap();
+
+    // Simulating the incremental deletions phase in execute_semantic_index:
+    let tracked_files = semantic.get_tracked_files().unwrap();
+    for tracked in tracked_files {
+        let path = std::path::Path::new(&tracked);
+        if !path.exists() {
+            semantic.remove_file_snippets(&tracked).unwrap();
+            semantic.remove_file_hash(&tracked).unwrap();
+        }
+    }
+
+    // Verify file_a's snippets and hashes are completely pruned
+    let remaining_hashes = semantic.get_tracked_files().unwrap();
+    assert_eq!(remaining_hashes.len(), 1);
+    assert_eq!(remaining_hashes[0], path_b_str.replace('\\', "/"));
+
+    assert_eq!(semantic.get_vector_count().unwrap(), 1);
+    let remaining_query = semantic.query_raw(vec![0.0, 1.0, 0.0], 5).unwrap();
+    assert_eq!(remaining_query.len(), 1);
+    assert_eq!(remaining_query[0].0, path_b_str.replace('\\', "/"));
+}

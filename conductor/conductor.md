@@ -1040,10 +1040,11 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
 ## Milestone CR: Codex Review Remediation
 
 *   **Track CR1: Incremental Semantic Indexing Deletions**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackCR1/spec.md`
     *   Plan: `conductor/trackCR1/plan.md`
     *   Goal: Prune stale embeddings and file hashes during incremental indexing when a file is deleted.
+    *   Key additions: `get_tracked_files`/`remove_file_hash` helpers in `SemanticDiscovery`, deletion detection in `execute_semantic_index`, path normalization for cross-platform hash matching, regression tests in `tests/semantic_search.rs`.
 
 *   **Track CR2: Enforce Signature Verification Failures**
     *   Status: Planned

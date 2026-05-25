@@ -159,6 +159,18 @@ impl<'a> SemanticDiscovery<'a> {
         self.vector_store.query(query_vector, k)
     }
 
+    pub fn query_raw(
+        &self,
+        query_vector: Vec<f32>,
+        k: usize,
+    ) -> Result<Vec<(String, String, usize, f32)>> {
+        self.vector_store.query(query_vector, k)
+    }
+
+    pub fn get_vector_count(&self) -> Result<usize> {
+        self.vector_store.get_vector_count()
+    }
+
     pub fn remove_file_snippets(&self, file_path: &str) -> Result<()> {
         self.vector_store.remove_file_snippets(file_path)
     }
@@ -243,6 +255,37 @@ impl<'a> SemanticDiscovery<'a> {
         if pruned > 0 {
             tracing::info!("Pruned snippets for {} deleted files", pruned);
         }
+        Ok(())
+    }
+
+    /// Retrieve all file paths currently tracked in `semantic_file_hash`.
+    pub fn get_tracked_files(&self) -> Result<Vec<String>> {
+        let script = "?[file_path] := *semantic_file_hash{file_path}";
+        let res = self.vector_store.storage_ref().run_script(script);
+        let res = match res {
+            Ok(r) => r,
+            Err(_) => return Ok(vec![]), // relation may not exist yet
+        };
+        let mut files = Vec::new();
+        for row in res.rows {
+            if let Some(cozo::DataValue::Str(fp)) = row.first() {
+                files.push(fp.to_string());
+            }
+        }
+        Ok(files)
+    }
+
+    /// Remove the content hash for `file_path` from `semantic_file_hash`.
+    pub fn remove_file_hash(&self, file_path: &str) -> Result<()> {
+        let path_normalized = file_path.replace('\\', "/");
+        let escaped = path_normalized.replace('\'', "\\'");
+        let script = format!(
+            "paths[file_path] <- [['{}']]\n\
+             ?[file_path, content_hash] := paths[file_path], *semantic_file_hash{{file_path, content_hash}}\n\
+             :rm semantic_file_hash {{file_path, content_hash}}",
+            escaped
+        );
+        self.vector_store.storage_ref().run_script(&script)?;
         Ok(())
     }
 }
