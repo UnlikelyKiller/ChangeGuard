@@ -154,11 +154,18 @@ pub fn execute_search(args: SearchArgs) -> Result<()> {
     let engine = TantivySearchEngine::open_or_create(index_path.as_std_path())?;
 
     if args.index || engine.document_count() == 0 {
+        if !args.json {
+            println!("{} Indexing repository for search...", "INIT".cyan().bold());
+        }
         debug!("Indexing repository for search...");
         {
             engine.clear()?;
             let indexer = StreamIndexer::new(engine);
             indexer.index_repository(&layout.root)?;
+        }
+
+        if !args.json {
+            println!("{} Index built successfully.\n", "DONE".green().bold());
         }
 
         let engine = TantivySearchEngine::open_or_create(index_path.as_std_path())?;
@@ -202,6 +209,11 @@ fn perform_search(engine: TantivySearchEngine, root: &Utf8Path, args: &SearchArg
             println!("\n{}", "Regex Search Results:".bold().cyan());
             if matches.is_empty() {
                 println!("No matches found.");
+                println!(
+                    "{} Check your regex syntax or run {} if changes are missing.",
+                    "HINT".yellow().bold(),
+                    "changeguard index".cyan().bold()
+                );
             } else {
                 for m in matches {
                     println!(
@@ -241,6 +253,16 @@ fn perform_search(engine: TantivySearchEngine, root: &Utf8Path, args: &SearchArg
             println!("\n{}", "Ranked Search Results (BM25):".bold().cyan());
             if results.is_empty() {
                 println!("No matches found.");
+                println!(
+                    "{} Try using {} for partial or literal substring matches.",
+                    "HINT".yellow().bold(),
+                    "--regex".cyan().bold()
+                );
+                println!(
+                    "{} Alternatively, run {} if recent changes are not indexed.",
+                    "HINT".yellow().bold(),
+                    "changeguard index".cyan().bold()
+                );
             } else {
                 for r in results {
                     let line_info = if let Some(line) = r.line_number {

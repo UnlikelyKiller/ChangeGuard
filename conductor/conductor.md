@@ -1102,6 +1102,89 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Goal: Refine the startup sweep for *.old.*.exe files in main.rs to only clean up files belonging specifically to the current ChangeGuard binary.
     *   Key additions: Dynamic prefix derivation from `current_exe().file_stem()` in `sweep_stale_old_binaries()` in `main.rs`.
 
+## Milestone Q: Quality & Reliability Hardening
+
+*   **Track Q1: Signature & Ledger Integrity**
+    *   Status: Completed
+    *   Spec: `conductor/trackQ1/spec.md`
+    *   Plan: `conductor/trackQ1/plan.md`
+    *   Goal: Investigate why 10/28 ledger entries show INVALID. Find the divergence point and fix the root cause (signing key rotation or serialization format change).
+    *   Key additions: Timestamp preservation in `PendingHookTx` and `CommitRequest`, fixed signature drift in git hooks, verified hook-level roundtrip in `tests/codex_remediation.rs`.
+
+*   **Track Q2: CLI Ergonomics & Subcommand Alignment**
+    *   Status: Completed
+    *   Spec: `conductor/trackQ2/spec.md`
+    *   Plan: `conductor/trackQ2/plan.md`
+    *   Goal: Add `version` subcommand (alias for `--version`), unify `help` vs `--help` output, and fix the `ledger audit --entity` argument parsing mismatch.
+    *   Key additions: Improved CLI argument interceptor in `main.rs` (handles nested help/version), optional flag AND positional compatibility for `audit --entity`.
+
+*   **Track Q3: Search UX & Discoverability Overhaul**
+    *   Status: Completed
+    *   Spec: `conductor/trackQ3/spec.md`
+    *   Plan: `conductor/trackQ3/plan.md`
+    *   Goal: Improve empty search results UX with guidance (suggest indexing, explain syntax). Implement auto-indexing on first use if the index is empty.
+    *   Key additions: Explicit indexing status messages, guided empty-result hints (regex/index suggestions).
+
+*   **Track Q4: Ledger API Consistency & ADR UX**
+    *   Status: Completed
+    *   Spec: `conductor/trackQ4/spec.md`
+    *   Plan: `conductor/trackQ4/plan.md`
+    *   Goal: Add `--reason` flag to `ledger rollback` for auditable state changes. Provide guidance/usage hints when `ledger adr` returns no results.
+    *   Key additions: Auditable rollbacks via `EntryType::Rollback`, required `--reason` for rollback, guided ADR empty results.
+
+*   **Track Q5: DevEx & Hook Optimization**
+    *   Status: Completed
+    *   Spec: `conductor/trackQ5/spec.md`
+    *   Plan: `conductor/trackQ5/plan.md`
+    *   Goal: Optimize the `commit-msg` hook to reduce delay and improve transparency. Cleanup the `test-entity2` artifact from the ledger if possible.
+    *   Key additions: Conventional commit fast-path bypass in `commit-msg` hook (with improved risk mapping), tightened conventional prefix detection, terminal spinner for LLM drafting.
+
+
+## Milestone R: Resilience & Advanced Ergonomics
+
+*   **Track R1: Advanced CLI Help Interceptor**
+    *   Status: Completed
+    *   Spec: `conductor/trackR1/spec.md`
+    *   Plan: `conductor/trackR1/plan.md`
+    *   Goal: Enhance the `main.rs` interceptor to detect `help <subcommand>` and transform it into `<subcommand> --help`, ensuring specific help pages are reached instead of the global menu.
+    *   Key additions: Global argument pre-processor in `main.rs` that remaps `help` tokens to trailing `--help` flags.
+
+*   **Track R2: Search Noise Reduction & Scoped Viz**
+    *   Status: Completed
+    *   Spec: `conductor/trackR2/spec.md`
+    *   Plan: `conductor/trackR2/plan.md`
+    *   Goal: Implement strict trigram pre-filtering for BM25 search in tantivy_engine.rs to reduce common-term noise. Add scoping flags (--limit, --depth, --entity) to the 'viz' command in src/commands/viz.rs.
+    *   Key additions: Alphanumeric query trigram filter in `TantivySearchEngine`, recursive CozoDB reachability for scoped `viz` exports.
+
+*   **Track R3: Proactive Index Repair & Health**
+    *   Status: Completed
+    *   Spec: `conductor/trackR3/spec.md`
+    *   Plan: `conductor/trackR3/plan.md`
+    *   Goal: Extend 'doctor' command to verify Tantivy index integrity and CozoDB graph staleness. Provide 'repair' suggestions (like 'changeguard index --full').
+    *   Key additions: "Index Health" section in `doctor` report, integrity/staleness probes for search and graph indices.
+
+*   **Track R4: Ledger Lifecycle Hardening (GC & Orphans)**
+    *   Status: Completed
+    *   Spec: `conductor/trackR4/spec.md`
+    *   Plan: `conductor/trackR4/plan.md`
+    *   Goal: Implement 'ledger gc --orphans' to identify and remove PENDING transactions older than a certain TTL or orphaned by abandoned commits.
+    *   Key additions: `ledger gc` subcommand, `delete_stale_pending_transactions` query in `LedgerDb`.
+
+*   **Track R5: Context-Aware Intelligence Defaults**
+    *   Status: Completed
+    *   Spec: `conductor/trackR5/spec.md`
+    *   Plan: `conductor/trackR5/plan.md`
+    *   Goal: In 'changeguard ask', automatically default to GLOBAL mode if no staged/dirty changes are found, instead of erroring with "No changes to analyze".
+    *   Key additions: Automatic mode fallback in `execute_ask` based on `ImpactPacket` change list size.
+
+*   **Track R6: GPU VRAM Reporting & Binary Lock Resilience**
+    *   Status: Completed
+    *   Spec: `conductor/trackR6/spec.md`
+    *   Plan: `conductor/trackR6/plan.md`
+    *   Goal: Fix the bug where `doctor` reports 0.0 GB VRAM. Investigate and mitigate Windows binary locks during `cargo install` (e.g., via a pre-install handle check).
+    *   Key additions: DXGI adapter iteration to find discrete GPUs, pre-install lock check in `update` command.
+
+
 ## Workflow
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.

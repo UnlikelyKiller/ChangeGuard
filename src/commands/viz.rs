@@ -22,7 +22,12 @@ struct VizEdge {
     label: String,
 }
 
-pub fn execute_viz(output_path: Option<PathBuf>) -> Result<()> {
+pub fn execute_viz(
+    output_path: Option<PathBuf>,
+    limit: usize,
+    depth: usize,
+    entity: Option<String>,
+) -> Result<()> {
     let current_dir = env::current_dir().into_diagnostic()?;
     let layout = Layout::new(current_dir.to_string_lossy().as_ref());
     let db_path = layout.state_subdir().join("ledger.db");
@@ -33,14 +38,63 @@ pub fn execute_viz(output_path: Option<PathBuf>) -> Result<()> {
         .as_ref()
         .ok_or_else(|| miette::miette!("CozoDB not initialized. Run 'index' first."))?;
 
-    // 1. Run Louvain community detection
-    let louvain_script = "
+    // 1. Fetch scoped nodes and edges
+    let (nodes_script, edges_script) = if let Some(ref root_entity) = entity {
+        // Scoped traversal from root entity
+        let root = crate::commands::ask::escape_cozo_string(root_entity);
+        (
+            format!(
+                r#"
+                reachable[id, d] := *node{{id}}, id == '{root}', d = 0
+                reachable[id, d] := reachable[prev, d_prev], *edge{{source: prev, target: id}}, d = d_prev + 1, d <= {depth}
+                reachable[id, d] := reachable[prev, d_prev], *edge{{source: id, target: prev}}, d = d_prev + 1, d <= {depth}
+                
+                ?[id, label, category, risk_score] := distinct reachable[id, _], *node{{id, label, category, risk_score}}
+                :limit {limit}
+                "#
+            ),
+            format!(
+                r#"
+                reachable[id, d] := *node{{id}}, id == '{root}', d = 0
+                reachable[id, d] := reachable[prev, d_prev], *edge{{source: prev, target: id}}, d = d_prev + 1, d <= {depth}
+                reachable[id, d] := reachable[prev, d_prev], *edge{{source: id, target: prev}}, d = d_prev + 1, d <= {depth}
+
+                ?[source, target, relation] := distinct reachable[source, _], distinct reachable[target, _], *edge{{source, target, relation}}
+                "#
+            ),
+        )
+    } else {
+        // Global view with limit
+        (
+            format!(
+                "?[id, label, category, risk_score] := *node{{id, label, category, risk_score}} :limit {limit}"
+            ),
+            format!(
+                "?[source, target, relation] := *edge{{source, target, relation}} :limit {}",
+                limit * 2
+            ),
+        )
+    };
+
+    // 2. Run Louvain community detection (scoped to the retrieved nodes if possible)
+    let louvain_script = if entity.is_some() {
+        format!(
+            r#"
+            {nodes_script}
+            scoped_edges[src, dst] := ?[src, dst, _], *edge{{source: src, target: dst}}
+            ?[community_id, node] <~ CommunityDetectionLouvain(scoped_edges[src, dst], undirected: true)
+            "#
+        )
+    } else {
+        "
         edges[src, dst] := *edge{source: src, target: dst}
         ?[community_id, node] <~ CommunityDetectionLouvain(edges[src, dst], undirected: true)
-    ";
+        "
+        .to_string()
+    };
 
     let mut communities = std::collections::HashMap::new();
-    if let Ok(res) = cozo.run_script(louvain_script) {
+    if let Ok(res) = cozo.run_script(&louvain_script) {
         for row in res.rows {
             if let (Some(cozo::DataValue::List(list)), Some(cozo::DataValue::Str(node))) =
                 (row.first(), row.get(1))
@@ -55,14 +109,9 @@ pub fn execute_viz(output_path: Option<PathBuf>) -> Result<()> {
                 communities.insert(node.to_string(), comm);
             }
         }
-    } else {
-        tracing::warn!("Community detection failed. Is graph-algo enabled?");
     }
 
-    // Fetch nodes
-    let nodes_res = cozo.run_script(
-        "?[id, label, category, risk_score] := *node{id, label, category, risk_score}",
-    )?;
+    let nodes_res = cozo.run_script(&nodes_script)?;
     let mut nodes = Vec::new();
     for row in nodes_res.rows {
         if let (
@@ -87,9 +136,7 @@ pub fn execute_viz(output_path: Option<PathBuf>) -> Result<()> {
         }
     }
 
-    // Fetch edges
-    let edges_res =
-        cozo.run_script("?[source, target, relation] := *edge{source, target, relation}")?;
+    let edges_res = cozo.run_script(&edges_script)?;
     let mut edges = Vec::new();
     for row in edges_res.rows {
         if let (

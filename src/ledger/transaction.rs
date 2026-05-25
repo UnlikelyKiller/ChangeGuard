@@ -227,7 +227,7 @@ impl<'a> TransactionManager<'a> {
             }
         }
 
-        let now = Utc::now().to_rfc3339();
+        let now = req.committed_at.unwrap_or_else(|| Utc::now().to_rfc3339());
 
         // Use a database transaction to ensure atomicity
         let sqlite_tx = self.conn.transaction().map_err(LedgerError::from)?;
@@ -310,25 +310,79 @@ impl<'a> TransactionManager<'a> {
         Ok(())
     }
 
-    pub fn rollback_change(&mut self, tx_id: String) -> Result<(), LedgerError> {
+    pub fn rollback_change(&mut self, tx_id: String, reason: String) -> Result<(), LedgerError> {
         let tx_id = self.resolve_tx_id(&tx_id)?;
-        let db = LedgerDb::new(self.conn);
-        let tx = db
-            .get_transaction(&tx_id)?
-            .ok_or_else(|| LedgerError::NotFound(tx_id.clone()))?;
+        let tx = {
+            let db = LedgerDb::new(self.conn);
+            db.get_transaction(&tx_id)?
+                .ok_or_else(|| LedgerError::NotFound(tx_id.clone()))?
+        };
 
         if tx.status != "PENDING" {
             return Err(LedgerError::InvalidState(tx_id, tx.status));
         }
 
-        let count =
-            db.update_transaction_status(&tx_id, "ROLLED_BACK", Some(&Utc::now().to_rfc3339()))?;
-        if count == 0 {
-            return Err(LedgerError::InvalidState(
+        let now = Utc::now().to_rfc3339();
+
+        let sqlite_tx = self.conn.transaction().map_err(LedgerError::from)?;
+        {
+            let db = LedgerDb::new(&sqlite_tx);
+
+            // 1. Update status
+            let count = db.update_transaction_status(&tx_id, "ROLLED_BACK", Some(&now))?;
+            if count == 0 {
+                return Err(LedgerError::InvalidState(
+                    tx_id,
+                    "already resolved".to_string(),
+                ));
+            }
+
+            // 2. Insert auditable entry
+            let (signature, pub_key) = match crate::ledger::crypto::sign_ledger_entry(
+                &tx_id,
+                &tx.category.to_string(),
+                "Transaction Rolled Back",
+                &reason,
+                &now,
+            ) {
+                Ok(res) => res,
+                Err(e) => {
+                    let err_msg = format!("Cryptographic signing failed: {}", e);
+                    if self.config.intent.require_signing {
+                        return Err(LedgerError::Validation(err_msg));
+                    } else {
+                        tracing::warn!("{} (non-blocking)", err_msg);
+                        (None, None)
+                    }
+                }
+            };
+
+            let entry = LedgerEntry {
+                id: 0,
                 tx_id,
-                "already resolved".to_string(),
-            ));
+                category: tx.category,
+                entry_type: EntryType::Rollback,
+                entity: tx.entity,
+                entity_normalized: tx.entity_normalized,
+                change_type: ChangeType::Modify,
+                summary: "Transaction Rolled Back".to_string(),
+                reason,
+                is_breaking: false,
+                committed_at: now,
+                verification_status: None,
+                verification_basis: None,
+                outcome_notes: None,
+                origin: "LOCAL".to_string(),
+                trace_id: None,
+                signature,
+                public_key: pub_key,
+                risk: Some("TRIVIAL".to_string()),
+                related_tickets: tx.issue_ref,
+            };
+            db.insert_ledger_entry(&entry)?;
         }
+        sqlite_tx.commit().map_err(LedgerError::from)?;
+
         Ok(())
     }
 
@@ -341,7 +395,9 @@ impl<'a> TransactionManager<'a> {
         let tx_id = self.start_change(tx_req)?;
         if let Err(commit_err) = self.commit_change(tx_id.clone(), commit_req, force) {
             // Attempt cleanup rollback; prefer returning the original error
-            if let Err(rollback_err) = self.rollback_change(tx_id) {
+            if let Err(rollback_err) =
+                self.rollback_change(tx_id, "Rollback after commit failure".to_string())
+            {
                 tracing::warn!(
                     "atomic_change: rollback after commit failure also failed: {rollback_err}"
                 );

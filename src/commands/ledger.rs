@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use clap::ValueEnum;
 use miette::{IntoDiagnostic, Result};
 use owo_colors::OwoColorize;
+use std::io::IsTerminal;
 
 use crate::commands::helpers::{get_layout, load_ledger_config};
 use crate::ledger::*;
@@ -76,7 +77,7 @@ pub fn execute_ledger_commit(
     Ok(())
 }
 
-pub fn execute_ledger_rollback(tx_id: Option<String>) -> Result<()> {
+pub fn execute_ledger_rollback(tx_id: Option<String>, reason: String) -> Result<()> {
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
     let config = load_ledger_config(&layout)?;
@@ -97,7 +98,7 @@ pub fn execute_ledger_rollback(tx_id: Option<String>) -> Result<()> {
     };
 
     tx_mgr
-        .rollback_change(resolved_id)
+        .rollback_change(resolved_id, reason)
         .map_err(|e| miette::miette!("{}", e))?;
 
     println!("Transaction rolled back.");
@@ -431,27 +432,79 @@ pub fn execute_ledger_register_validator(
     Ok(())
 }
 
-pub fn execute_ledger_search(query: &str, category: Option<String>) -> Result<()> {
+pub fn execute_ledger_gc(orphans: bool, ttl_days: u64, force: bool) -> Result<()> {
     let layout = get_layout()?;
-    let storage = StorageManager::open_read_only_sqlite_only(&layout.root)?;
-    let db = LedgerDb::new(storage.get_connection());
+    let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
+    let config = load_ledger_config(&layout)?;
 
-    let results = db
-        .search_ledger(query, category.as_deref(), None, false, Some(10), 0)
-        .map_err(|e| miette::miette!("{}", e))?;
+    let mut tx_mgr =
+        TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
 
-    if results.is_empty() {
-        println!("No matching ledger entries found.");
-    } else {
-        println!("Found {} matching entries:", results.len());
-        for r in results {
+    if orphans {
+        let stale_ids = {
+            let db = LedgerDb::new(tx_mgr.get_connection());
+            db.get_stale_pending_transactions(ttl_days)
+                .map_err(|e| miette::miette!("Failed to scan for orphans: {}", e))?
+        };
+
+        if stale_ids.is_empty() {
+            println!("No orphaned transactions found.");
+            return Ok(());
+        }
+
+        println!(
+            "Found {} orphaned PENDING transaction(s) (older than {} days).",
+            stale_ids.len(),
+            ttl_days
+        );
+
+        if !force {
             println!(
-                "- [{}] {}: {}",
-                r.tx_id[..8].to_string().yellow(),
-                r.entity.cyan(),
-                r.summary
+                "{} This will mark them as ROLLED_BACK in the ledger history.",
+                "WARNING".yellow().bold()
+            );
+            // In autonomous mode/agent environments we might want a simple check or default to no
+            // but the SOP says "respect --force flag".
+            // For now, let's assume we need to prompt or just fail if not forced in non-interactive.
+            if !std::io::stdin().is_terminal() {
+                return Err(miette::miette!(
+                    "Use --force to run GC in non-interactive shells."
+                ));
+            }
+
+            print!("Proceed with cleanup? (y/N): ");
+            use std::io::Write;
+            std::io::stdout().flush().into_diagnostic()?;
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input).into_diagnostic()?;
+            if !input.trim().eq_ignore_ascii_case("y") {
+                println!("Aborted.");
+                return Ok(());
+            }
+        }
+
+        let mut count = 0;
+        for id in stale_ids {
+            if let Err(e) = tx_mgr.rollback_change(
+                id.clone(),
+                "Garbage collection of orphaned PENDING transaction".to_string(),
+            ) {
+                tracing::warn!("Failed to rollback tx {}: {}", id, e);
+            } else {
+                count += 1;
+            }
+        }
+
+        if count > 0 {
+            println!(
+                "{} Successfully cleaned up {} orphaned transaction(s).",
+                "DONE".green().bold(),
+                count
             );
         }
+    } else {
+        println!("Please specify a GC mode (e.g. --orphans)");
     }
+
     Ok(())
 }

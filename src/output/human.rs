@@ -15,9 +15,10 @@ pub struct DoctorReport<'a> {
     pub path_display: &'a str,
     pub path_kind: &'a str,
     pub is_wsl_mounted: bool,
-    pub embedding_model_status: &'a str,
-    pub completion_model_status: &'a str,
-    pub native_graph_status: &'a str,
+    pub embedding_model_status: String,
+    pub completion_model_status: String,
+    pub native_graph_status: String,
+    pub index_health: Vec<String>,
 }
 
 pub fn print_doctor_report(report: &DoctorReport) {
@@ -44,6 +45,13 @@ pub fn print_doctor_report(report: &DoctorReport) {
     println!("\nEmbedding Model:     {}", report.embedding_model_status);
     println!("Completion Model:    {}", report.completion_model_status);
     println!("Native Graph:        {}", report.native_graph_status);
+
+    if !report.index_health.is_empty() {
+        println!("\nIndex Health:");
+        for health in &report.index_health {
+            println!("  • {}", health);
+        }
+    }
 }
 
 pub fn print_scan_summary(snapshot: &crate::git::RepoSnapshot) {

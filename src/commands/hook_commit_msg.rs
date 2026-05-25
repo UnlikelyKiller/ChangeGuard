@@ -23,6 +23,7 @@ pub struct PendingHookTx {
     pub commit_msg_hash: String,
     pub summary: String,
     pub reason: String,
+    pub committed_at: Option<String>,
     pub risk: Option<String>,
     pub related_tickets: Option<String>,
     pub signature: Option<String>,
@@ -167,31 +168,12 @@ pub fn execute_hook_commit_msg(msg_file: &Path) -> Result<()> {
     }
 
     // 5. Run LLM Drafter
-    eprintln!("[ChangeGuard] Drafting change intent via local LLM...");
-    let draft = draft_intent(&config.local_model, repo_root).unwrap_or_default();
+    let drafted_what;
+    let drafted_why;
+    let drafted_risk;
+    let drafted_related;
+    let confidence;
 
-    // Fill defaults from git if LLM returned empty
-    let drafted_what = if draft.what.is_empty() {
-        raw_commit_msg.lines().next().unwrap_or("").to_string()
-    } else {
-        draft.what
-    };
-    let drafted_why = if draft.why.is_empty() {
-        raw_commit_msg.clone()
-    } else {
-        draft.why
-    };
-    let drafted_risk = if draft.risk.is_empty() {
-        if is_trivial {
-            "TRIVIAL".to_string()
-        } else {
-            "MEDIUM".to_string()
-        }
-    } else {
-        draft.risk
-    };
-
-    // 6. Check if we can commit silently (confidence >= 0.85)
     let is_terminal = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
     let term_env = std::env::var("TERM").unwrap_or_default();
     let env_no_tui = term_env == "dumb"
@@ -210,10 +192,72 @@ pub fn execute_hook_commit_msg(msg_file: &Path) -> Result<()> {
         || std::env::var("ANTIGRAVITY_AGENT")
             .map(|v| v == "true" || v == "1")
             .unwrap_or(false);
+
+    // Fast-path bypass for well-formed conventional commits
+    if is_well_formed_conventional(&raw_commit_msg) {
+        eprintln!(
+            "[ChangeGuard] Well-formed conventional commit detected; skipping LLM intent drafting."
+        );
+        let lines: Vec<&str> = raw_commit_msg.lines().collect();
+        drafted_what = lines[0].trim().to_string();
+        drafted_why = lines
+            .iter()
+            .skip(1)
+            .copied()
+            .collect::<Vec<&str>>()
+            .join("\n")
+            .trim()
+            .to_string();
+        let category = parse_category_from_message(&drafted_what);
+        drafted_risk = risk_from_category(category).to_string();
+        drafted_related = Vec::new();
+        confidence = 1.0;
+    } else {
+        eprintln!("[ChangeGuard] Drafting change intent via local LLM...");
+
+        let spinner = if is_terminal && !env_no_tui {
+            Some(crate::ui::spinner::Spinner::new(
+                "Drafting change intent via local LLM...",
+            ))
+        } else {
+            None
+        };
+
+        let draft = draft_intent(&config.local_model, repo_root).unwrap_or_default();
+
+        if let Some(s) = spinner {
+            s.finish();
+        }
+
+        // Fill defaults from git if LLM returned empty
+        drafted_what = if draft.what.is_empty() {
+            raw_commit_msg.lines().next().unwrap_or("").to_string()
+        } else {
+            draft.what
+        };
+        drafted_why = if draft.why.is_empty() {
+            raw_commit_msg.clone()
+        } else {
+            draft.why
+        };
+        drafted_risk = if draft.risk.is_empty() {
+            if is_trivial {
+                "TRIVIAL".to_string()
+            } else {
+                "MEDIUM".to_string()
+            }
+        } else {
+            draft.risk
+        };
+        drafted_related = draft.related;
+        confidence = draft.confidence;
+    }
+
+    // 6. Check if we can commit silently (confidence >= 0.85)
     let tui_allowed = config.intent.tui_enabled && is_terminal && !env_no_tui;
 
-    if draft.confidence >= 0.85 || !tui_allowed {
-        if draft.confidence >= 0.85 {
+    if confidence >= 0.85 || !tui_allowed {
+        if confidence >= 0.85 {
             eprintln!("[ChangeGuard] High-confidence intent drafted silently.");
         } else {
             eprintln!("[ChangeGuard] Non-interactive shell detected; committing silently.");
@@ -225,13 +269,13 @@ pub fn execute_hook_commit_msg(msg_file: &Path) -> Result<()> {
             what: &drafted_what,
             why: &drafted_why,
             risk: &drafted_risk,
-            related: draft.related.clone(),
+            related: drafted_related,
             related_files: &related_files,
             raw_commit_msg: &raw_commit_msg,
         })?;
 
         // Update commit message file if LLM refined it
-        if draft.confidence >= 0.85 && !drafted_what.is_empty() {
+        if confidence >= 0.85 && !drafted_what.is_empty() {
             let trailers = extract_trailers(&raw_commit_msg);
             let updated_msg = if trailers.is_empty() {
                 format!("{}\n\n{}", drafted_what, drafted_why)
@@ -253,8 +297,8 @@ pub fn execute_hook_commit_msg(msg_file: &Path) -> Result<()> {
         drafted_what,
         drafted_why,
         drafted_risk,
-        draft.related.clone(),
-        draft.confidence,
+        drafted_related,
+        confidence,
     );
 
     if let Some(final_state) = run_tui(initial_state).into_diagnostic()? {
@@ -374,6 +418,7 @@ fn silently_record_ledger(args: SilentRecordArgs) -> Result<()> {
         commit_msg_hash: hash_message(&crate::util::text::clean_commit_msg(args.raw_commit_msg)),
         summary: args.what.to_string(),
         reason: args.why.to_string(),
+        committed_at: Some(committed_at),
         risk: Some(args.risk.to_string()),
         related_tickets: Some(combined_related),
         signature,
@@ -411,6 +456,31 @@ pub fn is_trivial_commit(msg: &str) -> bool {
         || msg_lower.starts_with("docs:")
         || msg_lower.starts_with("style:")
         || msg_lower.starts_with("test:")
+}
+
+pub fn is_well_formed_conventional(msg: &str) -> bool {
+    let lines: Vec<&str> = msg.lines().collect();
+    if lines.is_empty() {
+        return false;
+    }
+    let subject = lines[0].trim();
+
+    // Standard conventional commit prefixes
+    let prefixes = [
+        "feat", "fix", "chore", "docs", "refactor", "perf", "ci", "build", "test", "revert",
+        "style",
+    ];
+
+    let has_prefix = prefixes.iter().any(|&p| {
+        subject.starts_with(p)
+            && (subject[p.len()..].starts_with(':') || subject[p.len()..].starts_with('('))
+            && subject.contains(':')
+    });
+
+    // Also require a body for "well-formed" bypass to ensure sufficient intent
+    let has_body = lines.iter().skip(1).any(|l| !l.trim().is_empty());
+
+    has_prefix && has_body
 }
 
 fn are_files_trivial(files: &[String]) -> bool {
@@ -466,5 +536,13 @@ pub fn parse_category_from_message(msg: &str) -> Category {
             msg
         );
         Category::Chore
+    }
+}
+
+pub fn risk_from_category(cat: Category) -> &'static str {
+    match cat {
+        Category::Architecture | Category::Feature | Category::Bugfix | Category::Infra => "HIGH",
+        Category::Refactor | Category::Tooling => "MEDIUM",
+        Category::Docs | Category::Chore => "TRIVIAL",
     }
 }

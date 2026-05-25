@@ -55,6 +55,7 @@ pub enum EntryType {
     Architecture,
     Lesson,
     Reconciliation,
+    Rollback,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
@@ -95,6 +96,7 @@ pub struct CommitRequest {
     pub summary: String,
     pub reason: String,
     pub is_breaking: bool,
+    pub committed_at: Option<String>,
     pub verification_status: Option<VerificationStatus>,
     pub verification_basis: Option<VerificationBasis>,
     pub outcome_notes: Option<String>,

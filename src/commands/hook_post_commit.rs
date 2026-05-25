@@ -13,6 +13,7 @@ pub struct PendingHookTx {
     pub commit_msg_hash: String,
     pub summary: String,
     pub reason: String,
+    pub committed_at: Option<String>,
     pub risk: Option<String>,
     pub related_tickets: Option<String>,
     pub signature: Option<String>,
@@ -70,6 +71,7 @@ pub fn execute_hook_post_commit() -> Result<()> {
         reason: pending.reason,
         change_type: ChangeType::Modify,
         is_breaking: false,
+        committed_at: pending.committed_at,
         verification_status,
         verification_basis: Some(VerificationBasis::ManualInspection),
         outcome_notes: None,
@@ -90,7 +92,10 @@ pub fn execute_hook_post_commit() -> Result<()> {
                 "[ChangeGuard] Post-commit hook failed to promote ledger entry: {}",
                 e
             );
-            let _ = tx_mgr.rollback_change(pending.tx_id);
+            let _ = tx_mgr.rollback_change(
+                pending.tx_id,
+                "Rollback due to promotion failure".to_string(),
+            );
             let _ = fs::remove_file(sidecar_path);
             Err(miette!("{}", e))
         }

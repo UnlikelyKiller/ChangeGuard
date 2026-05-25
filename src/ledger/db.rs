@@ -131,6 +131,29 @@ impl<'a> LedgerDb<'a> {
         Ok(count)
     }
 
+    pub fn get_stale_pending_transactions(
+        &self,
+        ttl_days: u64,
+    ) -> Result<Vec<String>, LedgerError> {
+        let threshold = (chrono::Utc::now() - chrono::Duration::days(ttl_days as i64)).to_rfc3339();
+        let mut stmt = self.conn.prepare(
+            "SELECT tx_id FROM transactions WHERE status = 'PENDING' AND started_at < ?1",
+        )?;
+        let ids = stmt
+            .query_map([threshold], |row| row.get(0))?
+            .collect::<rusqlite::Result<Vec<String>>>()?;
+        Ok(ids)
+    }
+
+    pub fn delete_stale_pending_transactions(&self, ttl_days: u64) -> Result<usize, LedgerError> {
+        let threshold = (chrono::Utc::now() - chrono::Duration::days(ttl_days as i64)).to_rfc3339();
+        let count = self.conn.execute(
+            "DELETE FROM transactions WHERE status = 'PENDING' AND started_at < ?1",
+            params![threshold],
+        )?;
+        Ok(count)
+    }
+
     pub fn update_transaction_status_bulk(
         &self,
         tx_ids: &[String],

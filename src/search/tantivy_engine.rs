@@ -110,16 +110,51 @@ impl TantivySearchEngine {
         let searcher = self.reader.searcher();
         let content_field = self.schema.get_field("content").into_diagnostic()?;
         let path_field = self.schema.get_field("path").into_diagnostic()?;
+        let trigrams_field = self.schema.get_field("trigrams").into_diagnostic()?;
         let line_count_field = self.schema.get_field("line_count").into_diagnostic()?;
 
+        // 1. Trigram Pre-filtering
+        // If the query is alphanumeric (likely a symbol or keyword), use trigrams to prune noisy matches.
+        let mut pre_filter_query: Option<Box<dyn tantivy::query::Query>> = None;
+        if query_str.len() >= 3 && query_str.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            let tgrams = crate::search::trigram::extract_trigrams(query_str);
+            if !tgrams.is_empty() {
+                let mut subqueries: Vec<(tantivy::query::Occur, Box<dyn tantivy::query::Query>)> =
+                    Vec::new();
+                for t in tgrams {
+                    let term = Term::from_field_text(trigrams_field, &t.to_lowercase());
+                    subqueries.push((
+                        tantivy::query::Occur::Must,
+                        Box::new(tantivy::query::TermQuery::new(
+                            term,
+                            IndexRecordOption::Basic,
+                        )),
+                    ));
+                }
+                pre_filter_query = Some(Box::new(tantivy::query::BooleanQuery::new(subqueries)));
+            }
+        }
+
+        // 2. Standard BM25 Ranking
         let query_parser = QueryParser::for_index(&self.index, vec![content_field, path_field]);
-        let query = query_parser.parse_query(query_str).into_diagnostic()?;
+        let bm25_query = query_parser.parse_query(query_str).into_diagnostic()?;
+
+        // Combined query: (Trigrams SHOULD match) AND (BM25 ranking)
+        let final_query: Box<dyn tantivy::query::Query> = if let Some(trigram_q) = pre_filter_query
+        {
+            Box::new(tantivy::query::BooleanQuery::new(vec![
+                (tantivy::query::Occur::Should, trigram_q),
+                (tantivy::query::Occur::Must, bm25_query),
+            ]))
+        } else {
+            bm25_query
+        };
 
         let snippet_generator =
-            SnippetGenerator::create(&searcher, &*query, content_field).into_diagnostic()?;
+            SnippetGenerator::create(&searcher, &*final_query, content_field).into_diagnostic()?;
 
         let top_docs = searcher
-            .search(&query, &TopDocs::with_limit(limit).order_by_score())
+            .search(&final_query, &TopDocs::with_limit(limit).order_by_score())
             .into_diagnostic()?;
 
         let mut results = Vec::new();

@@ -43,7 +43,7 @@ pub fn execute_ask(
         storage
     };
 
-    let (mut latest_packet, is_global) = match storage.get_latest_packet()? {
+    let (mut latest_packet, mut is_global) = match storage.get_latest_packet()? {
         Some(pkt) => (pkt, false),
         None => {
             tracing::info!(
@@ -52,6 +52,12 @@ pub fn execute_ask(
             (crate::impact::packet::ImpactPacket::default(), true)
         }
     };
+
+    // If the latest packet exists but contains no changes, it's effectively a global query context
+    if !is_global && latest_packet.changes.is_empty() {
+        tracing::debug!("Latest impact packet is clean (no changes) — defaulting to global mode.");
+        is_global = true;
+    }
 
     // 1. Integrate external AI-Brains context
     if let Some(ref q) = query

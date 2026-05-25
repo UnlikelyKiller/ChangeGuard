@@ -1,5 +1,6 @@
 use camino::Utf8PathBuf;
 use miette::{IntoDiagnostic, Result};
+use owo_colors::OwoColorize;
 use std::fs;
 
 use crate::commands::helpers::{get_layout, load_ledger_config};
@@ -23,7 +24,27 @@ pub fn execute_ledger_adr(output_dir: Option<Utf8PathBuf>, days: Option<u64>) ->
         .map_err(|e| miette::miette!("{}", e))?;
 
     if entries.is_empty() {
-        println!("No architectural decisions found to export.");
+        println!(
+            "{}",
+            "No architectural decisions found to export."
+                .yellow()
+                .bold()
+        );
+        println!(
+            "\n{}",
+            "HINT: ADRs are generated from ledger entries that:".cyan()
+        );
+        println!("  1. Have the {} category", "ARCHITECTURE".bold());
+        println!("  2. Are marked as {} changes", "breaking".bold());
+        println!("\nHow to create an ADR:");
+        println!(
+            "  {} ledger start src/arch/decision.md --category architecture --message \"Intent...\"",
+            "changeguard".bold()
+        );
+        println!(
+            "  {} ledger commit --summary \"Final Summary\" --reason \"The architectural rationale...\"",
+            "changeguard".bold()
+        );
         return Ok(());
     }
 

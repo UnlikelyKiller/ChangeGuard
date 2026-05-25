@@ -94,7 +94,7 @@ fn test_ledger_start_rollback() {
         .unwrap();
 
     tx_mgr
-        .rollback_change(tx_id.clone())
+        .rollback_change(tx_id.clone(), "test rollback".to_string())
         .expect("Should rollback");
 
     let tx = tx_mgr

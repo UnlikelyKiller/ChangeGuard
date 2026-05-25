@@ -48,6 +48,20 @@ fn update_binary() -> Result<()> {
 
     info!("Detected local source repository. Running 'cargo install --path .'");
 
+    // Check if the target binary is locked before starting the build
+    if let Ok(bin_path) = env::current_exe() {
+        if let Err(_) = std::fs::OpenOptions::new().write(true).open(&bin_path) {
+            println!(
+                "{}",
+                "Warning: ChangeGuard binary is currently locked by another process.".yellow()
+            );
+            println!(
+                "Please close any other running instances or daemon processes before continuing."
+            );
+            println!("(Attempting shadow-copy anyway...)");
+        }
+    }
+
     // --- H4: Windows shadow-copy ---
     // On Windows the running executable is locked by the OS. We rename it to
     // `<name>.old` so that the file handle is still valid (Windows allows

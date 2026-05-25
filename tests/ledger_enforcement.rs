@@ -707,7 +707,9 @@ fn test_verification_gate_blocks_high_risk_categories() {
         }
 
         // Clean up: rollback so we can reuse the entity
-        tx_mgr.rollback_change(tx_id).unwrap();
+        tx_mgr
+            .rollback_change(tx_id, "test rollback".to_string())
+            .unwrap();
     }
 }
 

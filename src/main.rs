@@ -19,10 +19,30 @@ fn build_log_filter(verbose: bool) -> EnvFilter {
 }
 
 fn run() -> Result<()> {
+    // Intercept "help" and "version" subcommands ONLY if they are the first
+    // positional argument to unify behavior without breaking legitimate
+    // positional values or subcommand args later in the string.
+    let args: Vec<String> = std::env::args().collect();
+    let mut transformed = Vec::with_capacity(args.len());
+
+    for (i, arg) in args.iter().enumerate() {
+        if i == 1 {
+            match arg.as_str() {
+                "help" => transformed.push("--help".to_string()),
+                "version" => transformed.push("--version".to_string()),
+                _ => transformed.push(arg.clone()),
+            }
+        } else {
+            transformed.push(arg.clone());
+        }
+    }
+
+    let args = transformed;
+
     // Parse CLI args once here so we can read the verbose flag before
     // initializing the logger.  cli::run_with(cli) reuses the parsed struct,
     // avoiding a second parse.
-    let cli_args = Cli::parse();
+    let cli_args = Cli::parse_from(args);
     let verbose = cli_args.verbose;
 
     tracing_subscriber::registry()

@@ -11,6 +11,7 @@ use std::path::PathBuf;
 #[command(name = "changeguard")]
 #[command(about = "Change Intelligence and Transactional Provenance for Software Engineering", long_about = None)]
 #[command(version)]
+#[command(disable_help_subcommand = true)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -231,7 +232,11 @@ pub enum Commands {
     /// Perform a holistic project audit or history for an entity
     Audit {
         /// Entity path to audit (e.g. src/main.rs)
+        #[arg(short, long)]
         entity: Option<String>,
+        /// Entity path to audit (positional fallback)
+        #[arg(hide = true)]
+        pos_entity: Option<String>,
         /// Include unaudited drift in the report
         #[arg(long, short)]
         include_unaudited: bool,
@@ -250,6 +255,15 @@ pub enum Commands {
         /// Custom output path for the HTML file
         #[arg(long, short, alias = "out")]
         output: Option<String>,
+        /// Maximum number of nodes to include
+        #[arg(long, short, default_value_t = 1000)]
+        limit: usize,
+        /// Maximum depth for relationship traversal
+        #[arg(long, short, default_value_t = 2)]
+        depth: usize,
+        /// Filter by specific entity (root of the graph)
+        #[arg(long, short)]
+        entity: Option<String>,
     },
     /// Update ChangeGuard binary or migrate repository state
     #[command(visible_alias = "upgrade")]
@@ -428,6 +442,9 @@ pub enum LedgerCommands {
     Rollback {
         /// Transaction ID to rollback (optional, defaults to current)
         tx_id: Option<String>,
+        /// Reason for the rollback
+        #[arg(short, long)]
+        reason: String,
     },
     /// Record a surgical atomic change without a full session
     Atomic {
@@ -527,7 +544,11 @@ pub enum LedgerCommands {
     /// Perform a holistic project audit or history for an entity
     Audit {
         /// Entity path to audit (e.g. src/main.rs)
+        #[arg(short, long)]
         entity: Option<String>,
+        /// Entity path to audit (positional fallback)
+        #[arg(hide = true)]
+        pos_entity: Option<String>,
         /// Include unaudited drift in the report
         #[arg(long, short)]
         include_unaudited: bool,
@@ -540,6 +561,18 @@ pub enum LedgerCommands {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+    },
+    /// Garbage collect orphaned or stale ledger entries
+    Gc {
+        /// Identify and remove orphaned PENDING transactions
+        #[arg(long)]
+        orphans: bool,
+        /// Time-to-live for PENDING transactions in days
+        #[arg(long, default_value_t = 7)]
+        ttl_days: u64,
+        /// Force removal without confirmation
+        #[arg(short, long)]
+        force: bool,
     },
 }
 
@@ -693,8 +726,8 @@ pub fn run_with(cli: Cli) -> Result<()> {
                 reason,
                 breaking,
             } => crate::commands::ledger::execute_ledger_commit(tx_id, &summary, &reason, breaking),
-            LedgerCommands::Rollback { tx_id } => {
-                crate::commands::ledger::execute_ledger_rollback(tx_id)
+            LedgerCommands::Rollback { tx_id, reason } => {
+                crate::commands::ledger::execute_ledger_rollback(tx_id, reason)
             }
             LedgerCommands::Atomic {
                 entity,
@@ -769,17 +802,23 @@ pub fn run_with(cli: Cli) -> Result<()> {
             ),
             LedgerCommands::Audit {
                 entity,
+                pos_entity,
                 include_unaudited,
                 limit,
                 offset,
                 json,
             } => crate::commands::ledger_audit::execute_ledger_audit(
-                entity,
+                entity.or(pos_entity),
                 include_unaudited,
                 limit,
                 offset,
                 json,
             ),
+            LedgerCommands::Gc {
+                orphans,
+                ttl_days,
+                force,
+            } => crate::commands::ledger::execute_ledger_gc(orphans, ttl_days, force),
         },
         Commands::Verify {
             command,
@@ -837,9 +876,14 @@ pub fn run_with(cli: Cli) -> Result<()> {
             limit,
             auto_index,
         } => crate::commands::dead_code::execute_dead_code(threshold, limit, auto_index),
-        Commands::Viz { output } => {
+        Commands::Viz {
+            output,
+            limit,
+            depth,
+            entity,
+        } => {
             let path = output.map(std::path::PathBuf::from);
-            crate::commands::viz::execute_viz(path)
+            crate::commands::viz::execute_viz(path, limit, depth, entity)
         }
         Commands::Update {
             migrate,
@@ -857,12 +901,13 @@ pub fn run_with(cli: Cli) -> Result<()> {
         }
         Commands::Audit {
             entity,
+            pos_entity,
             include_unaudited,
             limit,
             offset,
             json,
         } => crate::commands::ledger_audit::execute_ledger_audit(
-            entity,
+            entity.or(pos_entity),
             include_unaudited,
             limit,
             offset,
