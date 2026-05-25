@@ -24,6 +24,12 @@ Run a non-interactive read-only review:
 codex exec -C "C:\dev\ChangeGuard" -s read-only -m gpt-5.4 -o review.md "Review the current phase of work. Compare the current git diff against the base branch, identify bugs, regressions, missing tests, risky patterns, and unclear assumptions. Do not modify files. Give findings ordered by severity (critical/high/medium/low), then list the most important follow-up checks."
 ```
 
+> [!IMPORTANT]
+> **Non-Interactive / Piped Stdin Environments (CI, Scripting, Agent Sandboxes):**
+> Codex exec tries to read from stdin if it is not a terminal. In automated/piped environments, this will block. To prevent this, redirect standard input from the null device:
+> - **Windows (PowerShell/CMD):** Append `< NUL` (e.g. `cmd /c 'codex exec ... < NUL'`)
+> - **Unix (Bash/zsh):** Append `< /dev/null`
+
 Key flags:
 
 | Flag | Purpose |

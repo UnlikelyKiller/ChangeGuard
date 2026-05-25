@@ -6,11 +6,15 @@ use miette::{IntoDiagnostic, Result};
 use owo_colors::OwoColorize;
 use std::env;
 use std::process::Command;
+use sysinfo::System;
 use tracing::info;
 
 const IGNORE_PATTERNS: &[&str] = &[".changeguard/"];
 
-pub fn execute_update(migrate: bool, binary: bool, force: bool) -> Result<()> {
+pub fn execute_update(migrate: bool, binary: bool, force: bool, force_unlock: bool) -> Result<()> {
+    if force_unlock {
+        force_unlock_cozo()?;
+    }
     if binary {
         update_binary()?;
     }
@@ -63,12 +67,16 @@ fn update_binary() -> Result<()> {
 
         // Attempt to clean up the .old file now that the new binary is in place.
         if let Some(ref old_path) = old_path_opt {
-            if let Err(e) = std::fs::remove_file(old_path) {
+            if let Err(_e) = std::fs::remove_file(old_path) {
+                // On Windows, deleting the running shadow copy usually fails with Access Denied.
+                // We silently ignore it here because `sweep_stale_old_binaries()` in main.rs
+                // will clean it up on the next execution.
+                #[cfg(not(target_os = "windows"))]
                 println!(
                     "{}",
                     format!(
                         "[CLEANUP] Could not remove old binary {:?}: {}. You may delete it manually.",
-                        old_path, e
+                        old_path, _e
                     )
                     .yellow()
                 );
@@ -109,10 +117,10 @@ fn shadow_copy_current_exe() -> Option<std::path::PathBuf> {
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("exe");
-        
+
         let timestamp = chrono::Utc::now().format("%Y%m%d%H%M%S").to_string();
         old_path.set_file_name(format!("{stem}.old.{timestamp}.{ext}"));
-        
+
         if let Err(e) = std::fs::rename(&current, &old_path) {
             tracing::warn!("Failed to shadow-copy binary to {:?}: {}", old_path, e);
             return None;
@@ -176,7 +184,7 @@ fn hard_migrate(layout: &Layout) -> Result<()> {
 
     layout.ensure_state_dir()?;
 
-    // Wipe Knowledge Graph (CozoDB sled store)
+    // Wipe Knowledge Graph (CozoDB sqlite store)
     let cozo_path = layout.state_subdir().join("ledger.cozo");
     if cozo_path.exists() {
         info!("Removing Knowledge Graph at {:?}", cozo_path);
@@ -273,6 +281,52 @@ fn get_repo_root() -> Result<Utf8PathBuf> {
         .map_err(|_| miette::miette!("Repository root is not valid UTF-8"))
 }
 
+fn force_unlock_cozo() -> Result<()> {
+    println!(
+        "{}",
+        "Attempting to release CozoDB file locks by terminating other ChangeGuard processes..."
+            .cyan()
+    );
+
+    let mut sys = System::new_all();
+    sys.refresh_all();
+
+    let current_pid = std::process::id();
+    let mut killed_count = 0;
+
+    for (pid, process) in sys.processes() {
+        let name_str = process.name().to_string_lossy();
+        let name = name_str.to_lowercase();
+        if (name.contains("changeguard") || name.contains("changeguard.exe"))
+            && pid.as_u32() != current_pid
+        {
+            println!(
+                "Found running ChangeGuard process: PID {} ({}) - Terminating...",
+                pid, name_str
+            );
+            process.kill();
+            killed_count += 1;
+        }
+    }
+
+    if killed_count > 0 {
+        println!(
+            "{}",
+            format!(
+                "Successfully terminated {} background process(es).",
+                killed_count
+            )
+            .green()
+        );
+    } else {
+        println!(
+            "No other running ChangeGuard processes found. File lock might be held by OS filesystem cache or another tool."
+        );
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -319,7 +373,7 @@ mod tests {
     #[test]
     fn test_execute_update_no_flags_prints_hint() {
         // Without any flag, execute_update should print the hint and not error.
-        let result = execute_update(false, false, false);
+        let result = execute_update(false, false, false, false);
         assert!(result.is_ok(), "no-flag invocation should succeed");
     }
 }

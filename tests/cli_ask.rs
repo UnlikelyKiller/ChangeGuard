@@ -25,12 +25,12 @@ fn test_ask_command_no_packet() {
 
     let layout = Layout::new(root);
     layout.ensure_state_dir().unwrap();
-    
+
     // We must init the storage so it can be queried, even if there's no packet.
     // If it's totally missing, execute_ask will try to create it.
     // We expect it to succeed now (fallback to global mode) instead of erroring out.
     // However, it will fail when trying to connect to Gemini/Local if no config is set.
-    // We'll write a dummy config to trigger a specific error later in the chain, 
+    // We'll write a dummy config to trigger a specific error later in the chain,
     // proving it got past the "No impact report" check.
 
     fs::write(layout.config_file(), "[gemini]\nfast_model = \"dummy\"\n").unwrap();
@@ -44,12 +44,15 @@ fn test_ask_command_no_packet() {
         None,  // backend
         false, // auto_index
     );
-    
+
     // It should NOT fail with "No impact report found" anymore.
     // Depending on the test environment, it might fail to reach Gemini or the local model.
     if let Err(e) = result {
         let err_str = e.to_string();
-        assert!(!err_str.contains("No impact report found"), "Should fallback to global mode");
+        assert!(
+            !err_str.contains("No impact report found"),
+            "Should fallback to global mode"
+        );
     }
 }
 

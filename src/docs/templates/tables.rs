@@ -18,9 +18,7 @@ impl DocTemplate for SymbolTableTemplate {
 
     fn generate(&self, storage: &CozoStorage, output_dir: &Utf8Path) -> Result<Utf8PathBuf> {
         let rows = query_symbol_table(storage)?;
-        let mut lines = Vec::new();
-        lines.push("# Symbol Table".to_string());
-        lines.push(String::new());
+        let mut lines = vec!["# Symbol Table".to_string(), String::new()];
 
         let mut current_file: Option<&str> = None;
         const MAX_ROWS: usize = 10_000;
@@ -76,14 +74,13 @@ impl DocTemplate for SymbolIndexTemplate {
 
     fn generate(&self, storage: &CozoStorage, output_dir: &Utf8Path) -> Result<Utf8PathBuf> {
         let rows = query_symbol_table(storage)?;
-        let mut lines = Vec::new();
-        lines.push("# Symbol Index".to_string());
-        lines.push(String::new());
-        lines.push(
+        let mut lines = vec![
+            "# Symbol Index".to_string(),
+            String::new(),
             "| Qualified Name | Symbol Name | Kind | File Path | Line Start | Line End | Public |"
                 .to_string(),
-        );
-        lines.push("|---|---|---|---|---|---|---|".to_string());
+            "|---|---|---|---|---|---|---|".to_string(),
+        ];
 
         for row in rows {
             let public_str = if row.is_public { "Yes" } else { "No" };
@@ -120,7 +117,7 @@ impl DocTemplate for ApiContractIndexTemplate {
         let content =
             "# API Contract Index\n\n*API documentation pending metadata extraction logic.*\n";
         let path = output_dir.join("api_contract_index.md");
-        write_file(&path, &content)?;
+        write_file(&path, content)?;
         Ok(path)
     }
 }

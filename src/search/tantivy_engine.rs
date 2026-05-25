@@ -108,9 +108,9 @@ impl TantivySearchEngine {
 
     pub fn search(&self, query_str: &str, limit: usize) -> Result<Vec<SearchResult>> {
         let searcher = self.reader.searcher();
-        let content_field = self.schema.get_field("content").unwrap();
-        let path_field = self.schema.get_field("path").unwrap();
-        let line_count_field = self.schema.get_field("line_count").unwrap();
+        let content_field = self.schema.get_field("content").into_diagnostic()?;
+        let path_field = self.schema.get_field("path").into_diagnostic()?;
+        let line_count_field = self.schema.get_field("line_count").into_diagnostic()?;
 
         let query_parser = QueryParser::for_index(&self.index, vec![content_field, path_field]);
         let query = query_parser.parse_query(query_str).into_diagnostic()?;
@@ -183,8 +183,8 @@ impl TantivySearchEngine {
         use tantivy::query::TermQuery;
 
         let searcher = self.reader.searcher();
-        let trigrams_field = self.schema.get_field("trigrams").unwrap();
-        let path_field = self.schema.get_field("path").unwrap();
+        let trigrams_field = self.schema.get_field("trigrams").into_diagnostic()?;
+        let path_field = self.schema.get_field("path").into_diagnostic()?;
 
         let mut subqueries: Vec<(tantivy::query::Occur, Box<dyn tantivy::query::Query>)> =
             Vec::new();
@@ -222,7 +222,7 @@ impl TantivySearchEngine {
         use tantivy::query::AllQuery;
 
         let searcher = self.reader.searcher();
-        let path_field = self.schema.get_field("path").unwrap();
+        let path_field = self.schema.get_field("path").into_diagnostic()?;
 
         let top_docs = searcher
             .search(&AllQuery, &TopDocs::with_limit(limit).order_by_score())

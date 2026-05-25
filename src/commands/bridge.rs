@@ -9,6 +9,12 @@ pub enum BridgeCommands {
         /// Output path
         #[arg(long, short)]
         out: Option<String>,
+        /// Print to stdout instead of writing to a file
+        #[arg(long)]
+        stdout: bool,
+        /// Pretty print JSON output
+        #[arg(long)]
+        pretty: bool,
         /// Include hotspots
         #[arg(long)]
         hotspots: bool,
@@ -42,6 +48,8 @@ pub fn execute(command: BridgeCommands) -> Result<()> {
     match command {
         BridgeCommands::Export {
             out,
+            stdout,
+            pretty,
             hotspots,
             ledger,
             scope,
@@ -51,6 +59,8 @@ pub fn execute(command: BridgeCommands) -> Result<()> {
             let scope_vec = scope.map(|s| s.split(',').map(|p| p.trim().to_string()).collect());
             let args = ExportArgs {
                 out_path: out,
+                stdout,
+                pretty,
                 hotspots,
                 ledger,
                 scope: scope_vec,

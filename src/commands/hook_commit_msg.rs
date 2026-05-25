@@ -134,6 +134,12 @@ pub fn execute_hook_commit_msg(msg_file: &Path) -> Result<()> {
     let related_files = staged_files.join(", ");
 
     // 3. Read current commit message
+    if !msg_file.exists() {
+        return Err(miette::miette!(
+            "Commit message file does not exist at '{}'",
+            msg_file.display()
+        ));
+    }
     let raw_commit_msg = fs::read_to_string(msg_file)
         .into_diagnostic()?
         .trim()

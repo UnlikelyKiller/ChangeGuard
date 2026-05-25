@@ -1003,6 +1003,96 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Goal: Support entity-based lookups for `ledger commit` and general CLI output cleanup.
     *   Key additions: Entity name resolution for transactions in `transaction.rs`.
 
+## Milestone HP: High-Performance & Optimization
+
+*   **Track HP1: Fast Network Seams & Non-Blocking TCP Connect Probes**
+    *   Status: Completed
+    *   Spec: `conductor/trackHP1/spec.md`
+    *   Plan: `conductor/trackHP1/plan.md`
+    *   Goal: Accelerate model connection probes and AI-Brains integrations with non-blocking socket checks.
+
+*   **Track HP2: Parallelized AST Chunk Ingestion & Embedding Generation**
+    *   Status: Completed
+    *   Spec: `conductor/trackHP2/spec.md`
+    *   Plan: `conductor/trackHP2/plan.md`
+    *   Goal: Parallelize Tree-Sitter parsing and embedding client queries during full indexing runs.
+
+*   **Track HP3: Cached Vector Nodes & Incremental HNSW Appends**
+    *   Status: Completed
+    *   Spec: `conductor/trackHP3/spec.md`
+    *   Plan: `conductor/trackHP3/plan.md`
+    *   Goal: Cache vector graphs on disk to support fast, incremental append-only writes to the HNSW store.
+
+*   **Track HP4: Snippet Ingestion Progress & HNSW Build UX**
+    *   Status: Completed
+    *   Spec: `conductor/trackHP4/spec.md`
+    *   Plan: `conductor/trackHP4/plan.md`
+    *   Goal: Build and display terminal progress bars during HNSW index construction.
+
+## Milestone SE: SQLite Storage Migration
+
+*   **Track SE1: SQLite Storage Engine Migration**
+    *   Status: Completed
+    *   Spec: `conductor/trackSE1/spec.md`
+    *   Plan: `conductor/trackSE1/plan.md`
+    *   Goal: Migrate default Knowledge Graph engine to SQLite, increment version to v0.1.1, and verify incremental tests.
+
+## Milestone CR: Codex Review Remediation
+
+*   **Track CR1: Incremental Semantic Indexing Deletions**
+    *   Status: Planned
+    *   Spec: `conductor/trackCR1/spec.md`
+    *   Plan: `conductor/trackCR1/plan.md`
+    *   Goal: Prune stale embeddings and file hashes during incremental indexing when a file is deleted.
+
+*   **Track CR2: Enforce Signature Verification Failures**
+    *   Status: Planned
+    *   Spec: `conductor/trackCR2/spec.md`
+    *   Plan: `conductor/trackCR2/plan.md`
+    *   Goal: Enforce that signature verification checks return a non-zero exit code on unsigned committed entries.
+
+*   **Track CR3: Calibrate AI-Brains Timeout & Local Model Probe**
+    *   Status: Planned
+    *   Spec: `conductor/trackCR3/spec.md`
+    *   Plan: `conductor/trackCR3/plan.md`
+    *   Goal: Increase safety timeout margins for AI-Brains CLI fallbacks and LLM TCP preflight socket probes.
+
+*   **Track CR4: Align Health Check Command Parsing**
+    *   Status: Planned
+    *   Spec: `conductor/trackCR4/spec.md`
+    *   Plan: `conductor/trackCR4/plan.md`
+    *   Goal: Unify command parsing logic between the health checker and the verification engine runner.
+
+*   **Track CR5: CLI & Process Hardening Test Coverage**
+    *   Status: Planned
+    *   Spec: `conductor/trackCR5/spec.md`
+    *   Plan: `conductor/trackCR5/plan.md`
+    *   Goal: Add tests for verify/config CLI flags and scope force-unlock process termination safely.
+
+*   **Track CR6: Strong Process Validation for Viz Server Stop**
+    *   Status: Planned
+    *   Spec: `conductor/trackCR6/spec.md`
+    *   Plan: `conductor/trackCR6/plan.md`
+    *   Goal: Validate the image name and executable path of target processes in viz-server stop before invoking taskkill.
+
+*   **Track CR7: Robust Global Ask Neighborhood Queries**
+    *   Status: Planned
+    *   Spec: `conductor/trackCR7/spec.md`
+    *   Plan: `conductor/trackCR7/plan.md`
+    *   Goal: Wire the Datalog neighborhood enrichment context to both the VectorStore and legacy chunk-pruner fallback paths in Global Ask.
+
+*   **Track CR8: Escape Symbol Names in Cozo Queries**
+    *   Status: Planned
+    *   Spec: `conductor/trackCR8/spec.md`
+    *   Plan: `conductor/trackCR8/plan.md`
+    *   Goal: Escape special characters (such as single quotes) in symbol names before interpolating them into Cozo DB queries.
+
+*   **Track CR9: Scope Windows Shadow Copies Cleanup**
+    *   Status: Planned
+    *   Spec: `conductor/trackCR9/spec.md`
+    *   Plan: `conductor/trackCR9/plan.md`
+    *   Goal: Refine the startup sweep for *.old.*.exe files in main.rs to only clean up files belonging specifically to the current ChangeGuard binary.
+
 ## Workflow
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.

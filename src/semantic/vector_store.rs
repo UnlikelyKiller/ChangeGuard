@@ -51,12 +51,11 @@ impl<'a> VectorStore<'a> {
 
             if !self.skip_hnsw {
                 self.rebuild_hnsw_index()?;
+                // --- Track 54-1: FTS Index for Snippets ---
+                self.storage.run_script(
+                    "::fts create snippet_embedding:fts_idx {extractor: name, tokenizer: Simple}",
+                )?;
             }
-
-            // --- Track 54-1: FTS Index for Snippets ---
-            self.storage.run_script(
-                "::fts create snippet_embedding:fts_idx {extractor: name, tokenizer: Simple}",
-            )?;
         } else {
             // Verify existing dimension
             if let Err(e) = self
@@ -97,6 +96,26 @@ impl<'a> VectorStore<'a> {
             return Ok(*count as usize);
         }
         Ok(0)
+    }
+
+    /// Expose the underlying storage reference for HP3 hash-tracking helpers.
+    pub fn storage_ref(&self) -> &CozoStorage {
+        self.storage
+    }
+
+    /// Remove all `snippet_embedding` rows for `file_path` (HP3 pruning).
+    pub fn remove_file_snippets(&self, file_path: &str) -> Result<()> {
+        let path_str = file_path.replace('\\', "/");
+        let escaped = path_str.replace('\'', "\\'");
+        let script = format!(
+            "paths[file_path] <- [['{}']]\n\
+             ?[file_path, name, line_offset] := paths[file_path], *snippet_embedding{{file_path, name, line_offset}}\n\
+             :rm snippet_embedding {{file_path, name, line_offset}}",
+            escaped
+        );
+        self.storage.run_script(&script)?;
+        tracing::debug!("Pruned snippets for deleted file: {}", file_path);
+        Ok(())
     }
 
     pub fn index_chunks(&self, chunks: Vec<AstChunk>, embeddings: Vec<Vec<f32>>) -> Result<()> {
@@ -140,11 +159,11 @@ impl<'a> VectorStore<'a> {
             } else {
                 tracing::warn!(
                     "Skipping snippet '{}' in '{}' due to invalid embedding (zero magnitude).",
-                    chunk.name, chunk.file_path
+                    chunk.name,
+                    chunk.file_path
                 );
             }
-            }
-
+        }
 
         if data_rows.is_empty() {
             return Ok(());
@@ -417,7 +436,7 @@ mod tests {
 
     #[test]
     fn normalize_regular_vector_has_unit_magnitude() {
-        let v = normalize_vector(vec![3.0_f32, 4.0_f32]);
+        let v = normalize_vector(vec![3.0_f32, 4.0_f32]).unwrap();
         let mag: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
         assert!(
             (mag - 1.0).abs() < 1e-5,
@@ -427,35 +446,31 @@ mod tests {
     }
 
     #[test]
-    fn normalize_zero_vector_returns_stable_unit_vector() {
+    fn normalize_zero_vector_returns_none() {
         let v = normalize_vector(vec![0.0_f32, 0.0_f32, 0.0_f32]);
-        assert_eq!(v[0], 1.0);
-        assert_eq!(v[1], 0.0);
-        assert_eq!(v[2], 0.0);
-        assert!(v.iter().all(|x| x.is_finite()));
+        assert!(v.is_none());
     }
 
     #[test]
-    fn normalize_nan_inputs_are_sanitized() {
-        let v = normalize_vector(vec![f32::NAN, 1.0_f32, 0.0_f32]);
+    fn normalize_nan_inputs_are_sanitized_to_valid_or_none() {
+        let v = normalize_vector(vec![f32::NAN, 1.0_f32, 0.0_f32]).unwrap();
         assert!(
             v.iter().all(|x| x.is_finite()),
             "all elements must be finite"
         );
+        assert_eq!(v[0], 0.0);
+        assert!((v[1] - 1.0).abs() < 1e-5);
     }
 
     #[test]
-    fn normalize_inf_inputs_are_sanitized() {
+    fn normalize_inf_inputs_are_sanitized_to_none() {
         let v = normalize_vector(vec![f32::INFINITY, 0.0_f32]);
-        assert!(
-            v.iter().all(|x| x.is_finite()),
-            "all elements must be finite"
-        );
+        assert!(v.is_none());
     }
 
     #[test]
     fn normalize_empty_vector_does_not_panic() {
         let v = normalize_vector(vec![]);
-        assert!(v.is_empty());
+        assert!(v.is_none());
     }
 }

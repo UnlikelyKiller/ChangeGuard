@@ -6,7 +6,7 @@ use std::time::Duration;
 use wait_timeout::ChildExt;
 
 pub fn query_external_cli(query: &str) -> Result<Vec<BridgeRecord>> {
-    let timeout = Duration::from_secs(5);
+    let timeout = Duration::from_millis(800);
 
     let mut child = match Command::new("ai-brains")
         .args(["sync", "query", query, "--format", "ndjson"])

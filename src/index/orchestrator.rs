@@ -172,7 +172,9 @@ impl ProjectIndexer {
         let mut files = Vec::new();
         for path_str in rows {
             let full_path = self.repo_path.join(&path_str);
-            if let Ok(content) = fs::read_to_string(&full_path) {
+            if let Ok(content) =
+                crate::util::fs::read_to_string_with_encoding(full_path.as_std_path())
+            {
                 files.push((PathBuf::from(full_path.as_str()), content));
             }
         }
@@ -186,7 +188,7 @@ impl ProjectIndexer {
         let now = chrono::Utc::now().to_rfc3339();
         let mut pf = ProjectFile {
             id: None,
-            file_path: relative.to_string(),
+            file_path: relative.to_string().replace('\\', "/"),
             language: relative
                 .extension()
                 .and_then(Language::from_extension)
@@ -233,7 +235,7 @@ impl ProjectIndexer {
             return Ok((project_file, project_symbols, Vec::new()));
         }
 
-        let content = match fs::read_to_string(path) {
+        let content = match crate::util::fs::read_to_string_with_encoding(path.as_std_path()) {
             Ok(c) => c,
             Err(e) => {
                 warn!("Failed to read file {} for call extraction: {}", path, e);
@@ -312,10 +314,11 @@ impl ProjectIndexer {
                 .unwrap_or(file_path)
                 .to_string();
 
-            let current_hash = match fs::read_to_string(file_path) {
-                Ok(c) => blake3::hash(c.as_bytes()).to_hex().to_string(),
-                Err(_) => continue,
-            };
+            let current_hash =
+                match crate::util::fs::read_to_string_with_encoding(file_path.as_std_path()) {
+                    Ok(c) => blake3::hash(c.as_bytes()).to_hex().to_string(),
+                    Err(_) => continue,
+                };
             let stored_hash: Option<String> = conn
                 .query_row(
                     "SELECT content_hash FROM project_files WHERE file_path = ?1",
@@ -356,7 +359,7 @@ impl ProjectIndexer {
             let now = chrono::Utc::now().to_rfc3339();
             let mut pf = ProjectFile {
                 id: None,
-                file_path: relative.to_string(),
+                file_path: relative.to_string().replace('\\', "/"),
                 language: relative
                     .extension()
                     .and_then(Language::from_extension)
@@ -454,7 +457,7 @@ impl ProjectIndexer {
             let now = chrono::Utc::now().to_rfc3339();
             let mut pf = ProjectFile {
                 id: None,
-                file_path: relative.to_string(),
+                file_path: relative.to_string().replace('\\', "/"),
                 language: relative
                     .extension()
                     .and_then(Language::from_extension)
@@ -750,7 +753,9 @@ impl ProjectIndexer {
                 .find(|(id, _, _)| id == file_id)
                 .and_then(|(_, _, lang)| lang.clone());
             let full_path = self.repo_path.join(&file_path);
-            let Ok(content) = fs::read_to_string(&full_path) else {
+            let Ok(content) =
+                crate::util::fs::read_to_string_with_encoding(full_path.as_std_path())
+            else {
                 continue;
             };
 

@@ -31,6 +31,14 @@ pub fn check_local_model(config: &LocalModelConfig) -> Result<Dimensions, String
 
     let url = config.embedding_url.as_deref().unwrap_or(&config.base_url);
 
+    // Fast connect probe check (timeout 150ms) to avoid hanging when offline
+    if !crate::util::network::is_url_reachable(url, Duration::from_millis(150)) {
+        return Err(format!(
+            "Local embedding model server at {} is unreachable",
+            url
+        ));
+    }
+
     let vectors = match embed_batch(url, &config.embedding_model, &["ping"], config.timeout_secs) {
         Ok(v) => v,
         Err(e) => {
@@ -138,6 +146,7 @@ pub fn embed_batch(
     });
 
     let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(std::cmp::min(timeout_secs, 5)))
         .timeout_read(Duration::from_secs(timeout_secs))
         .timeout_write(Duration::from_secs(30))
         .build();

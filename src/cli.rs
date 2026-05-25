@@ -1,6 +1,7 @@
 use crate::commands::ask::Backend;
 use crate::commands::bridge::BridgeCommands;
 use crate::commands::search::SearchArgs;
+use crate::ledger::types::Category;
 use clap::{Args, Parser, Subcommand};
 use miette::{IntoDiagnostic, Result};
 use std::env;
@@ -92,6 +93,9 @@ pub enum Commands {
         /// Strict mode for check (exit 1 if stale)
         #[arg(long)]
         strict: bool,
+        /// Number of parallel threads for semantic indexing (default: logical CPUs)
+        #[arg(long, short = 'j')]
+        concurrency: Option<usize>,
     },
     /// Search the codebase using high-performance regex or semantic search
     Search {
@@ -152,6 +156,12 @@ pub enum Commands {
         /// Show detailed health of the verification system
         #[arg(long)]
         health: bool,
+        /// Mathematically verify all transaction signatures in the ledger
+        #[arg(long)]
+        signatures: bool,
+        /// Show the verification plan without executing any commands
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Ask Gemini or a local model for assistance based on the current context
     Ask {
@@ -253,6 +263,21 @@ pub enum Commands {
         /// Skip confirmation prompts
         #[arg(long, short)]
         force: bool,
+        /// Force unlock CozoDB by terminating other running ChangeGuard processes
+        #[arg(long = "force-unlock")]
+        force_unlock: bool,
+    },
+    /// Watch repository for changes and run incremental graph sync
+    Watch {
+        /// Throttle interval in milliseconds for debouncing file events
+        #[arg(long, short, default_value_t = 1000)]
+        interval: u64,
+        /// Output watch events as JSON
+        #[arg(long, short)]
+        json: bool,
+        /// Disable Knowledge Graph sync during watch
+        #[arg(long = "no-graph-sync")]
+        no_graph_sync: bool,
     },
     /// High-performance trigram-based search (low-level)
     #[command(hide = true)]
@@ -380,7 +405,7 @@ pub enum LedgerCommands {
         entity: String,
         /// Category of change (FEATURE, BUGFIX, ARCHITECTURE, etc.)
         #[arg(short, long)]
-        category: String,
+        category: Category,
         /// Intent message for the change
         #[arg(short, long)]
         message: String,
@@ -410,7 +435,7 @@ pub enum LedgerCommands {
         entity: String,
         /// Category of change
         #[arg(short, long)]
-        category: String,
+        category: Category,
         /// Summary
         #[arg(short, long)]
         summary: String,
@@ -438,12 +463,12 @@ pub enum LedgerCommands {
     /// Show active tech stack enforcement rules
     Stack {
         /// Filter by category (e.g. Database, Auth)
-        category: Option<String>,
+        category: Option<Category>,
     },
     /// Generate Architectural Decision Records (MADR format)
     Adr {
         /// Output path for ADR files
-        #[arg(short, long, default_value = "docs/adr")]
+        #[arg(short, long, alias = "output-dir", default_value = "docs/adr")]
         output: String,
     },
     /// Full-text search across ledger history
@@ -452,7 +477,19 @@ pub enum LedgerCommands {
         query: String,
         /// Filter by category
         #[arg(short, long)]
-        category: Option<String>,
+        category: Option<Category>,
+        /// Number of days to look back
+        #[arg(short, long)]
+        days: Option<u64>,
+        /// Filter by breaking changes only
+        #[arg(short, long)]
+        breaking: bool,
+        /// Limit results
+        #[arg(short, long, default_value_t = 10)]
+        limit: usize,
+        /// Offset for pagination
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
     },
     /// Reconcile detected drift with a transaction or pattern
     Reconcile {
@@ -479,7 +516,7 @@ pub enum LedgerCommands {
         all: bool,
         /// Category for the new transaction
         #[arg(short, long)]
-        category: String,
+        category: Category,
         /// Summary for the new transaction
         #[arg(short, long)]
         summary: String,
@@ -514,7 +551,7 @@ pub enum RegisterCommands {
         term: String,
         /// Category (e.g. Database, ORM)
         #[arg(short, long)]
-        category: String,
+        category: Category,
         /// Reason for prohibition
         #[arg(short, long)]
         reason: String,
@@ -544,11 +581,18 @@ pub enum ConfigCommands {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+        /// Filter view by section (e.g. local_model)
+        #[arg(long, short)]
+        section: Option<String>,
+        /// Filter view by key within section (requires --section, or searches top-level)
+        #[arg(long, short)]
+        key: Option<String>,
     },
 }
 
 pub fn run_with(cli: Cli) -> Result<()> {
     let current_dir = env::current_dir().into_diagnostic()?;
+    let layout = crate::state::layout::Layout::new(current_dir.to_string_lossy().as_ref());
 
     match cli.command {
         Commands::Init { force } => crate::commands::init::execute_init(force),
@@ -574,6 +618,7 @@ pub fn run_with(cli: Cli) -> Result<()> {
             check,
             json,
             strict,
+            concurrency,
         } => {
             if check {
                 crate::commands::index::execute_index_check(
@@ -595,6 +640,7 @@ pub fn run_with(cli: Cli) -> Result<()> {
                     scip,
                     export_docs,
                     doc_type,
+                    concurrency,
                 })
             }
         }
@@ -636,7 +682,11 @@ pub fn run_with(cli: Cli) -> Result<()> {
                 entity,
                 category,
                 message,
-            } => crate::commands::ledger::execute_ledger_start(entity, &category, &message),
+            } => crate::commands::ledger::execute_ledger_start(
+                entity,
+                &category.to_string(),
+                &message,
+            ),
             LedgerCommands::Commit {
                 tx_id,
                 summary,
@@ -652,7 +702,10 @@ pub fn run_with(cli: Cli) -> Result<()> {
                 summary,
                 reason,
             } => crate::commands::ledger::execute_ledger_atomic(
-                &entity, &category, &summary, &reason,
+                &entity,
+                &category.to_string(),
+                &summary,
+                &reason,
             ),
             LedgerCommands::Status {
                 entity,
@@ -664,9 +717,11 @@ pub fn run_with(cli: Cli) -> Result<()> {
                     term,
                     category,
                     reason,
-                } => {
-                    crate::commands::ledger::execute_ledger_register_rule(&term, &category, &reason)
-                }
+                } => crate::commands::ledger::execute_ledger_register_rule(
+                    &term,
+                    &category.to_string(),
+                    &reason,
+                ),
                 RegisterCommands::Validator {
                     name,
                     command,
@@ -677,15 +732,22 @@ pub fn run_with(cli: Cli) -> Result<()> {
                 ),
             },
             LedgerCommands::Stack { category } => {
-                crate::commands::ledger_stack::execute_ledger_stack(category)
+                crate::commands::ledger_stack::execute_ledger_stack(category.map(|c| c.to_string()))
             }
             LedgerCommands::Adr { output } => crate::commands::ledger_adr::execute_ledger_adr(
                 Some(camino::Utf8PathBuf::from(output)),
                 None,
             ),
-            LedgerCommands::Search { query, category } => {
-                crate::commands::ledger::execute_ledger_search(&query, category)
-            }
+            LedgerCommands::Search {
+                query,
+                category,
+                days,
+                breaking,
+                limit,
+                offset,
+            } => crate::commands::ledger_search::execute_ledger_search(
+                query, category, days, breaking, limit, offset,
+            ),
             LedgerCommands::Reconcile {
                 tx_id,
                 pattern,
@@ -699,7 +761,11 @@ pub fn run_with(cli: Cli) -> Result<()> {
                 summary,
                 reason,
             } => crate::commands::ledger::execute_ledger_adopt(
-                pattern, all, &category, &summary, &reason,
+                pattern,
+                all,
+                &category.to_string(),
+                &summary,
+                &reason,
             ),
             LedgerCommands::Audit {
                 entity,
@@ -721,7 +787,17 @@ pub fn run_with(cli: Cli) -> Result<()> {
             no_predict,
             explain,
             health,
-        } => crate::commands::verify::execute_verify(command, timeout, no_predict, explain, health),
+            signatures,
+            dry_run,
+        } => {
+            if signatures {
+                crate::commands::verify::verify_ledger_signatures(&layout)
+            } else {
+                crate::commands::verify::execute_verify(
+                    command, timeout, no_predict, explain, health, dry_run,
+                )
+            }
+        }
         Commands::Ask {
             query,
             semantic,
@@ -752,7 +828,9 @@ pub fn run_with(cli: Cli) -> Result<()> {
         Commands::Doctor => crate::commands::doctor::execute_doctor(),
         Commands::Config { command } => match command {
             ConfigCommands::Verify => crate::commands::config::execute_config_verify(),
-            ConfigCommands::View { json } => crate::commands::config::execute_config_view(json),
+            ConfigCommands::View { json, section, key } => {
+                crate::commands::config::execute_config_view(json, section, key)
+            }
         },
         Commands::DeadCode {
             threshold,
@@ -767,7 +845,13 @@ pub fn run_with(cli: Cli) -> Result<()> {
             migrate,
             binary,
             force,
-        } => crate::commands::update::execute_update(migrate, binary, force),
+            force_unlock,
+        } => crate::commands::update::execute_update(migrate, binary, force, force_unlock),
+        Commands::Watch {
+            interval,
+            json,
+            no_graph_sync,
+        } => crate::commands::watch::execute_watch(interval, json, no_graph_sync),
         Commands::SearchTrigrams { trigrams, limit } => {
             crate::commands::search::execute_search_trigrams(trigrams, limit)
         }

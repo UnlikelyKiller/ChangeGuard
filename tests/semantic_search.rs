@@ -13,9 +13,8 @@ use changeguard::semantic::vector_store::VectorStore;
 use changeguard::state::storage_cozo::CozoStorage;
 use tempfile::TempDir;
 
-fn sled_cozo(tmp: &TempDir) -> CozoStorage {
-    let path = tmp.path().join("test.cozo");
-    CozoStorage::new(&path).unwrap()
+fn sled_cozo(_tmp: &TempDir) -> CozoStorage {
+    CozoStorage::new_in_memory().unwrap()
 }
 
 fn make_chunk(file_path: &str, name: &str, offset: usize, content: &str) -> AstChunk {
@@ -137,4 +136,69 @@ fn dimension_mismatch_produces_error() {
 
     let result = store.query(vec![0.9, 0.1, 0.0, 0.0], 2);
     assert!(result.is_err(), "Dimension mismatch must return an error");
+}
+
+/// Verify that remove_file_snippets deletes only the specified file's snippets.
+#[test]
+fn test_remove_file_snippets() {
+    let tmp = tempfile::tempdir().unwrap();
+    let storage = sled_cozo(&tmp);
+    let store = VectorStore::new_without_hnsw(&storage, 3).unwrap();
+
+    let chunks = vec![
+        make_chunk("file_a.rs", "fn_a", 0, "fn a"),
+        make_chunk("file_b.rs", "fn_b", 1, "fn b"),
+    ];
+    let embeddings = vec![vec![1.0, 0.0, 0.0], vec![0.0, 1.0, 0.0]];
+
+    store.index_chunks(chunks, embeddings).unwrap();
+    assert_eq!(store.get_vector_count().unwrap(), 2);
+
+    store.remove_file_snippets("file_a.rs").unwrap();
+
+    assert_eq!(store.get_vector_count().unwrap(), 1);
+
+    // Verify file_b.rs is still present
+    let results = store.query(vec![0.0, 1.0, 0.0], 2).unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].0, "file_b.rs");
+}
+
+/// Verify that file hash tracking (ensure_file_hash_schema, record_file_hash, is_file_hash_current) works correctly.
+#[test]
+fn test_file_hash_tracking() {
+    use changeguard::config::model::LocalModelConfig;
+    use changeguard::semantic::SemanticDiscovery;
+    use std::path::Path;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let storage = sled_cozo(&tmp);
+
+    let config = LocalModelConfig {
+        dimensions: 3,
+        disable_hnsw: true,
+        ..Default::default()
+    };
+
+    let semantic = SemanticDiscovery::new(config, &storage).unwrap();
+    semantic.ensure_file_hash_schema().unwrap();
+
+    let path_a = Path::new("src/foo.rs");
+    let hash_a = "abc123hash";
+
+    // Initially hash should not be current
+    assert!(!semantic.is_file_hash_current(path_a, hash_a));
+
+    // Record the hash
+    semantic.record_file_hash(path_a, hash_a).unwrap();
+
+    // Now it should be current
+    assert!(semantic.is_file_hash_current(path_a, hash_a));
+
+    // A different hash for the same file should not be current
+    assert!(!semantic.is_file_hash_current(path_a, "different_hash"));
+
+    // A different file with the same hash should not be current
+    let path_b = Path::new("src/bar.rs");
+    assert!(!semantic.is_file_hash_current(path_b, hash_a));
 }

@@ -138,14 +138,14 @@ pub fn initialize_instance(db_path: &Path, read_only: bool) -> Result<DbInstance
     let engine = if db_path.as_os_str().is_empty() {
         "mem"
     } else {
-        "sled"
+        "sqlite"
     };
     debug!(
         "CozoStorage selecting engine '{}' for path {:?} (read_only: {})",
         engine, db_path, read_only
     );
 
-    let is_new = engine == "sled" && !db_path.exists();
+    let is_new = engine == "sqlite" && !db_path.exists();
 
     // Bounded Retry Loop for Locks
     let mut retries = 0;
@@ -155,7 +155,7 @@ pub fn initialize_instance(db_path: &Path, read_only: bool) -> Result<DbInstance
     let db = loop {
         match DbInstance::new(engine, db_path, Default::default()) {
             Ok(db) => break db,
-            Err(e) if engine == "sled" && retries < max_retries => {
+            Err(e) if engine == "sqlite" && retries < max_retries => {
                 let err_debug = format!("{:?}", e).to_lowercase();
                 if err_debug.contains("lock")
                     || err_debug.contains("access is denied")
@@ -174,7 +174,7 @@ pub fn initialize_instance(db_path: &Path, read_only: bool) -> Result<DbInstance
     };
 
     // Cold Start Verification
-    if engine == "sled"
+    if engine == "sqlite"
         && !is_new
         && let Err(e) = db.run_script(
             GET_RELATIONS,

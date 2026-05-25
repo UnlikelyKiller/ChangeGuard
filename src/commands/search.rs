@@ -136,10 +136,17 @@ pub fn execute_search(args: SearchArgs) -> Result<()> {
         }
 
         if !args.json {
-            println!(
-                "{} No relevant code snippets found semantically. Falling back to keyword search...",
-                "INFO".blue().bold()
-            );
+            if readiness.vector_count == 0 {
+                println!(
+                    "{} ⚠️ Semantic index empty. Showing BM25 results. Run 'changeguard index --semantic' to populate.",
+                    "WARN".yellow().bold()
+                );
+            } else {
+                println!(
+                    "{} ⚠️ No relevant code snippets found semantically. Showing BM25 results.",
+                    "WARN".yellow().bold()
+                );
+            }
         }
     }
 
@@ -244,7 +251,7 @@ fn perform_search(engine: TantivySearchEngine, root: &Utf8Path, args: &SearchArg
                     println!(
                         "{} [score: {:.2}]",
                         format!("{}{}", r.path.cyan(), line_info).bold(),
-                        r.score.to_string().yellow()
+                        owo_colors::OwoColorize::yellow(&r.score)
                     );
                     if let Some(snippet) = r.highlighted {
                         println!("  {}", snippet.trim());

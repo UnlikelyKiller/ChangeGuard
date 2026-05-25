@@ -886,7 +886,7 @@ impl<'a> LedgerDb<'a> {
             "SELECT id, tx_id, category, entry_type, entity, entity_normalized,
                     change_type, summary, reason, is_breaking, committed_at,
                     verification_status, verification_basis, outcome_notes,
-                    origin, trace_id
+                    origin, trace_id, signature, public_key, risk, related_tickets
              FROM ledger_entries ORDER BY committed_at ASC",
         )?;
 

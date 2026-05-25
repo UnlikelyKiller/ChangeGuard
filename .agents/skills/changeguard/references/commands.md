@@ -56,11 +56,12 @@ changeguard ledger atomic PATH --summary TEXT --reason TEXT [--category CAT]
 changeguard ledger note PATH NOTE
 changeguard ledger resume [ID]                              # Find most recent PENDING tx or resume specific    
 changeguard ledger status [--entity PATH] [--compact]       # Holistic view or entity history
-changeguard ledger reconcile [--tx-id ID] [--entity-pattern GLOB] [--all] --reason TEXT
-changeguard ledger adopt [--tx-id ID] [--entity-pattern GLOB] [--all] [--reason TEXT]
-changeguard ledger stack [--category CAT]                   # Show tech stack and validators
-changeguard ledger register --rule-type TYPE --payload JSON [--force]   # Add enforcement rules
-changeguard ledger adr [--output-dir DIR] [--days N]        # Export decisions to MADR
+changeguard ledger reconcile [--tx-id ID] [--pattern GLOB] [--all] [--reason TEXT]
+changeguard ledger adopt [--pattern GLOB] [--all] --category CAT --summary TEXT --reason TEXT
+changeguard ledger stack [CAT]                              # Show tech stack and validators
+changeguard ledger register rule TERM --category CAT --reason REASON
+changeguard ledger register validator NAME --command CMD --category CAT [--timeout SEC]
+changeguard ledger adr [--output-dir DIR]                   # Export decisions to MADR
 ```
 
 ## Dead Code Detection
@@ -99,7 +100,7 @@ changeguard index --docs              # Index markdown documentation
 changeguard index --contracts         # Index OpenAPI/Swagger contracts
 changeguard index --export-docs       # Export KG data to Markdown/Mermaid docs
 changeguard index --export-docs --doc-type module_map --doc-type symbol_index  # Export specific doc types
-changeguard index --all               # Full re-index
+changeguard index --full              # Full re-index
 ```
 
 ## Gemini-Assisted Reporting

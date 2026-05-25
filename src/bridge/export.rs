@@ -10,6 +10,7 @@ use crate::ledger::db::LedgerDb;
 use crate::state::storage::StorageManager;
 use clap::Args;
 use miette::{IntoDiagnostic, Result};
+use owo_colors::OwoColorize;
 use std::collections::HashMap;
 use std::fs;
 
@@ -18,6 +19,14 @@ pub struct ExportArgs {
     /// Output path for the exported record (NDJSON)
     #[arg(long, short, alias = "out")]
     pub out_path: Option<String>,
+
+    /// Print to stdout instead of writing to a file
+    #[arg(long)]
+    pub stdout: bool,
+
+    /// Pretty print JSON output
+    #[arg(long)]
+    pub pretty: bool,
 
     /// Include hotspots in the export
     #[arg(long)]
@@ -107,14 +116,29 @@ pub fn execute_export(args: ExportArgs) -> Result<()> {
     let record = BridgeRecord::new(BridgeDirection::Outbound, project_id, "snapshot", payload);
 
     // 5. Output
-    let output = if args.json {
+    let output = if args.pretty || args.json {
         serde_json::to_string_pretty(&record).into_diagnostic()?
     } else {
         serde_json::to_string(&record).into_diagnostic()?
     };
 
-    if let Some(path) = args.out_path {
-        fs::write(path, output).into_diagnostic()?;
+    let dest_path = if args.stdout {
+        None
+    } else {
+        Some(
+            args.out_path
+                .clone()
+                .unwrap_or_else(|| layout.state_subdir().join("bridge-export.json").to_string()),
+        )
+    };
+
+    if let Some(path) = dest_path {
+        let path_buf = std::path::PathBuf::from(&path);
+        if let Some(parent) = path_buf.parent() {
+            fs::create_dir_all(parent).into_diagnostic()?;
+        }
+        fs::write(&path, &output).into_diagnostic()?;
+        println!("Exported bridge snapshot to {}", path.cyan());
     } else {
         println!("{}", output);
     }

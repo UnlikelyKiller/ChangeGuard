@@ -3,10 +3,22 @@ use std::process::Command;
 #[test]
 fn test_scip_cli_wiring() {
     let binary_path = env!("CARGO_BIN_EXE_changeguard");
+    let tmp = tempfile::tempdir().unwrap();
+
+    // Initialize a minimal git repo
+    std::process::Command::new("git")
+        .arg("init")
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+
+    // Create the state directory so SQLite/CozoDB can create the database file
+    std::fs::create_dir_all(tmp.path().join(".changeguard/state")).unwrap();
 
     // Running with a non-existent SCIP file should fail gracefully
     let output = Command::new(binary_path)
         .args(["index", "--scip", "non_existent.scip"])
+        .current_dir(tmp.path())
         .output()
         .expect("Failed to execute changeguard index");
 

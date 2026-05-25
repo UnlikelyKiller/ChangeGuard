@@ -50,20 +50,67 @@ pub fn execute_config_verify() -> Result<()> {
     }
 }
 
-pub fn execute_config_view(json: bool) -> Result<()> {
+pub fn execute_config_view(json: bool, section: Option<String>, key: Option<String>) -> Result<()> {
     let current_dir = std::env::current_dir()
         .map_err(|e| miette::miette!("Failed to get current directory: {e}"))?;
     let layout = Layout::new(current_dir.to_string_lossy().as_ref());
     let config = crate::config::load_config(&layout)?;
 
+    let val = serde_json::to_value(&config)
+        .map_err(|e| miette::miette!("Failed to serialize config: {e}"))?;
+
+    let filtered = if let Some(sec) = &section {
+        let sec_key = val
+            .as_object()
+            .and_then(|obj| obj.keys().find(|k| k.eq_ignore_ascii_case(sec)).cloned());
+        if let Some(sk) = sec_key {
+            let sec_val = &val[&sk];
+            if let Some(k) = &key {
+                let k_key = sec_val.as_object().and_then(|obj| {
+                    obj.keys()
+                        .find(|inner_k| inner_k.eq_ignore_ascii_case(k))
+                        .cloned()
+                });
+                if let Some(kk) = k_key {
+                    sec_val[&kk].clone()
+                } else {
+                    return Err(miette::miette!("Key '{}' not found in section '{}'", k, sk));
+                }
+            } else {
+                sec_val.clone()
+            }
+        } else {
+            return Err(miette::miette!("Section '{}' not found in config", sec));
+        }
+    } else if let Some(k) = &key {
+        let top_key = val.as_object().and_then(|obj| {
+            obj.keys()
+                .find(|inner_k| inner_k.eq_ignore_ascii_case(k))
+                .cloned()
+        });
+        if let Some(tk) = top_key {
+            val[&tk].clone()
+        } else {
+            return Err(miette::miette!("Key '{}' not found in top-level config", k));
+        }
+    } else {
+        val
+    };
+
     if json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&config)
-                .map_err(|e| miette::miette!("Failed to serialize config to JSON: {e}"))?
+            serde_json::to_string_pretty(&filtered)
+                .map_err(|e| miette::miette!("Failed to serialize filtered config to JSON: {e}"))?
         );
     } else {
-        println!("{:#?}", config);
+        if filtered.is_string() {
+            println!("{}", filtered.as_str().unwrap());
+        } else if filtered.is_number() || filtered.is_boolean() || filtered.is_null() {
+            println!("{}", filtered);
+        } else {
+            println!("{}", serde_json::to_string_pretty(&filtered).unwrap());
+        }
     }
     Ok(())
 }

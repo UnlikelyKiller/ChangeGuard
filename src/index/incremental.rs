@@ -145,6 +145,17 @@ impl IncrementalSyncEngine {
                         Ok((pf, ps, calls)) => {
                             if pf.parse_status == "PARSE_FAILED" {
                                 warn!("Skipping parse-failed file: {}", event.path);
+                                // Even if parse fails, we process it by leaving it in the affected list
+                                // as a deletion of its previous symbols to avoid leaving stale knowledge graph nodes.
+                                parsed.push(ParsedFile {
+                                    event: WatchEvent {
+                                        path: event.path.clone(),
+                                        kind: WatchEventKind::Delete,
+                                    },
+                                    project_file: None,
+                                    project_symbols: Vec::new(),
+                                    calls: Vec::new(),
+                                });
                                 continue;
                             }
                             parsed.push(ParsedFile {
@@ -156,6 +167,16 @@ impl IncrementalSyncEngine {
                         }
                         Err(e) => {
                             warn!("Parse failure for {}: {}", event.path, e);
+                            // Treat as deletion if we can't parse it at all
+                            parsed.push(ParsedFile {
+                                event: WatchEvent {
+                                    path: event.path.clone(),
+                                    kind: WatchEventKind::Delete,
+                                },
+                                project_file: None,
+                                project_symbols: Vec::new(),
+                                calls: Vec::new(),
+                            });
                             continue;
                         }
                     }
@@ -589,7 +610,6 @@ pub fn main() { helper(); }
         assert_eq!(delta.files_processed, 1);
         assert!(delta.nodes_added >= 1);
     }
-
     #[test]
     fn test_process_batch_delete_one_file() {
         let storage = in_memory_storage_with_cozo();
@@ -657,10 +677,9 @@ pub fn main() { helper(); }
         ]);
 
         let delta = engine.process_batch(&batch).unwrap();
-        assert_eq!(delta.files_processed, 1);
+        assert_eq!(delta.files_processed, 2);
         assert!(delta.nodes_added >= 1);
     }
-
     #[test]
     fn test_process_batch_no_cozo_graceful() {
         let storage = in_memory_storage_without_cozo();

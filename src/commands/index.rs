@@ -38,6 +38,8 @@ pub struct IndexArgs {
     pub scip: Option<std::path::PathBuf>,
     pub export_docs: bool,
     pub doc_type: Option<String>,
+    /// CLI override for rayon thread count (HP2). `None` = use config or rayon default.
+    pub concurrency: Option<usize>,
 }
 
 pub fn execute_index(args: IndexArgs) -> Result<()> {
@@ -55,7 +57,13 @@ pub fn execute_index(args: IndexArgs) -> Result<()> {
     }
 
     if args.semantic {
-        return execute_semantic_index(&layout, storage, &config);
+        return execute_semantic_index(
+            &layout,
+            storage,
+            &config,
+            args.incremental,
+            args.concurrency,
+        );
     }
 
     if args.docs {
@@ -491,8 +499,13 @@ fn execute_semantic_index(
     layout: &Layout,
     storage: StorageManager,
     config: &crate::config::model::Config,
+    incremental: bool,
+    concurrency_override: Option<usize>,
 ) -> Result<()> {
     use crate::semantic::SemanticDiscovery;
+    use indicatif::{ProgressBar, ProgressStyle};
+    use rayon::prelude::*;
+    use std::sync::{Arc, Mutex};
 
     let cozo = storage
         .cozo
@@ -501,79 +514,210 @@ fn execute_semantic_index(
 
     let semantic = SemanticDiscovery::new(config.local_model.clone(), cozo)?;
 
+    // HP3: ensure the semantic file-hash tracking schema exists
+    semantic.ensure_file_hash_schema()?;
+
     info!("Indexing repository for semantic search...");
 
+    // ── Phase 1: Collect candidate files ───────────────────────────────────
     let repo_root = layout.root.as_std_path();
-    let mut files_indexed = 0usize;
-    let mut all_chunks = Vec::new();
-    let mut all_embeddings = Vec::new();
+    let mut candidate_paths: Vec<std::path::PathBuf> = Vec::new();
 
-    // Recursive helper to collect chunks from supported files
-    fn collect_semantic_data(
-        dir: &std::path::Path,
-        semantic: &SemanticDiscovery,
-        all_chunks: &mut Vec<crate::semantic::chunker::AstChunk>,
-        all_embeddings: &mut Vec<Vec<f32>>,
-        files_indexed: &mut usize,
-    ) -> Result<()> {
-        for entry in std::fs::read_dir(dir).into_diagnostic()? {
-            let entry = entry.into_diagnostic()?;
+    fn walk_dir(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
                 let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                 if matches!(name, ".git" | ".changeguard" | "target" | "node_modules") {
                     continue;
                 }
-                collect_semantic_data(&path, semantic, all_chunks, all_embeddings, files_indexed)?;
+                walk_dir(&path, out);
             } else {
                 let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
                 if matches!(ext, "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go") {
-                    match crate::util::fs::read_to_string_with_encoding(&path) {
-                        Ok(content) => {
-                            match semantic.process_file(&path, &content) {
-                                Ok((chunks, embeddings)) => {
-                                    all_chunks.extend(chunks);
-                                    all_embeddings.extend(embeddings);
-                                    *files_indexed += 1;
-                                }
-                                Err(e) => {
-                                    warn!(
-                                        "Failed to process file for semantic indexing {}: {}",
-                                        path.display(),
-                                        e
-                                    );
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            warn!("Failed to read file for semantic indexing {}: {}", path.display(), e);
-                        }
-                    }
+                    out.push(path);
                 }
             }
         }
-        Ok(())
     }
 
-    collect_semantic_data(
-        repo_root,
-        &semantic,
-        &mut all_chunks,
-        &mut all_embeddings,
-        &mut files_indexed,
-    )?;
+    walk_dir(repo_root, &mut candidate_paths);
+
+    // HP3: On incremental runs filter to only files whose hash has changed.
+    let files_to_process: Vec<std::path::PathBuf> = if incremental {
+        candidate_paths
+            .into_iter()
+            .filter(|path| {
+                let Ok(content) = crate::util::fs::read_to_string_with_encoding(path) else {
+                    return true; // re-try unreadable files
+                };
+                let hash = blake3::hash(content.as_bytes()).to_hex().to_string();
+                !semantic.is_file_hash_current(path, &hash)
+            })
+            .collect()
+    } else {
+        // Full index: prune snippets for files that no longer exist
+        semantic.prune_deleted_snippets(repo_root)?;
+        candidate_paths
+    };
+
+    if files_to_process.is_empty() {
+        println!("Semantic index is up to date. No files changed.");
+        return Ok(());
+    }
+
+    // ── Phase 2: Configure Rayon thread pool (HP2) ─────────────────────────
+    let threads = concurrency_override
+        .or(config.local_model.concurrency)
+        .unwrap_or(0); // 0 = rayon's automatic default
+    let pool = if threads > 0 {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .map_err(|e| miette::miette!("Failed to build Rayon thread pool: {}", e))?
+    } else {
+        rayon::ThreadPoolBuilder::new()
+            .build()
+            .map_err(|e| miette::miette!("Failed to build Rayon thread pool: {}", e))?
+    };
+
+    // ── Phase 3: Parallel parse + embed with progress bar (HP2 + HP4) ──────
+    let total = files_to_process.len();
+    let pb = ProgressBar::new(total as u64);
+    pb.set_style(
+        ProgressStyle::with_template(
+            "  {spinner:.cyan} Embedding [{bar:40.green/dim}] {pos}/{len} files  {elapsed_precise}",
+        )
+        .unwrap_or_else(|_| ProgressStyle::with_template("{pos}/{len}").unwrap())
+        .progress_chars("█▓░"),
+    );
+    pb.enable_steady_tick(std::time::Duration::from_millis(80));
+
+    // Wrap accumulators for cross-thread writes
+    #[allow(clippy::type_complexity)]
+    let results: Arc<Mutex<Vec<(Vec<crate::semantic::chunker::AstChunk>, Vec<Vec<f32>>)>>> =
+        Arc::new(Mutex::new(Vec::new()));
+    let errors: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let files_indexed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+    // HP3: Track successfully processed files on parallel threads to write hashes/prune on the main thread
+    let successful_files: Arc<Mutex<Vec<(std::path::PathBuf, String)>>> =
+        Arc::new(Mutex::new(Vec::new()));
+
+    let pb_ref = pb.clone();
+    let files_clone = files_to_process.clone();
+
+    pool.install(|| {
+        files_clone.into_par_iter().for_each(|path| {
+            match crate::util::fs::read_to_string_with_encoding(&path) {
+                Ok(content) => {
+                    match semantic.process_file(&path, &content) {
+                        Ok((chunks, embeddings)) => {
+                            if !chunks.is_empty() {
+                                files_indexed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                let mut acc = results.lock().unwrap_or_else(|p| p.into_inner());
+                                acc.push((chunks, embeddings));
+                            }
+                            // Success path: collect path & hash to write on the main thread
+                            let hash = blake3::hash(content.as_bytes()).to_hex().to_string();
+                            let mut succ =
+                                successful_files.lock().unwrap_or_else(|p| p.into_inner());
+                            succ.push((path, hash));
+                        }
+                        Err(e) => {
+                            let mut errs = errors.lock().unwrap_or_else(|p| p.into_inner());
+                            errs.push(format!("{}: {}", path.display(), e));
+                        }
+                    }
+                }
+                Err(e) => {
+                    let mut errs = errors.lock().unwrap_or_else(|p| p.into_inner());
+                    errs.push(format!("{}: {}", path.display(), e));
+                }
+            }
+            pb_ref.inc(1);
+        });
+    });
+
+    pb.finish_and_clear();
+
+    // Report any per-file errors
+    let errs = errors.lock().unwrap_or_else(|p| p.into_inner());
+    for e in errs.iter() {
+        warn!("Semantic indexing skipped: {}", e);
+    }
+    drop(errs);
+
+    // ── Phase 4: Batch ingest into CozoDB (single-threaded for safety) ─────
+    // Extract successfully processed files
+    let succ_mutex = Arc::try_unwrap(successful_files).unwrap_or_else(|arc| {
+        let guard = arc.lock().unwrap_or_else(|p| p.into_inner());
+        std::sync::Mutex::new(guard.clone())
+    });
+    let processed_files = succ_mutex.into_inner().unwrap_or_else(|p| p.into_inner());
+
+    // 1. Remove stale snippet rows for all successfully processed files
+    if !processed_files.is_empty() {
+        info!("Pruning stale semantic database rows...");
+        for (path, _) in &processed_files {
+            let path_str = path.to_string_lossy();
+            if let Err(e) = semantic.remove_file_snippets(&path_str) {
+                warn!(
+                    "Failed to prune stale snippets for {}: {}",
+                    path.display(),
+                    e
+                );
+            }
+        }
+    }
+
+    // 2. Ingest the new snippets
+    // SAFETY: pool.install() has completed and all rayon tasks have joined,
+    // so `results` has exactly one strong count here.
+    let mutex = Arc::try_unwrap(results).unwrap_or_else(|arc| {
+        // Fallback: clone out the data (should never be reached after pool.install)
+        let guard = arc.lock().unwrap_or_else(|p| p.into_inner());
+        std::sync::Mutex::new(guard.clone())
+    });
+    let batches = mutex.into_inner().unwrap_or_else(|p| p.into_inner());
+
+    let all_chunks: Vec<_> = batches.iter().flat_map(|(c, _)| c.clone()).collect();
+    let all_embeddings: Vec<_> = batches.into_iter().flat_map(|(_, e)| e).collect();
 
     if !all_chunks.is_empty() {
+        // HP4: spinner during HNSW rebuild
+        let spinner = ProgressBar::new_spinner();
+        spinner.set_style(
+            ProgressStyle::with_template(
+                "  {spinner:.yellow} Building HNSW index… {elapsed_precise}",
+            )
+            .unwrap_or_else(|_| ProgressStyle::default_spinner()),
+        );
+        spinner.enable_steady_tick(std::time::Duration::from_millis(100));
+
         info!(
             "Ingesting {} snippets into vector store...",
             all_chunks.len()
         );
         semantic.index_chunks_batched(all_chunks, all_embeddings)?;
+
+        spinner.finish_and_clear();
     }
 
+    // 3. Record new hashes only for successfully processed files
+    for (path, hash) in processed_files {
+        if let Err(e) = semantic.record_file_hash(&path, &hash) {
+            warn!("Failed to record file hash for {}: {}", path.display(), e);
+        }
+    }
+
+    let indexed = files_indexed.load(std::sync::atomic::Ordering::Relaxed);
     println!(
-        "Semantic indexing complete: {} files processed.",
-        files_indexed
+        "Semantic indexing complete: {indexed}/{total} files produced embeddings{}.",
+        if incremental { " (incremental)" } else { "" }
     );
     Ok(())
 }

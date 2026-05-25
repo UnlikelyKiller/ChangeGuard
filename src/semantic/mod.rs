@@ -36,12 +36,17 @@ impl<'a> SemanticDiscovery<'a> {
                 Ok(dims) if dims.dimensions > 0 => {
                     tracing::info!(
                         "Probed local model: {} ({} dimensions)",
-                        dims.model_name, dims.dimensions
+                        dims.model_name,
+                        dims.dimensions
                     );
                     config.dimensions = dims.dimensions;
                 }
                 Err(e) => {
-                    tracing::warn!("Failed to probe local model at {}: {}. Defaulting to 384.", config.base_url, e);
+                    tracing::warn!(
+                        "Failed to probe local model at {}: {}. Defaulting to 384.",
+                        config.base_url,
+                        e
+                    );
                     config.dimensions = 384;
                 }
                 _ => {
@@ -118,13 +123,24 @@ impl<'a> SemanticDiscovery<'a> {
         let embeddings = self.embedder.embed_batch(&text_refs)?;
 
         if !embeddings.is_empty() {
-            tracing::info!("Received {} embeddings of dimension {}", embeddings.len(), embeddings[0].len());
+            tracing::info!(
+                "Received {} embeddings of dimension {}",
+                embeddings.len(),
+                embeddings[0].len()
+            );
         }
 
         // Verify we got non-zero embeddings
-        let zero_count = embeddings.iter().filter(|v| v.iter().all(|&x| x == 0.0)).count();
+        let zero_count = embeddings
+            .iter()
+            .filter(|v| v.iter().all(|&x| x == 0.0))
+            .count();
         if zero_count > 0 {
-            tracing::warn!("Found {} zero-magnitude embeddings for {}", zero_count, path.display());
+            tracing::warn!(
+                "Found {} zero-magnitude embeddings for {}",
+                zero_count,
+                path.display()
+            );
         }
 
         Ok((chunks, embeddings))
@@ -141,5 +157,92 @@ impl<'a> SemanticDiscovery<'a> {
     pub fn query(&self, query_text: &str, k: usize) -> Result<Vec<(String, String, usize, f32)>> {
         let query_vector = self.embedder.embed(query_text)?;
         self.vector_store.query(query_vector, k)
+    }
+
+    pub fn remove_file_snippets(&self, file_path: &str) -> Result<()> {
+        self.vector_store.remove_file_snippets(file_path)
+    }
+
+    // ── HP3: File-hash tracking for incremental semantic index ──────────────
+
+    /// Ensure the `semantic_file_hash` relation exists in CozoDB.
+    pub fn ensure_file_hash_schema(&self) -> Result<()> {
+        let relations = self.vector_store.storage_ref().get_relations()?;
+        if !relations.contains(&"semantic_file_hash".to_string()) {
+            self.vector_store
+                .storage_ref()
+                .run_script(":create semantic_file_hash {file_path => content_hash: String}")?;
+            tracing::info!("Created semantic_file_hash relation for incremental tracking");
+        }
+        Ok(())
+    }
+
+    /// Returns `true` if the stored hash for `path` matches `hash` (file unchanged).
+    pub fn is_file_hash_current(&self, path: &std::path::Path, hash: &str) -> bool {
+        let path_str = path.to_string_lossy().replace('\\', "/");
+        let script = format!(
+            "?[content_hash] := *semantic_file_hash{{file_path: \"{}\", content_hash}}",
+            path_str.replace('"', "\\\"")
+        );
+        match self.vector_store.storage_ref().run_script(&script) {
+            Ok(res) => {
+                if let Some(row) = res.rows.first()
+                    && let Some(cozo::DataValue::Str(stored)) = row.first()
+                {
+                    return stored.as_str() == hash;
+                }
+                false
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Upsert the content hash for `path` into `semantic_file_hash`.
+    pub fn record_file_hash(&self, path: &std::path::Path, hash: &str) -> Result<()> {
+        use cozo::{DataValue, ScriptMutability};
+        use std::collections::BTreeMap;
+
+        let path_str = path.to_string_lossy().replace('\\', "/");
+        let mut params = BTreeMap::new();
+        params.insert(
+            "data".to_string(),
+            DataValue::from(vec![DataValue::from(vec![
+                DataValue::from(path_str.as_str()),
+                DataValue::from(hash),
+            ])]),
+        );
+        self.vector_store.storage_ref().run_script_with_params(
+            "?[file_path, content_hash] <- $data :put semantic_file_hash",
+            params,
+            ScriptMutability::Mutable,
+        )?;
+        Ok(())
+    }
+
+    /// Remove snippet embeddings for files that no longer exist under `repo_root`.
+    /// Called before a full re-index to keep the vector store clean (HP3 pruning).
+    pub fn prune_deleted_snippets(&self, repo_root: &std::path::Path) -> Result<()> {
+        // Fetch all indexed file paths
+        let script = "?[file_path] := *snippet_embedding{file_path}";
+        let res = self.vector_store.storage_ref().run_script(script);
+        let res = match res {
+            Ok(r) => r,
+            Err(_) => return Ok(()), // relation may not exist yet
+        };
+
+        let mut pruned = 0usize;
+        for row in res.rows {
+            if let Some(cozo::DataValue::Str(fp)) = row.first() {
+                let full = repo_root.join(fp.as_str().trim_start_matches('/'));
+                if !full.exists() {
+                    self.vector_store.remove_file_snippets(fp.as_ref())?;
+                    pruned += 1;
+                }
+            }
+        }
+        if pruned > 0 {
+            tracing::info!("Pruned snippets for {} deleted files", pruned);
+        }
+        Ok(())
     }
 }

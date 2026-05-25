@@ -35,8 +35,9 @@ These notes summarize dependency-specific cautions for ChangeGuard maintenance.
 
 ## `cozo`
 
-- `0.7.x` is the core Knowledge Graph engine.
-- We rely on `storage-sled` and `graph-algo` features.
+- `0.8.x` is the core Knowledge Graph engine (transitioned from Sled to SQLite in Milestone SE).
+- We rely on `storage-sqlite`, `storage-sqlite-src`, and `graph-algo` features.
+- We resolve FFI conflicts with a custom build script that dynamically binds symbols.
 - Future upgrades might alter the Datalog syntax or JSON return shapes; ensure `src/state/storage_cozo.rs` tests cover all native relations (`:create`, `<-`, etc.).
 
 ## `scip` & `protobuf`

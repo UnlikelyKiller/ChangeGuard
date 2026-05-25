@@ -19,7 +19,12 @@ pub fn execute_viz_server(port: u16, bind: String, open: bool, stop: bool) -> Re
     // regardless of where in the repo the command is executed.
     let current_dir = std::env::current_dir().into_diagnostic()?;
     let layout = if let Ok(repo) = gix::discover(&current_dir) {
-        Layout::new(repo.workdir().unwrap_or_else(|| repo.path()).to_string_lossy().as_ref())
+        Layout::new(
+            repo.workdir()
+                .unwrap_or_else(|| repo.path())
+                .to_string_lossy()
+                .as_ref(),
+        )
     } else {
         Layout::new(current_dir.to_string_lossy().as_ref())
     };
@@ -94,7 +99,7 @@ fn kill_viz_server(layout: &Layout) -> Result<()> {
                     .args(["/FI", &format!("PID eq {}", pid), "/FO", "CSV", "/NH"])
                     .output()
                     .map_err(|e| miette!("Failed to verify process: {}", e))?;
-                
+
                 let out_str = String::from_utf8_lossy(&verify_output.stdout);
                 if !out_str.to_lowercase().contains("changeguard") {
                     println!("Process {} is not changeguard (may have exited).", pid);
@@ -128,7 +133,7 @@ fn kill_viz_server(layout: &Layout) -> Result<()> {
                     .args(["-p", &pid.to_string(), "-o", "comm="])
                     .output()
                     .map_err(|e| miette!("Failed to verify process: {}", e))?;
-                
+
                 let out_str = String::from_utf8_lossy(&verify_output.stdout);
                 if !out_str.to_lowercase().contains("changeguard") {
                     println!("Process {} is not changeguard (may have exited).", pid);

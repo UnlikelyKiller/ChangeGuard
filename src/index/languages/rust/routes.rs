@@ -112,13 +112,13 @@ fn find_next_function_name(node: Node, content: &str) -> String {
                 continue;
             }
             if found_self {
-                if child.kind() == "function_item" {
-                    if let Some(name_node) = child.child_by_field_name("name") {
-                        return name_node
-                            .utf8_text(content.as_bytes())
-                            .unwrap_or("")
-                            .to_string();
-                    }
+                if child.kind() == "function_item"
+                    && let Some(name_node) = child.child_by_field_name("name")
+                {
+                    return name_node
+                        .utf8_text(content.as_bytes())
+                        .unwrap_or("")
+                        .to_string();
                 }
                 // Skip unrelated nodes like line comments but stop if we hit another significant item
                 if child.kind() != "line_comment"

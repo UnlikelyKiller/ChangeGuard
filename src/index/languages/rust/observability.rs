@@ -30,22 +30,21 @@ fn collect_rust_observability(
     let kind = node.kind();
     let text = node.utf8_text(content.as_bytes()).unwrap_or("");
 
-    if kind == "call_expression" {
-        if text.contains("info!")
+    if kind == "call_expression"
+        && (text.contains("info!")
             || text.contains("warn!")
             || text.contains("error!")
             || text.contains("debug!")
-            || text.contains("trace!")
-        {
-            telemetry.push(TelemetryPattern {
-                line_start: node.start_position().row as i32 + 1,
-                level: Some(LogLevel::Info),
-                framework: "tracing".to_string(),
-                in_test: false,
-                confidence: 1.0,
-                evidence: text.chars().take(100).collect(),
-            });
-        }
+            || text.contains("trace!"))
+    {
+        telemetry.push(TelemetryPattern {
+            line_start: node.start_position().row as i32 + 1,
+            level: Some(LogLevel::Info),
+            framework: "tracing".to_string(),
+            in_test: false,
+            confidence: 1.0,
+            evidence: text.chars().take(100).collect(),
+        });
     }
 
     if kind == "macro_invocation" && text.contains("error!") {

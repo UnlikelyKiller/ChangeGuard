@@ -109,63 +109,15 @@ pub fn execute_ask(
                 ));
             }
 
-            // 3. Query relevant chunks from semantic index
-            let mut relevant_chunks = Vec::new();
-            let mut semantic_symbols = std::collections::HashSet::new();
-            if let Some(cozo) = &storage.cozo {
-                if let Ok(vector_store) = crate::semantic::vector_store::VectorStore::new(
-                    cozo,
-                    config.local_model.dimensions,
-                    config.local_model.disable_hnsw,
-                ) {
-                    if let Ok(embedder) = crate::semantic::embedder::SemanticEmbedder::new(config.local_model.clone()).embed(&query_string) {
-                        if let Ok(results) = vector_store.query(embedder, limit) {
-                            for (file_path, name, _offset, dist) in results {
-                                let score = 1.0 - (dist / 2.0); // Normalize distance to 0..1 score
-                                if score >= config.local_model.chunk_min_similarity {
-                                    semantic_symbols.insert(name.clone());
-                                    if let Ok(content) = crate::util::fs::read_to_string_with_encoding(std::path::Path::new(&file_path)) {
-                                        // A heuristic chunking for now since we just have the offset
-                                        let snippet = content.chars().take(1000).collect::<String>();
-                                        relevant_chunks.push(crate::local_model::pruner::RankedChunk {
-                                            source: format!("{}::{}", file_path, name),
-                                            content: snippet,
-                                            score,
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                // Knowledge Graph Neighborhood Context
-                if is_global && !semantic_symbols.is_empty() {
-                    let symbols_array = semantic_symbols.into_iter().map(|s| format!("'{}'", s)).collect::<Vec<_>>().join(", ");
-                    let script = format!(r#"
-                        ?[caller, callee, relation] := *edge{{source: caller, target: callee, relation: relation}}, 
-                                                       caller in [{symbols_array}] or callee in [{symbols_array}]
-                        :limit 50
-                    "#);
-                    if let Ok(res) = cozo.run_script(&script) {
-                        let mut kg_context = String::from("Knowledge Graph Relationships:\n");
-                        for row in res.rows {
-                            if let (Some(cozo::DataValue::Str(caller)), Some(cozo::DataValue::Str(callee)), Some(cozo::DataValue::Str(rel))) = (row.first(), row.get(1), row.get(2)) {
-                                kg_context.push_str(&format!("- {} {} {}\n", caller, rel, callee));
-                            }
-                        }
-                        if kg_context.len() > 30 {
-                            relevant_chunks.push(crate::local_model::pruner::RankedChunk {
-                                source: "Knowledge Graph".to_string(),
-                                content: kg_context,
-                                score: 1.0,
-                            });
-                        }
-                    }
-                }
-            }
+            let mut relevant_chunks = gather_semantic_chunks(
+                &storage,
+                &query_string,
+                limit,
+                &config.local_model,
+                is_global,
+            );
+
             if relevant_chunks.is_empty() {
-                // Fallback to old pruner
                 relevant_chunks = pruner::query_relevant_chunks(
                     &query_string,
                     &config.local_model,
@@ -179,6 +131,12 @@ pub fn execute_ask(
                     Vec::new()
                 });
             }
+            if is_global && relevant_chunks.is_empty() {
+                return Err(miette::miette!(
+                    "Global Ask requires codebase context, but semantic search returned no results. \
+                     Run 'changeguard index --semantic' to build the index."
+                ));
+            }
 
             // 4. Assemble context with budget enforcement
             let system_prompt = if is_global {
@@ -187,7 +145,10 @@ pub fn execute_ask(
                 crate::local_model::context::get_system_prompt(&mode.to_string())
             };
             let user_prompt = if is_global {
-                format!("Answer the following codebase query:\n\nQuery: {}", query_string)
+                format!(
+                    "Answer the following codebase query:\n\nQuery: {}",
+                    query_string
+                )
             } else if narrative {
                 crate::gemini::prompt::build_architect_prompt(&latest_packet, &query_string)
             } else {
@@ -229,7 +190,10 @@ pub fn execute_ask(
             let char_limit = (budget_tokens as f64 * 0.8 * 4.0) as usize;
 
             let user_prompt = if is_global {
-                format!("Answer the following codebase query:\n\nQuery: {}", query_string)
+                format!(
+                    "Answer the following codebase query:\n\nQuery: {}",
+                    query_string
+                )
             } else if narrative {
                 crate::gemini::prompt::build_architect_prompt(&latest_packet, &query_string)
             } else {
@@ -237,60 +201,14 @@ pub fn execute_ask(
             };
 
             let final_user_prompt = if semantic {
-                let mut relevant_chunks = Vec::new();
-                let mut semantic_symbols = std::collections::HashSet::new();
-                
-                if let Some(cozo) = &storage.cozo {
-                    if let Ok(vector_store) = crate::semantic::vector_store::VectorStore::new(
-                        cozo,
-                        config.local_model.dimensions,
-                        config.local_model.disable_hnsw,
-                    ) {
-                        if let Ok(embedder) = crate::semantic::embedder::SemanticEmbedder::new(config.local_model.clone()).embed(&query_string) {
-                            if let Ok(results) = vector_store.query(embedder, limit) {
-                                for (file_path, name, _offset, dist) in results {
-                                    let score = 1.0 - (dist / 2.0); // Normalize distance to 0..1 score
-                                    if score >= config.local_model.chunk_min_similarity {
-                                        semantic_symbols.insert(name.clone());
-                                        if let Ok(content) = crate::util::fs::read_to_string_with_encoding(std::path::Path::new(&file_path)) {
-                                            let snippet = content.chars().take(1000).collect::<String>();
-                                            relevant_chunks.push(crate::local_model::pruner::RankedChunk {
-                                                source: format!("{}::{}", file_path, name),
-                                                content: snippet,
-                                                score,
-                                            });
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    // Knowledge Graph Neighborhood Context
-                    if is_global && !semantic_symbols.is_empty() {
-                        let symbols_array = semantic_symbols.into_iter().map(|s| format!("'{}'", s)).collect::<Vec<_>>().join(", ");
-                        let script = format!(r#"
-                            ?[caller, callee, relation] := *edge{{source: caller, target: callee, relation: relation}}, 
-                                                           caller in [{symbols_array}] or callee in [{symbols_array}]
-                            :limit 50
-                        "#);
-                        if let Ok(res) = cozo.run_script(&script) {
-                            let mut kg_context = String::from("Knowledge Graph Relationships:\n");
-                            for row in res.rows {
-                                if let (Some(cozo::DataValue::Str(caller)), Some(cozo::DataValue::Str(callee)), Some(cozo::DataValue::Str(rel))) = (row.first(), row.get(1), row.get(2)) {
-                                    kg_context.push_str(&format!("- {} {} {}\n", caller, rel, callee));
-                                }
-                            }
-                            if kg_context.len() > 30 {
-                                relevant_chunks.push(crate::local_model::pruner::RankedChunk {
-                                    source: "Knowledge Graph".to_string(),
-                                    content: kg_context,
-                                    score: 1.0,
-                                });
-                            }
-                        }
-                    }
-                }
+                let mut relevant_chunks = gather_semantic_chunks(
+                    &storage,
+                    &query_string,
+                    limit,
+                    &config.local_model,
+                    is_global,
+                );
+
                 if relevant_chunks.is_empty() {
                     relevant_chunks = pruner::query_relevant_chunks(
                         &query_string,
@@ -301,6 +219,13 @@ pub fn execute_ask(
                         config.local_model.chunk_dedup_threshold,
                     )
                     .unwrap_or_default();
+                }
+
+                if is_global && relevant_chunks.is_empty() {
+                    return Err(miette::miette!(
+                        "Global Ask requires codebase context, but semantic search returned no results. \
+                         Run 'changeguard index --semantic' to build the index."
+                    ));
                 }
 
                 // Build a combined prompt for Gemini that includes semantic snippets
@@ -343,6 +268,82 @@ pub fn execute_ask(
             )
         }
     }
+}
+
+fn gather_semantic_chunks(
+    storage: &StorageManager,
+    query_string: &str,
+    limit: usize,
+    config: &crate::config::model::LocalModelConfig,
+    is_global: bool,
+) -> Vec<crate::local_model::pruner::RankedChunk> {
+    let mut relevant_chunks = Vec::new();
+    let mut semantic_symbols = std::collections::HashSet::new();
+
+    if let Some(cozo) = &storage.cozo
+        && let Ok(vector_store) = crate::semantic::vector_store::VectorStore::new(
+            cozo,
+            config.dimensions,
+            config.disable_hnsw,
+        )
+        && let Ok(embedder) =
+            crate::semantic::embedder::SemanticEmbedder::new(config.clone()).embed(query_string)
+        && let Ok(results) = vector_store.query(embedder, limit)
+    {
+        for (file_path, name, _offset, dist) in results {
+            let score = 1.0 - (dist / 2.0);
+            if score >= config.chunk_min_similarity {
+                semantic_symbols.insert(name.clone());
+                if let Ok(content) =
+                    crate::util::fs::read_to_string_with_encoding(std::path::Path::new(&file_path))
+                {
+                    let snippet = content.chars().take(1000).collect::<String>();
+                    relevant_chunks.push(crate::local_model::pruner::RankedChunk {
+                        source: format!("{}:: {}", file_path, name),
+                        content: snippet,
+                        score,
+                    });
+                }
+            }
+        }
+
+        if is_global && !semantic_symbols.is_empty() {
+            let symbols_array = semantic_symbols
+                .iter()
+                .map(|s| format!("'{}'", s))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let script = format!(
+                r#"
+                ?[caller, callee, relation] := *edge{{source: caller, target: callee, relation: relation}}, 
+                                               caller in [{symbols_array}] or callee in [{symbols_array}]
+                :limit 50
+            "#
+            );
+            if let Ok(res) = cozo.run_script(&script) {
+                let mut kg_context = String::from("Knowledge Graph Relationships:\n");
+                for row in res.rows {
+                    if let (
+                        Some(cozo::DataValue::Str(caller)),
+                        Some(cozo::DataValue::Str(callee)),
+                        Some(cozo::DataValue::Str(rel)),
+                    ) = (row.first(), row.get(1), row.get(2))
+                    {
+                        kg_context.push_str(&format!("- {} {} {}\n", caller, rel, callee));
+                    }
+                }
+                if kg_context.len() > 30 {
+                    relevant_chunks.push(crate::local_model::pruner::RankedChunk {
+                        source: "Knowledge Graph".to_string(),
+                        content: kg_context,
+                        score: 1.0,
+                    });
+                }
+            }
+        }
+    }
+
+    relevant_chunks
 }
 
 pub fn resolve_backend(config: &Config, explicit: Option<Backend>) -> Backend {

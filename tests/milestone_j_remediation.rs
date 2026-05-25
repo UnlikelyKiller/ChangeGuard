@@ -139,7 +139,7 @@ fn test_bridge_export_stdout() {
 
     // Run bridge export without --out
     let output = Command::new(binary)
-        .args(["bridge", "export", "--hotspots"])
+        .args(["bridge", "export", "--hotspots", "--stdout"])
         .current_dir(dir.path())
         .output()
         .unwrap();
@@ -176,7 +176,7 @@ fn test_bridge_export_stdout() {
         .unwrap();
 
     let output = Command::new(binary)
-        .args(["bridge", "export", "--ledger"])
+        .args(["bridge", "export", "--ledger", "--stdout"])
         .current_dir(dir.path())
         .output()
         .unwrap();

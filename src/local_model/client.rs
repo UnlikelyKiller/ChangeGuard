@@ -43,6 +43,14 @@ pub fn ping_completions(config: &LocalModelConfig) -> Result<String, String> {
         return Err("not configured".to_string());
     }
 
+    let check_url = config.generation_url.as_deref().unwrap_or(&config.base_url);
+    if !crate::util::network::is_url_reachable(check_url, Duration::from_millis(150)) {
+        return Err(format!(
+            "Local completion model server at {} is unreachable",
+            check_url
+        ));
+    }
+
     let url = if let Some(gen_url) = &config.generation_url {
         format!("{}/v1/chat/completions", gen_url)
     } else {
@@ -59,6 +67,7 @@ pub fn ping_completions(config: &LocalModelConfig) -> Result<String, String> {
 
     // Use config timeout: lazy-loading servers need time to load the model before responding.
     let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(std::cmp::min(config.timeout_secs, 5)))
         .timeout_read(Duration::from_secs(config.timeout_secs))
         .timeout_write(Duration::from_secs(30))
         .build();

@@ -70,7 +70,7 @@ fn test_start_success_with_all_args() {
         panic!("expected Start");
     };
     assert_eq!(entity, "src/main.rs");
-    assert_eq!(category, "BUGFIX");
+    assert_eq!(category, changeguard::ledger::Category::Bugfix);
     assert_eq!(message, "fix crash");
 }
 
@@ -81,7 +81,7 @@ fn test_start_missing_entity() {
         "ledger",
         "start",
         "--category",
-        "F",
+        "FEATURE",
         "--message",
         "m",
     ]);
@@ -119,7 +119,7 @@ fn test_atomic_success() {
         "atomic",
         "src/lib.rs",
         "--category",
-        "FEAT",
+        "FEATURE",
         "--summary",
         "add fn",
         "--reason",
@@ -193,7 +193,7 @@ fn test_adopt_success() {
         "adopt",
         "--all",
         "--category",
-        "FEAT",
+        "FEATURE",
         "--summary",
         "s",
         "--reason",

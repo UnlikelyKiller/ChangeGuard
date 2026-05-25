@@ -448,6 +448,10 @@ pub struct LocalModelConfig {
     pub chunk_dedup_threshold: f32,
     #[serde(default)]
     pub disable_hnsw: bool,
+    /// Maximum number of threads used for parallel AST parsing + embedding (HP2).
+    /// `None` means rayon's default (one thread per logical CPU).
+    #[serde(default)]
+    pub concurrency: Option<usize>,
 }
 
 fn default_context_window_local() -> usize {
@@ -484,6 +488,7 @@ impl Default for LocalModelConfig {
             chunk_min_similarity: default_chunk_min_similarity(),
             chunk_dedup_threshold: default_chunk_dedup_threshold(),
             disable_hnsw: false,
+            concurrency: None,
         }
     }
 }
@@ -1360,6 +1365,7 @@ mod tests {
             chunk_min_similarity: 0.3,
             chunk_dedup_threshold: 0.95,
             disable_hnsw: false,
+            concurrency: None,
         };
         let resolved = resolve_local_model_config_with(&raw, &env_reader, &dotenv_reader);
 

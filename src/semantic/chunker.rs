@@ -94,6 +94,16 @@ impl AstChunker {
     }
 
     fn chunk_rust(path: &Path, content: &str) -> Result<Vec<AstChunk>> {
+        let file_path = path.to_string_lossy().to_string();
+
+        // Delegate symbol discovery to symbols.rs
+        let extracted_symbols =
+            match crate::index::languages::rust::symbols::extract_symbols(content)? {
+                Some(symbols) if !symbols.is_empty() => symbols,
+                _ => return Ok(Vec::new()),
+            };
+
+        // Parse once to get the tree for docstring and content extraction
         let mut parser = Parser::new();
         let language = tree_sitter_rust::LANGUAGE;
         parser.set_language(&language.into()).into_diagnostic()?;
@@ -102,112 +112,83 @@ impl AstChunker {
             .parse(content, None)
             .ok_or_else(|| miette!("Failed to parse Rust content"))?;
 
-        let query_str = r#"
-            (function_item name: (identifier) @name) @symbol
-            (struct_item name: (type_identifier) @name) @symbol
-            (enum_item name: (type_identifier) @name) @symbol
-            (trait_item name: (type_identifier) @name) @symbol
-            (impl_item) @symbol
-            (mod_item name: (identifier) @name) @symbol
-        "#;
-
-        let query = Query::new(&language.into(), query_str).into_diagnostic()?;
-        let mut cursor = QueryCursor::new();
-        let mut matches = cursor.matches(&query, tree.root_node(), content.as_bytes());
-
         let mut chunks = Vec::new();
-        let file_path = path.to_string_lossy().to_string();
 
-        while let Some(m) = matches.next() {
-            let mut name = String::new();
-            let mut kind = SymbolKind::Function;
-            let mut symbol_node = None;
+        for symbol in extracted_symbols {
+            // Skip symbols that are not meaningful standalone chunks
+            match symbol.kind {
+                SymbolKind::Function
+                | SymbolKind::Struct
+                | SymbolKind::Enum
+                | SymbolKind::Trait
+                | SymbolKind::Module
+                | SymbolKind::Type => {}
+                _ => continue,
+            }
 
-            for capture in m.captures {
-                let capture_name = query.capture_names()[capture.index as usize];
-                match capture_name {
-                    "name" => {
-                        name = capture
-                            .node
-                            .utf8_text(content.as_bytes())
+            let Some(byte_start) = symbol.byte_start else {
+                continue;
+            };
+            let Some(byte_end) = symbol.byte_end else {
+                continue;
+            };
+
+            let start = byte_start as usize;
+            let end = byte_end as usize;
+
+            let node = tree
+                .root_node()
+                .descendant_for_byte_range(start, end)
+                .filter(|n| n.start_byte() == start && n.end_byte() == end);
+
+            let Some(node) = node else {
+                continue;
+            };
+
+            let chunk_content = node
+                .utf8_text(content.as_bytes())
+                .into_diagnostic()?
+                .to_string();
+
+            // Extract docstring from preceding siblings
+            let mut docstring = Vec::new();
+            let mut prev = node.prev_sibling();
+            while let Some(p) = prev {
+                if p.kind() == "line_comment" || p.kind() == "block_comment" {
+                    docstring.push(
+                        p.utf8_text(content.as_bytes())
                             .into_diagnostic()?
-                            .to_string();
-                    }
-                    "symbol" => {
-                        symbol_node = Some(capture.node);
-                        match capture.node.kind() {
-                            "function_item" => kind = SymbolKind::Function,
-                            "struct_item" => kind = SymbolKind::Struct,
-                            "enum_item" => kind = SymbolKind::Enum,
-                            "trait_item" => kind = SymbolKind::Trait,
-                            "impl_item" => {
-                                kind = SymbolKind::Type; // impl blocks are tagged as Type/Class-like
-                                // Try to find the type name in the impl block
-                                let mut walk = capture.node.walk();
-                                for child in capture.node.children(&mut walk) {
-                                    if child.kind() == "type_identifier" {
-                                        name = child
-                                            .utf8_text(content.as_bytes())
-                                            .into_diagnostic()?
-                                            .to_string();
-                                        break;
-                                    }
-                                }
-                                if name.is_empty() {
-                                    name = "impl".to_string();
-                                }
-                            }
-                            "mod_item" => kind = SymbolKind::Module,
-                            _ => {}
-                        }
-                    }
-                    _ => {}
-                }
-            }
-
-            if let Some(node) = symbol_node {
-                let chunk_content = node
-                    .utf8_text(content.as_bytes())
-                    .into_diagnostic()?
-                    .to_string();
-
-                // Simple docstring extraction: look for comments immediately preceding the node
-                let mut docstring = Vec::new();
-                let mut prev = node.prev_sibling();
-                while let Some(p) = prev {
-                    if p.kind() == "line_comment" || p.kind() == "block_comment" {
-                        docstring.push(
-                            p.utf8_text(content.as_bytes())
-                                .into_diagnostic()?
-                                .trim()
-                                .to_string(),
-                        );
-                        prev = p.prev_sibling();
-                    } else if p.kind() == "attribute_item" {
-                        // Skip attributes but keep looking for comments
-                        prev = p.prev_sibling();
-                    } else {
-                        break;
-                    }
-                }
-                docstring.reverse();
-                let docstring = if docstring.is_empty() {
-                    None
+                            .trim()
+                            .to_string(),
+                    );
+                    prev = p.prev_sibling();
+                } else if p.kind() == "attribute_item" {
+                    // Skip attributes but keep looking for comments
+                    prev = p.prev_sibling();
                 } else {
-                    Some(docstring.join("\n"))
-                };
-
-                chunks.push(AstChunk {
-                    file_path: file_path.clone(),
-                    name,
-                    kind,
-                    content: chunk_content,
-                    docstring,
-                    range: (node.start_byte(), node.end_byte()),
-                    lines: (node.start_position().row + 1, node.end_position().row + 1),
-                    offset: 0,
-                });
+                    break;
+                }
             }
+            docstring.reverse();
+            let docstring = if docstring.is_empty() {
+                None
+            } else {
+                Some(docstring.join("\n"))
+            };
+
+            chunks.push(AstChunk {
+                file_path: file_path.clone(),
+                name: symbol.name,
+                kind: symbol.kind,
+                content: chunk_content,
+                docstring,
+                range: (start, end),
+                lines: (
+                    symbol.line_start.unwrap_or(0) as usize,
+                    symbol.line_end.unwrap_or(0) as usize,
+                ),
+                offset: 0,
+            });
         }
 
         Ok(chunks)

@@ -31,7 +31,6 @@ fn setup_repo(root: &Utf8PathBuf) {
 }
 
 #[test]
-#[ignore = "CozoDB :rm node does not work reliably on sled-backed storage, so incremental deletion cannot guarantee full graph consistency. New nodes are added correctly (verified by test_watch_graph_sync)."]
 fn test_incremental_graph_consistency() {
     let tmp = tempfile::tempdir().unwrap();
     let root = Utf8PathBuf::from_path_buf(tmp.path().to_path_buf()).unwrap();
@@ -60,44 +59,44 @@ fn test_incremental_graph_consistency() {
 
     // Mutation 1: modify lib.rs (more calls)
     fs::write(
-        root.join("src/lib.rs"),
+        root.join("src").join("lib.rs"),
         "pub fn helper() {}\npub fn main() { helper(); helper(); }\n",
     )
     .unwrap();
     let batch1 = WatchBatch::new(vec![WatchEvent {
-        path: root.join("src/lib.rs"),
+        path: root.join("src").join("lib.rs"),
         kind: WatchEventKind::Modify,
     }]);
     let _ = engine.process_batch(&batch1).unwrap();
 
     // Mutation 2: add a new file
     fs::write(
-        root.join("src/new.rs"),
+        root.join("src").join("new.rs"),
         "pub fn fresh() {}\npub fn caller() { fresh(); }\n",
     )
     .unwrap();
     let batch2 = WatchBatch::new(vec![WatchEvent {
-        path: root.join("src/new.rs"),
+        path: root.join("src").join("new.rs"),
         kind: WatchEventKind::Create,
     }]);
     let _ = engine.process_batch(&batch2).unwrap();
 
     // Mutation 3: modify utils.rs
     fs::write(
-        root.join("src/utils.rs"),
+        root.join("src").join("utils.rs"),
         "pub fn util() {}\npub fn call_util() { util(); util(); }\n",
     )
     .unwrap();
     let batch3 = WatchBatch::new(vec![WatchEvent {
-        path: root.join("src/utils.rs"),
+        path: root.join("src").join("utils.rs"),
         kind: WatchEventKind::Modify,
     }]);
     let _ = engine.process_batch(&batch3).unwrap();
 
     // Mutation 4: delete models.rs (leaf file, no edges)
-    fs::remove_file(root.join("src/models.rs")).unwrap();
+    fs::remove_file(root.join("src").join("models.rs")).unwrap();
     let batch4 = WatchBatch::new(vec![WatchEvent {
-        path: root.join("src/models.rs"),
+        path: root.join("src").join("models.rs"),
         kind: WatchEventKind::Delete,
     }]);
     let delta4 = engine.process_batch(&batch4).unwrap();
@@ -105,12 +104,12 @@ fn test_incremental_graph_consistency() {
 
     // Mutation 5: modify lib.rs again
     fs::write(
-        root.join("src/lib.rs"),
+        root.join("src").join("lib.rs"),
         "pub fn helper() { println!(\"hi\"); }\npub fn main() { helper(); }\n",
     )
     .unwrap();
     let batch5 = WatchBatch::new(vec![WatchEvent {
-        path: root.join("src/lib.rs"),
+        path: root.join("src").join("lib.rs"),
         kind: WatchEventKind::Modify,
     }]);
     let delta5 = engine.process_batch(&batch5).unwrap();

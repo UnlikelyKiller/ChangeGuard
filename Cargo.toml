@@ -1,6 +1,6 @@
 [package]
 name = "changeguard"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "MIT"
 
@@ -11,7 +11,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
 toml = "1.1.2"
-cozo = { git = "https://github.com/UnlikelyKiller/cozo-redux", default-features = false, features = ["storage-sled", "graph-algo", "rayon"] }
+cozo = { git = "https://github.com/UnlikelyKiller/cozo-redux", default-features = false, features = ["storage-sqlite", "graph-algo", "rayon"] }
 rayon = "=1.10"
 
 anyhow = "1.0.102"
@@ -85,5 +85,8 @@ viz-server = ["dep:tokio", "dep:tokio-tungstenite", "dep:futures-util", "dep:web
 [dev-dependencies]
 tempfile = "3"
 httpmock = "0.7"
+
+[patch.crates-io]
+sqlite3-sys = { path = "./vendor/sqlite3-sys" }
 
 

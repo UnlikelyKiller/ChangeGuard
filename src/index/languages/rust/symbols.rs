@@ -20,6 +20,7 @@ pub fn extract_symbols(content: &str) -> Result<Option<Vec<Symbol>>> {
         (mod_item name: (identifier) @name) @symbol
         (type_item name: (type_identifier) @name) @symbol
         (use_declaration) @symbol
+        (impl_item) @symbol
     "#;
 
     let query = Query::new(&language.into(), query_str).into_diagnostic()?;
@@ -33,6 +34,8 @@ pub fn extract_symbols(content: &str) -> Result<Option<Vec<Symbol>>> {
         let mut is_public = false;
         let mut kind = SymbolKind::Function;
         let mut metadata = BTreeMap::new();
+        let mut symbol_node: Option<tree_sitter::Node> = None;
+        let mut skip = false;
         for capture in m.captures {
             let capture_name = query.capture_names()[capture.index as usize];
             match capture_name {
@@ -45,6 +48,7 @@ pub fn extract_symbols(content: &str) -> Result<Option<Vec<Symbol>>> {
                 }
                 "symbol" => {
                     let node = capture.node;
+                    symbol_node = Some(node);
                     match node.kind() {
                         "function_item" => kind = SymbolKind::Function,
                         "struct_item" => kind = SymbolKind::Struct,
@@ -52,6 +56,23 @@ pub fn extract_symbols(content: &str) -> Result<Option<Vec<Symbol>>> {
                         "trait_item" => kind = SymbolKind::Trait,
                         "mod_item" => kind = SymbolKind::Module,
                         "type_item" => kind = SymbolKind::Type,
+                        "impl_item" => {
+                            kind = SymbolKind::Type;
+                            // Try to find the type name in the impl block
+                            let mut walk = node.walk();
+                            for child in node.children(&mut walk) {
+                                if child.kind() == "type_identifier" {
+                                    name = child
+                                        .utf8_text(content.as_bytes())
+                                        .into_diagnostic()?
+                                        .to_string();
+                                    break;
+                                }
+                            }
+                            if name.is_empty() {
+                                name = "impl".to_string();
+                            }
+                        }
                         "use_declaration" => {
                             // Only handle public re-exports
                             let mut cursor = node.walk();
@@ -69,7 +90,7 @@ pub fn extract_symbols(content: &str) -> Result<Option<Vec<Symbol>>> {
                                 name = extract_use_name(node, content);
                                 metadata.insert("reexport".to_string(), "true".to_string());
                             } else {
-                                continue;
+                                skip = true;
                             }
                         }
                         _ => {}
@@ -122,21 +143,28 @@ pub fn extract_symbols(content: &str) -> Result<Option<Vec<Symbol>>> {
             }
         }
 
-        if !name.is_empty() {
-            symbols.push(Symbol {
-                name,
-                kind,
-                is_public,
-                cognitive_complexity: None,
-                cyclomatic_complexity: None,
-                line_start: None,
-                line_end: None,
-                qualified_name: None,
-                byte_start: None,
-                byte_end: None,
-                entrypoint_kind: None,
-                metadata,
-            });
+        if !skip && let Some(node) = symbol_node {
+            let byte_start = Some(node.start_byte() as i32);
+            let byte_end = Some(node.end_byte() as i32);
+            let line_start = Some((node.start_position().row + 1) as i32);
+            let line_end = Some((node.end_position().row + 1) as i32);
+
+            if !name.is_empty() {
+                symbols.push(Symbol {
+                    name,
+                    kind,
+                    is_public,
+                    cognitive_complexity: None,
+                    cyclomatic_complexity: None,
+                    line_start,
+                    line_end,
+                    qualified_name: None,
+                    byte_start,
+                    byte_end,
+                    entrypoint_kind: None,
+                    metadata,
+                });
+            }
         }
     }
 

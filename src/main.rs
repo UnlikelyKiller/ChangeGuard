@@ -8,13 +8,13 @@ use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 /// - `verbose = true`: use "debug" level for all crates
 /// - `verbose = false`: respect `RUST_LOG` if set, otherwise apply the quiet
 ///   default that silences noisy third-party crates (graph_builder, tantivy,
-///   sled) to WARN while keeping everything else at INFO.
+///   sqlite) to WARN while keeping everything else at INFO.
 fn build_log_filter(verbose: bool) -> EnvFilter {
     if verbose {
         EnvFilter::new("debug")
     } else {
         EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new("info,graph_builder=warn,tantivy=warn,sled=warn"))
+            .unwrap_or_else(|_| EnvFilter::new("info,graph_builder=warn,tantivy=warn,sqlite=warn"))
     }
 }
 
@@ -39,25 +39,24 @@ fn run() -> Result<()> {
     Ok(())
 }
 
-/// Remove any `*.old.exe` files adjacent to the current executable.
+/// Remove any `changeguard.old.*.exe` files adjacent to the current executable.
 /// These are left when a previous `update --binary` was interrupted.
 /// Errors are silently ignored — this is best-effort cleanup.
 #[cfg(target_os = "windows")]
 fn sweep_stale_old_binaries() {
-    if let Ok(current) = std::env::current_exe() {
-        if let Some(dir) = current.parent() {
-            if let Ok(entries) = std::fs::read_dir(dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .map(|n| n.ends_with(".old.exe"))
-                        .unwrap_or(false)
-                    {
-                        let _ = std::fs::remove_file(&path);
-                    }
-                }
+    if let Ok(current) = std::env::current_exe()
+        && let Some(dir) = current.parent()
+        && let Ok(entries) = std::fs::read_dir(dir)
+    {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.starts_with("changeguard.old.") && n.ends_with(".exe"))
+                .unwrap_or(false)
+            {
+                let _ = std::fs::remove_file(&path);
             }
         }
     }

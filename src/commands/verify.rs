@@ -10,8 +10,81 @@ use crate::verify::suggestions::{
 };
 use crate::verify::timeouts::{DEFAULT_AUTO_TIMEOUT_SECS, manual_timeout};
 use miette::Result;
+use owo_colors::OwoColorize;
 use std::env;
 use tracing::{info, warn};
+
+pub fn verify_ledger_signatures(layout: &Layout) -> Result<()> {
+    let db_path = layout.state_subdir().join("ledger.db");
+    let mut storage = StorageManager::init(db_path.as_std_path())?;
+    let db = crate::ledger::db::LedgerDb::new(storage.get_connection_mut());
+
+    let entries = db
+        .get_all_committed_ledger_entries()
+        .map_err(|e| miette::miette!("Failed to read ledger entries: {}", e))?;
+
+    if entries.is_empty() {
+        println!("Ledger is empty. No signatures to verify.");
+        return Ok(());
+    }
+
+    println!(
+        "Verifying signatures for {} ledger entries...",
+        entries.len()
+    );
+    let mut all_valid = true;
+    for entry in &entries {
+        match (&entry.signature, &entry.public_key) {
+            (Some(sig), Some(pub_key)) => {
+                let valid = crate::ledger::crypto::verify_signature(
+                    &entry.tx_id,
+                    &entry.category.to_string(),
+                    &entry.summary,
+                    &entry.reason,
+                    &entry.committed_at,
+                    sig,
+                    pub_key,
+                );
+                if valid {
+                    println!(
+                        "  [{}] TX {} signed by {}",
+                        "VALID".green(),
+                        &entry.tx_id[..8],
+                        &pub_key[..8]
+                    );
+                } else {
+                    println!(
+                        "  [{}] TX {} signature verification FAILED!",
+                        "INVALID".red(),
+                        &entry.tx_id[..8]
+                    );
+                    all_valid = false;
+                }
+            }
+            _ => {
+                println!(
+                    "  [{}] TX {} has no signature",
+                    "UNSIGNED".yellow(),
+                    &entry.tx_id[..8]
+                );
+            }
+        }
+    }
+
+    if all_valid {
+        println!(
+            "{}",
+            "All signature validations passed successfully!"
+                .green()
+                .bold()
+        );
+        Ok(())
+    } else {
+        Err(miette::miette!(
+            "Ledger verification failed: invalid signature detected."
+        ))
+    }
+}
 
 pub fn execute_verify(
     command_str: Option<String>,
@@ -19,6 +92,7 @@ pub fn execute_verify(
     no_predict: bool,
     explain: bool,
     health: bool,
+    dry_run: bool,
 ) -> Result<()> {
     let current_dir = env::current_dir()
         .map_err(|e| miette::miette!("Failed to get current directory: {}", e))?;
@@ -105,16 +179,69 @@ pub fn execute_verify(
         }
     };
 
+    // Dry Run early exit
+    if dry_run {
+        println!(
+            "{}",
+            "Dry run mode: verification plan displayed above. No commands were executed.".yellow()
+        );
+        return Ok(());
+    }
+
+    // Health check validation path
+    if health {
+        println!("{}", "Verification Health Check".bold().green());
+        let mut all_ok = true;
+        for step in &steps {
+            let exe = step.command.split_whitespace().next().unwrap_or("");
+            let exists = check_executable_exists(exe);
+            if exists {
+                println!(
+                    "  [{}] Command '{}' is available.",
+                    "OK".green(),
+                    step.command
+                );
+            } else {
+                println!(
+                    "  [{}] Executable '{}' for command '{}' NOT found on PATH.",
+                    "FAILED".red(),
+                    exe,
+                    step.command
+                );
+                all_ok = false;
+            }
+        }
+
+        let ledger_status = query_ledger_status(&layout);
+        let suggestions = generate_health_suggestions(&ledger_status);
+        if !suggestions.is_empty() {
+            println!("\n{}", "Suggestions:".bold());
+            for sugg in suggestions {
+                println!("  - {}: {}", sugg.description, sugg.command);
+            }
+        }
+
+        if all_ok {
+            return Ok(());
+        } else {
+            return Err(miette::miette!(
+                "Verification health check failed: some executables are missing."
+            ));
+        }
+    }
+
     // 4. Execute
+    // Explicitly release the database connection and close locks before running verification commands.
+    // This prevents deadlock/lock contention when cargo test runs child ChangeGuard commands.
+    if let Some(storage) = ctx.storage.take() {
+        let _ = storage.shutdown();
+    }
+
     let mut report = VerifyEngine::execute(&mut ctx, plan, &steps, manual_requested)?;
 
     // 5. Generate Suggestions
     let ledger_status = query_ledger_status(&layout);
-    let suggestions = if health {
-        generate_health_suggestions(&ledger_status)
-    } else {
-        generate_suggestions(&report, &ledger_status)
-    };
+    let suggestions = generate_suggestions(&report, &ledger_status);
 
     report = report.with_suggested_actions(suggestions);
 
@@ -147,6 +274,41 @@ pub fn execute_verify(
     } else {
         Err(miette::miette!("Verification failed"))
     }
+}
+
+fn check_executable_exists(name: &str) -> bool {
+    let path = std::path::Path::new(name);
+    if path.is_absolute() || path.components().count() > 1 {
+        return path.exists();
+    }
+    if let Ok(path_env) = std::env::var("PATH") {
+        let paths = std::env::split_paths(&path_env);
+        for p in paths {
+            let exe_path = p.join(name);
+            #[cfg(target_os = "windows")]
+            {
+                for ext in &["", ".exe", ".cmd", ".bat"] {
+                    let full_path = if ext.is_empty() {
+                        exe_path.clone()
+                    } else {
+                        let mut s = exe_path.to_string_lossy().to_string();
+                        s.push_str(ext);
+                        std::path::PathBuf::from(s)
+                    };
+                    if full_path.is_file() {
+                        return true;
+                    }
+                }
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                if exe_path.is_file() {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 fn manual_step(command: String, timeout_secs: u64) -> VerificationStep {

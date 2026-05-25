@@ -56,24 +56,22 @@ fn collect_rust_models(node: Node, content: &str, models: &mut Vec<ExtractedMode
             is_model = true;
         }
 
-        if is_model {
-            if let Some(name_node) = node.child_by_field_name("name") {
-                let name = name_node
-                    .utf8_text(content.as_bytes())
-                    .unwrap_or("")
-                    .to_string();
-                models.push(ExtractedModel {
-                    model_name: name,
-                    language: "Rust".to_string(),
-                    model_kind: if kind == "enum_item" {
-                        ModelKind::Schema
-                    } else {
-                        model_kind
-                    },
-                    confidence: 0.9,
-                    evidence: "Detected based on derive traits and keywords".to_string(),
-                });
-            }
+        if is_model && let Some(name_node) = node.child_by_field_name("name") {
+            let name = name_node
+                .utf8_text(content.as_bytes())
+                .unwrap_or("")
+                .to_string();
+            models.push(ExtractedModel {
+                model_name: name,
+                language: "Rust".to_string(),
+                model_kind: if kind == "enum_item" {
+                    ModelKind::Schema
+                } else {
+                    model_kind
+                },
+                confidence: 0.9,
+                evidence: "Detected based on derive traits and keywords".to_string(),
+            });
         }
     }
 

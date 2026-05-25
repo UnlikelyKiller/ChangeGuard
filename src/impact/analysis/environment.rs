@@ -71,14 +71,14 @@ impl ImpactProvider for EnvironmentImpactProvider {
         // 5. ADR Staleness (Advisory)
         if config.coverage.adr_staleness.enabled {
             for decision in &packet.relevant_decisions {
-                if let Some(days) = decision.staleness_days {
-                    if days > config.coverage.adr_staleness.threshold_days {
-                        reasons.push(format!(
-                            "Stale architectural context: {} ({} days old)",
-                            decision.file_path.display(),
-                            days
-                        ));
-                    }
+                if let Some(days) = decision.staleness_days
+                    && days > config.coverage.adr_staleness.threshold_days
+                {
+                    reasons.push(format!(
+                        "Stale architectural context: {} ({} days old)",
+                        decision.file_path.display(),
+                        days
+                    ));
                 }
             }
         }

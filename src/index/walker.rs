@@ -3,7 +3,6 @@ use camino::Utf8PathBuf;
 use ignore::WalkBuilder;
 use miette::Result;
 use std::collections::HashSet;
-use std::fs;
 
 pub struct RepoWalker {
     root: Utf8PathBuf,
@@ -74,7 +73,8 @@ impl RepoWalker {
         // Follow internal links from README.md (one level deep)
         let readme_path = self.root.join("README.md");
         if readme_path.exists()
-            && let Ok(content) = fs::read_to_string(&readme_path)
+            && let Ok(content) =
+                crate::util::fs::read_to_string_with_encoding(readme_path.as_std_path())
         {
             let parsed = parse_markdown(&content, "README.md");
             for link in &parsed.internal_links {
