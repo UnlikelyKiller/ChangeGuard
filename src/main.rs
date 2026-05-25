@@ -39,8 +39,10 @@ fn run() -> Result<()> {
     Ok(())
 }
 
-/// Remove any `changeguard.old.*.exe` files adjacent to the current executable.
+/// Remove `<exe_name>.old.*.exe` files adjacent to the current executable.
 /// These are left when a previous `update --binary` was interrupted.
+/// Only files whose prefix matches the *current* binary name are removed so
+/// that shadow copies from unrelated binaries are not accidentally deleted.
 /// Errors are silently ignored — this is best-effort cleanup.
 #[cfg(target_os = "windows")]
 fn sweep_stale_old_binaries() {
@@ -48,12 +50,19 @@ fn sweep_stale_old_binaries() {
         && let Some(dir) = current.parent()
         && let Ok(entries) = std::fs::read_dir(dir)
     {
+        // Derive the expected prefix, e.g. "changeguard.old." from "changeguard.exe".
+        let prefix = current
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .map(|stem| format!("{stem}.old."))
+            .unwrap_or_else(|| "changeguard.old.".to_string());
+
         for entry in entries.flatten() {
             let path = entry.path();
             if path
                 .file_name()
                 .and_then(|n| n.to_str())
-                .map(|n| n.starts_with("changeguard.old.") && n.ends_with(".exe"))
+                .map(|n| n.starts_with(prefix.as_str()) && n.ends_with(".exe"))
                 .unwrap_or(false)
             {
                 let _ = std::fs::remove_file(&path);

@@ -63,10 +63,11 @@ pub fn verify_ledger_signatures(layout: &Layout) -> Result<()> {
             }
             _ => {
                 println!(
-                    "  [{}] TX {} has no signature",
+                    "  [{}] TX {} has no signature — treating as verification failure.",
                     "UNSIGNED".yellow(),
                     &entry.tx_id[..8]
                 );
+                all_valid = false;
             }
         }
     }
@@ -81,7 +82,7 @@ pub fn verify_ledger_signatures(layout: &Layout) -> Result<()> {
         Ok(())
     } else {
         Err(miette::miette!(
-            "Ledger verification failed: invalid signature detected."
+            "Ledger signature verification failed: one or more entries have invalid or missing signatures."
         ))
     }
 }
@@ -193,7 +194,7 @@ pub fn execute_verify(
         println!("{}", "Verification Health Check".bold().green());
         let mut all_ok = true;
         for step in &steps {
-            let exe = step.command.split_whitespace().next().unwrap_or("");
+            let exe = extract_executable(&step.command);
             let exists = check_executable_exists(exe);
             if exists {
                 println!(
@@ -274,6 +275,19 @@ pub fn execute_verify(
     } else {
         Err(miette::miette!("Verification failed"))
     }
+}
+
+fn extract_executable(command: &str) -> &str {
+    // Skip leading `KEY=value` tokens to reach the actual executable.
+    // e.g. `CARGO_TERM_COLOR=always cargo test` -> `cargo`
+    let exe_token = command
+        .split_whitespace()
+        .find(|tok| !tok.contains('='))
+        .unwrap_or("");
+    // Strip surrounding quotes from the token if present.
+    exe_token
+        .trim_start_matches(['\"', '\''])
+        .trim_end_matches(['\"', '\''])
 }
 
 fn check_executable_exists(name: &str) -> bool {

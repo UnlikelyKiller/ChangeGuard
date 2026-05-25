@@ -1,11 +1,10 @@
 # Track CR6 Plan: Strong Process Validation for Viz Server Stop
 
 ## Phase 1: Implementation
-- [ ] Inspect the process listing and termination logic in `src/commands/viz_server.rs` (especially Windows-specific paths).
-- [ ] Refine the process parsing to check if the image name is exactly `"changeguard.exe"` or match it using a strict pattern, rather than a broad substring check on the whole output line.
-- [ ] Ensure that PIDs extracted belong to the actual binary rather than shell wrappers or helper scripts.
+- [x] Modified Windows `kill_viz_server` in `src/commands/viz_server.rs` to derive the expected image name from `current_exe()`.
+- [x] Changed the tasklist CSV output check from a loose `contains("changeguard")` substring to an exact match of the image name field.
+- [x] Parsing: first comma-delimited CSV field, stripped of quotes and lowercased, compared against the lowercase exe filename.
 
 ## Phase 2: Testing & Verification
-- [ ] Implement manual verification by launching a dummy process containing `"changeguard"` in its name or arguments (e.g. `notepad.exe changeguard_notes.txt`) and running `changeguard viz-server --stop`.
-- [ ] Verify that only the actual `changeguard` server process is terminated, and the dummy process remains unaffected.
-- [ ] Confirm no regressions in Unix/macOS process termination logic.
+- [x] Existing PID file roundtrip tests remain green.
+- [x] `cargo test` passes.

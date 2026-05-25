@@ -31,8 +31,8 @@ pub fn check_local_model(config: &LocalModelConfig) -> Result<Dimensions, String
 
     let url = config.embedding_url.as_deref().unwrap_or(&config.base_url);
 
-    // Fast connect probe check (timeout 150ms) to avoid hanging when offline
-    if !crate::util::network::is_url_reachable(url, Duration::from_millis(150)) {
+    // CR3: Increased from 150ms to 500ms to prevent false negatives on WSL/container hosts.
+    if !crate::util::network::is_url_reachable(url, Duration::from_millis(500)) {
         return Err(format!(
             "Local embedding model server at {} is unreachable",
             url

@@ -1047,52 +1047,60 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Key additions: `get_tracked_files`/`remove_file_hash` helpers in `SemanticDiscovery`, deletion detection in `execute_semantic_index`, path normalization for cross-platform hash matching, regression tests in `tests/semantic_search.rs`.
 
 *   **Track CR2: Enforce Signature Verification Failures**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackCR2/spec.md`
     *   Plan: `conductor/trackCR2/plan.md`
     *   Goal: Enforce that signature verification checks return a non-zero exit code on unsigned committed entries.
+    *   Key additions: `all_valid = false` for UNSIGNED entries in `verify_ledger_signatures`, updated error message.
 
 *   **Track CR3: Calibrate AI-Brains Timeout & Local Model Probe**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackCR3/spec.md`
     *   Plan: `conductor/trackCR3/plan.md`
     *   Goal: Increase safety timeout margins for AI-Brains CLI fallbacks and LLM TCP preflight socket probes.
+    *   Key additions: AI-Brains CLI timeout 800ms→2000ms in `client_cli.rs`; embedding and completion probe 150ms→500ms.
 
 *   **Track CR4: Align Health Check Command Parsing**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackCR4/spec.md`
     *   Plan: `conductor/trackCR4/plan.md`
     *   Goal: Unify command parsing logic between the health checker and the verification engine runner.
+    *   Key additions: `extract_executable()` helper in `verify.rs` that skips `KEY=value` prefixes and strips quotes.
 
 *   **Track CR5: CLI & Process Hardening Test Coverage**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackCR5/spec.md`
     *   Plan: `conductor/trackCR5/plan.md`
     *   Goal: Add tests for verify/config CLI flags and scope force-unlock process termination safely.
+    *   Key additions: `--dry-run`, `--health` (pass/fail), env-prefix regression, and `escape_cozo_string` unit tests in `tests/cli_verify.rs`.
 
 *   **Track CR6: Strong Process Validation for Viz Server Stop**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackCR6/spec.md`
     *   Plan: `conductor/trackCR6/plan.md`
     *   Goal: Validate the image name and executable path of target processes in viz-server stop before invoking taskkill.
+    *   Key additions: Exact CSV image-name matching derived from `current_exe()` in `viz_server.rs` Windows stop path.
 
 *   **Track CR7: Robust Global Ask Neighborhood Queries**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackCR7/spec.md`
     *   Plan: `conductor/trackCR7/plan.md`
     *   Goal: Wire the Datalog neighborhood enrichment context to both the VectorStore and legacy chunk-pruner fallback paths in Global Ask.
+    *   Key additions: `fetch_kg_neighborhood()` shared helper; neighborhood now applied after pruner fallback path in `ask.rs`.
 
 *   **Track CR8: Escape Symbol Names in Cozo Queries**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackCR8/spec.md`
     *   Plan: `conductor/trackCR8/plan.md`
     *   Goal: Escape special characters (such as single quotes) in symbol names before interpolating them into Cozo DB queries.
+    *   Key additions: `pub fn escape_cozo_string()` in `ask.rs`; all Datalog symbol interpolations now escape via this helper.
 
 *   **Track CR9: Scope Windows Shadow Copies Cleanup**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackCR9/spec.md`
     *   Plan: `conductor/trackCR9/plan.md`
     *   Goal: Refine the startup sweep for *.old.*.exe files in main.rs to only clean up files belonging specifically to the current ChangeGuard binary.
+    *   Key additions: Dynamic prefix derivation from `current_exe().file_stem()` in `sweep_stale_old_binaries()` in `main.rs`.
 
 ## Workflow
 

@@ -44,7 +44,8 @@ pub fn ping_completions(config: &LocalModelConfig) -> Result<String, String> {
     }
 
     let check_url = config.generation_url.as_deref().unwrap_or(&config.base_url);
-    if !crate::util::network::is_url_reachable(check_url, Duration::from_millis(150)) {
+    // CR3: Increased from 150ms to 500ms to prevent false negatives on WSL/container hosts.
+    if !crate::util::network::is_url_reachable(check_url, Duration::from_millis(500)) {
         return Err(format!(
             "Local completion model server at {} is unreachable",
             check_url

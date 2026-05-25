@@ -94,15 +94,43 @@ fn kill_viz_server(layout: &Layout) -> Result<()> {
             println!("Stopping viz server (PID {})...", pid);
             #[cfg(target_os = "windows")]
             {
-                // Verify process name first
+                // CR6: Validate the exact image name from the tasklist CSV output.
+                // tasklist /FO CSV /NH emits lines like:
+                //   "changeguard.exe","1234","Console","1","12,345 K"
+                // We require the image name field to match our binary exactly to
+                // prevent false positives from processes that have "changeguard" as
+                // a substring of their argv or working directory.
+                let expected_image = std::env::current_exe()
+                    .ok()
+                    .and_then(|p| {
+                        p.file_name()
+                            .and_then(|n| n.to_str())
+                            .map(|s| s.to_lowercase())
+                    })
+                    .unwrap_or_else(|| "changeguard.exe".to_string());
+
                 let verify_output = std::process::Command::new("tasklist")
                     .args(["/FI", &format!("PID eq {}", pid), "/FO", "CSV", "/NH"])
                     .output()
                     .map_err(|e| miette!("Failed to verify process: {}", e))?;
-
                 let out_str = String::from_utf8_lossy(&verify_output.stdout);
-                if !out_str.to_lowercase().contains("changeguard") {
-                    println!("Process {} is not changeguard (may have exited).", pid);
+
+                let is_our_process = out_str.lines().any(|line| {
+                    // CSV first field is the image name (quoted).
+                    let image = line
+                        .split(',')
+                        .next()
+                        .unwrap_or("")
+                        .trim()
+                        .trim_matches('"');
+                    image.to_lowercase() == expected_image
+                });
+
+                if !is_our_process {
+                    println!(
+                        "Process {} is not {} (may have exited).",
+                        pid, expected_image
+                    );
                     remove_pid_file(layout);
                     return Ok(());
                 }

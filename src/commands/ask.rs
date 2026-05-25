@@ -130,6 +130,22 @@ pub fn execute_ask(
                     tracing::warn!("Chunk retrieval failed: {e}, proceeding without chunks");
                     Vec::new()
                 });
+                // CR7: Apply KG neighborhood to pruner fallback chunks as well.
+                if is_global
+                    && !relevant_chunks.is_empty()
+                    && let Some(cozo) = &storage.cozo
+                {
+                    let syms = relevant_chunks
+                        .iter()
+                        .filter_map(|c| c.source.split("::").nth(1));
+                    if let Some(kg_ctx) = fetch_kg_neighborhood(cozo, syms) {
+                        relevant_chunks.push(crate::local_model::pruner::RankedChunk {
+                            source: "Knowledge Graph".to_string(),
+                            content: kg_ctx,
+                            score: 1.0,
+                        });
+                    }
+                }
             }
             if is_global && relevant_chunks.is_empty() {
                 return Err(miette::miette!(
@@ -307,43 +323,67 @@ fn gather_semantic_chunks(
             }
         }
 
-        if is_global && !semantic_symbols.is_empty() {
-            let symbols_array = semantic_symbols
-                .iter()
-                .map(|s| format!("'{}'", s))
-                .collect::<Vec<_>>()
-                .join(", ");
-            let script = format!(
-                r#"
-                ?[caller, callee, relation] := *edge{{source: caller, target: callee, relation: relation}}, 
-                                               caller in [{symbols_array}] or callee in [{symbols_array}]
-                :limit 50
-            "#
-            );
-            if let Ok(res) = cozo.run_script(&script) {
-                let mut kg_context = String::from("Knowledge Graph Relationships:\n");
-                for row in res.rows {
-                    if let (
-                        Some(cozo::DataValue::Str(caller)),
-                        Some(cozo::DataValue::Str(callee)),
-                        Some(cozo::DataValue::Str(rel)),
-                    ) = (row.first(), row.get(1), row.get(2))
-                    {
-                        kg_context.push_str(&format!("- {} {} {}\n", caller, rel, callee));
-                    }
-                }
-                if kg_context.len() > 30 {
-                    relevant_chunks.push(crate::local_model::pruner::RankedChunk {
-                        source: "Knowledge Graph".to_string(),
-                        content: kg_context,
-                        score: 1.0,
-                    });
-                }
-            }
+        if is_global
+            && !semantic_symbols.is_empty()
+            && let Some(cozo) = &storage.cozo
+            && let Some(kg_ctx) =
+                fetch_kg_neighborhood(cozo, semantic_symbols.iter().map(|s| s.as_str()))
+        {
+            relevant_chunks.push(crate::local_model::pruner::RankedChunk {
+                source: "Knowledge Graph".to_string(),
+                content: kg_ctx,
+                score: 1.0,
+            });
         }
     }
 
     relevant_chunks
+}
+
+/// CR8: Escape a symbol name for safe interpolation inside a Cozo Datalog string literal.
+/// Cozo uses single-quoted string literals; a single quote must be doubled to escape it.
+/// Backslashes are also escaped to prevent unintended Datalog escaping sequences.
+pub fn escape_cozo_string(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('\'', "''")
+}
+
+/// CR7: Run the KG neighborhood edge query for a set of symbol names and return a
+/// formatted context string, or `None` if no relevant edges are found.
+fn fetch_kg_neighborhood(
+    cozo: &crate::state::storage_cozo::CozoStorage,
+    symbols: impl Iterator<Item = impl AsRef<str>>,
+) -> Option<String> {
+    let symbols_array = symbols
+        .map(|s| format!("'{}'", escape_cozo_string(s.as_ref())))
+        .collect::<Vec<_>>()
+        .join(", ");
+    if symbols_array.is_empty() {
+        return None;
+    }
+    let script = format!(
+        r#"
+        ?[caller, callee, relation] := *edge{{source: caller, target: callee, relation: relation}}, 
+                                       caller in [{symbols_array}] or callee in [{symbols_array}]
+        :limit 50
+    "#
+    );
+    let res = cozo.run_script(&script).ok()?;
+    let mut kg_context = String::from("Knowledge Graph Relationships:\n");
+    for row in res.rows {
+        if let (
+            Some(cozo::DataValue::Str(caller)),
+            Some(cozo::DataValue::Str(callee)),
+            Some(cozo::DataValue::Str(rel)),
+        ) = (row.first(), row.get(1), row.get(2))
+        {
+            kg_context.push_str(&format!("- {} {} {}\n", caller, rel, callee));
+        }
+    }
+    if kg_context.len() > 30 {
+        Some(kg_context)
+    } else {
+        None
+    }
 }
 
 pub fn resolve_backend(config: &Config, explicit: Option<Backend>) -> Backend {
