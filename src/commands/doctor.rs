@@ -176,7 +176,9 @@ fn print_vram_section() {
 
                 let is_arc = info.adapter_name.to_lowercase().contains("arc");
                 let note = if is_arc && info.current_usage == 0 {
-                    " (Driver limitation: zero-usage reporting on Intel Arc)".yellow().to_string()
+                    " (Driver limitation: zero-usage reporting on Intel Arc)"
+                        .yellow()
+                        .to_string()
                 } else {
                     "".to_string()
                 };
@@ -197,7 +199,6 @@ fn print_vram_section() {
             }
             Err(e) => println!("{:<20} unavailable ({})", "GPU VRAM:".bold(), e.yellow()),
         }
-
     }
     #[cfg(not(target_os = "windows"))]
     {
