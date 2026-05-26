@@ -484,12 +484,14 @@ pub fn execute_ledger_gc(orphans: bool, ttl_days: u64, force: bool) -> Result<()
         }
 
         let mut count = 0;
+        let mut failures = 0;
         for id in stale_ids {
             if let Err(e) = tx_mgr.rollback_change(
                 id.clone(),
                 "Garbage collection of orphaned PENDING transaction".to_string(),
             ) {
                 tracing::warn!("Failed to rollback tx {}: {}", id, e);
+                failures += 1;
             } else {
                 count += 1;
             }
@@ -501,6 +503,21 @@ pub fn execute_ledger_gc(orphans: bool, ttl_days: u64, force: bool) -> Result<()
                 "DONE".green().bold(),
                 count
             );
+        }
+
+        if failures > 0 {
+            if count == 0 {
+                return Err(miette::miette!(
+                    "GC failed to clean up any of the {} orphaned transaction(s). Check logs.",
+                    failures
+                ));
+            } else {
+                println!(
+                    "{} Failed to clean up {} transaction(s). Check logs for details.",
+                    "WARN:".yellow().bold(),
+                    failures
+                );
+            }
         }
     } else {
         println!("Please specify a GC mode (e.g. --orphans)");

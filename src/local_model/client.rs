@@ -113,9 +113,9 @@ pub fn complete(
     messages: &[ChatMessage],
     options: &CompletionOptions,
 ) -> Result<String, String> {
-    if config.base_url.is_empty() {
+    if config.base_url.is_empty() && config.generation_url.is_none() {
         return Err(
-            "Local model server at  is unreachable. Start llama-server or use --backend gemini."
+            "Local model server is not configured. Start llama-server or use --backend gemini."
                 .to_string(),
         );
     }
@@ -340,7 +340,7 @@ mod tests {
         let config = test_config("");
         let result = complete(&config, &test_messages(), &CompletionOptions::default());
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("is unreachable"));
+        assert!(result.unwrap_err().contains("is not configured"));
     }
 
     #[test]

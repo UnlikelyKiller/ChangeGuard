@@ -6,7 +6,8 @@ ChangeGuard is a local-first engineering intelligence engine. It combines struct
 
 ChangeGuard treats architectural changes as atomic transactions, maintaining a permanent record of design decisions and intent.
 
-*   **Transaction Lifecycle**: Start, commit, rollback, or execute atomic changes with metadata (`category`, `summary`, `reason`).
+*   **Transaction Lifecycle**: Start, commit, rollback, or execute atomic changes with metadata (`category`, `summary`, `reason`). Rollbacks are auditable and require an explicit intent note.
+*   **Garbage Collection**: Identify and prune orphaned PENDING transactions via `ledger gc --orphans`.
 *   **Drift Detection**: Automatic detection of "unaudited drift" (changes made outside of a transaction).
 *   **Reconciliation & Adoption**: Transition drift into formal ledger entries or adopt it as part of an active transaction.
 *   **Token-Level Provenance**: Attribution of specific symbol modifications (functions, classes) to ledger transactions.

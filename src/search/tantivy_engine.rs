@@ -139,11 +139,11 @@ impl TantivySearchEngine {
         let query_parser = QueryParser::for_index(&self.index, vec![content_field, path_field]);
         let bm25_query = query_parser.parse_query(query_str).into_diagnostic()?;
 
-        // Combined query: (Trigrams SHOULD match) AND (BM25 ranking)
+        // Combined query: (Trigrams MUST match) AND (BM25 ranking)
         let final_query: Box<dyn tantivy::query::Query> = if let Some(trigram_q) = pre_filter_query
         {
             Box::new(tantivy::query::BooleanQuery::new(vec![
-                (tantivy::query::Occur::Should, trigram_q),
+                (tantivy::query::Occur::Must, trigram_q),
                 (tantivy::query::Occur::Must, bm25_query),
             ]))
         } else {

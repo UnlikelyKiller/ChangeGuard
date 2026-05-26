@@ -10,6 +10,7 @@ pub struct VramInfo {
     pub budget_bytes: u64,
     pub current_usage: u64,
     pub adapter_name: String,
+    pub dedicated_vram: u64,
 }
 
 #[cfg(target_os = "windows")]
@@ -34,42 +35,34 @@ pub fn query_vram_usage() -> Result<VramInfo, String> {
 
             let adapter3: IDXGIAdapter3 = adapter.cast().map_err(|e| e.message().to_string())?;
 
-            // Check both LOCAL (Dedicated) and NON_LOCAL (Shared) for usage
-            let groups = [
-                DXGI_MEMORY_SEGMENT_GROUP_LOCAL,
-                DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL,
-            ];
+            // Check LOCAL segment (dedicated VRAM)
+            let mut info = DXGI_QUERY_VIDEO_MEMORY_INFO::default();
+            if adapter3
+                .QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &mut info)
+                .is_ok()
+                && info.Budget > 0
+            {
+                let current = VramInfo {
+                        budget_bytes: info.Budget,
+                        current_usage: info.CurrentUsage,
+                        adapter_name: String::from_utf16_lossy(&desc.Description)
+                            .trim_matches('\0')
+                            .to_string(),
+                        dedicated_vram: desc.DedicatedVideoMemory as u64,
+                    };
 
-            for &group in &groups {
-                for node in 0..4 {
-                    let mut info = DXGI_QUERY_VIDEO_MEMORY_INFO::default();
-                    if adapter3
-                        .QueryVideoMemoryInfo(node, group, &mut info)
-                        .is_ok()
-                        && info.Budget > 0
-                    {
-                        let current = VramInfo {
-                            budget_bytes: info.Budget,
-                            current_usage: info.CurrentUsage,
-                            adapter_name: String::from_utf16_lossy(&desc.Description)
-                                .trim_matches('\0')
-                                .to_string(),
-                        };
-
-                        match best_info {
-                            Some(ref prev) => {
-                                // Prefer the adapter reporting the most usage (likely the one being benchmarked)
-                                // or fall back to the one with the biggest budget.
-                                if current.current_usage > prev.current_usage
-                                    || (current.current_usage == prev.current_usage
-                                        && current.budget_bytes > prev.budget_bytes)
-                                {
-                                    best_info = Some(current);
-                                }
-                            }
-                            None => {
+                    match best_info {
+                        Some(ref prev) => {
+                            // HEURISTIC: Prefer the adapter with more dedicated VRAM (likely dGPU)
+                            // or the one currently reporting usage if B580 bug is absent.
+                            if current.dedicated_vram > prev.dedicated_vram
+                                || current.current_usage > prev.current_usage
+                            {
                                 best_info = Some(current);
                             }
+                        }
+                        None => {
+                            best_info = Some(current);
                         }
                     }
                 }
@@ -111,6 +104,7 @@ mod tests {
             budget_bytes: 12_000_000_000,
             current_usage: 10_000_000_000,
             adapter_name: "Test".to_string(),
+            dedicated_vram: 12_000_000_000,
         };
         assert_eq!(classify(&info), VramPressure::Ok);
     }
@@ -121,6 +115,7 @@ mod tests {
             budget_bytes: 12_000_000_000,
             current_usage: 10_500_000_000,
             adapter_name: "Test".to_string(),
+            dedicated_vram: 12_000_000_000,
         };
         assert_eq!(classify(&info), VramPressure::High);
     }
@@ -131,6 +126,7 @@ mod tests {
             budget_bytes: 12_000_000_000,
             current_usage: 11_400_000_000,
             adapter_name: "Test".to_string(),
+            dedicated_vram: 12_000_000_000,
         };
         assert_eq!(classify(&info), VramPressure::Critical);
     }
