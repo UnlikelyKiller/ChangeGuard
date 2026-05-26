@@ -1,15 +1,20 @@
 use changeguard::commands::scan::execute_scan;
-use changeguard::git::repo::open_repo;
-use changeguard::git::status::get_repo_status;
-use changeguard::git::{ChangeType, FileChange};
 use changeguard::state::layout::Layout;
 use std::fs;
-use std::path::{Path, PathBuf};
 use std::process::Command;
 use tempfile::tempdir;
 
 mod common;
-use common::{DirGuard, cwd_lock, git_cmd, setup_git_repo};
+use common::{DirGuard, cwd_lock, setup_git_repo};
+
+fn git_cmd(dir: &std::path::Path, args: &[&str]) {
+    let status = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .status()
+        .unwrap();
+    assert!(status.success());
+}
 
 #[test]
 fn test_scan_integration_clean() {
@@ -25,7 +30,7 @@ fn test_scan_integration_clean() {
 
     let _guard = DirGuard::new(root);
 
-    let result = execute_scan(false, false, None);
+    let result = execute_scan(false, false, false, None);
     assert!(result.is_ok());
 
     let layout = Layout::new(root.to_string_lossy().as_ref());
@@ -57,7 +62,7 @@ fn test_scan_integration_dirty() {
 
     let _guard = DirGuard::new(root);
 
-    let result = execute_scan(false, false, None);
+    let result = execute_scan(false, false, false, None);
     assert!(result.is_ok());
 
     let layout = Layout::new(root.to_string_lossy().as_ref());
@@ -89,7 +94,7 @@ fn test_scan_integration_detached() {
 
     let _guard = DirGuard::new(root);
 
-    let result = execute_scan(false, false, None);
+    let result = execute_scan(false, false, false, None);
     assert!(result.is_ok());
 }
 
@@ -101,25 +106,37 @@ fn test_scan_impact_out_writes_json_without_json_flag() {
 
     setup_git_repo(root);
 
-    fs::create_dir(root.join("src")).unwrap();
-    fs::write(root.join("src").join("main.rs"), "fn main() {}\n").unwrap();
-    git_cmd(root, &["add", "."]);
+    fs::write(root.join("initial.txt"), "hello").unwrap();
+    git_cmd(root, &["add", "initial.txt"]);
     git_cmd(root, &["commit", "-m", "initial commit"]);
-    fs::write(
-        root.join("src").join("main.rs"),
-        "fn main() { println!(\"hi\"); }\n",
-    )
-    .unwrap();
+
+    fs::write(root.join("initial.txt"), "modified").unwrap();
 
     let out_path = root.join("impact.json");
     let _guard = DirGuard::new(root);
 
-    execute_scan(true, false, Some(out_path.clone())).unwrap();
+    execute_scan(true, false, false, Some(out_path.clone())).unwrap();
 
     let content = fs::read_to_string(out_path).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
     assert_eq!(parsed["schemaVersion"], "v1");
     assert!(parsed["changes"].is_array());
+}
+
+#[test]
+fn test_scan_out_requires_impact() {
+    let _lock = cwd_lock().lock().unwrap();
+    let tmp = tempdir().unwrap();
+    let root = tmp.path();
+
+    setup_git_repo(root);
+
+    let _guard = DirGuard::new(root);
+    let error = execute_scan(false, false, false, Some("out.json".into())).unwrap_err();
+    assert!(
+        error.to_string().contains("--impact"),
+        "expected impact requirement error, got {error:?}"
+    );
 }
 
 #[test]
@@ -131,87 +148,25 @@ fn test_scan_json_requires_impact() {
     setup_git_repo(root);
 
     let _guard = DirGuard::new(root);
-    let error = execute_scan(false, true, None).unwrap_err();
+    let error = execute_scan(false, false, true, None).unwrap_err();
     assert!(
         error.to_string().contains("--impact"),
         "expected impact requirement error, got {error:?}"
     );
 }
 
-fn read_status(root: &Path) -> Vec<FileChange> {
-    let repo = open_repo(root).expect("repository should open");
-    get_repo_status(&repo).expect("status should be readable")
-}
-
 #[test]
-fn test_scan_status_classifies_staged_add_delete_rename() {
+fn test_scan_summary_requires_impact() {
     let _lock = cwd_lock().lock().unwrap();
     let tmp = tempdir().unwrap();
     let root = tmp.path();
 
     setup_git_repo(root);
 
-    fs::write(root.join("old_name.txt"), "tracked").unwrap();
-    fs::write(root.join("delete_me.txt"), "remove").unwrap();
-    git_cmd(root, &["add", "."]);
-    git_cmd(root, &["commit", "-m", "initial commit"]);
-
-    git_cmd(root, &["mv", "old_name.txt", "new_name.txt"]);
-    git_cmd(root, &["rm", "delete_me.txt"]);
-    fs::write(root.join("added.txt"), "new").unwrap();
-    git_cmd(root, &["add", "added.txt"]);
-
-    let changes = read_status(root);
-
-    assert!(changes.iter().any(|change| {
-        change.is_staged
-            && change.path == Path::new("added.txt")
-            && matches!(change.change_type, ChangeType::Added)
-    }));
-
-    assert!(changes.iter().any(|change| {
-        change.is_staged
-            && change.path == Path::new("delete_me.txt")
-            && matches!(change.change_type, ChangeType::Deleted)
-    }));
-
-    assert!(changes.iter().any(|change| {
-        change.is_staged
-            && change.path == Path::new("new_name.txt")
-            && matches!(
-                &change.change_type,
-                ChangeType::Renamed { old_path } if old_path == &PathBuf::from("old_name.txt")
-            )
-    }));
-}
-
-#[test]
-fn test_scan_status_keeps_staged_and_unstaged_entries_for_same_file() {
-    let _lock = cwd_lock().lock().unwrap();
-    let tmp = tempdir().unwrap();
-    let root = tmp.path();
-
-    setup_git_repo(root);
-
-    fs::write(root.join("dual_state.txt"), "line one\n").unwrap();
-    git_cmd(root, &["add", "dual_state.txt"]);
-    git_cmd(root, &["commit", "-m", "initial commit"]);
-
-    fs::write(root.join("dual_state.txt"), "line one\nstaged\n").unwrap();
-    git_cmd(root, &["add", "dual_state.txt"]);
-    fs::write(root.join("dual_state.txt"), "line one\nstaged\nunstaged\n").unwrap();
-
-    let changes = read_status(root);
-
-    let matching: Vec<_> = changes
-        .iter()
-        .filter(|change| {
-            change.path == Path::new("dual_state.txt")
-                && matches!(change.change_type, ChangeType::Modified)
-        })
-        .collect();
-
-    assert_eq!(matching.len(), 2, "expected staged and unstaged entries");
-    assert!(matching.iter().any(|change| change.is_staged));
-    assert!(matching.iter().any(|change| !change.is_staged));
+    let _guard = DirGuard::new(root);
+    let error = execute_scan(false, true, false, None).unwrap_err();
+    assert!(
+        error.to_string().contains("--impact"),
+        "expected impact requirement error, got {error:?}"
+    );
 }

@@ -202,6 +202,6 @@ fn print_vram_section() {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        println!("{:<20} n/a (Windows-only monitoring)\", \"GPU VRAM:\".bold()");
+        println!("{:<20} n/a (Windows-only monitoring)", "GPU VRAM:".bold());
     }
 }

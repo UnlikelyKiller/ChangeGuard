@@ -50,6 +50,18 @@ pub fn check_policy(command: &str, policy: &ProcessPolicy) -> Result<(), Process
     }
 }
 
+pub fn force_unlock_processes() -> miette::Result<()> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        // Kill any background changeguard processes that might hold file locks
+        let _ = Command::new("taskkill")
+            .args(["/F", "/IM", "changeguard.exe", "/T"])
+            .status();
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

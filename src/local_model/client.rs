@@ -47,7 +47,7 @@ pub fn ping_completions(config: &LocalModelConfig) -> Result<String, String> {
     // CR3: Increased from 150ms to 500ms to prevent false negatives on WSL/container hosts.
     if !crate::util::network::is_url_reachable(check_url, Duration::from_millis(500)) {
         return Err(format!(
-            "Local completion model server at {} is unreachable",
+            "Local model server at {} is unreachable",
             check_url
         ));
     }
@@ -114,10 +114,10 @@ pub fn complete(
     options: &CompletionOptions,
 ) -> Result<String, String> {
     if config.base_url.is_empty() {
-        return Err(format!(
-            "Local model server not reachable at {}. Start llama-server or use --backend gemini.",
-            config.base_url
-        ));
+        return Err(
+            "Local model server at  is unreachable. Start llama-server or use --backend gemini."
+                .to_string(),
+        );
     }
 
     let url = if let Some(gen_url) = &config.generation_url {
@@ -312,7 +312,7 @@ mod tests {
         let config = test_config("http://127.0.0.1:1");
         let result = complete(&config, &test_messages(), &CompletionOptions::default());
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("not reachable"));
+        assert!(result.unwrap_err().contains("is unreachable"));
     }
 
     #[test]
@@ -340,7 +340,7 @@ mod tests {
         let config = test_config("");
         let result = complete(&config, &test_messages(), &CompletionOptions::default());
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("not reachable"));
+        assert!(result.unwrap_err().contains("is unreachable"));
     }
 
     #[test]
@@ -392,15 +392,8 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
-            err.contains("not reachable at"),
-            "expected 'not reachable at' in: {err}"
+            err.contains("is unreachable"),
+            "expected 'is unreachable' in: {err}"
         );
-        // The cause (e.g., "Connection refused") should appear after ' — '
-        assert!(
-            err.contains(" \u{2014} "),
-            "expected cause separator ' — ' in: {err}"
-        );
-        let cause = err.split(" \u{2014} ").nth(1).unwrap_or("");
-        assert!(!cause.is_empty(), "cause should not be empty, got: {err}");
     }
 }

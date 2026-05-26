@@ -25,20 +25,25 @@ fn run() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let mut transformed = Vec::with_capacity(args.len());
 
-    for (i, arg) in args.iter().enumerate() {
-        if i == 1 {
-            match arg.as_str() {
-                "help" => transformed.push("--help".to_string()),
-                "version" => transformed.push("--version".to_string()),
-                _ => transformed.push(arg.clone()),
-            }
-        } else {
+    if args.len() > 1 && args[1] == "help" {
+        // [exe, help, cmd1, cmd2] -> [exe, cmd1, cmd2, --help]
+        transformed.push(args[0].clone());
+        for arg in args.iter().skip(2) {
             transformed.push(arg.clone());
         }
+        transformed.push("--help".to_string());
+    } else if args.len() > 1 && args[1] == "version" {
+        // [exe, version, ...] -> [exe, --version, ...]
+        transformed.push(args[0].clone());
+        transformed.push("--version".to_string());
+        for arg in args.iter().skip(2) {
+            transformed.push(arg.clone());
+        }
+    } else {
+        transformed = args;
     }
 
     let args = transformed;
-
     // Parse CLI args once here so we can read the verbose flag before
     // initializing the logger.  cli::run_with(cli) reuses the parsed struct,
     // avoiding a second parse.
