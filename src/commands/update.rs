@@ -6,12 +6,7 @@ use std::fs;
 use std::process::Command;
 use tracing::info;
 
-pub fn execute_update(
-    migrate: bool,
-    binary: bool,
-    force: bool,
-    force_unlock: bool,
-) -> Result<()> {
+pub fn execute_update(migrate: bool, binary: bool, force: bool, force_unlock: bool) -> Result<()> {
     if !migrate && !binary {
         println!(
             "{} Specify what to update (e.g. --migrate or --binary)",
@@ -79,9 +74,7 @@ fn execute_binary_update(force: bool, force_unlock: bool) -> Result<()> {
             "{}",
             "Warning: ChangeGuard binary is currently locked by another process.".yellow()
         );
-        println!(
-            "Please close any other running instances or daemon processes before continuing."
-        );
+        println!("Please close any other running instances or daemon processes before continuing.");
         println!("(Attempting shadow-copy anyway...)");
     }
 
@@ -103,7 +96,10 @@ fn execute_binary_update(force: bool, force_unlock: bool) -> Result<()> {
     let status = cmd.status().into_diagnostic()?;
 
     if status.success() {
-        println!("{} ChangeGuard updated successfully.", "DONE".green().bold());
+        println!(
+            "{} ChangeGuard updated successfully.",
+            "DONE".green().bold()
+        );
         if let Some(old_path) = old_path_opt {
             info!("Stale binary moved to: {}", old_path.display());
             println!(
