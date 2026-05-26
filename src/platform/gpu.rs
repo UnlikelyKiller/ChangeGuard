@@ -5,10 +5,11 @@ pub enum VramPressure {
     Critical,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct VramInfo {
     pub budget_bytes: u64,
     pub current_usage: u64,
+    pub adapter_name: String,
 }
 
 #[cfg(target_os = "windows")]
@@ -18,13 +19,13 @@ pub fn query_vram_usage() -> Result<VramInfo, String> {
     unsafe {
         let factory: IDXGIFactory4 = CreateDXGIFactory2(DXGI_CREATE_FACTORY_FLAGS(0))
             .map_err(|e| e.message().to_string())?;
-
+        
         let mut best_info: Option<VramInfo> = None;
         let mut i = 0;
-
+        
         while let Ok(adapter) = factory.EnumAdapters1(i) {
             let desc = adapter.GetDesc1().map_err(|e| e.message().to_string())?;
-
+            
             // Skip software adapters
             if (desc.Flags & 2) != 0 {
                 i += 1;
@@ -32,41 +33,26 @@ pub fn query_vram_usage() -> Result<VramInfo, String> {
             }
 
             let adapter3: IDXGIAdapter3 = adapter.cast().map_err(|e| e.message().to_string())?;
+            
+            // Query segment 0 on node 0
+            let mut local_info = DXGI_QUERY_VIDEO_MEMORY_INFO::default();
+            if adapter3.QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &mut local_info).is_ok() {
+                if local_info.Budget > 0 {
+                    let current = VramInfo {
+                        budget_bytes: local_info.Budget,
+                        current_usage: local_info.CurrentUsage,
+                        adapter_name: String::from_utf16_lossy(&desc.Description).trim_matches('\0').to_string(),
+                    };
 
-            // Check both LOCAL (Dedicated) and NON_LOCAL (Shared) for usage
-            let groups = [
-                DXGI_MEMORY_SEGMENT_GROUP_LOCAL,
-                DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL,
-            ];
-
-            for &group in &groups {
-                for node in 0..4 {
-                    let mut info = DXGI_QUERY_VIDEO_MEMORY_INFO::default();
-                    if adapter3
-                        .QueryVideoMemoryInfo(node, group, &mut info)
-                        .is_ok()
-                    {
-                        if info.Budget > 0 {
-                            let current = VramInfo {
-                                budget_bytes: info.Budget,
-                                current_usage: info.CurrentUsage,
-                            };
-
-                            match best_info {
-                                Some(prev) => {
-                                    // Prefer the adapter reporting the most usage (likely the one being benchmarked)
-                                    // or fall back to the one with the biggest budget.
-                                    if current.current_usage > prev.current_usage
-                                        || (current.current_usage == prev.current_usage
-                                            && current.budget_bytes > prev.budget_bytes)
-                                    {
-                                        best_info = Some(current);
-                                    }
-                                }
-                                None => {
-                                    best_info = Some(current);
-                                }
+                    match best_info {
+                        Some(ref prev) => {
+                            // Pick the one with usage, or the one with the biggest budget
+                            if current.current_usage > prev.current_usage || (current.current_usage == prev.current_usage && current.budget_bytes > prev.budget_bytes) {
+                                best_info = Some(current);
                             }
+                        }
+                        None => {
+                            best_info = Some(current);
                         }
                     }
                 }
@@ -74,8 +60,7 @@ pub fn query_vram_usage() -> Result<VramInfo, String> {
             i += 1;
         }
 
-        best_info
-            .ok_or_else(|| "No active GPU adapter found with reported memory budget".to_string())
+        best_info.ok_or_else(|| "No active GPU adapter found with reported memory budget".to_string())
     }
 }
 
@@ -107,6 +92,7 @@ mod tests {
         let info = VramInfo {
             budget_bytes: 12_000_000_000,
             current_usage: 10_000_000_000,
+            adapter_name: "Test".to_string(),
         };
         assert_eq!(classify(&info), VramPressure::Ok);
     }
@@ -116,6 +102,7 @@ mod tests {
         let info = VramInfo {
             budget_bytes: 12_000_000_000,
             current_usage: 10_500_000_000,
+            adapter_name: "Test".to_string(),
         };
         assert_eq!(classify(&info), VramPressure::High);
     }
@@ -125,6 +112,7 @@ mod tests {
         let info = VramInfo {
             budget_bytes: 12_000_000_000,
             current_usage: 11_400_000_000,
+            adapter_name: "Test".to_string(),
         };
         assert_eq!(classify(&info), VramPressure::Critical);
     }

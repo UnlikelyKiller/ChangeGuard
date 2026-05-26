@@ -10,9 +10,16 @@ use miette::{IntoDiagnostic, Result};
 use std::env;
 use std::path::PathBuf;
 
-pub fn execute_scan(run_impact: bool, json: bool, out: Option<PathBuf>) -> Result<()> {
-    if !run_impact && (json || out.is_some()) {
-        return Err(miette::miette!("--json and --out require --impact"));
+pub fn execute_scan(
+    run_impact: bool,
+    summary: bool,
+    json: bool,
+    out: Option<PathBuf>,
+) -> Result<()> {
+    if !run_impact && (summary || json || out.is_some()) {
+        return Err(miette::miette!(
+            "--summary, --json and --out require --impact"
+        ));
     }
 
     let current_dir = env::current_dir()
@@ -68,7 +75,7 @@ pub fn execute_scan(run_impact: bool, json: bool, out: Option<PathBuf>) -> Resul
                 println!("{}", json_output);
             }
         } else {
-            crate::commands::impact::execute_impact(false, false, false, false)?;
+            crate::commands::impact::execute_impact(false, summary, false, false)?;
         }
     }
 

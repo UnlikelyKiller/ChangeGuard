@@ -34,6 +34,9 @@ pub enum Commands {
         /// Run impact analysis on changes
         #[arg(short, long)]
         impact: bool,
+        /// Output a high-level summary only
+        #[arg(short, long)]
+        summary: bool,
         /// Output as JSON (requires --impact)
         #[arg(short, long)]
         json: bool,
@@ -629,9 +632,12 @@ pub fn run_with(cli: Cli) -> Result<()> {
 
     match cli.command {
         Commands::Init { force } => crate::commands::init::execute_init(force),
-        Commands::Scan { impact, json, out } => {
-            crate::commands::scan::execute_scan(impact, json, out)
-        }
+        Commands::Scan {
+            impact,
+            summary,
+            json,
+            out,
+        } => crate::commands::scan::execute_scan(impact, summary, json, out),
         Commands::Impact {
             all_parents,
             summary,

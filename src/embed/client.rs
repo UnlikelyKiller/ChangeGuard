@@ -140,6 +140,14 @@ pub fn embed_batch(
 
     let url = format!("{base_url}/v1/embeddings");
     tracing::debug!("Using embedding URL: {}", url);
+
+    // CR3: Fast network probe to prevent 20s TCP hangs when model server is down.
+    if !crate::util::network::is_url_reachable(base_url, Duration::from_millis(500)) {
+        return Err(format!(
+            "Local embedding model server at {base_url} is unreachable"
+        ));
+    }
+
     let body = serde_json::json!({
         "model": model,
         "input": texts,

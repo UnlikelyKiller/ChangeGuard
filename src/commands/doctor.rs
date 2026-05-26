@@ -174,6 +174,13 @@ fn print_vram_section() {
                 let budget_gb = info.budget_bytes as f64 / 1_073_741_824.0;
                 let pressure = classify(&info);
 
+                let is_arc = info.adapter_name.to_lowercase().contains("arc");
+                let note = if is_arc && info.current_usage == 0 {
+                    " (Driver limitation: zero-usage reporting on Intel Arc)".yellow().to_string()
+                } else {
+                    "".to_string()
+                };
+
                 let usage_str = format!("{:.1}", usage_gb);
                 let color_usage = match pressure {
                     VramPressure::Ok => usage_str.white().to_string(),
@@ -181,14 +188,16 @@ fn print_vram_section() {
                     VramPressure::Critical => usage_str.red().bold().to_string(),
                 };
                 println!(
-                    "{:<20} {} GB / {:.1} GB",
+                    "{:<20} {} GB / {:.1} GB{}",
                     "GPU VRAM:".bold(),
                     color_usage,
-                    budget_gb
+                    budget_gb,
+                    note
                 );
             }
             Err(e) => println!("{:<20} unavailable ({})", "GPU VRAM:".bold(), e.yellow()),
         }
+
     }
     #[cfg(not(target_os = "windows"))]
     {

@@ -135,6 +135,15 @@ pub fn complete(
         "stream": false,
     });
 
+    // CR3: Fast network probe to prevent 20s TCP hangs when model server is down.
+    let check_url = config.generation_url.as_deref().unwrap_or(&config.base_url);
+    if !crate::util::network::is_url_reachable(check_url, Duration::from_millis(500)) {
+        return Err(format!(
+            "Local model server at {} is unreachable. Start llama-server or use --backend gemini.",
+            check_url
+        ));
+    }
+
     let agent = ureq::AgentBuilder::new()
         .timeout_read(Duration::from_secs(config.timeout_secs))
         .timeout_write(Duration::from_secs(30))
