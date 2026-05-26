@@ -43,27 +43,26 @@ pub fn query_vram_usage() -> Result<VramInfo, String> {
                 && info.Budget > 0
             {
                 let current = VramInfo {
-                        budget_bytes: info.Budget,
-                        current_usage: info.CurrentUsage,
-                        adapter_name: String::from_utf16_lossy(&desc.Description)
-                            .trim_matches('\0')
-                            .to_string(),
-                        dedicated_vram: desc.DedicatedVideoMemory as u64,
-                    };
+                    budget_bytes: info.Budget,
+                    current_usage: info.CurrentUsage,
+                    adapter_name: String::from_utf16_lossy(&desc.Description)
+                        .trim_matches('\0')
+                        .to_string(),
+                    dedicated_vram: desc.DedicatedVideoMemory as u64,
+                };
 
-                    match best_info {
-                        Some(ref prev) => {
-                            // HEURISTIC: Prefer the adapter with more dedicated VRAM (likely dGPU)
-                            // or the one currently reporting usage if B580 bug is absent.
-                            if current.dedicated_vram > prev.dedicated_vram
-                                || current.current_usage > prev.current_usage
-                            {
-                                best_info = Some(current);
-                            }
-                        }
-                        None => {
+                match best_info {
+                    Some(ref prev) => {
+                        // HEURISTIC: Prefer the adapter with more dedicated VRAM (likely dGPU)
+                        // or the one currently reporting usage if B580 bug is absent.
+                        if current.dedicated_vram > prev.dedicated_vram
+                            || current.current_usage > prev.current_usage
+                        {
                             best_info = Some(current);
                         }
+                    }
+                    None => {
+                        best_info = Some(current);
                     }
                 }
             }
