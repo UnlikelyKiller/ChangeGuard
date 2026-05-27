@@ -67,7 +67,10 @@ pub fn execute_index(args: IndexArgs) -> Result<()> {
     }
 
     if args.docs {
-        return execute_docs_index(&layout, storage);
+        if !args.analyze_graph {
+            return execute_docs_index(&layout, &storage);
+        }
+        execute_docs_index(&layout, &storage)?;
     }
 
     let contracts_db_path = if args.contracts {
@@ -468,7 +471,7 @@ pub fn execute_index(args: IndexArgs) -> Result<()> {
     Ok(())
 }
 
-fn execute_docs_index(layout: &Layout, storage: StorageManager) -> Result<()> {
+fn execute_docs_index(layout: &Layout, storage: &StorageManager) -> Result<()> {
     let config = match load_config(layout) {
         Ok(c) => c,
         Err(e) => {

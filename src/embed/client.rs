@@ -1,7 +1,7 @@
 use crate::config::model::LocalModelConfig;
 use std::time::Duration;
 
-pub const MAX_BATCH_SIZE: usize = 32;
+pub const MAX_BATCH_SIZE: usize = 8;
 
 #[derive(Debug, Clone)]
 pub struct Dimensions {
