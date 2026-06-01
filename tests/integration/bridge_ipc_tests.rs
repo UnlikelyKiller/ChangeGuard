@@ -1,5 +1,5 @@
-use changeguard::bridge::ipc::IpcClient;
 use crate::common::cwd_lock;
+use changeguard::bridge::ipc::IpcClient;
 use std::time::Duration;
 
 #[test]

@@ -1,7 +1,7 @@
+use crate::common::{DirGuard, cwd_lock, git_add_and_commit, setup_git_repo};
 use changeguard::commands::impact::execute_impact;
 use changeguard::state::layout::Layout;
 use std::fs;
-use crate::common::{DirGuard, cwd_lock, git_add_and_commit, setup_git_repo};
 
 #[test]
 fn test_impact_warns_on_rules_failure() {

@@ -1,5 +1,3 @@
-mod common;
-mod cli_doctor;
 mod bridge_ask_tests;
 mod bridge_export_tests;
 mod bridge_import_tests;
@@ -11,13 +9,15 @@ mod bridge_tests;
 mod ci_prediction;
 mod cli_ask;
 mod cli_binary;
+mod cli_doctor;
 mod cli_impact;
 mod cli_init;
 mod cli_reset;
 mod cli_scan;
-mod cli_verify_rules;
 mod cli_verify;
+mod cli_verify_rules;
 mod cli_watch;
+mod common;
 mod complexity_scoring;
 mod cozo_schema_migration;
 mod cozo_vector_ops;
@@ -61,5 +61,6 @@ mod watch_graph_sync;
 #[test]
 fn test_integration_harness_init() {
     // Basic test to ensure the harness compiles and runs.
-    assert!(true);
+    let init = true;
+    assert!(init);
 }

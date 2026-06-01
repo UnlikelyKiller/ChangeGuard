@@ -1,8 +1,8 @@
+use crate::common::{DirGuard, cwd_lock};
 use changeguard::bridge::import::execute_import;
 use changeguard::bridge::model::{BridgeRecord, calculate_hash};
 use changeguard::impact::packet::ImpactPacket;
 use changeguard::state::layout::Layout;
-use crate::common::{DirGuard, cwd_lock};
 use std::fs;
 use tempfile::tempdir;
 
