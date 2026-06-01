@@ -1185,6 +1185,27 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Key additions: DXGI adapter iteration to find discrete GPUs, pre-install lock check in `update` command.
 
 
+## Milestone U: System Consolidation & Maintenance
+
+*   **Track U1: Single Integration Test Harness**
+    *   Status: Planned
+    *   Spec: `conductor/trackU1/spec.md`
+    *   Plan: `conductor/trackU1/plan.md`
+    *   Goal: Consolidate standalone integration test files into a unified test harness to mitigate Windows Application Control security blocks on multiple target binaries.
+
+*   **Track U2: AI-Brains Daemon Status Subcommand**
+    *   Status: Planned
+    *   Spec: `conductor/trackU2/spec.md`
+    *   Plan: `conductor/trackU2/plan.md`
+    *   Goal: Add a `status` subcommand to the `ai-brains daemon` CLI to inspect if the background service is active, check bound ports, and print its PID.
+
+*   **Track U3: Proactive SQLite PRAGMA Auditing**
+    *   Status: Planned
+    *   Spec: `conductor/trackU3/spec.md`
+    *   Plan: `conductor/trackU3/plan.md`
+    *   Goal: Audit all SQLite PRAGMA executions across both ChangeGuard and AI-Brains repositories to ensure no query-returning pragmas are called via `execute()`.
+
+
 ## Workflow
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.
