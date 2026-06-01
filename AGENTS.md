@@ -47,7 +47,7 @@ verify{
   commands[3]:
     "cargo fmt --all -- --check"
     "cargo clippy --all-targets --all-features -- -D warnings"
-    "cargo test"
+    "cargo nextest run --lib --bins --workspace"
   hygiene[2]:
     "no secrets or .env commits"
     "temporary output belongs in output/ and should be removed before finish"

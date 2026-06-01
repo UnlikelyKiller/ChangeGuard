@@ -1,1 +1,1 @@
-/mnt/c/dev/changeguard/AGENTS.md
+C:/dev/changeguard/AGENTS.md
