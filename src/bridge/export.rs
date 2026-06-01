@@ -61,8 +61,11 @@ pub fn execute_export(args: ExportArgs) -> Result<()> {
     let all_changes = get_repo_status(&repo)?;
 
     let config = crate::config::load::load_config(&layout).unwrap_or_default();
-    let changes =
-        crate::git::ignore::filter_ignored_changes(all_changes, &config.watch.ignore_patterns)?;
+    let changes = crate::git::ignore::filter_ignored_changes(
+        all_changes,
+        &config.watch.ignore_patterns,
+        true,
+    )?;
 
     let snapshot = RepoSnapshot {
         head_hash,

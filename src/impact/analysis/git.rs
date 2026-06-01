@@ -22,18 +22,31 @@ impl ImpactProvider for GitImpactProvider {
         for change in &packet.changes {
             let path_str = change.path.to_string_lossy();
             if checker.is_protected(&path_str) {
-                reasons.push(format!("Protected path hit: {}", path_str));
-                total_weight += 70; // Original high weight for protected paths
+                let weight_mult = config.impact.get_path_weight(&change.path);
+                reasons.push(format!(
+                    "Protected path hit: {} (weight: {})",
+                    path_str, weight_mult
+                ));
+                total_weight += (70.0 * weight_mult) as u32; // Original high weight for protected paths
             }
         }
 
         // 2. Volume-based risk
-        let file_count = packet.changes.len();
-        if file_count >= 10 {
-            reasons.push(format!("High volume: {} files changed", file_count));
+        let mut weighted_file_count = 0.0;
+        for change in &packet.changes {
+            weighted_file_count += config.impact.get_path_weight(&change.path);
+        }
+        if weighted_file_count >= 10.0 {
+            reasons.push(format!(
+                "High volume: {:.2} weighted files changed",
+                weighted_file_count
+            ));
             total_weight += 20;
-        } else if file_count >= 5 {
-            reasons.push(format!("Moderate volume: {} files changed", file_count));
+        } else if weighted_file_count >= 5.0 {
+            reasons.push(format!(
+                "Moderate volume: {:.2} weighted files changed",
+                weighted_file_count
+            ));
             total_weight += 10;
         }
 

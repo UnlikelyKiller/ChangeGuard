@@ -39,8 +39,22 @@ pub fn execute_ask(
     let storage = if auto_index {
         crate::index::staleness::try_auto_index(storage, threshold)?
     } else {
-        let _ = warn_if_stale(&storage, threshold);
-        storage
+        let is_stale = warn_if_stale(&storage, threshold);
+        use std::io::IsTerminal;
+        if is_stale && std::io::stdin().is_terminal() {
+            use inquire::Confirm;
+            if let Ok(true) = Confirm::new("Index is stale. Would you like to run auto-index now?")
+                .with_default(true)
+                .prompt()
+            {
+                println!("Running auto-indexing...");
+                crate::index::staleness::try_auto_index(storage, threshold)?
+            } else {
+                storage
+            }
+        } else {
+            storage
+        }
     };
 
     let (mut latest_packet, mut is_global) = match storage.get_latest_packet()? {
@@ -92,6 +106,41 @@ pub fn execute_ask(
 
     // In global mode, always use semantic retrieval to pull relevant context
     let semantic = semantic || is_global;
+
+    if semantic
+        && !auto_index
+        && let Some(ref cozo) = storage.cozo
+        && let Ok(semantic_engine) =
+            crate::semantic::SemanticDiscovery::new(config.local_model.clone(), cozo)
+        && let Ok(readiness) = semantic_engine.check_readiness()
+    {
+        use std::io::IsTerminal;
+        if readiness.vector_count == 0 && std::io::stdin().is_terminal() {
+            use inquire::Confirm;
+            if let Ok(true) = Confirm::new(
+                "Semantic index is empty. Would you like to run 'changeguard index --semantic' now?",
+            )
+            .with_default(true)
+            .prompt()
+            {
+                println!("Running semantic indexing...");
+                crate::commands::index::execute_index(crate::commands::index::IndexArgs {
+                    incremental: true,
+                    check: false,
+                    strict: false,
+                    json: false,
+                    analyze_graph: false,
+                    docs: false,
+                    contracts: false,
+                    semantic: true,
+                    scip: None,
+                    export_docs: false,
+                    doc_type: None,
+                    concurrency: None,
+                })?;
+            }
+        }
+    }
 
     if is_global {
         println!(

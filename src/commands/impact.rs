@@ -20,8 +20,11 @@ pub fn execute_impact_silent() -> Result<crate::impact::packet::ImpactPacket> {
     // Filter changes against config ignore_patterns
     let config = load_config(&layout).unwrap_or_else(|_| crate::config::model::Config::default());
     let all_changes = get_repo_status(&repo)?;
-    let changes =
-        crate::git::ignore::filter_ignored_changes(all_changes, &config.watch.ignore_patterns)?;
+    let changes = crate::git::ignore::filter_ignored_changes(
+        all_changes,
+        &config.watch.ignore_patterns,
+        true,
+    )?;
 
     let is_clean = changes.is_empty();
 
@@ -76,8 +79,11 @@ pub fn execute_impact(
     let mut config =
         load_config(&layout).unwrap_or_else(|_| crate::config::model::Config::default());
     let all_changes = get_repo_status(&repo)?;
-    let changes =
-        crate::git::ignore::filter_ignored_changes(all_changes, &config.watch.ignore_patterns)?;
+    let changes = crate::git::ignore::filter_ignored_changes(
+        all_changes,
+        &config.watch.ignore_patterns,
+        true,
+    )?;
 
     let is_clean = changes.is_empty();
 

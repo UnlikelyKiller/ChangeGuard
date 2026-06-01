@@ -24,7 +24,7 @@ pub struct SemanticReadiness {
 }
 
 pub struct SemanticDiscovery<'a> {
-    embedder: SemanticEmbedder,
+    pub embedder: SemanticEmbedder,
     vector_store: VectorStore<'a>,
     config: LocalModelConfig,
 }

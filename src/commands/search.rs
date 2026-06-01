@@ -32,9 +32,21 @@ pub fn execute_search(args: SearchArgs) -> Result<()> {
         if let Some(storage) = storage_opt {
             let threshold = config.index.stale_threshold_days;
             if args.auto_index {
-                let _ = crate::index::staleness::try_auto_index(storage, threshold);
+                crate::index::staleness::try_auto_index(storage, threshold)?;
             } else {
-                let _ = warn_if_stale(&storage, threshold);
+                let is_stale = warn_if_stale(&storage, threshold);
+                use std::io::IsTerminal;
+                if is_stale && !args.json && std::io::stdin().is_terminal() {
+                    use inquire::Confirm;
+                    if let Ok(true) =
+                        Confirm::new("Index is stale. Would you like to run auto-index now?")
+                            .with_default(true)
+                            .prompt()
+                    {
+                        println!("Running auto-indexing...");
+                        crate::index::staleness::try_auto_index(storage, threshold)?;
+                    }
+                }
             }
         }
     }
@@ -51,7 +63,37 @@ pub fn execute_search(args: SearchArgs) -> Result<()> {
             crate::semantic::SemanticDiscovery::new(config.local_model.clone(), cozo)?;
 
         // --- Phase 1: Readiness Check ---
-        let readiness = semantic_engine.check_readiness()?;
+        let mut readiness = semantic_engine.check_readiness()?;
+        use std::io::IsTerminal;
+        if readiness.vector_count == 0
+            && !args.auto_index
+            && !args.json
+            && std::io::stdin().is_terminal()
+        {
+            use inquire::Confirm;
+            if let Ok(true) = Confirm::new("Semantic index is empty. Would you like to run 'changeguard index --semantic' now?")
+                .with_default(true)
+                .prompt()
+            {
+                println!("Running semantic indexing...");
+                crate::commands::index::execute_index(crate::commands::index::IndexArgs {
+                    incremental: true,
+                    check: false,
+                    strict: false,
+                    json: false,
+                    analyze_graph: false,
+                    docs: false,
+                    contracts: false,
+                    semantic: true,
+                    scip: None,
+                    export_docs: false,
+                    doc_type: None,
+                    concurrency: None,
+                })?;
+                readiness = semantic_engine.check_readiness()?;
+            }
+        }
+
         if args.json {
             let record = BridgeRecord {
                 bridge_version: BridgeRecord::VERSION.to_string(),

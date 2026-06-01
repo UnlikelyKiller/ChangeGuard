@@ -35,18 +35,19 @@ impl ImpactProvider for SemanticImpactProvider {
         // 2. Entrypoint and Public Symbol Changes
         for change in &packet.changes {
             if let Some(ref symbols) = change.symbols {
+                let weight_mult = _config.impact.get_path_weight(&change.path);
                 for sym in symbols {
                     if sym.is_public {
                         reasons.push(format!("Public symbol modified: {}", sym.name));
-                        total_weight += 30;
+                        total_weight += (30.0 * weight_mult) as u32;
                     }
                     if let Some(ref kind) = sym.entrypoint_kind {
                         if kind == "ENTRYPOINT" {
                             reasons.push(format!("Entry point changed: {}", sym.name));
-                            total_weight += 20;
+                            total_weight += (20.0 * weight_mult) as u32;
                         } else if kind == "HANDLER" {
                             reasons.push(format!("Handler changed: {}", sym.name));
-                            total_weight += 15;
+                            total_weight += (15.0 * weight_mult) as u32;
                         }
                     }
                 }

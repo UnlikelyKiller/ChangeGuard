@@ -9,6 +9,13 @@ use crate::state::layout::Layout;
 use crate::state::storage::StorageManager;
 use tracing::{info, warn};
 
+type ParsedSemanticFile = (
+    std::path::PathBuf,
+    String,
+    Vec<crate::semantic::chunker::AstChunk>,
+);
+type ParsedSemanticFileResult = std::result::Result<ParsedSemanticFile, String>;
+
 fn get_repo_root() -> Result<Utf8PathBuf> {
     let current_dir = env::current_dir().into_diagnostic()?;
     let discovered = gix::discover(&current_dir).into_diagnostic()?;
@@ -508,7 +515,6 @@ fn execute_semantic_index(
     use crate::semantic::SemanticDiscovery;
     use indicatif::{ProgressBar, ProgressStyle};
     use rayon::prelude::*;
-    use std::sync::{Arc, Mutex};
 
     let cozo = storage
         .cozo
@@ -609,83 +615,117 @@ fn execute_semantic_index(
 
     // ── Phase 3: Parallel parse + embed with progress bar (HP2 + HP4) ──────
     let total = files_to_process.len();
-    let pb = ProgressBar::new(total as u64);
-    pb.set_style(
+
+    // Parse files in parallel
+    let pb_parse = ProgressBar::new(total as u64);
+    pb_parse.set_style(
         ProgressStyle::with_template(
-            "  {spinner:.cyan} Embedding [{bar:40.green/dim}] {pos}/{len} files  {elapsed_precise}",
+            "  {spinner:.cyan} Parsing [{bar:40.cyan/dim}] {pos}/{len} files  {elapsed_precise}",
         )
         .unwrap_or_else(|_| ProgressStyle::with_template("{pos}/{len}").unwrap())
         .progress_chars("█▓░"),
     );
-    pb.enable_steady_tick(std::time::Duration::from_millis(80));
+    pb_parse.enable_steady_tick(std::time::Duration::from_millis(80));
 
-    // Wrap accumulators for cross-thread writes
-    #[allow(clippy::type_complexity)]
-    let results: Arc<Mutex<Vec<(Vec<crate::semantic::chunker::AstChunk>, Vec<Vec<f32>>)>>> =
-        Arc::new(Mutex::new(Vec::new()));
-    let errors: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-    let files_indexed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-
-    // HP3: Track successfully processed files on parallel threads to write hashes/prune on the main thread
-    let successful_files: Arc<Mutex<Vec<(std::path::PathBuf, String)>>> =
-        Arc::new(Mutex::new(Vec::new()));
-
-    let pb_ref = pb.clone();
-    let files_clone = files_to_process.clone();
-
-    pool.install(|| {
-        files_clone.into_par_iter().for_each(|path| {
-            match crate::util::fs::read_to_string_with_encoding(&path) {
-                Ok(content) => {
-                    match semantic.process_file(&path, &content) {
-                        Ok((chunks, embeddings)) => {
-                            if !chunks.is_empty() {
-                                files_indexed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                let mut acc = results.lock().unwrap_or_else(|p| p.into_inner());
-                                acc.push((chunks, embeddings));
-                            }
-                            // Success path: collect path & hash to write on the main thread
-                            let hash = blake3::hash(content.as_bytes()).to_hex().to_string();
-                            let mut succ =
-                                successful_files.lock().unwrap_or_else(|p| p.into_inner());
-                            succ.push((path, hash));
-                        }
-                        Err(e) => {
-                            let mut errs = errors.lock().unwrap_or_else(|p| p.into_inner());
-                            errs.push(format!("{}: {}", path.display(), e));
+    let parsed_files_res: Vec<ParsedSemanticFileResult> = pool.install(|| {
+        files_to_process
+            .into_par_iter()
+            .map(|path| {
+                let res = match crate::util::fs::read_to_string_with_encoding(&path) {
+                    Ok(content) => {
+                        match crate::semantic::chunker::AstChunker::chunk_file(&path, &content) {
+                            Ok(chunks) => Ok((path, content, chunks)),
+                            Err(e) => Err(format!("{}: {}", path.display(), e)),
                         }
                     }
-                }
-                Err(e) => {
-                    let mut errs = errors.lock().unwrap_or_else(|p| p.into_inner());
-                    errs.push(format!("{}: {}", path.display(), e));
+                    Err(e) => Err(format!("{}: {}", path.display(), e)),
+                };
+                pb_parse.inc(1);
+                res
+            })
+            .collect()
+    });
+    pb_parse.finish_and_clear();
+
+    let mut parsed_files = Vec::new();
+    let mut parse_errors = Vec::new();
+    for res in parsed_files_res {
+        match res {
+            Ok(val) => parsed_files.push(val),
+            Err(e) => parse_errors.push(e),
+        }
+    }
+
+    for err in &parse_errors {
+        warn!("Semantic indexing skipped due to parse error: {}", err);
+    }
+
+    // Flatten chunks
+    let mut flat_chunks = Vec::new();
+    let mut successful_files = Vec::new();
+    for (path, content, chunks) in parsed_files {
+        let hash = blake3::hash(content.as_bytes()).to_hex().to_string();
+        successful_files.push((path.clone(), hash));
+        for chunk in chunks {
+            flat_chunks.push(chunk);
+        }
+    }
+
+    let files_indexed_count = successful_files.len();
+
+    // Batch embedding generation
+    let mut all_embeddings = Vec::new();
+    if !flat_chunks.is_empty() {
+        let pb_embed = ProgressBar::new(flat_chunks.len() as u64);
+        pb_embed.set_style(
+            ProgressStyle::with_template(
+                "  {spinner:.cyan} Embedding [{bar:40.green/dim}] {pos}/{len} chunks  {elapsed_precise}",
+            )
+            .unwrap_or_else(|_| ProgressStyle::with_template("{pos}/{len}").unwrap())
+            .progress_chars("█▓░"),
+        );
+        pb_embed.enable_steady_tick(std::time::Duration::from_millis(80));
+
+        let batch_size = 8;
+        let chunk_batches: Vec<Vec<crate::semantic::chunker::AstChunk>> =
+            flat_chunks.chunks(batch_size).map(|c| c.to_vec()).collect();
+
+        let pb_embed_ref = pb_embed.clone();
+        let embedding_results: Result<Vec<Vec<Vec<f32>>>, String> = pool.install(|| {
+            chunk_batches
+                .into_par_iter()
+                .map(|batch| {
+                    let texts: Vec<String> = batch.iter().map(|c| c.to_embedding_text()).collect();
+                    let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+                    let embedder_res = semantic
+                        .embedder
+                        .embed_batch(&text_refs)
+                        .map_err(|e| e.to_string());
+                    pb_embed_ref.inc(batch.len() as u64);
+                    embedder_res
+                })
+                .collect()
+        });
+
+        pb_embed.finish_and_clear();
+
+        match embedding_results {
+            Ok(batches) => {
+                for batch in batches {
+                    all_embeddings.extend(batch);
                 }
             }
-            pb_ref.inc(1);
-        });
-    });
-
-    pb.finish_and_clear();
-
-    // Report any per-file errors
-    let errs = errors.lock().unwrap_or_else(|p| p.into_inner());
-    for e in errs.iter() {
-        warn!("Semantic indexing skipped: {}", e);
+            Err(e) => {
+                return Err(miette::miette!("Embedding generation failed: {}", e));
+            }
+        }
     }
-    drop(errs);
 
     // ── Phase 4: Batch ingest into CozoDB (single-threaded for safety) ─────
-    // Extract successfully processed files
-    let succ_mutex = Arc::try_unwrap(successful_files).unwrap_or_else(|arc| {
-        let guard = arc.lock().unwrap_or_else(|p| p.into_inner());
-        std::sync::Mutex::new(guard.clone())
-    });
-    let processed_files = succ_mutex.into_inner().unwrap_or_else(|p| p.into_inner());
-
-    // 1. Remove stale snippet rows for all successfully processed files
-    if !processed_files.is_empty() {
+    // 1. Remove stale snippet rows for successfully processed files
+    if !successful_files.is_empty() {
         info!("Pruning stale semantic database rows...");
-        for (path, _) in &processed_files {
+        for (path, _) in &successful_files {
             let path_str = path.to_string_lossy();
             if let Err(e) = semantic.remove_file_snippets(&path_str) {
                 warn!(
@@ -698,20 +738,7 @@ fn execute_semantic_index(
     }
 
     // 2. Ingest the new snippets
-    // SAFETY: pool.install() has completed and all rayon tasks have joined,
-    // so `results` has exactly one strong count here.
-    let mutex = Arc::try_unwrap(results).unwrap_or_else(|arc| {
-        // Fallback: clone out the data (should never be reached after pool.install)
-        let guard = arc.lock().unwrap_or_else(|p| p.into_inner());
-        std::sync::Mutex::new(guard.clone())
-    });
-    let batches = mutex.into_inner().unwrap_or_else(|p| p.into_inner());
-
-    let all_chunks: Vec<_> = batches.iter().flat_map(|(c, _)| c.clone()).collect();
-    let all_embeddings: Vec<_> = batches.into_iter().flat_map(|(_, e)| e).collect();
-
-    if !all_chunks.is_empty() {
-        // HP4: spinner during HNSW rebuild
+    if !flat_chunks.is_empty() {
         let spinner = ProgressBar::new_spinner();
         spinner.set_style(
             ProgressStyle::with_template(
@@ -723,23 +750,21 @@ fn execute_semantic_index(
 
         info!(
             "Ingesting {} snippets into vector store...",
-            all_chunks.len()
+            flat_chunks.len()
         );
-        semantic.index_chunks_batched(all_chunks, all_embeddings)?;
-
+        semantic.index_chunks_batched(flat_chunks, all_embeddings)?;
         spinner.finish_and_clear();
     }
 
     // 3. Record new hashes only for successfully processed files
-    for (path, hash) in processed_files {
+    for (path, hash) in successful_files {
         if let Err(e) = semantic.record_file_hash(&path, &hash) {
             warn!("Failed to record file hash for {}: {}", path.display(), e);
         }
     }
 
-    let indexed = files_indexed.load(std::sync::atomic::Ordering::Relaxed);
     println!(
-        "Semantic indexing complete: {indexed}/{total} files produced embeddings{}.",
+        "Semantic indexing complete: {files_indexed_count}/{total} files produced embeddings{}.",
         if incremental { " (incremental)" } else { "" }
     );
     Ok(())

@@ -1185,25 +1185,53 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Key additions: DXGI adapter iteration to find discrete GPUs, pre-install lock check in `update` command.
 
 
-## Milestone U: System Consolidation & Maintenance
+## Milestone U: System Consolidation & Maintenance (Completed)
 
 *   **Track U1: Single Integration Test Harness**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackU1/spec.md`
     *   Plan: `conductor/trackU1/plan.md`
     *   Goal: Consolidate standalone integration test files into a unified test harness to mitigate Windows Application Control security blocks on multiple target binaries.
 
 *   **Track U2: AI-Brains Daemon Status Subcommand**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackU2/spec.md`
     *   Plan: `conductor/trackU2/plan.md`
     *   Goal: Add a `status` subcommand to the `ai-brains daemon` CLI to inspect if the background service is active, check bound ports, and print its PID.
 
 *   **Track U3: Proactive SQLite PRAGMA Auditing**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackU3/spec.md`
     *   Plan: `conductor/trackU3/plan.md`
     *   Goal: Audit all SQLite PRAGMA executions across both ChangeGuard and AI-Brains repositories to ensure no query-returning pragmas are called via `execute()`.
+
+
+## Milestone UX: Risk Precision & Experience Hardening (Planned)
+
+*   **Track U4: Risk De-Noising (Ignore Logic Refinement)**
+    *   Status: Completed
+    *   Spec: `conductor/trackU4/spec.md`
+    *   Plan: `conductor/trackU4/plan.md`
+    *   Goal: Refine `filter_ignored_changes` to exclude even tracked files from risk analysis if they match an ignore pattern.
+
+*   **Track U5: Interactive Index Recovery**
+    *   Status: Completed
+    *   Spec: `conductor/trackU5/spec.md`
+    *   Plan: `conductor/trackU5/plan.md`
+    *   Goal: Prompt users to run indexing if `search --semantic` is called when the index is empty or stale.
+
+*   **Track U6: Path-Weighted Risk Scoring**
+    *   Status: Completed
+    *   Spec: `conductor/trackU6/spec.md`
+    *   Plan: `conductor/trackU6/plan.md`
+    *   Goal: Implement risk weights for different file types (e.g., .rs vs .md) to ensure Overall Risk reflects logical impact rather than churn volume.
+
+*   **Track U7: High-Performance Parallel Indexing**
+    *   Status: Completed
+    *   Spec: `conductor/trackU7/spec.md`
+    *   Plan: `conductor/trackU7/plan.md`
+    *   Goal: Parallelize Tree-Sitter parsing and embedding generation to reduce cold-start indexing time.
+
 
 
 ## Workflow

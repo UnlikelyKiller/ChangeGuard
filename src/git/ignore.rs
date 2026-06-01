@@ -82,6 +82,7 @@ pub fn add_to_gitignore(root: &Utf8Path, pattern: &str) -> Result<bool> {
 pub fn filter_ignored_changes(
     changes: Vec<FileChange>,
     ignore_patterns: &[String],
+    filter_tracked: bool,
 ) -> Result<Vec<FileChange>> {
     if ignore_patterns.is_empty() {
         return Ok(changes);
@@ -99,8 +100,13 @@ pub fn filter_ignored_changes(
     Ok(changes
         .into_iter()
         .filter(|change| {
-            // Only filter Added + Unstaged (which means untracked in this context)
-            if matches!(change.change_type, ChangeType::Added) && !change.is_staged {
+            let should_filter = if filter_tracked {
+                true
+            } else {
+                matches!(change.change_type, ChangeType::Added) && !change.is_staged
+            };
+
+            if should_filter {
                 let path_str = change.path.to_string_lossy().replace('\\', "/");
                 if ignore_set.is_match(path_str) {
                     return false;

@@ -215,6 +215,62 @@ pub struct Config {
     pub index: IndexConfig,
     #[serde(default)]
     pub intent: IntentConfig,
+    #[serde(default)]
+    pub impact: ImpactConfig,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ImpactConfig {
+    #[serde(default = "default_risk_weights")]
+    pub risk_weights: std::collections::HashMap<String, f64>,
+}
+
+fn default_risk_weights() -> std::collections::HashMap<String, f64> {
+    let mut weights = std::collections::HashMap::new();
+    weights.insert("rs".to_string(), 1.0);
+    weights.insert("toml".to_string(), 0.8);
+    weights.insert("json".to_string(), 0.7);
+    weights.insert("yml".to_string(), 0.3);
+    weights.insert("yaml".to_string(), 0.3);
+    weights.insert("md".to_string(), 0.1);
+    weights.insert("txt".to_string(), 0.1);
+    weights.insert("codex".to_string(), 0.01);
+    weights.insert("claude".to_string(), 0.01);
+    weights
+}
+
+impl Default for ImpactConfig {
+    fn default() -> Self {
+        Self {
+            risk_weights: default_risk_weights(),
+        }
+    }
+}
+
+impl ImpactConfig {
+    pub fn get_path_weight(&self, path: &std::path::Path) -> f64 {
+        if let Some(ext) = path.extension().and_then(|e| e.to_str())
+            && let Some(weight) = self.risk_weights.get(ext)
+        {
+            return *weight;
+        }
+
+        let filename = path.file_name().and_then(|f| f.to_str()).unwrap_or("");
+        if let Some(name_without_dot) = filename.strip_prefix('.')
+            && let Some(weight) = self.risk_weights.get(name_without_dot)
+        {
+            return *weight;
+        }
+        for component in path.components() {
+            if let Some(comp_str) = component.as_os_str().to_str() {
+                let comp_clean = comp_str.trim_start_matches('.');
+                if let Some(weight) = self.risk_weights.get(comp_clean) {
+                    return *weight;
+                }
+            }
+        }
+        1.0
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

@@ -59,6 +59,17 @@ base_url = "http://127.0.0.1:8081"
 required = "always"
 tui_enabled = true
 require_signing = false
+
+[impact.risk_weights]
+rs = 1.0
+toml = 0.8
+json = 0.7
+yml = 0.3
+yaml = 0.3
+md = 0.1
+txt = 0.1
+codex = 0.01
+claude = 0.01
 "#;
 
 pub const DEFAULT_CONFIG_TEMPLATE_ENV: &str = "CHANGEGUARD_DEFAULT_CONFIG";

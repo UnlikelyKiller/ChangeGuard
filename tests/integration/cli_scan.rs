@@ -169,3 +169,45 @@ fn test_scan_summary_requires_impact() {
         "expected impact requirement error, got {error:?}"
     );
 }
+
+#[test]
+fn test_scan_impact_excludes_tracked_ignored() {
+    let _lock = cwd_lock().lock().unwrap();
+    let tmp = tempdir().unwrap();
+    let root = tmp.path();
+
+    setup_git_repo(root);
+
+    fs::create_dir_all(root.join(".changeguard")).unwrap();
+    fs::write(
+        root.join(".changeguard/config.toml"),
+        "[watch]\nignore_patterns = [\"ignored.rs\"]\n",
+    )
+    .unwrap();
+
+    fs::write(root.join("ignored.rs"), "// ignored content").unwrap();
+    git_cmd(root, &["add", "ignored.rs"]);
+    git_cmd(root, &["commit", "-m", "add ignored"]);
+    fs::write(root.join("ignored.rs"), "// modified ignored content").unwrap();
+
+    fs::write(root.join("normal.rs"), "// normal content").unwrap();
+    git_cmd(root, &["add", "normal.rs"]);
+    git_cmd(root, &["commit", "-m", "add normal"]);
+    fs::write(root.join("normal.rs"), "// modified normal content").unwrap();
+
+    let _guard = DirGuard::new(root);
+
+    let result = execute_scan(true, false, false, None);
+    assert!(result.is_ok());
+
+    let layout = Layout::new(root.to_string_lossy().as_ref());
+    let report = fs::read_to_string(layout.reports_dir().join("latest-scan.json")).unwrap();
+    assert!(
+        !report.contains("ignored.rs"),
+        "Report should not contain ignored.rs under impact"
+    );
+    assert!(
+        report.contains("normal.rs"),
+        "Report should contain normal.rs"
+    );
+}

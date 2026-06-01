@@ -75,6 +75,21 @@ pub fn print_scan_summary(snapshot: &crate::git::RepoSnapshot) {
     println!("{:<15} {}", "State:".bold(), state_str);
 
     if !snapshot.changes.is_empty() {
+        let current_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let layout = crate::state::layout::Layout::new(current_dir.to_string_lossy().as_ref());
+        let config = crate::config::load::load_config(&layout).unwrap_or_default();
+        let ignore_set = if !config.watch.ignore_patterns.is_empty() {
+            let mut builder = globset::GlobSetBuilder::new();
+            for pattern in &config.watch.ignore_patterns {
+                if let Ok(glob) = globset::Glob::new(pattern) {
+                    builder.add(glob);
+                }
+            }
+            builder.build().ok()
+        } else {
+            None
+        };
+
         let mut table = Table::new();
         table
             .load_preset(UTF8_FULL)
@@ -98,10 +113,25 @@ pub fn print_scan_summary(snapshot: &crate::git::RepoSnapshot) {
                 }
             };
 
+            let is_ignored = if let Some(ref set) = ignore_set {
+                let path_str = change.path.to_string_lossy().replace('\\', "/");
+                set.is_match(path_str)
+            } else {
+                false
+            };
+
+            let path_display = if is_ignored {
+                format!("{} (ignored)", change.path.display())
+                    .dimmed()
+                    .to_string()
+            } else {
+                change.path.display().to_string()
+            };
+
             table.add_row(vec![
                 Cell::new(state),
                 Cell::new(action),
-                Cell::new(change.path.display().to_string()),
+                Cell::new(path_display),
             ]);
         }
         println!("{table}");

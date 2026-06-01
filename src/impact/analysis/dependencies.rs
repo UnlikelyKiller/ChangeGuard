@@ -37,14 +37,16 @@ impl ImpactProvider for DependencyImpactProvider {
         total_weight += structural_weight;
 
         // 2. Data Contract Risk
+        // 2. Data Contract Risk
         for change in &packet.changes {
+            let weight_mult = config.impact.get_path_weight(&change.path);
             for model in &change.data_models {
                 let weight = if model.model_kind == "GENERATED" {
                     20
                 } else {
                     35
                 };
-                total_weight += weight;
+                total_weight += (weight as f64 * weight_mult) as u32;
                 reasons.push(format!(
                     "Data model changed: {} ({})",
                     model.model_name, model.model_kind
@@ -54,12 +56,13 @@ impl ImpactProvider for DependencyImpactProvider {
 
         // 3. API Surface Risk
         for change in &packet.changes {
+            let weight_mult = config.impact.get_path_weight(&change.path);
             for route in &change.api_routes {
                 reasons.push(format!(
                     "Public API route change: {} {}",
                     route.method, route.path_pattern
                 ));
-                total_weight += 30;
+                total_weight += (30.0 * weight_mult) as u32;
             }
         }
 

@@ -334,3 +334,36 @@ fn test_runtime_delta_same_cardinality_not_flagged() {
         "Same-cardinality replacement is a known blind spot — not flagged"
     );
 }
+
+#[test]
+fn test_path_weighted_risk_scoring() {
+    use changeguard::index::symbols::{Symbol, SymbolKind};
+    let mut packet = ImpactPacket::default();
+
+    packet.changes.push(ChangedFile {
+        path: PathBuf::from("README.md"),
+        status: "Modified".to_string(),
+        is_staged: true,
+        symbols: Some(vec![Symbol {
+            name: "doc_symbol".into(),
+            kind: SymbolKind::Function,
+            is_public: true,
+            cognitive_complexity: None,
+            cyclomatic_complexity: None,
+            line_start: None,
+            line_end: None,
+            qualified_name: None,
+            byte_start: None,
+            byte_end: None,
+            entrypoint_kind: None,
+            metadata: std::collections::BTreeMap::new(),
+        }]),
+        ..ChangedFile::default()
+    });
+
+    let rules = Rules::default();
+    let config = changeguard::config::model::Config::default();
+    analyze_risk(&mut packet, &rules, &config).unwrap();
+
+    assert_eq!(packet.risk_level, RiskLevel::Low);
+}
