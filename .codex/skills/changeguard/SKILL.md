@@ -58,8 +58,30 @@ ChangeGuard is a **CLI-first** tool and **explicitly rejects MCP/Server/Cloud ar
 
    Also run any repo-specific tests needed for the touched files.
 
-7. Report the outcome: impact/risk signals used, verification run, and any
+7. For final gates, avoid overlapping `cargo`, `nextest`, or `changeguard
+   verify` jobs. Parallel read-only inspection is fine, but final verification
+   should run sequentially to avoid Windows file-lock and linker contention.
+
+8. Report the outcome: impact/risk signals used, verification run, and any
    unresolved pending transactions, drift, or unavailable ChangeGuard command.
+
+## Audit Smoke Tests
+
+When reviewing CLI/config behavior, supplement unit tests with command-level
+smoke tests against the current build output, usually `target\debug\changeguard.exe`
+on Windows. Prefer focused temporary repositories and verify failure cases as
+well as success cases.
+
+Useful checks include:
+
+- JSON mode remains parseable on failure paths (`config verify --json`, invalid
+  `config.toml`, invalid `rules.toml`, unknown `--section`).
+- Dry-run commands do not create persistent state or perform external probes
+  unless that is explicitly part of the dry-run contract.
+- Requested vs effective config values are visible when runtime clamping or
+  defaults change the final behavior.
+- Internal callsites that construct CLI argument structs still populate new
+  fields explicitly.
 
 ## Repository Configuration
 
@@ -144,6 +166,39 @@ changeguard verify --signatures
 ```
 This performs an offline mathematical validation of every record against its signature and public key.
 
+## Publish Hygiene
+
+When asked to push, catch up `main`, or prune branches:
+
+1. Fetch current remote state first:
+
+   ```powershell
+   git fetch --all --prune
+   git rev-list --left-right --count origin/main...HEAD
+   ```
+
+2. If `origin/main` moved, reconcile before staging or pushing. Do not rebase or
+   reset over user work without explicit direction.
+
+3. Stage only the intended scope, commit, then push:
+
+   ```powershell
+   git push origin main
+   ```
+
+   The pre-push hook may run `changeguard verify`; treat that as the authoritative
+   publish gate and report its result.
+
+4. Prune conservatively:
+
+   ```powershell
+   git remote prune origin --dry-run
+   git branch --merged main
+   ```
+
+   Delete local branches only when they are listed as merged into `main` and are
+   not the active branch. Branch pruning can legitimately be a no-op.
+
 ## Reasoning Rules
 
 - If temporal coupling is above 70% for an unchanged file, inspect that file.
@@ -176,6 +231,22 @@ Alternatively, run manually from the source root:
 ```bash
 cargo install --path .
 ```
+
+Treat the install step as part of done criteria after ChangeGuard source edits,
+before publishing or handing the work back.
+
+## Cross-Model Review Notes
+
+For high-risk diffs, a read-only `codex exec` review can be useful before final
+verification. In non-interactive Windows/PowerShell runs, redirect stdin from
+`NUL` so the process does not wait for input:
+
+```powershell
+cmd /c "codex exec -C ""C:\dev\ChangeGuard"" -s read-only -m gpt-5.4 -o output\review.md ""Review the current diff for regressions. Do not modify files."" < NUL"
+```
+
+If the command appears stuck, inspect the output file before waiting longer; the
+review may already have written useful findings.
 
 ## References
 
