@@ -40,6 +40,7 @@ pub fn execute_config_verify() -> Result<()> {
     // Report ask backend
     if let Some(ref cfg) = config {
         println!("  {}", format_backend_line(cfg));
+        println!("  {}", format_semantic_line(cfg));
     }
 
     if success {
@@ -119,6 +120,24 @@ pub(crate) fn format_backend_line(config: &Config) -> String {
     format_backend_line_with(config, &|name| std::env::var(name).ok(), &|name| {
         crate::config::model::read_env_key(name)
     })
+}
+
+/// One-line summary of the semantic indexing configuration. Resolves the
+/// effective concurrency (CLI override > [semantic].concurrency > auto) so
+/// users can see what `index --semantic` will actually use.
+pub(crate) fn format_semantic_line(config: &Config) -> String {
+    let explicit = config.semantic.semantic_concurrency();
+    let available = std::thread::available_parallelism()
+        .ok()
+        .map(|n| n.get())
+        .unwrap_or(1);
+    let resolved = explicit.unwrap_or(available);
+    match explicit {
+        Some(n) => format!("Semantic:      concurrency={n} (explicit)"),
+        None => {
+            format!("Semantic:      concurrency={resolved} (auto from {available} logical CPUs)")
+        }
+    }
 }
 
 pub(crate) fn format_backend_line_with(
@@ -237,5 +256,23 @@ mod tests {
         let line = format_backend_line_with(&config, &empty_env, &empty_env);
         assert!(line.contains("Gemini"));
         assert!(line.contains("prefer_local=true"));
+    }
+
+    #[test]
+    fn semantic_line_reports_explicit_concurrency() {
+        let mut config = Config::default();
+        config.semantic.concurrency = Some(8);
+        let line = format_semantic_line(&config);
+        assert!(line.contains("concurrency=8"));
+        assert!(line.contains("explicit"));
+    }
+
+    #[test]
+    fn semantic_line_reports_auto_concurrency() {
+        let config = Config::default();
+        assert_eq!(config.semantic.concurrency, None);
+        let line = format_semantic_line(&config);
+        assert!(line.contains("auto"));
+        assert!(!line.contains("explicit"));
     }
 }

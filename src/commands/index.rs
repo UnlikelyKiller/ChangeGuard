@@ -614,20 +614,43 @@ fn execute_semantic_index(
         return Ok(());
     }
 
-    // ── Phase 2: Configure Rayon thread pool (HP2) ─────────────────────────
-    let threads = concurrency_override
-        .or(config.local_model.concurrency)
-        .unwrap_or(0); // 0 = rayon's automatic default
-    let pool = if threads > 0 {
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(threads)
-            .build()
-            .map_err(|e| miette::miette!("Failed to build Rayon thread pool: {}", e))?
-    } else {
-        rayon::ThreadPoolBuilder::new()
-            .build()
-            .map_err(|e| miette::miette!("Failed to build Rayon thread pool: {}", e))?
+    // ── Phase 2: Configure Rayon thread pool (U13/U14) ──────────────────────
+    // Precedence: CLI -j override > [semantic].concurrency >
+    // [local_model].concurrency (legacy) > auto-tuned from
+    // std::thread::available_parallelism. The auto-tuner also derives a
+    // separate cap on concurrent embed requests (DEFAULT_EMBED_CAP = 4)
+    // to avoid crashing the local ONNX server (commit 90da256).
+    let available_parallelism = std::thread::available_parallelism()
+        .ok()
+        .map(|n| std::num::NonZeroUsize::new(n.get()).expect("available_parallelism is non-zero"));
+    let resolve_opts = crate::semantic::concurrency::ResolveOptions {
+        available_parallelism,
+        ..Default::default()
     };
+    let resolved = crate::semantic::concurrency::resolve_semantic_concurrency(
+        concurrency_override
+            .or(config.semantic.semantic_concurrency())
+            .or(config.local_model.concurrency),
+        None,
+        resolve_opts,
+    );
+    let parse_threads = resolved.parse_threads.get();
+    let embed_cap = resolved.embed_threads.get();
+    info!("Semantic indexing threads: parse={parse_threads}, embed_concurrency={embed_cap}");
+
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(parse_threads)
+        .build()
+        .map_err(|e| miette::miette!("Failed to build Rayon thread pool: {}", e))?;
+
+    // Cap concurrent embed calls by adjusting batch count. Embeds are
+    // already parallelized into `chunk_batches` of size
+    // SEMANTIC_EMBEDDING_BATCH_SIZE; we further constrain how many of
+    // those batches can run in parallel via a small global semaphore so
+    // the embed phase never holds more than `embed_cap` HTTP calls in
+    // flight regardless of rayon pool size.
+    let embed_semaphore =
+        std::sync::Arc::new(crate::semantic::concurrency::EmbedSemaphore::new(embed_cap));
 
     // ── Phase 3: Parallel parse + embed with progress bar (HP2 + HP4) ──────
     let total = files_to_process.len();
@@ -706,10 +729,15 @@ fn execute_semantic_index(
             semantic_embedding_batches(&flat_chunks, SEMANTIC_EMBEDDING_BATCH_SIZE);
 
         let pb_embed_ref = pb_embed.clone();
+        let embed_sem_ref = embed_semaphore.clone();
         let embedding_results: Result<Vec<Vec<Vec<f32>>>, String> = pool.install(|| {
             chunk_batches
                 .into_par_iter()
                 .map(|batch| {
+                    // Throttle concurrent embed calls so we never exceed
+                    // the configured cap (U13/U14: prevents ONNX server
+                    // crash under heavy indexing load).
+                    let _permit = embed_sem_ref.acquire();
                     let texts: Vec<String> = batch.iter().map(|c| c.to_embedding_text()).collect();
                     let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
                     let embedder_res = semantic

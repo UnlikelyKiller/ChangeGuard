@@ -229,12 +229,18 @@ pub struct SemanticConfig {
     /// None means use the built-in default.
     #[serde(default)]
     pub hnsw_rebuild_threshold: Option<usize>,
+    /// Maximum number of threads used for parallel AST parsing + embedding
+    /// during `index --semantic` (U13/U14). `None` means auto-tune from
+    /// `std::thread::available_parallelism()`.
+    #[serde(default)]
+    pub concurrency: Option<usize>,
 }
 
 impl Default for SemanticConfig {
     fn default() -> Self {
         Self {
             hnsw_rebuild_threshold: Some(DEFAULT_HNSW_REBUILD_THRESHOLD),
+            concurrency: None,
         }
     }
 }
@@ -243,6 +249,13 @@ impl SemanticConfig {
     pub fn hnsw_rebuild_threshold(&self) -> usize {
         self.hnsw_rebuild_threshold
             .unwrap_or(DEFAULT_HNSW_REBUILD_THRESHOLD)
+    }
+
+    /// Resolved concurrency for semantic indexing. Returns `Some(n)` only when
+    /// the user has explicitly set a non-zero value in TOML; `None` triggers
+    /// auto-tuning in the call site.
+    pub fn semantic_concurrency(&self) -> Option<usize> {
+        self.concurrency.filter(|n| *n > 0)
     }
 }
 
@@ -1359,6 +1372,22 @@ mod tests {
         "#;
         let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.semantic.hnsw_rebuild_threshold(), 64);
+    }
+
+    #[test]
+    fn test_semantic_config_concurrency_toml() {
+        let toml_str = r#"
+            [semantic]
+            concurrency = 8
+        "#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.semantic.concurrency, Some(8));
+    }
+
+    #[test]
+    fn test_semantic_config_concurrency_default_none() {
+        let config: Config = toml::from_str("").unwrap();
+        assert_eq!(config.semantic.concurrency, None);
     }
 
     #[test]

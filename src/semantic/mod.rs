@@ -1,4 +1,5 @@
 pub mod chunker;
+pub mod concurrency;
 pub mod embedder;
 pub mod hotspots;
 pub mod vector_store;

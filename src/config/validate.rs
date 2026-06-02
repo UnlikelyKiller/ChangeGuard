@@ -84,6 +84,13 @@ pub fn validate_config(config: &Config) -> Result<()> {
         .into());
     }
 
+    if config.semantic.concurrency == Some(0) {
+        return Err(ConfigError::ValidationFailed {
+            reason: "semantic.concurrency must be > 0".to_string(),
+        }
+        .into());
+    }
+
     Ok(())
 }
 
@@ -355,11 +362,26 @@ mod tests {
         let config = Config {
             semantic: SemanticConfig {
                 hnsw_rebuild_threshold: Some(0),
+                concurrency: None,
             },
             ..Default::default()
         };
         let err = validate_config(&config).unwrap_err();
         let msg = format!("{:?}", err);
         assert!(msg.contains("hnsw_rebuild_threshold"));
+    }
+
+    #[test]
+    fn test_zero_semantic_concurrency_fails() {
+        let config = Config {
+            semantic: SemanticConfig {
+                hnsw_rebuild_threshold: None,
+                concurrency: Some(0),
+            },
+            ..Default::default()
+        };
+        let err = validate_config(&config).unwrap_err();
+        let msg = format!("{:?}", err);
+        assert!(msg.contains("semantic.concurrency"));
     }
 }

@@ -1267,6 +1267,22 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Goal: Leverage parallel requests or batched execution pipelines when retrieving embeddings for newly discovered chunks during semantic indexing to minimize overall wait times.
     *   Key additions: semantic embedding batch partitioning helper with order-preservation regression coverage for the existing rayon parallel embedding path.
 
+*   **Track U13: Dynamic HNSW Rebuild Threshold Integration**
+    *   Status: Completed
+    *   Spec: `conductor/trackU13/spec.md`
+    *   Plan: `conductor/trackU13/plan.md`
+    *   Goal: Expose the HNSW rebuild batch threshold limit as a user-configurable parameter (e.g. `[semantic] hnsw_rebuild_threshold = 500`) in `config.toml`, enabling manual system performance tuning.
+    *   Note: U11 already shipped the HNSW threshold plumbing. U13 completes the integration by adding the parallel `[semantic] concurrency` namespace field (default `None` = auto-tune) and migrating the rayon pool size out of `[local_model]`.
+    *   Key additions: `concurrency: Option<usize>` on `SemanticConfig`, `semantic_concurrency()` accessor, `> 0` validation, default-TOML template entry, `format_semantic_line` reporting in `config verify`.
+
+*   **Track U14: Semantic Indexing Concurrency Auto-Tuning**
+    *   Status: Completed
+    *   Spec: `conductor/trackU14/spec.md`
+    *   Plan: `conductor/trackU14/plan.md`
+    *   Goal: Automatically tune rayon concurrency settings during semantic index refreshes, matching logical core layouts and request-budget thresholds dynamically.
+    *   Key additions: `src/semantic/concurrency.rs` (`resolve_semantic_concurrency`, `EmbedSemaphore`), stdlib `available_parallelism()`-based auto-default, separate `DEFAULT_EMBED_CAP=4` cap on concurrent embed requests, refactor of `execute_semantic_index` to consume the new helper.
+
+
 ## Workflow
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.
