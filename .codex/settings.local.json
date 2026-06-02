@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/RyanB/AppData/Local/Temp/u22_smoke/**)",
+      "Bash(changeguard reset *)",
+      "Bash(rm -rf .changeguard .git/hooks/*)",
+      "Bash(changeguard init *)"
+    ]
+  }
+}
