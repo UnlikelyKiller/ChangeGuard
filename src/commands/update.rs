@@ -43,6 +43,7 @@ fn execute_migration() -> Result<()> {
         json: false,
         strict: false,
         concurrency: None,
+        semantic_dry_run: None,
     })?;
 
     println!("{} Migration complete.", "DONE".green().bold());

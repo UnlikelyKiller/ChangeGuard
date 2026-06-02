@@ -89,6 +89,7 @@ pub fn execute_search(args: SearchArgs) -> Result<()> {
                     export_docs: false,
                     doc_type: None,
                     concurrency: None,
+                    semantic_dry_run: None,
                 })?;
                 readiness = semantic_engine.check_readiness()?;
             }

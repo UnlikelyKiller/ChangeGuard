@@ -137,6 +137,7 @@ pub fn execute_ask(
                     export_docs: false,
                     doc_type: None,
                     concurrency: None,
+                    semantic_dry_run: None,
                 })?;
             }
         }

@@ -61,9 +61,10 @@ base_url = "http://127.0.0.1:8081"
 
 [semantic]
 hnsw_rebuild_threshold = 500
-# Parallel AST parsing + embedding thread count for `index --semantic`.
-# Unset (None) auto-tunes from std::thread::available_parallelism() with
-# a separate cap on concurrent embed requests (see DEFAULT_EMBED_CAP).
+# parse_concurrency = 8
+# embed_concurrency = 4
+# embed_concurrency_cap = 4
+# Legacy combined field:
 # concurrency = 8
 
 [intent]

@@ -1,6 +1,7 @@
 pub mod ask;
 pub mod bridge;
 pub mod config;
+pub mod config_verify;
 #[cfg(feature = "daemon")]
 pub mod daemon;
 pub mod dead_code;

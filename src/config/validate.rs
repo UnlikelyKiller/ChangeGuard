@@ -91,6 +91,27 @@ pub fn validate_config(config: &Config) -> Result<()> {
         .into());
     }
 
+    if config.semantic.parse_concurrency == Some(0) {
+        return Err(ConfigError::ValidationFailed {
+            reason: "semantic.parse_concurrency must be > 0".to_string(),
+        }
+        .into());
+    }
+
+    if config.semantic.embed_concurrency == Some(0) {
+        return Err(ConfigError::ValidationFailed {
+            reason: "semantic.embed_concurrency must be > 0".to_string(),
+        }
+        .into());
+    }
+
+    if config.semantic.embed_concurrency_cap == Some(0) {
+        return Err(ConfigError::ValidationFailed {
+            reason: "semantic.embed_concurrency_cap must be > 0".to_string(),
+        }
+        .into());
+    }
+
     Ok(())
 }
 
@@ -362,7 +383,7 @@ mod tests {
         let config = Config {
             semantic: SemanticConfig {
                 hnsw_rebuild_threshold: Some(0),
-                concurrency: None,
+                ..Default::default()
             },
             ..Default::default()
         };
@@ -377,11 +398,65 @@ mod tests {
             semantic: SemanticConfig {
                 hnsw_rebuild_threshold: None,
                 concurrency: Some(0),
+                parse_concurrency: None,
+                embed_concurrency: None,
+                embed_concurrency_cap: None,
             },
             ..Default::default()
         };
         let err = validate_config(&config).unwrap_err();
         let msg = format!("{:?}", err);
         assert!(msg.contains("semantic.concurrency"));
+    }
+
+    #[test]
+    fn test_zero_parse_concurrency_fails() {
+        let config = Config {
+            semantic: SemanticConfig {
+                hnsw_rebuild_threshold: None,
+                concurrency: None,
+                parse_concurrency: Some(0),
+                embed_concurrency: None,
+                embed_concurrency_cap: None,
+            },
+            ..Default::default()
+        };
+        let err = validate_config(&config).unwrap_err();
+        let msg = format!("{:?}", err);
+        assert!(msg.contains("semantic.parse_concurrency"));
+    }
+
+    #[test]
+    fn test_zero_embed_concurrency_fails() {
+        let config = Config {
+            semantic: SemanticConfig {
+                hnsw_rebuild_threshold: None,
+                concurrency: None,
+                parse_concurrency: None,
+                embed_concurrency: Some(0),
+                embed_concurrency_cap: None,
+            },
+            ..Default::default()
+        };
+        let err = validate_config(&config).unwrap_err();
+        let msg = format!("{:?}", err);
+        assert!(msg.contains("semantic.embed_concurrency"));
+    }
+
+    #[test]
+    fn test_zero_embed_concurrency_cap_fails() {
+        let config = Config {
+            semantic: SemanticConfig {
+                hnsw_rebuild_threshold: None,
+                concurrency: None,
+                parse_concurrency: None,
+                embed_concurrency: None,
+                embed_concurrency_cap: Some(0),
+            },
+            ..Default::default()
+        };
+        let err = validate_config(&config).unwrap_err();
+        let msg = format!("{:?}", err);
+        assert!(msg.contains("semantic.embed_concurrency_cap"));
     }
 }

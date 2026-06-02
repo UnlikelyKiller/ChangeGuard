@@ -1,26 +1,32 @@
-use crate::commands::ask::{self, Backend};
-use crate::config::model::Config;
 use crate::policy::load as policy_load;
 use crate::state::layout::Layout;
 use miette::Result;
 
-pub fn execute_config_verify() -> Result<()> {
+pub fn execute_config_verify(json: bool, section: Option<&str>, verbose: bool) -> Result<()> {
     let current_dir = std::env::current_dir()
         .map_err(|e| miette::miette!("Failed to get current directory: {e}"))?;
     let layout = Layout::new(current_dir.to_string_lossy().as_ref());
 
     let mut success = true;
+    let mut errors = Vec::new();
 
-    println!("Verifying ChangeGuard configuration...");
+    if !json {
+        println!("Verifying ChangeGuard configuration...");
+    }
 
     // Verify config.toml
     let config = match crate::config::load_config(&layout) {
         Ok(cfg) => {
-            println!("  ✅ config.toml is valid");
+            if !json {
+                println!("  ✅ config.toml is valid");
+            }
             Some(cfg)
         }
         Err(e) => {
-            println!("  ❌ config.toml is invalid:\n    {e}");
+            if !json {
+                println!("  ❌ config.toml is invalid:\n    {e}");
+            }
+            errors.push(format!("config.toml is invalid: {e}"));
             success = false;
             None
         }
@@ -29,24 +35,53 @@ pub fn execute_config_verify() -> Result<()> {
     // Verify rules.toml
     match policy_load::load_rules(&layout) {
         Ok(_) => {
-            println!("  ✅ rules.toml is valid");
+            if !json {
+                println!("  ✅ rules.toml is valid");
+            }
         }
         Err(e) => {
-            println!("  ❌ rules.toml is invalid:\n    {e}");
+            if !json {
+                println!("  ❌ rules.toml is invalid:\n    {e}");
+            }
+            errors.push(format!("rules.toml is invalid: {e}"));
             success = false;
         }
     }
 
-    // Report ask backend
-    if let Some(ref cfg) = config {
-        println!("  {}", format_backend_line(cfg));
-        println!("  {}", format_semantic_line(cfg));
+    // Report config sections
+    if let (true, Some(cfg)) = (success, &config) {
+        match crate::commands::config_verify::render_verify_report(cfg, json, section, verbose) {
+            Ok(report) => {
+                if json {
+                    println!("{report}");
+                } else {
+                    println!("\nResolved Settings:");
+                    println!("{report}");
+                }
+            }
+            Err(e) => {
+                errors.push(e.to_string());
+                success = false;
+            }
+        }
     }
 
     if success {
-        println!("\nAll configurations are valid.");
+        if !json {
+            println!("\nAll configurations are valid.");
+        }
         Ok(())
     } else {
+        if json {
+            let err_json = serde_json::json!({
+                "success": false,
+                "errors": errors
+            });
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&err_json).unwrap_or_default()
+            );
+        }
         Err(miette::miette!("Configuration verification failed."))
     }
 }
@@ -114,165 +149,4 @@ pub fn execute_config_view(json: bool, section: Option<String>, key: Option<Stri
         }
     }
     Ok(())
-}
-
-pub(crate) fn format_backend_line(config: &Config) -> String {
-    format_backend_line_with(config, &|name| std::env::var(name).ok(), &|name| {
-        crate::config::model::read_env_key(name)
-    })
-}
-
-/// One-line summary of the semantic indexing configuration. Resolves the
-/// effective concurrency (CLI override > [semantic].concurrency > auto) so
-/// users can see what `index --semantic` will actually use.
-pub(crate) fn format_semantic_line(config: &Config) -> String {
-    let explicit = config.semantic.semantic_concurrency();
-    let available = std::thread::available_parallelism()
-        .ok()
-        .map(|n| n.get())
-        .unwrap_or(1);
-    let resolved = explicit.unwrap_or(available);
-    match explicit {
-        Some(n) => format!("Semantic:      concurrency={n} (explicit)"),
-        None => {
-            format!("Semantic:      concurrency={resolved} (auto from {available} logical CPUs)")
-        }
-    }
-}
-
-pub(crate) fn format_backend_line_with(
-    config: &Config,
-    env_reader: &dyn Fn(&str) -> Option<String>,
-    dotenv_reader: &dyn Fn(&str) -> Option<String>,
-) -> String {
-    let resolved = ask::resolve_backend_with(config, None, env_reader, dotenv_reader);
-    match resolved {
-        Backend::Gemini => {
-            let api_status = if has_gemini_api_key_with(config, env_reader, dotenv_reader) {
-                "API key present"
-            } else {
-                "API key missing"
-            };
-            if config.local_model.prefer_local {
-                format!("Ask backend:   Gemini ({api_status}; prefer_local=true)")
-            } else {
-                format!("Ask backend:   Gemini ({api_status})")
-            }
-        }
-        Backend::Local => {
-            let base_url =
-                if crate::local_model::client::has_ollama_cloud_fallback(&config.local_model)
-                    && config.local_model.base_url.is_empty()
-                {
-                    "Ollama Cloud fallback"
-                } else if config.local_model.base_url.is_empty() {
-                    "(not configured)"
-                } else {
-                    config.local_model.base_url.as_str()
-                };
-            let prefer = if config.local_model.prefer_local {
-                ", prefer_local=true"
-            } else {
-                ""
-            };
-            format!("Ask backend:   Local ({base_url}{prefer})")
-        }
-    }
-}
-
-fn has_gemini_api_key_with(
-    config: &Config,
-    env_reader: &dyn Fn(&str) -> Option<String>,
-    dotenv_reader: &dyn Fn(&str) -> Option<String>,
-) -> bool {
-    if config
-        .gemini
-        .api_key
-        .as_deref()
-        .is_some_and(|k| !k.trim().is_empty())
-    {
-        return true;
-    }
-    if let Some(key) = env_reader("GEMINI_API_KEY")
-        && !key.trim().is_empty()
-    {
-        return true;
-    }
-    dotenv_reader("GEMINI_API_KEY").is_some()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config::model::Config;
-
-    fn empty_env(_name: &str) -> Option<String> {
-        None
-    }
-
-    #[test]
-    fn verify_reports_gemini_backend_with_api_key_in_config() {
-        let mut config = Config::default();
-        config.gemini.api_key = Some("test-key".to_string());
-        let line = format_backend_line_with(&config, &empty_env, &empty_env);
-        assert!(line.contains("Gemini"));
-        assert!(line.contains("API key present"));
-    }
-
-    #[test]
-    fn verify_reports_gemini_backend_with_api_key_missing() {
-        let config = Config::default();
-        let line = format_backend_line_with(&config, &empty_env, &empty_env);
-        assert!(line.contains("Gemini"));
-        assert!(line.contains("API key missing"));
-    }
-
-    #[test]
-    fn verify_reports_local_backend_when_configured() {
-        let mut config = Config::default();
-        config.local_model.base_url = "http://localhost:11434".to_string();
-        // No Gemini API key, so auto-select Local
-        let line = format_backend_line_with(&config, &empty_env, &empty_env);
-        assert!(line.contains("Local"));
-        assert!(line.contains("http://localhost:11434"));
-    }
-
-    #[test]
-    fn verify_reports_local_backend_with_prefer_local() {
-        let mut config = Config::default();
-        config.local_model.base_url = "http://localhost:8080".to_string();
-        config.local_model.prefer_local = true;
-        let line = format_backend_line_with(&config, &empty_env, &empty_env);
-        assert!(line.contains("Local"));
-        assert!(line.contains("http://localhost:8080"));
-        assert!(line.contains("prefer_local=true"));
-    }
-
-    #[test]
-    fn verify_reports_gemini_with_prefer_local() {
-        let mut config = Config::default();
-        config.gemini.api_key = Some("key".to_string());
-        config.local_model.prefer_local = true;
-        let line = format_backend_line_with(&config, &empty_env, &empty_env);
-        assert!(line.contains("Gemini"));
-        assert!(line.contains("prefer_local=true"));
-    }
-
-    #[test]
-    fn semantic_line_reports_explicit_concurrency() {
-        let mut config = Config::default();
-        config.semantic.concurrency = Some(8);
-        let line = format_semantic_line(&config);
-        assert!(line.contains("concurrency=8"));
-        assert!(line.contains("explicit"));
-    }
-
-    #[test]
-    fn semantic_line_reports_auto_concurrency() {
-        let config = Config::default();
-        assert_eq!(config.semantic.concurrency, None);
-        let line = format_semantic_line(&config);
-        assert!(line.contains("auto"));
-        assert!(!line.contains("explicit"));
-    }
 }

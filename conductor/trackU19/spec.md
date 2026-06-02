@@ -34,16 +34,17 @@ pub trait ConfigSection {
     fn name(&self) -> &'static str;
     fn order(&self) -> u8;  // sort key
     fn is_applicable(&self, config: &Config) -> bool { true }  // default
-    fn render_human(&self, config: &Config) -> Vec<ConfigRow>;
-    fn render_json(&self, config: &Config) -> serde_json::Value;
+    fn render_rows(&self, config: &Config) -> Vec<ConfigRow>;
 }
 
+#[derive(Serialize)]
 pub struct ConfigRow {
     pub label: String,
     pub value: String,
     pub source: ValueSource,  // Explicit, Default, Auto, Inherited
 }
 
+#[derive(Serialize)]
 pub enum ValueSource {
     Explicit,   // user set in TOML
     Default,    // field default
@@ -57,6 +58,12 @@ pub enum ValueSource {
 In `src/commands/config_verify.rs` (new module):
 
 ```rust
+#[derive(Serialize)]
+pub struct SectionReport {
+    pub section: String,
+    pub rows: Vec<ConfigRow>,
+}
+
 pub fn all_sections() -> Vec<Box<dyn ConfigSection>> {
     vec![
         Box::new(BackendSection),
@@ -70,14 +77,20 @@ pub fn render_verify_report(config: &Config, json: bool) -> String {
         .into_iter()
         .filter(|s| s.is_applicable(config))
         .collect();
+
+    let reports: Vec<SectionReport> = sections.iter().map(|s| SectionReport {
+        section: s.name().to_string(),
+        rows: s.render_rows(config),
+    }).collect();
+
     if json {
-        serde_json::to_string_pretty(&sections.iter().map(|s| s.render_json(config)).collect::<Vec<_>>())
+        serde_json::to_string_pretty(&reports).unwrap_or_default()
     } else {
         let mut table = Table::new();
         table.set_header(vec!["Section", "Key", "Value", "Source"]);
-        for section in &sections {
-            for row in section.render_human(config) {
-                table.add_row([section.name(), row.label, row.value, row.source.to_string()]);
+        for report in &reports {
+            for row in &report.rows {
+                table.add_row([report.section.as_str(), row.label.as_str(), row.value.as_str(), row.source.to_string().as_str()]);
             }
         }
         table.to_string()

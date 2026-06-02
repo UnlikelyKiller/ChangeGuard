@@ -100,6 +100,9 @@ pub enum Commands {
         /// Number of parallel threads for semantic indexing (default: logical CPUs)
         #[arg(long, short = 'j')]
         concurrency: Option<usize>,
+        /// Print resolved semantic settings and exit. Optionally takes a path for JSON output.
+        #[arg(long, value_name = "OUTPUT_PATH", num_args = 0..=1)]
+        semantic_dry_run: Option<Option<std::path::PathBuf>>,
     },
     /// Search the codebase using high-performance regex or semantic search
     Search {
@@ -611,7 +614,17 @@ pub enum RegisterCommands {
 #[derive(Subcommand)]
 pub enum ConfigCommands {
     /// Verify current configuration and environment health
-    Verify,
+    Verify {
+        /// Output results as JSON
+        #[arg(long)]
+        json: bool,
+        /// Filter by specific section name (e.g. backend, semantic)
+        #[arg(long, short)]
+        section: Option<String>,
+        /// Include defaults that are normally hidden
+        #[arg(long, short)]
+        verbose: bool,
+    },
     /// View resolved project configuration
     View {
         /// Output as JSON
@@ -658,6 +671,7 @@ pub fn run_with(cli: Cli) -> Result<()> {
             json,
             strict,
             concurrency,
+            semantic_dry_run,
         } => {
             if check {
                 crate::commands::index::execute_index_check(
@@ -680,6 +694,7 @@ pub fn run_with(cli: Cli) -> Result<()> {
                     export_docs,
                     doc_type,
                     concurrency,
+                    semantic_dry_run,
                 })
             }
         }
@@ -872,7 +887,11 @@ pub fn run_with(cli: Cli) -> Result<()> {
         ),
         Commands::Doctor => crate::commands::doctor::execute_doctor(),
         Commands::Config { command } => match command {
-            ConfigCommands::Verify => crate::commands::config::execute_config_verify(),
+            ConfigCommands::Verify {
+                json,
+                section,
+                verbose,
+            } => crate::commands::config::execute_config_verify(json, section.as_deref(), verbose),
             ConfigCommands::View { json, section, key } => {
                 crate::commands::config::execute_config_view(json, section, key)
             }

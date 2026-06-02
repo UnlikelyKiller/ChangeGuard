@@ -17,133 +17,82 @@ Replace the `parking_lot::Mutex<usize>` + `Condvar` core of `EmbedSemaphore` wit
 
 The new implementation should be:
 - **Non-blocking**: `acquire` either succeeds immediately or returns `None` (caller decides what to do — spin, sleep, drop, or count it as a 429)
-- **Lock-free**: no `Mutex` or `Condvar`; one `AtomicUsize` for the count
-- **Bounded**: the cap is a `NonZeroUsize` constant per semaphore
+- **Mutex & Condvar backplane**: Continue using `parking_lot::Mutex<usize>` + `Condvar` to guarantee efficient blocking without CPU busy-yielding. Add `try_acquire` as a non-blocking method.
+- **Bounded**: the cap is a `usize` constant per semaphore.
 
 Two acquisition strategies are possible:
-1. **Try-acquire (drop on full)**: if no permit available, the rayon task skips its work. The HNSW build still proceeds, just with fewer parallel embeds.
-2. **Spin-acquire**: loop with `compare_exchange` until a permit is available. Burns CPU but guarantees all work proceeds.
+1. **Blocking-acquire (default)**: if no permit is available, the thread suspends on the condvar until a permit is released. This guarantees 100% indexing completeness.
+2. **Try-acquire**: returns `None` immediately if no permit is available.
 
-The default should be **try-acquire (drop on full)** because:
-- The point of the cap is to *not overwhelm* the local model server
-- If all 4 permits are in use, the new request should back off, not barge in
-- The caller (rayon worker) can simply not call the embed server — the chunk gets dropped from this batch (recovered by re-running `--incremental`)
-
-A `try_acquire_spin(max_iters)` variant is exposed for callers that want bounded spin behavior.
+The default for the CLI index loop MUST be **blocking-acquire** because:
+- Silent chunk skipping on semaphore saturation would result in an incomplete semantic index.
+- Rayon worker threads are meant to execute tasks synchronously, and blocking them under semaphore saturation is safe and prevents overloading the model server.
 
 ## Proposed Design
 
-### Atomic counter
+### Mutex-based Semaphore
+
+We extend `EmbedSemaphore` in `src/semantic/concurrency.rs` to support `try_acquire`:
 
 ```rust
-use std::sync::atomic::{AtomicUsize, Ordering};
-
-#[derive(Debug)]
-pub struct EmbedSemaphore {
-    permits: AtomicUsize,        // current available
-    cap: NonZeroUsize,            // max permits
-}
-
 impl EmbedSemaphore {
     pub fn new(permits: usize) -> Self {
-        let cap_nz = NonZeroUsize::new(permits.max(1)).expect("1 is non-zero");
+        let permits = permits.max(1);
         Self {
-            permits: AtomicUsize::new(cap_nz.get()),
-            cap: cap_nz,
+            inner: parking_lot::Mutex::new(permits),
+            cond: parking_lot::Condvar::new(),
+            permits,
         }
     }
 
-    /// Try to acquire a permit. Returns `Some(permit)` on success, `None` if
-    /// no permits are currently available. Never blocks.
+    /// Block until a permit is available, returning a guard.
+    pub fn acquire(&self) -> EmbedPermit<'_> {
+        let mut guard = self.inner.lock();
+        while *guard == 0 {
+            self.cond.wait(&mut guard);
+        }
+        *guard -= 1;
+        EmbedPermit { semaphore: self }
+    }
+
+    /// Non-blocking permit acquisition. Returns `Some` if a permit was successfully
+    /// acquired, or `None` if the semaphore has no available permits.
     pub fn try_acquire(&self) -> Option<EmbedPermit<'_>> {
-        let mut current = self.permits.load(Ordering::Acquire);
-        loop {
-            if current == 0 {
-                return None;
-            }
-            match self.permits.compare_exchange(
-                current, current - 1, Ordering::AcqRel, Ordering::Acquire,
-            ) {
-                Ok(_) => return Some(EmbedPermit { semaphore: self }),
-                Err(actual) => current = actual,  // retry with observed value
-            }
+        let mut guard = self.inner.lock();
+        if *guard == 0 {
+            return None;
         }
-    }
-
-    /// Acquire with bounded spin. Returns `Some(permit)` if acquired within
-    /// `max_iters` attempts, `None` otherwise. Use when you want to avoid
-    /// dropping work but don't want to block indefinitely.
-    pub fn try_acquire_spin(&self, max_iters: u32) -> Option<EmbedPermit<'_>> {
-        for _ in 0..max_iters {
-            if let Some(p) = self.try_acquire() {
-                return Some(p);
-            }
-            std::hint::spin_loop();  // hint to the CPU
-        }
-        None
+        *guard -= 1;
+        Some(EmbedPermit { semaphore: self })
     }
 }
 ```
-
-The `acquire()` method (blocking) becomes a wrapper:
-
-```rust
-pub fn acquire(&self) -> EmbedPermit<'_> {
-    loop {
-        if let Some(p) = self.try_acquire() {
-            return p;
-        }
-        std::thread::yield_now();  // cooperatively yield, don't burn CPU
-    }
-}
-```
-
-This keeps the existing `acquire` API (used at `src/commands/index.rs`) working unchanged, while exposing the non-blocking variants for callers that want them.
 
 ### Drop semantics
 
-`EmbedPermit::drop` is now a single atomic `fetch_add(1)`:
+`EmbedPermit::drop` remains unchanged:
 
 ```rust
 impl Drop for EmbedPermit<'_> {
     fn drop(&mut self) {
-        self.semaphore.permits.fetch_add(1, Ordering::Release);
+        let mut guard = self.semaphore.inner.lock();
+        *guard += 1;
+        if *guard <= self.semaphore.permits {
+            self.semaphore.cond.notify_one();
+        }
     }
 }
 ```
 
-The "cap overflow" check from the U14 implementation (the `if *guard <= self.semaphore.permits` guard) is no longer needed — atomic increment can't go above the cap under correct use, and the `try_acquire` path never lets count go negative.
-
 ### Caller change
 
-In `src/commands/index.rs`, the call site changes from:
+In `src/commands/index.rs`, the call site remains:
 
 ```rust
-let _permit = embed_sem_ref.acquire();
+let _permit = embed_sem_ref.acquire();  // Keep blocking to guarantee completeness
 ```
 
-to:
-
-```rust
-let _permit = embed_sem_ref.try_acquire().unwrap_or_else(|| {
-    // Backoff: skip this batch's embed and let the next incremental run pick it up.
-    tracing::debug!("Embed semaphore full; skipping this batch (will be picked up by next --incremental run)");
-    EmbedPermit::noop()  // zero-cost placeholder that does nothing on drop
-});
-```
-
-OR (more conservative — keep the blocking behavior by default for now, expose `try_acquire` for opt-in):
-
-```rust
-let _permit = embed_sem_ref.acquire();  // unchanged
-```
-
-The decision is: **for U21, change the default to non-blocking try-acquire** because:
-- The cap exists *because* too many concurrent calls crash the server
-- If the cap is full, the right behavior is to **not call** the server
-- Blocking and waiting just queues up more load when the cap finally releases
-
-The "skip this batch, re-run incremental" recovery is already a supported flow in the existing code (the HNSW batch operations use the same idempotent pattern).
+The decision is: **for U21, keep the CLI indexing loop blocking** to ensure semantic index completeness, while exposing `try_acquire` as a non-blocking method for future daemon/IPC integration checks.
 
 ## Critical files
 

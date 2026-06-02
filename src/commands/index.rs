@@ -59,17 +59,24 @@ pub struct IndexArgs {
     pub doc_type: Option<String>,
     /// CLI override for rayon thread count (HP2). `None` = use config or rayon default.
     pub concurrency: Option<usize>,
+    /// Print resolved semantic settings and exit. Optionally takes a path for JSON output.
+    pub semantic_dry_run: Option<Option<std::path::PathBuf>>,
 }
 
 pub fn execute_index(args: IndexArgs) -> Result<()> {
     let layout = get_layout()?;
-    let db_path = layout.state_subdir().join("ledger.db");
-    let storage = StorageManager::init(db_path.as_std_path())?;
-    let repo_path = layout.root.clone();
     let config = load_config(&layout).unwrap_or_else(|err| {
         warn!("Failed to load config: {err}. Using defaults.");
         crate::config::model::Config::default()
     });
+
+    if let Some(dry_run_opt) = args.semantic_dry_run {
+        return execute_semantic_dry_run(&layout, &config, args.concurrency, dry_run_opt);
+    }
+
+    let db_path = layout.state_subdir().join("ledger.db");
+    let storage = StorageManager::init(db_path.as_std_path())?;
+    let repo_path = layout.root.clone();
 
     if let Some(scip_path) = args.scip {
         return execute_scip_index(&layout, storage, scip_path);
@@ -542,6 +549,29 @@ fn execute_semantic_index(
     // HP3: ensure the semantic file-hash tracking schema exists
     semantic.ensure_file_hash_schema()?;
 
+    // Resolve concurrency early so lifecycle info is printed/logged before any potential early exit
+    let available_parallelism = std::thread::available_parallelism()
+        .ok()
+        .map(|n| std::num::NonZeroUsize::new(n.get()).expect("available_parallelism is non-zero"));
+    let resolve_opts = crate::semantic::concurrency::ResolveOptions {
+        available_parallelism,
+        ..Default::default()
+    };
+    let resolved = crate::semantic::concurrency::resolve_split_semantic_concurrency(
+        concurrency_override,
+        &config.semantic,
+        config.local_model.concurrency,
+        resolve_opts,
+    );
+    let parse_threads = resolved.parse_threads.get();
+    let embed_cap = resolved.embed_threads.get();
+
+    info!(
+        "Semantic indexing started: incremental={incremental}, cli_concurrency={:?}",
+        concurrency_override
+    );
+    info!("Semantic indexing threads: parse={parse_threads}, embed_concurrency={embed_cap}");
+
     info!("Indexing repository for semantic search...");
 
     // ── Phase 1: Collect candidate files ───────────────────────────────────
@@ -610,33 +640,16 @@ fn execute_semantic_index(
     };
 
     if files_to_process.is_empty() {
-        println!("Semantic index is up to date. No files changed.");
+        info!("Semantic index is up to date: no files changed since last index");
         return Ok(());
     }
 
-    // ── Phase 2: Configure Rayon thread pool (U13/U14) ──────────────────────
-    // Precedence: CLI -j override > [semantic].concurrency >
-    // [local_model].concurrency (legacy) > auto-tuned from
-    // std::thread::available_parallelism. The auto-tuner also derives a
-    // separate cap on concurrent embed requests (DEFAULT_EMBED_CAP = 4)
-    // to avoid crashing the local ONNX server (commit 90da256).
-    let available_parallelism = std::thread::available_parallelism()
-        .ok()
-        .map(|n| std::num::NonZeroUsize::new(n.get()).expect("available_parallelism is non-zero"));
-    let resolve_opts = crate::semantic::concurrency::ResolveOptions {
-        available_parallelism,
-        ..Default::default()
-    };
-    let resolved = crate::semantic::concurrency::resolve_semantic_concurrency(
-        concurrency_override
-            .or(config.semantic.semantic_concurrency())
-            .or(config.local_model.concurrency),
-        None,
-        resolve_opts,
+    info!(
+        "Semantic indexing will process {} files",
+        files_to_process.len()
     );
-    let parse_threads = resolved.parse_threads.get();
-    let embed_cap = resolved.embed_threads.get();
-    info!("Semantic indexing threads: parse={parse_threads}, embed_concurrency={embed_cap}");
+
+    // ── Phase 2: Configure Rayon thread pool (U13/U14) ──────────────────────
 
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(parse_threads)
@@ -1052,4 +1065,229 @@ mod tests {
                 .collect::<Vec<_>>()
         );
     }
+}
+
+fn execute_semantic_dry_run(
+    layout: &Layout,
+    config: &crate::config::model::Config,
+    concurrency_override: Option<usize>,
+    output_path: Option<std::path::PathBuf>,
+) -> Result<()> {
+    use crate::semantic::concurrency::{ResolveOptions, resolve_split_semantic_concurrency};
+    use comfy_table::Table;
+
+    let cozo_path = layout.state_subdir().join("ledger.cozo");
+    let cozo = if cozo_path.exists() {
+        crate::state::storage_cozo::CozoStorage::new_read_only(cozo_path.as_std_path()).ok()
+    } else {
+        None
+    };
+
+    // Resolve concurrency
+    let available_parallelism = std::thread::available_parallelism()
+        .ok()
+        .map(|n| std::num::NonZeroUsize::new(n.get()).unwrap());
+    let resolve_opts = ResolveOptions {
+        available_parallelism,
+        ..Default::default()
+    };
+    let resolved = resolve_split_semantic_concurrency(
+        concurrency_override,
+        &config.semantic,
+        config.local_model.concurrency,
+        resolve_opts,
+    );
+
+    // Collect candidate files (read-only walk)
+    let repo_root = layout.root.as_std_path();
+    let mut candidate_paths = Vec::new();
+    fn walk_dir(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if matches!(name, ".git" | ".changeguard" | "target" | "node_modules") {
+                    continue;
+                }
+                walk_dir(&path, out);
+            } else {
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                if matches!(ext, "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go") {
+                    out.push(path);
+                }
+            }
+        }
+    }
+    walk_dir(repo_root, &mut candidate_paths);
+
+    // Estimate chunk count (lines / 30)
+    let mut total_lines = 0;
+    for path in &candidate_paths {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            total_lines += content.lines().count();
+        }
+    }
+    let estimated_chunk_count = total_lines / 30;
+
+    let current_vector_count = cozo
+        .as_ref()
+        .map(|db| {
+            let relations = db.get_relations().unwrap_or_default();
+            if !relations.contains(&"snippet_embedding".to_string()) {
+                return 0;
+            }
+            let script = "?[count(file_path)] := *snippet_embedding{file_path}";
+            if let Ok(res) = db.run_script(script)
+                && let Some(row) = res.rows.first()
+                && let Some(cozo::DataValue::Num(cozo::Num::Int(count))) = row.first()
+            {
+                *count as usize
+            } else {
+                0
+            }
+        })
+        .unwrap_or(0);
+
+    let current_file_count = cozo
+        .as_ref()
+        .map(|db| {
+            let relations = db.get_relations().unwrap_or_default();
+            if !relations.contains(&"semantic_file_hash".to_string()) {
+                return 0;
+            }
+            let script = "?[file_path] := *semantic_file_hash{file_path}";
+            db.run_script(script).map(|res| res.rows.len()).unwrap_or(0)
+        })
+        .unwrap_or(0);
+
+    let hnsw_rebuild_threshold = config.semantic.hnsw_rebuild_threshold();
+    let would_trigger_hnsw_rebuild = estimated_chunk_count > hnsw_rebuild_threshold;
+
+    let embedding_dimensions = config.local_model.dimensions;
+
+    let report = SemanticDryRunReport {
+        parse_threads: resolved.parse_threads.get(),
+        parse_source: resolved.parse_source.to_string(),
+        embed_concurrency: resolved.embed_threads.get(),
+        requested_embed_concurrency: resolved.requested_embed_threads.get(),
+        embed_source: resolved.embed_source.to_string(),
+        embed_concurrency_cap: resolved.embed_cap.get(),
+        cap_source: resolved.cap_source.to_string(),
+        candidate_file_count: candidate_paths.len(),
+        estimated_chunk_count,
+        embedding_model: config.local_model.embedding_model.clone(),
+        embedding_dimensions,
+        hnsw_rebuild_threshold,
+        would_trigger_hnsw_rebuild,
+        current_vector_count,
+        current_file_count,
+    };
+
+    if let Some(path) = output_path {
+        let json_str = serde_json::to_string_pretty(&report)
+            .map_err(|e| miette::miette!("Failed to serialize dry-run report to JSON: {}", e))?;
+        std::fs::write(&path, json_str).map_err(|e| {
+            miette::miette!(
+                "Failed to write dry-run report to {}: {}",
+                path.display(),
+                e
+            )
+        })?;
+        println!("Dry-run report written to {}", path.display());
+    } else {
+        println!("Semantic Indexing Dry-Run Report");
+        println!("=================================");
+        let mut table = Table::new();
+        table.set_header(vec!["Metric", "Value", "Source / Reason"]);
+        table.add_row(vec![
+            "Parse Threads",
+            &report.parse_threads.to_string(),
+            &report.parse_source,
+        ]);
+        table.add_row(vec![
+            "Requested Embed Concurrency",
+            &report.requested_embed_concurrency.to_string(),
+            &report.embed_source,
+        ]);
+        table.add_row(vec![
+            "Effective Embed Concurrency",
+            &report.embed_concurrency.to_string(),
+            "min(Requested Embed Concurrency, Embed Concurrency Cap)",
+        ]);
+        table.add_row(vec![
+            "Embed Concurrency Cap",
+            &report.embed_concurrency_cap.to_string(),
+            &report.cap_source,
+        ]);
+        table.add_row(vec![
+            "Candidate Files",
+            &report.candidate_file_count.to_string(),
+            "File walk of repository",
+        ]);
+        table.add_row(vec![
+            "Estimated Chunks",
+            &report.estimated_chunk_count.to_string(),
+            "Lines count / 30 approximation",
+        ]);
+        table.add_row(vec![
+            "Embedding Model",
+            &report.embedding_model,
+            "config.local_model.embedding_model",
+        ]);
+        let dims_str = if report.embedding_dimensions == 0 {
+            "0 (probed at runtime)".to_string()
+        } else {
+            report.embedding_dimensions.to_string()
+        };
+        table.add_row(vec![
+            "Embedding Dimensions",
+            &dims_str,
+            "config.local_model.dimensions",
+        ]);
+        table.add_row(vec![
+            "HNSW Rebuild Threshold",
+            &report.hnsw_rebuild_threshold.to_string(),
+            "config.semantic.hnsw_rebuild_threshold",
+        ]);
+        table.add_row(vec![
+            "Would Rebuild HNSW",
+            &report.would_trigger_hnsw_rebuild.to_string(),
+            "Estimated chunks > threshold",
+        ]);
+        table.add_row(vec![
+            "Current Vectors in DB",
+            &report.current_vector_count.to_string(),
+            "CozoDB vector store",
+        ]);
+        table.add_row(vec![
+            "Current Files in DB",
+            &report.current_file_count.to_string(),
+            "CozoDB vector store",
+        ]);
+        println!("{table}");
+    }
+
+    Ok(())
+}
+
+#[derive(serde::Serialize)]
+struct SemanticDryRunReport {
+    pub parse_threads: usize,
+    pub parse_source: String,
+    pub embed_concurrency: usize,
+    pub requested_embed_concurrency: usize,
+    pub embed_source: String,
+    pub embed_concurrency_cap: usize,
+    pub cap_source: String,
+    pub candidate_file_count: usize,
+    pub estimated_chunk_count: usize,
+    pub embedding_model: String,
+    pub embedding_dimensions: usize,
+    pub hnsw_rebuild_threshold: usize,
+    pub would_trigger_hnsw_rebuild: bool,
+    pub current_vector_count: usize,
+    pub current_file_count: usize,
 }
