@@ -422,7 +422,7 @@ pub enum LedgerCommands {
         entity: String,
         /// Category of change (FEATURE, BUGFIX, ARCHITECTURE, etc.)
         #[arg(short, long)]
-        category: Category,
+        category: String,
         /// Intent message for the change
         #[arg(short, long)]
         message: String,

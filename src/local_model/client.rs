@@ -38,6 +38,13 @@ struct CompletionResponse {
     choices: Vec<Choice>,
 }
 
+struct CompletionEndpoint<'a> {
+    label: &'a str,
+    base_url: &'a str,
+    model: &'a str,
+    authorization: Option<String>,
+}
+
 pub fn ping_completions(config: &LocalModelConfig) -> Result<String, String> {
     if config.base_url.is_empty() && config.generation_url.is_none() {
         return Err("not configured".to_string());
@@ -113,49 +120,121 @@ pub fn complete(
     messages: &[ChatMessage],
     options: &CompletionOptions,
 ) -> Result<String, String> {
-    if config.base_url.is_empty() && config.generation_url.is_none() {
+    if config.base_url.is_empty()
+        && config.generation_url.is_none()
+        && !has_ollama_cloud_fallback(config)
+    {
         return Err(
-            "Local model server is not configured. Start llama-server or use --backend gemini."
+            "Local model server is not configured. Start llama-server, configure Ollama Cloud fallback, or use --backend gemini."
                 .to_string(),
         );
     }
 
-    let url = if let Some(gen_url) = &config.generation_url {
-        format!("{}/v1/chat/completions", gen_url)
-    } else {
-        format!("{}/v1/chat/completions", config.base_url)
-    };
+    let local_base_url = config.generation_url.as_deref().unwrap_or(&config.base_url);
+    if !local_base_url.is_empty() {
+        // CR3: Fast network probe to prevent 20s TCP hangs when model server is down.
+        if crate::util::network::is_url_reachable(local_base_url, Duration::from_millis(500)) {
+            let endpoint = CompletionEndpoint {
+                label: "Local model server",
+                base_url: local_base_url,
+                model: &config.generation_model,
+                authorization: None,
+            };
+            match complete_with_endpoint(&endpoint, config.timeout_secs, messages, options) {
+                Ok(response) => return Ok(response),
+                Err(error) if has_ollama_cloud_fallback(config) => {
+                    tracing::warn!(
+                        "Local completion failed ({error}); trying Ollama Cloud fallback"
+                    );
+                }
+                Err(error) => return Err(error),
+            }
+        } else if !has_ollama_cloud_fallback(config) {
+            return Err(format!(
+                "Local model server at {} is unreachable. Start llama-server or use --backend gemini.",
+                local_base_url
+            ));
+        } else {
+            tracing::warn!(
+                "Local model server at {} is unreachable; trying Ollama Cloud fallback",
+                local_base_url
+            );
+        }
+    }
+
+    if let Some(endpoint) = ollama_cloud_endpoint(config) {
+        return complete_with_endpoint(&endpoint, config.timeout_secs, messages, options);
+    }
+
+    Err(format!(
+        "Local model server at {} is unreachable. Start llama-server or use --backend gemini.",
+        local_base_url
+    ))
+}
+
+pub fn has_ollama_cloud_fallback(config: &LocalModelConfig) -> bool {
+    config
+        .ollama_cloud_url
+        .as_deref()
+        .is_some_and(|url| !url.trim().is_empty())
+        && config
+            .ollama_cloud_api_key
+            .as_deref()
+            .is_some_and(|key| !key.trim().is_empty())
+        && config
+            .ollama_cloud_model
+            .as_deref()
+            .is_some_and(|model| !model.trim().is_empty())
+}
+
+fn ollama_cloud_endpoint(config: &LocalModelConfig) -> Option<CompletionEndpoint<'_>> {
+    let base_url = config.ollama_cloud_url.as_deref()?.trim();
+    let api_key = config.ollama_cloud_api_key.as_deref()?.trim();
+    let model = config.ollama_cloud_model.as_deref()?.trim();
+    if base_url.is_empty() || api_key.is_empty() || model.is_empty() {
+        return None;
+    }
+    Some(CompletionEndpoint {
+        label: "Ollama Cloud fallback",
+        base_url,
+        model,
+        authorization: Some(format!("Bearer {api_key}")),
+    })
+}
+
+fn complete_with_endpoint(
+    endpoint: &CompletionEndpoint<'_>,
+    timeout_secs: u64,
+    messages: &[ChatMessage],
+    options: &CompletionOptions,
+) -> Result<String, String> {
+    let url = format!(
+        "{}/v1/chat/completions",
+        endpoint.base_url.trim_end_matches('/')
+    );
     tracing::debug!("Using completion URL: {}", url);
 
     let body = serde_json::json!({
-        "model": config.generation_model,
+        "model": endpoint.model,
         "messages": messages,
         "max_tokens": options.max_tokens,
         "temperature": options.temperature,
         "stream": false,
     });
 
-    // CR3: Fast network probe to prevent 20s TCP hangs when model server is down.
-    let check_url = config.generation_url.as_deref().unwrap_or(&config.base_url);
-    if !crate::util::network::is_url_reachable(check_url, Duration::from_millis(500)) {
-        return Err(format!(
-            "Local model server at {} is unreachable. Start llama-server or use --backend gemini.",
-            check_url
-        ));
-    }
-
     let agent = ureq::AgentBuilder::new()
-        .timeout_read(Duration::from_secs(config.timeout_secs))
+        .timeout_read(Duration::from_secs(timeout_secs))
         .timeout_write(Duration::from_secs(30))
         .build();
 
     let mut retry = false;
 
     let response = loop {
-        let result = agent
-            .post(&url)
-            .set("Content-Type", "application/json")
-            .send_json(&body);
+        let mut request = agent.post(&url).set("Content-Type", "application/json");
+        if let Some(value) = &endpoint.authorization {
+            request = request.set("Authorization", value);
+        }
+        let result = request.send_json(&body);
 
         break match result {
             Ok(resp) => resp,
@@ -167,7 +246,8 @@ pub fn complete(
             Err(ureq::Error::Status(503, response)) => {
                 let body = response.into_string().unwrap_or_default();
                 return Err(format!(
-                    "Local model server returned 503: {}",
+                    "{} returned 503: {}",
+                    endpoint.label,
                     body.chars().take(200).collect::<String>()
                 ));
             }
@@ -175,14 +255,15 @@ pub fn complete(
             Err(ureq::Error::Status(code, response)) => {
                 let body = response.into_string().unwrap_or_default();
                 return Err(format!(
-                    "Local model server returned {code}: {}",
+                    "{} returned {code}: {}",
+                    endpoint.label,
                     body.chars().take(200).collect::<String>()
                 ));
             }
             Err(ureq::Error::Transport(inner)) => {
                 return Err(format!(
-                    "Local model server not reachable at {} \u{2014} {}",
-                    config.base_url, inner
+                    "{} not reachable at {} \u{2014} {}",
+                    endpoint.label, endpoint.base_url, inner
                 ));
             }
         };
@@ -395,5 +476,40 @@ mod tests {
             err.contains("is unreachable"),
             "expected 'is unreachable' in: {err}"
         );
+    }
+
+    #[test]
+    fn complete_falls_back_to_ollama_cloud_with_auth() {
+        let server = MockServer::start();
+
+        let mock = server.mock(|when, then| {
+            when.method(httpmock::Method::POST)
+                .path("/v1/chat/completions")
+                .header("Authorization", "Bearer test-token")
+                .json_body_partial(r#"{"model":"minimax-m3:cloud"}"#);
+            then.status(200)
+                .header("Content-Type", "application/json")
+                .json_body(serde_json::json!({
+                    "choices": [
+                        {
+                            "message": {
+                                "content": "cloud response"
+                            }
+                        }
+                    ]
+                }));
+        });
+
+        let config = LocalModelConfig {
+            base_url: "http://127.0.0.1:1".to_string(),
+            ollama_cloud_url: Some(server.base_url()),
+            ollama_cloud_api_key: Some("test-token".to_string()),
+            ollama_cloud_model: Some("minimax-m3:cloud".to_string()),
+            ..test_config("")
+        };
+
+        let result = complete(&config, &test_messages(), &CompletionOptions::default()).unwrap();
+        assert_eq!(result, "cloud response");
+        assert_eq!(mock.hits(), 1);
     }
 }

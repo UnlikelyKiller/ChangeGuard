@@ -54,6 +54,10 @@ stale_threshold_days = 3
 [local_model]
 # Use 127.0.0.1 — 'localhost' resolves to ::1 (IPv6) on Windows, which breaks IPv4-only servers
 base_url = "http://127.0.0.1:8081"
+# Optional fallback for OpenAI-compatible Ollama Cloud completions.
+# Prefer OLLAMA_CLOUD_* environment variables or local .env for secrets.
+# ollama_cloud_url = "https://api.ollama.com"
+# ollama_cloud_model = "minimax-m3:cloud"
 
 [intent]
 required = "always"

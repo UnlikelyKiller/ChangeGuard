@@ -34,6 +34,115 @@ impl std::fmt::Display for Category {
     }
 }
 
+impl Category {
+    const ALL: [Category; 8] = [
+        Category::Architecture,
+        Category::Feature,
+        Category::Bugfix,
+        Category::Refactor,
+        Category::Infra,
+        Category::Tooling,
+        Category::Docs,
+        Category::Chore,
+    ];
+
+    pub fn parse_flexible(input: &str) -> Option<Self> {
+        <Self as ValueEnum>::from_str(input, true)
+            .ok()
+            .or_else(|| Self::suggestions_for(input).first().copied())
+    }
+
+    pub fn suggestions_for(input: &str) -> Vec<Self> {
+        let normalized = normalize_category_input(input);
+        if normalized.is_empty() {
+            return Vec::new();
+        }
+
+        let mut scored = Self::ALL
+            .iter()
+            .filter_map(|category| {
+                let score = category_match_score(&normalized, *category);
+                (score <= 3).then_some((*category, score))
+            })
+            .collect::<Vec<_>>();
+        scored.sort_by(
+            |(left_category, left_score), (right_category, right_score)| {
+                left_score
+                    .cmp(right_score)
+                    .then_with(|| left_category.cmp(right_category))
+            },
+        );
+        scored.into_iter().map(|(category, _)| category).collect()
+    }
+}
+
+fn normalize_category_input(input: &str) -> String {
+    input
+        .trim()
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .flat_map(|ch| ch.to_lowercase())
+        .collect()
+}
+
+fn category_aliases(category: Category) -> &'static [&'static str] {
+    match category {
+        Category::Architecture => &["architecture", "arch", "design"],
+        Category::Feature => &["feature", "feat", "new"],
+        Category::Bugfix => &["bugfix", "bug", "fix"],
+        Category::Refactor => &["refactor", "cleanup", "rework"],
+        Category::Infra => &["infra", "infrastructure", "ops", "ci"],
+        Category::Tooling => &["tooling", "tool", "dev", "devex"],
+        Category::Docs => &["docs", "doc", "documentation"],
+        Category::Chore => &["chore", "maintenance", "maint"],
+    }
+}
+
+fn category_match_score(input: &str, category: Category) -> usize {
+    category_aliases(category)
+        .iter()
+        .map(|alias| {
+            if *alias == input {
+                return 0;
+            }
+            if alias.starts_with(input) || input.starts_with(alias) {
+                return 1;
+            }
+            levenshtein(input, alias)
+        })
+        .min()
+        .unwrap_or(usize::MAX)
+}
+
+fn levenshtein(left: &str, right: &str) -> usize {
+    if left == right {
+        return 0;
+    }
+    if left.is_empty() {
+        return right.chars().count();
+    }
+    if right.is_empty() {
+        return left.chars().count();
+    }
+
+    let right_chars = right.chars().collect::<Vec<_>>();
+    let mut previous = (0..=right_chars.len()).collect::<Vec<_>>();
+    let mut current = vec![0; right_chars.len() + 1];
+
+    for (left_index, left_char) in left.chars().enumerate() {
+        current[0] = left_index + 1;
+        for (right_index, right_char) in right_chars.iter().enumerate() {
+            let substitution = previous[right_index] + usize::from(left_char != *right_char);
+            let insertion = current[right_index] + 1;
+            let deletion = previous[right_index + 1] + 1;
+            current[right_index + 1] = substitution.min(insertion).min(deletion);
+        }
+        std::mem::swap(&mut previous, &mut current);
+    }
+
+    previous[right_chars.len()]
+}
+
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, ValueEnum, Default,
 )]
@@ -166,6 +275,16 @@ mod tests {
             serde_json::from_str::<Category>("\"FEATURE\"").unwrap(),
             Category::Feature
         );
+    }
+
+    #[test]
+    fn category_suggestions_rank_common_aliases() {
+        assert_eq!(Category::parse_flexible("doc").unwrap(), Category::Docs);
+        assert_eq!(Category::parse_flexible("bug").unwrap(), Category::Bugfix);
+        assert_eq!(Category::parse_flexible("dev").unwrap(), Category::Tooling);
+
+        let suggestions = Category::suggestions_for("infr");
+        assert_eq!(suggestions.first().copied(), Some(Category::Infra));
     }
 
     #[test]

@@ -10,7 +10,7 @@ use crate::state::storage::StorageManager;
 use crate::util::clock::{Clock, SystemClock};
 
 pub fn execute_ledger_start(entity: String, category: &str, message: &str) -> Result<()> {
-    let category = Category::from_str(category, true).map_err(|e| miette::miette!("{}", e))?;
+    let category = resolve_start_category(category)?;
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
     let config = load_ledger_config(&layout)?;
@@ -28,6 +28,35 @@ pub fn execute_ledger_start(entity: String, category: &str, message: &str) -> Re
 
     println!("Transaction started: {}", tx_id.cyan());
     Ok(())
+}
+
+fn resolve_start_category(input: &str) -> Result<Category> {
+    if let Ok(category) = Category::from_str(input, true) {
+        return Ok(category);
+    }
+
+    let suggestions = Category::suggestions_for(input);
+    if std::io::stdin().is_terminal() && !suggestions.is_empty() {
+        let choice = inquire::Select::new(
+            &format!("Unknown ledger category '{input}'. Select a category:"),
+            suggestions,
+        )
+        .prompt()
+        .map_err(|e| miette::miette!("Category selection failed: {e}"))?;
+        return Ok(choice);
+    }
+
+    if let Some(category) = suggestions.first().copied() {
+        eprintln!(
+            "{}",
+            format!("Unknown ledger category '{input}', using closest match: {category}").yellow()
+        );
+        return Ok(category);
+    }
+
+    Err(miette::miette!(
+        "Unknown ledger category '{input}'. Valid categories: ARCHITECTURE, FEATURE, BUGFIX, REFACTOR, INFRA, TOOLING, DOCS, CHORE"
+    ))
 }
 
 pub fn execute_ledger_commit(

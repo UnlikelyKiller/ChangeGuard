@@ -70,8 +70,29 @@ fn test_start_success_with_all_args() {
         panic!("expected Start");
     };
     assert_eq!(entity, "src/main.rs");
-    assert_eq!(category, changeguard::ledger::Category::Bugfix);
+    assert_eq!(category, "BUGFIX");
     assert_eq!(message, "fix crash");
+}
+
+#[test]
+fn test_start_accepts_invalid_category_for_runtime_correction() {
+    let cli = parse_ok(&[
+        "changeguard",
+        "ledger",
+        "start",
+        "src/main.rs",
+        "--category",
+        "doc",
+        "--message",
+        "update docs",
+    ]);
+    let Commands::Ledger { command, .. } = cli.command else {
+        panic!("expected Ledger");
+    };
+    let LedgerCommands::Start { category, .. } = command else {
+        panic!("expected Start");
+    };
+    assert_eq!(category, "doc");
 }
 
 #[test]

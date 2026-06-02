@@ -158,10 +158,16 @@ pub fn execute_ask(
             let mut probe_config = config.local_model.clone();
             probe_config.timeout_secs = 5;
             if let Err(e) = crate::local_model::client::ping_completions(&probe_config) {
-                return Err(miette::miette!(
-                    "Local completion model is unreachable ({}). Check your server or use --backend gemini.",
-                    e
-                ));
+                if crate::local_model::client::has_ollama_cloud_fallback(&config.local_model) {
+                    tracing::warn!(
+                        "Local completion probe failed ({e}); Ollama Cloud fallback is configured"
+                    );
+                } else {
+                    return Err(miette::miette!(
+                        "Local completion model is unreachable ({}). Check your server or use --backend gemini.",
+                        e
+                    ));
+                }
             }
 
             let mut relevant_chunks = gather_semantic_chunks(
@@ -462,7 +468,8 @@ pub fn resolve_backend_with(
     if config.local_model.prefer_local
         && (!config.local_model.base_url.is_empty()
             || config.local_model.embedding_url.is_some()
-            || config.local_model.generation_url.is_some())
+            || config.local_model.generation_url.is_some()
+            || crate::local_model::client::has_ollama_cloud_fallback(&config.local_model))
     {
         return Backend::Local;
     }
@@ -474,7 +481,8 @@ pub fn resolve_backend_with(
     if !has_gemini_key
         && (!config.local_model.base_url.is_empty()
             || config.local_model.embedding_url.is_some()
-            || config.local_model.generation_url.is_some())
+            || config.local_model.generation_url.is_some()
+            || crate::local_model::client::has_ollama_cloud_fallback(&config.local_model))
     {
         return Backend::Local;
     }
@@ -545,5 +553,16 @@ mod tests {
             std::env::remove_var("GEMINI_FAST_MODEL");
             std::env::remove_var("GEMINI_DEEP_MODEL");
         }
+    }
+
+    #[test]
+    fn resolve_backend_uses_local_when_only_ollama_cloud_is_configured() {
+        let mut config = Config::default();
+        config.local_model.ollama_cloud_url = Some("https://api.ollama.com".to_string());
+        config.local_model.ollama_cloud_api_key = Some("token".to_string());
+        config.local_model.ollama_cloud_model = Some("minimax-m3:cloud".to_string());
+
+        let backend = resolve_backend_with(&config, None, &|_| None, &|_| None);
+        assert_eq!(backend, Backend::Local);
     }
 }

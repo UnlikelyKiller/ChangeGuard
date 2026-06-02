@@ -141,11 +141,16 @@ pub(crate) fn format_backend_line_with(
             }
         }
         Backend::Local => {
-            let base_url = if config.local_model.base_url.is_empty() {
-                "(not configured)"
-            } else {
-                config.local_model.base_url.as_str()
-            };
+            let base_url =
+                if crate::local_model::client::has_ollama_cloud_fallback(&config.local_model)
+                    && config.local_model.base_url.is_empty()
+                {
+                    "Ollama Cloud fallback"
+                } else if config.local_model.base_url.is_empty() {
+                    "(not configured)"
+                } else {
+                    config.local_model.base_url.as_str()
+                };
             let prefer = if config.local_model.prefer_local {
                 ", prefer_local=true"
             } else {

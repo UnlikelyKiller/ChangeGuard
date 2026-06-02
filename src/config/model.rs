@@ -483,6 +483,12 @@ pub struct LocalModelConfig {
     #[serde(default)]
     pub generation_url: Option<String>,
     #[serde(default)]
+    pub ollama_cloud_url: Option<String>,
+    #[serde(default)]
+    pub ollama_cloud_api_key: Option<String>,
+    #[serde(default)]
+    pub ollama_cloud_model: Option<String>,
+    #[serde(default)]
     pub embedding_model: String,
     #[serde(default)]
     pub generation_model: String,
@@ -533,6 +539,9 @@ impl Default for LocalModelConfig {
             base_url: String::new(),
             embedding_url: None,
             generation_url: None,
+            ollama_cloud_url: None,
+            ollama_cloud_api_key: None,
+            ollama_cloud_model: None,
             embedding_model: String::new(),
             generation_model: String::new(),
             rerank_model: String::new(),
@@ -988,6 +997,20 @@ fn resolve_local_model_config_with(
         String::new()
     };
 
+    let resolve_optional_string = |configured: &Option<String>, env_var: &str| -> Option<String> {
+        if configured
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
+        {
+            return configured.clone();
+        }
+        env_reader(env_var)
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| value.trim().to_string())
+            .or_else(|| dotenv_reader(env_var))
+            .filter(|value| !value.trim().is_empty())
+    };
+
     let resolve_usize = |configured: usize, env_var: &str| -> usize {
         if configured != 0 {
             return configured;
@@ -1033,6 +1056,12 @@ fn resolve_local_model_config_with(
         "CHANGEGUARD_LOCAL_GENERATION_URL",
     ))
     .filter(|s| !s.is_empty());
+    resolved.ollama_cloud_url =
+        resolve_optional_string(&config.ollama_cloud_url, "OLLAMA_CLOUD_URL");
+    resolved.ollama_cloud_api_key =
+        resolve_optional_string(&config.ollama_cloud_api_key, "OLLAMA_CLOUD_API_KEY");
+    resolved.ollama_cloud_model =
+        resolve_optional_string(&config.ollama_cloud_model, "OLLAMA_CLOUD_MODEL");
 
     resolved.embedding_model =
         resolve_string(&config.embedding_model, "CHANGEGUARD_EMBEDDING_MODEL");
@@ -1410,6 +1439,9 @@ mod tests {
             base_url: "http://config:9999".to_string(),
             embedding_url: None,
             generation_url: None,
+            ollama_cloud_url: None,
+            ollama_cloud_api_key: None,
+            ollama_cloud_model: None,
             embedding_model: "config-model".to_string(),
             generation_model: "".to_string(),
             rerank_model: "".to_string(),
@@ -1446,6 +1478,35 @@ mod tests {
 
         assert_eq!(resolved.generation_model, "qwen3-9b");
         assert_eq!(resolved.rerank_model, "bge-reranker");
+    }
+
+    #[test]
+    fn test_resolve_local_model_config_ollama_cloud_dotenv() {
+        let env_reader = |_: &str| None::<String>;
+        let dotenv_values: std::collections::HashMap<&str, &str> = vec![
+            ("OLLAMA_CLOUD_URL", "https://api.ollama.com"),
+            ("OLLAMA_CLOUD_API_KEY", "cloud-token"),
+            ("OLLAMA_CLOUD_MODEL", "minimax-m3:cloud"),
+        ]
+        .into_iter()
+        .collect();
+        let dotenv_reader = |name: &str| dotenv_values.get(name).map(|v| v.to_string());
+
+        let raw = LocalModelConfig::default();
+        let resolved = resolve_local_model_config_with(&raw, &env_reader, &dotenv_reader);
+
+        assert_eq!(
+            resolved.ollama_cloud_url.as_deref(),
+            Some("https://api.ollama.com")
+        );
+        assert_eq!(
+            resolved.ollama_cloud_api_key.as_deref(),
+            Some("cloud-token")
+        );
+        assert_eq!(
+            resolved.ollama_cloud_model.as_deref(),
+            Some("minimax-m3:cloud")
+        );
     }
 
     #[test]

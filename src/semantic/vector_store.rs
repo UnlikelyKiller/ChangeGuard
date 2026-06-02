@@ -11,6 +11,31 @@ pub struct VectorStore<'a> {
     skip_hnsw: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct HnswRefreshPlan {
+    drop_before_put: bool,
+    rebuild_after_put: bool,
+}
+
+impl HnswRefreshPlan {
+    const REBUILD_BATCH_THRESHOLD: usize = 500;
+
+    fn for_batch(batch_len: usize, skip_hnsw: bool) -> Self {
+        if skip_hnsw {
+            return Self {
+                drop_before_put: false,
+                rebuild_after_put: false,
+            };
+        }
+
+        let rebuild = batch_len >= Self::REBUILD_BATCH_THRESHOLD;
+        Self {
+            drop_before_put: rebuild,
+            rebuild_after_put: rebuild,
+        }
+    }
+}
+
 impl<'a> VectorStore<'a> {
     pub fn new(storage: &'a CozoStorage, dim: usize, skip_hnsw: bool) -> Result<Self> {
         let store = Self {
@@ -126,12 +151,11 @@ impl<'a> VectorStore<'a> {
         use cozo::ScriptMutability;
         use std::collections::BTreeMap;
 
-        // --- Track K11: Optimized HNSW Batch Loading ---
-        // For large batches, dropping the index and rebuilding is faster and safer on Windows.
-        let is_large_batch = chunks.len() > 100;
-        if is_large_batch && !self.skip_hnsw {
+        let refresh_plan = HnswRefreshPlan::for_batch(chunks.len(), self.skip_hnsw);
+        let mut rebuild_after_put = refresh_plan.rebuild_after_put;
+        if refresh_plan.drop_before_put {
             info!(
-                "Large batch detected ({} chunks). Temporarily dropping HNSW index for stable ingestion.",
+                "Large semantic batch detected ({} chunks). Temporarily dropping HNSW index for stable ingestion.",
                 chunks.len()
             );
             let _ = self
@@ -196,7 +220,7 @@ impl<'a> VectorStore<'a> {
                     let _ = self
                         .storage
                         .run_script("::hnsw drop snippet_embedding:snippet_idx");
-                    // We'll rebuild after the loop if we succeed in putting data.
+                    rebuild_after_put = !self.skip_hnsw;
                 }
                 Err(e)
                     if attempts < max_attempts
@@ -215,7 +239,7 @@ impl<'a> VectorStore<'a> {
         }
 
         // Rebuild/refresh index after batch put
-        if !self.skip_hnsw {
+        if rebuild_after_put {
             self.rebuild_hnsw_index()?;
         }
 
@@ -472,5 +496,26 @@ mod tests {
     fn normalize_empty_vector_does_not_panic() {
         let v = normalize_vector(vec![]);
         assert!(v.is_none());
+    }
+
+    #[test]
+    fn hnsw_refresh_plan_keeps_existing_index_for_small_batches() {
+        let plan = HnswRefreshPlan::for_batch(25, false);
+        assert!(!plan.drop_before_put);
+        assert!(!plan.rebuild_after_put);
+    }
+
+    #[test]
+    fn hnsw_refresh_plan_rebuilds_for_large_batches() {
+        let plan = HnswRefreshPlan::for_batch(500, false);
+        assert!(plan.drop_before_put);
+        assert!(plan.rebuild_after_put);
+    }
+
+    #[test]
+    fn hnsw_refresh_plan_skips_when_disabled() {
+        let plan = HnswRefreshPlan::for_batch(1000, true);
+        assert!(!plan.drop_before_put);
+        assert!(!plan.rebuild_after_put);
     }
 }

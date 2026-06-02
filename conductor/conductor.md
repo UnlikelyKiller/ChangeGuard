@@ -1232,6 +1232,26 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Plan: `conductor/trackU7/plan.md`
     *   Goal: Parallelize Tree-Sitter parsing and embedding generation to reduce cold-start indexing time.
 
+*   **Track U8: HNSW Build Speed Optimization (Incremental HNSW Appends/Caching)**
+    *   Status: Completed
+    *   Spec: `conductor/trackU8/spec.md`
+    *   Plan: `conductor/trackU8/plan.md`
+    *   Goal: Optimize vector store HNSW indexing speed by using incremental updates or caching instead of full rebuilds.
+    *   Key additions: Small semantic batches now append without dropping/rebuilding HNSW; 500+ chunk batches still rebuild for stability.
+
+*   **Track U9: Interactive Category Auto-Correction**
+    *   Status: Completed
+    *   Spec: `conductor/trackU9/spec.md`
+    *   Plan: `conductor/trackU9/plan.md`
+    *   Goal: Implement category fuzzy-matching and interactive inquire selection on invalid categories in `ledger start`.
+    *   Key additions: Flexible category aliases, terminal `inquire::Select` recovery, non-TTY closest-match fallback, CLI parsing defers validation to command logic.
+
+*   **Track U10: Flexible Local Completion Model Fallback (Cloud API / Ollama Pro)**
+    *   Status: Completed
+    *   Spec: `conductor/trackU10/spec.md`
+    *   Plan: `conductor/trackU10/plan.md`
+    *   Goal: Add fallback completion client capabilities supporting Ollama Pro Cloud API models (like minimax-m3:cloud).
+    *   Key additions: `OLLAMA_CLOUD_URL`, `OLLAMA_CLOUD_API_KEY`, and `OLLAMA_CLOUD_MODEL` config resolution plus bearer-auth fallback routing in the local completion client.
 
 
 ## Workflow
