@@ -11,14 +11,17 @@ use tracing::warn;
 pub fn load_config(layout: &Layout) -> Result<Config> {
     let path = layout.config_file();
 
-    if !path.exists() {
-        return Ok(Config::default());
-    }
-
-    let content = fs::read_to_string(&path).map_err(|e| ConfigError::ReadFailed {
-        path: path.to_string(),
-        source: e,
-    })?;
+    let content = if path.exists() {
+        fs::read_to_string(&path).map_err(|e| ConfigError::ReadFailed {
+            path: path.to_string(),
+            source: e,
+        })?
+    } else {
+        crate::config::defaults::default_config_contents().map_err(|e| ConfigError::ReadFailed {
+            path: "global default config".to_string(),
+            source: std::io::Error::other(e.to_string()),
+        })?
+    };
 
     let mut config: Config =
         toml::from_str(&content).map_err(|e| ConfigError::ParseFailed { source: e })?;

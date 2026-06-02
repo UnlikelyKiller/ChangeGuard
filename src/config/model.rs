@@ -202,6 +202,8 @@ pub struct Config {
     #[serde(default)]
     pub local_model: LocalModelConfig,
     #[serde(default)]
+    pub semantic: SemanticConfig,
+    #[serde(default)]
     pub docs: DocsConfig,
     #[serde(default)]
     pub observability: ObservabilityConfig,
@@ -217,6 +219,31 @@ pub struct Config {
     pub intent: IntentConfig,
     #[serde(default)]
     pub impact: ImpactConfig,
+}
+
+pub const DEFAULT_HNSW_REBUILD_THRESHOLD: usize = 500;
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SemanticConfig {
+    /// Minimum ingestion batch size that triggers drop/rebuild of the HNSW index.
+    /// None means use the built-in default.
+    #[serde(default)]
+    pub hnsw_rebuild_threshold: Option<usize>,
+}
+
+impl Default for SemanticConfig {
+    fn default() -> Self {
+        Self {
+            hnsw_rebuild_threshold: Some(DEFAULT_HNSW_REBUILD_THRESHOLD),
+        }
+    }
+}
+
+impl SemanticConfig {
+    pub fn hnsw_rebuild_threshold(&self) -> usize {
+        self.hnsw_rebuild_threshold
+            .unwrap_or(DEFAULT_HNSW_REBUILD_THRESHOLD)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -1297,6 +1324,7 @@ mod tests {
     fn test_config_includes_new_sections() {
         let config = Config::default();
         assert_eq!(config.local_model.base_url, "");
+        assert_eq!(config.semantic.hnsw_rebuild_threshold(), 500);
         assert_eq!(config.docs.chunk_tokens, 512);
         assert_eq!(config.observability.error_rate_threshold, 0.05);
         assert!(config.contracts.spec_paths.is_empty());
@@ -1321,6 +1349,25 @@ mod tests {
         // Fields not specified should have defaults
         assert_eq!(config.local_model.context_window, 38000);
         assert_eq!(config.local_model.generation_model, "");
+    }
+
+    #[test]
+    fn test_semantic_config_deserialization() {
+        let toml_str = r#"
+            [semantic]
+            hnsw_rebuild_threshold = 64
+        "#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.semantic.hnsw_rebuild_threshold(), 64);
+    }
+
+    #[test]
+    fn test_semantic_config_default_threshold() {
+        let config = Config::default();
+        assert_eq!(
+            config.semantic.hnsw_rebuild_threshold(),
+            DEFAULT_HNSW_REBUILD_THRESHOLD
+        );
     }
 
     #[test]

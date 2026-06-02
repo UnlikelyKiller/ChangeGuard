@@ -77,6 +77,13 @@ pub fn validate_config(config: &Config) -> Result<()> {
         .into());
     }
 
+    if config.semantic.hnsw_rebuild_threshold == Some(0) {
+        return Err(ConfigError::ValidationFailed {
+            reason: "semantic.hnsw_rebuild_threshold must be > 0".to_string(),
+        }
+        .into());
+    }
+
     Ok(())
 }
 
@@ -341,5 +348,18 @@ mod tests {
             ..Default::default()
         };
         assert!(validate_config(&config).is_ok());
+    }
+
+    #[test]
+    fn test_zero_hnsw_rebuild_threshold_fails() {
+        let config = Config {
+            semantic: SemanticConfig {
+                hnsw_rebuild_threshold: Some(0),
+            },
+            ..Default::default()
+        };
+        let err = validate_config(&config).unwrap_err();
+        let msg = format!("{:?}", err);
+        assert!(msg.contains("hnsw_rebuild_threshold"));
     }
 }

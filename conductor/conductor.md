@@ -1253,6 +1253,19 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Goal: Add fallback completion client capabilities supporting Ollama Pro Cloud API models (like minimax-m3:cloud).
     *   Key additions: `OLLAMA_CLOUD_URL`, `OLLAMA_CLOUD_API_KEY`, and `OLLAMA_CLOUD_MODEL` config resolution plus bearer-auth fallback routing in the local completion client.
 
+*   **Track U11: Dynamic HNSW Rebuild Threshold Configuration**
+    *   Status: Completed
+    *   Spec: `conductor/trackU11/spec.md`
+    *   Plan: `conductor/trackU11/plan.md`
+    *   Goal: Make the HNSW rebuild batch threshold configurable inside `config.toml` (e.g., `semantic.hnsw_rebuild_threshold`) rather than hardcoding it, allowing performance tuning for different hardware specs.
+    *   Key additions: `SemanticConfig`, default `semantic.hnsw_rebuild_threshold = 500`, validation against zero thresholds, and configurable `VectorStore` HNSW rebuild planning.
+
+*   **Track U12: Parallel Semantic Chunks Embedding Verification**
+    *   Status: Completed
+    *   Spec: `conductor/trackU12/spec.md`
+    *   Plan: `conductor/trackU12/plan.md`
+    *   Goal: Leverage parallel requests or batched execution pipelines when retrieving embeddings for newly discovered chunks during semantic indexing to minimize overall wait times.
+    *   Key additions: semantic embedding batch partitioning helper with order-preservation regression coverage for the existing rayon parallel embedding path.
 
 ## Workflow
 

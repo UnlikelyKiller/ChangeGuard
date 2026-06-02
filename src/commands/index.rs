@@ -15,6 +15,18 @@ type ParsedSemanticFile = (
     Vec<crate::semantic::chunker::AstChunk>,
 );
 type ParsedSemanticFileResult = std::result::Result<ParsedSemanticFile, String>;
+const SEMANTIC_EMBEDDING_BATCH_SIZE: usize = 8;
+
+fn semantic_embedding_batches(
+    chunks: &[crate::semantic::chunker::AstChunk],
+    batch_size: usize,
+) -> Vec<Vec<crate::semantic::chunker::AstChunk>> {
+    debug_assert!(batch_size > 0);
+    chunks
+        .chunks(batch_size)
+        .map(|batch| batch.to_vec())
+        .collect()
+}
 
 fn get_repo_root() -> Result<Utf8PathBuf> {
     let current_dir = env::current_dir().into_diagnostic()?;
@@ -521,7 +533,11 @@ fn execute_semantic_index(
         .as_ref()
         .ok_or_else(|| miette::miette!("CozoDB storage not initialized"))?;
 
-    let semantic = SemanticDiscovery::new(config.local_model.clone(), cozo)?;
+    let semantic = SemanticDiscovery::new_with_semantic_config(
+        config.local_model.clone(),
+        config.semantic.clone(),
+        cozo,
+    )?;
 
     // HP3: ensure the semantic file-hash tracking schema exists
     semantic.ensure_file_hash_schema()?;
@@ -686,9 +702,8 @@ fn execute_semantic_index(
         );
         pb_embed.enable_steady_tick(std::time::Duration::from_millis(80));
 
-        let batch_size = 8;
         let chunk_batches: Vec<Vec<crate::semantic::chunker::AstChunk>> =
-            flat_chunks.chunks(batch_size).map(|c| c.to_vec()).collect();
+            semantic_embedding_batches(&flat_chunks, SEMANTIC_EMBEDDING_BATCH_SIZE);
 
         let pb_embed_ref = pb_embed.clone();
         let embedding_results: Result<Vec<Vec<Vec<f32>>>, String> = pool.install(|| {
@@ -966,4 +981,47 @@ pub fn execute_index_check(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::index::symbols::SymbolKind;
+    use crate::semantic::chunker::AstChunk;
+
+    fn chunk(name: &str) -> AstChunk {
+        AstChunk {
+            file_path: "src/lib.rs".to_string(),
+            name: name.to_string(),
+            kind: SymbolKind::Function,
+            content: format!("fn {name}() {{}}"),
+            docstring: None,
+            range: (0, 0),
+            lines: (1, 1),
+            offset: 0,
+        }
+    }
+
+    #[test]
+    fn semantic_embedding_batches_preserve_order() {
+        let chunks: Vec<AstChunk> = (0..10).map(|i| chunk(&format!("chunk_{i}"))).collect();
+
+        let batches = semantic_embedding_batches(&chunks, 4);
+        let flattened_names: Vec<&str> = batches
+            .iter()
+            .flat_map(|batch| batch.iter().map(|chunk| chunk.name.as_str()))
+            .collect();
+
+        assert_eq!(batches.len(), 3);
+        assert_eq!(batches[0].len(), 4);
+        assert_eq!(batches[1].len(), 4);
+        assert_eq!(batches[2].len(), 2);
+        assert_eq!(
+            flattened_names,
+            chunks
+                .iter()
+                .map(|chunk| chunk.name.as_str())
+                .collect::<Vec<_>>()
+        );
+    }
 }

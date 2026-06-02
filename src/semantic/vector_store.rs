@@ -9,6 +9,7 @@ pub struct VectorStore<'a> {
     storage: &'a CozoStorage,
     dim: usize,
     skip_hnsw: bool,
+    hnsw_rebuild_threshold: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,9 +19,19 @@ struct HnswRefreshPlan {
 }
 
 impl HnswRefreshPlan {
-    const REBUILD_BATCH_THRESHOLD: usize = 500;
+    const DEFAULT_REBUILD_BATCH_THRESHOLD: usize =
+        crate::config::model::DEFAULT_HNSW_REBUILD_THRESHOLD;
 
+    #[cfg(test)]
     fn for_batch(batch_len: usize, skip_hnsw: bool) -> Self {
+        Self::for_batch_with_threshold(batch_len, skip_hnsw, Self::DEFAULT_REBUILD_BATCH_THRESHOLD)
+    }
+
+    fn for_batch_with_threshold(
+        batch_len: usize,
+        skip_hnsw: bool,
+        rebuild_threshold: usize,
+    ) -> Self {
         if skip_hnsw {
             return Self {
                 drop_before_put: false,
@@ -28,7 +39,7 @@ impl HnswRefreshPlan {
             };
         }
 
-        let rebuild = batch_len >= Self::REBUILD_BATCH_THRESHOLD;
+        let rebuild = batch_len >= rebuild_threshold;
         Self {
             drop_before_put: rebuild,
             rebuild_after_put: rebuild,
@@ -38,10 +49,28 @@ impl HnswRefreshPlan {
 
 impl<'a> VectorStore<'a> {
     pub fn new(storage: &'a CozoStorage, dim: usize, skip_hnsw: bool) -> Result<Self> {
+        Self::new_with_hnsw_threshold(
+            storage,
+            dim,
+            skip_hnsw,
+            HnswRefreshPlan::DEFAULT_REBUILD_BATCH_THRESHOLD,
+        )
+    }
+
+    pub fn new_with_hnsw_threshold(
+        storage: &'a CozoStorage,
+        dim: usize,
+        skip_hnsw: bool,
+        hnsw_rebuild_threshold: usize,
+    ) -> Result<Self> {
+        if hnsw_rebuild_threshold == 0 {
+            return Err(miette!("HNSW rebuild threshold must be > 0"));
+        }
         let store = Self {
             storage,
             dim,
             skip_hnsw,
+            hnsw_rebuild_threshold,
         };
         store.setup_schema()?;
         Ok(store)
@@ -56,6 +85,7 @@ impl<'a> VectorStore<'a> {
             storage,
             dim,
             skip_hnsw: true,
+            hnsw_rebuild_threshold: HnswRefreshPlan::DEFAULT_REBUILD_BATCH_THRESHOLD,
         };
         store.setup_schema()?;
         Ok(store)
@@ -151,7 +181,11 @@ impl<'a> VectorStore<'a> {
         use cozo::ScriptMutability;
         use std::collections::BTreeMap;
 
-        let refresh_plan = HnswRefreshPlan::for_batch(chunks.len(), self.skip_hnsw);
+        let refresh_plan = HnswRefreshPlan::for_batch_with_threshold(
+            chunks.len(),
+            self.skip_hnsw,
+            self.hnsw_rebuild_threshold,
+        );
         let mut rebuild_after_put = refresh_plan.rebuild_after_put;
         if refresh_plan.drop_before_put {
             info!(
@@ -517,5 +551,16 @@ mod tests {
         let plan = HnswRefreshPlan::for_batch(1000, true);
         assert!(!plan.drop_before_put);
         assert!(!plan.rebuild_after_put);
+    }
+
+    #[test]
+    fn hnsw_refresh_plan_respects_configured_threshold() {
+        let below = HnswRefreshPlan::for_batch_with_threshold(49, false, 50);
+        assert!(!below.drop_before_put);
+        assert!(!below.rebuild_after_put);
+
+        let at_threshold = HnswRefreshPlan::for_batch_with_threshold(50, false, 50);
+        assert!(at_threshold.drop_before_put);
+        assert!(at_threshold.rebuild_after_put);
     }
 }

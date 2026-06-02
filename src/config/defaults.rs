@@ -59,6 +59,9 @@ base_url = "http://127.0.0.1:8081"
 # ollama_cloud_url = "https://api.ollama.com"
 # ollama_cloud_model = "minimax-m3:cloud"
 
+[semantic]
+hnsw_rebuild_threshold = 500
+
 [intent]
 required = "always"
 tui_enabled = true
@@ -111,6 +114,12 @@ mod tests {
     fn config_template_uses_127() {
         let config: crate::config::model::Config = toml::from_str(DEFAULT_CONFIG).unwrap();
         assert_eq!(config.local_model.base_url, "http://127.0.0.1:8081");
+    }
+
+    #[test]
+    fn config_template_sets_hnsw_rebuild_threshold() {
+        let config: crate::config::model::Config = toml::from_str(DEFAULT_CONFIG).unwrap();
+        assert_eq!(config.semantic.hnsw_rebuild_threshold(), 500);
     }
 
     #[test]

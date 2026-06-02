@@ -3,7 +3,7 @@ pub mod embedder;
 pub mod hotspots;
 pub mod vector_store;
 
-use crate::config::model::LocalModelConfig;
+use crate::config::model::{LocalModelConfig, SemanticConfig};
 use crate::semantic::chunker::AstChunker;
 use crate::semantic::embedder::SemanticEmbedder;
 use crate::semantic::vector_store::VectorStore;
@@ -30,7 +30,15 @@ pub struct SemanticDiscovery<'a> {
 }
 
 impl<'a> SemanticDiscovery<'a> {
-    pub fn new(mut config: LocalModelConfig, storage: &'a CozoStorage) -> Result<Self> {
+    pub fn new(config: LocalModelConfig, storage: &'a CozoStorage) -> Result<Self> {
+        Self::new_with_semantic_config(config, SemanticConfig::default(), storage)
+    }
+
+    pub fn new_with_semantic_config(
+        mut config: LocalModelConfig,
+        semantic_config: SemanticConfig,
+        storage: &'a CozoStorage,
+    ) -> Result<Self> {
         if config.dimensions == 0 && !config.base_url.is_empty() {
             match crate::embed::client::check_local_model(&config) {
                 Ok(dims) if dims.dimensions > 0 => {
@@ -62,7 +70,12 @@ impl<'a> SemanticDiscovery<'a> {
         let skip_hnsw = config.disable_hnsw;
         tracing::info!("Initializing VectorStore with {} dimensions", dim);
         let embedder = SemanticEmbedder::new(config.clone());
-        let vector_store = VectorStore::new(storage, dim, skip_hnsw)?;
+        let vector_store = VectorStore::new_with_hnsw_threshold(
+            storage,
+            dim,
+            skip_hnsw,
+            semantic_config.hnsw_rebuild_threshold(),
+        )?;
         Ok(Self {
             embedder,
             vector_store,
