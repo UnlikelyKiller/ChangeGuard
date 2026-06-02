@@ -6,7 +6,14 @@ use std::sync::{Mutex, OnceLock};
 #[allow(dead_code)]
 pub fn cwd_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
+    LOCK.get_or_init(|| {
+        // SAFETY: This is an integration test harness that serializes all tests
+        // using a global lock. Setting the environment variable here is safe.
+        unsafe {
+            std::env::set_var("CHANGEGUARD_NON_INTERACTIVE", "1");
+        }
+        Mutex::new(())
+    })
 }
 
 pub struct DirGuard {

@@ -46,8 +46,7 @@ pub fn execute_ask(
         crate::index::staleness::try_auto_index(storage, threshold)?
     } else {
         let is_stale = warn_if_stale(&storage, threshold);
-        use std::io::IsTerminal;
-        if is_stale && std::io::stdin().is_terminal() {
+        if is_stale && crate::util::term::is_interactive() {
             use inquire::Confirm;
             if let Ok(true) = Confirm::new("Index is stale. Would you like to run auto-index now?")
                 .with_default(true)
@@ -119,33 +118,32 @@ pub fn execute_ask(
         && let Ok(semantic_engine) =
             crate::semantic::SemanticDiscovery::new(config.local_model.clone(), cozo)
         && let Ok(readiness) = semantic_engine.check_readiness()
+        && readiness.vector_count == 0
+        && crate::util::term::is_interactive()
     {
-        use std::io::IsTerminal;
-        if readiness.vector_count == 0 && std::io::stdin().is_terminal() {
-            use inquire::Confirm;
-            if let Ok(true) = Confirm::new(
-                "Semantic index is empty. Would you like to run 'changeguard index --semantic' now?",
-            )
-            .with_default(true)
-            .prompt()
-            {
-                println!("Running semantic indexing...");
-                crate::commands::index::execute_index(crate::commands::index::IndexArgs {
-                    incremental: true,
-                    check: false,
-                    strict: false,
-                    json: false,
-                    analyze_graph: false,
-                    docs: false,
-                    contracts: false,
-                    semantic: true,
-                    scip: None,
-                    export_docs: false,
-                    doc_type: None,
-                    concurrency: None,
-                    semantic_dry_run: None,
-                })?;
-            }
+        use inquire::Confirm;
+        if let Ok(true) = Confirm::new(
+            "Semantic index is empty. Would you like to run 'changeguard index --semantic' now?",
+        )
+        .with_default(true)
+        .prompt()
+        {
+            println!("Running semantic indexing...");
+            crate::commands::index::execute_index(crate::commands::index::IndexArgs {
+                incremental: true,
+                check: false,
+                strict: false,
+                json: false,
+                analyze_graph: false,
+                docs: false,
+                contracts: false,
+                semantic: true,
+                scip: None,
+                export_docs: false,
+                doc_type: None,
+                concurrency: None,
+                semantic_dry_run: None,
+            })?;
         }
     }
 

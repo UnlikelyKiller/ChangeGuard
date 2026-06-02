@@ -1,13 +1,11 @@
-use chrono::{DateTime, Utc};
-use clap::ValueEnum;
-use miette::{IntoDiagnostic, Result};
-use owo_colors::OwoColorize;
-use std::io::IsTerminal;
-
 use crate::commands::helpers::{get_layout, load_ledger_config};
 use crate::ledger::*;
 use crate::state::storage::StorageManager;
 use crate::util::clock::{Clock, SystemClock};
+use chrono::{DateTime, Utc};
+use clap::ValueEnum;
+use miette::{IntoDiagnostic, Result};
+use owo_colors::OwoColorize;
 
 pub fn execute_ledger_start(entity: String, category: &str, message: &str) -> Result<()> {
     let category = resolve_start_category(category)?;
@@ -36,7 +34,7 @@ fn resolve_start_category(input: &str) -> Result<Category> {
     }
 
     let suggestions = Category::suggestions_for(input);
-    if std::io::stdin().is_terminal() && !suggestions.is_empty() {
+    if crate::util::term::is_interactive() && !suggestions.is_empty() {
         let choice = inquire::Select::new(
             &format!("Unknown ledger category '{input}'. Select a category:"),
             suggestions,
@@ -495,7 +493,7 @@ pub fn execute_ledger_gc(orphans: bool, ttl_days: u64, force: bool) -> Result<()
             // In autonomous mode/agent environments we might want a simple check or default to no
             // but the SOP says "respect --force flag".
             // For now, let's assume we need to prompt or just fail if not forced in non-interactive.
-            if !std::io::stdin().is_terminal() {
+            if !crate::util::term::is_interactive() {
                 return Err(miette::miette!(
                     "Use --force to run GC in non-interactive shells."
                 ));

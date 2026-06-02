@@ -174,7 +174,7 @@ pub fn execute_hook_commit_msg(msg_file: &Path) -> Result<()> {
     let drafted_related;
     let confidence;
 
-    let is_terminal = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
+    let is_terminal = crate::util::term::is_interactive() && std::io::stdout().is_terminal();
     let term_env = std::env::var("TERM").unwrap_or_default();
     let env_no_tui = term_env == "dumb"
         || std::env::var("CHANGEGUARD_NO_TUI")

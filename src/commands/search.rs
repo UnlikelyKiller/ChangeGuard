@@ -35,8 +35,7 @@ pub fn execute_search(args: SearchArgs) -> Result<()> {
                 crate::index::staleness::try_auto_index(storage, threshold)?;
             } else {
                 let is_stale = warn_if_stale(&storage, threshold);
-                use std::io::IsTerminal;
-                if is_stale && !args.json && std::io::stdin().is_terminal() {
+                if is_stale && !args.json && crate::util::term::is_interactive() {
                     use inquire::Confirm;
                     if let Ok(true) =
                         Confirm::new("Index is stale. Would you like to run auto-index now?")
@@ -64,11 +63,10 @@ pub fn execute_search(args: SearchArgs) -> Result<()> {
 
         // --- Phase 1: Readiness Check ---
         let mut readiness = semantic_engine.check_readiness()?;
-        use std::io::IsTerminal;
         if readiness.vector_count == 0
             && !args.auto_index
             && !args.json
-            && std::io::stdin().is_terminal()
+            && crate::util::term::is_interactive()
         {
             use inquire::Confirm;
             if let Ok(true) = Confirm::new("Semantic index is empty. Would you like to run 'changeguard index --semantic' now?")
