@@ -1282,6 +1282,62 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Goal: Automatically tune rayon concurrency settings during semantic index refreshes, matching logical core layouts and request-budget thresholds dynamically.
     *   Key additions: `src/semantic/concurrency.rs` (`resolve_semantic_concurrency`, `EmbedSemaphore`), stdlib `available_parallelism()`-based auto-default, separate `DEFAULT_EMBED_CAP=4` cap on concurrent embed requests, refactor of `execute_semantic_index` to consume the new helper.
 
+*   **Track U15: Split Semantic Concurrency + Always-Visible Diagnostics**
+    *   Status: Proposed
+    *   Spec: `conductor/trackU15/spec.md`
+    *   Plan: `conductor/trackU15/plan.md`
+    *   Goal: Address the U14 retrospective opportunities #5, #2, #3 in one pass: split `[semantic].concurrency` into `parse_concurrency` and `embed_concurrency` (with legacy back-compat), move the Phase 2 thread-resolution log above the empty-files early-exit, and add `--semantic-dry-run` for config diagnostics.
+    *   Key additions: split fields in `SemanticConfig`, clap `Option<Option<PathBuf>>` for `--semantic-dry-run[=<path>]`, dry-run report generator using `comfy-table` (human) and `serde_json` (machine), deprecation log on legacy `concurrency` field.
+    *   Dependencies: none (consolidates three U14 retrospective opportunities into one shippable unit).
+
+*   **Track U16: Configurable Embed Concurrency Cap**
+    *   Status: Proposed
+    *   Spec: `conductor/trackU16/spec.md`
+    *   Plan: `conductor/trackU16/plan.md`
+    *   Goal: Address U14 retrospective opportunity #4 — expose `DEFAULT_EMBED_CAP = 4` as `[semantic].embed_concurrency_cap` for users on non-standard hardware (beefier GPU box, Raspberry Pi, etc.).
+    *   Key additions: `embed_concurrency_cap: Option<usize>` field on `SemanticConfig`, `semantic_embed_concurrency_cap()` accessor, `> 0` validation, wiring into `ResolveOptions::embed_cap` at the call site.
+    *   Dependencies: U15 (so the dry-run output can show the cap alongside the other concurrency values).
+
+*   **Track U17: Fix TOML Merge Regression for `[semantic]` Defaults**
+    *   Status: Proposed
+    *   Spec: `conductor/trackU17/spec.md`
+    *   Plan: `conductor/trackU17/plan.md`
+    *   Goal: Address U14 retrospective opportunity #6 — fix the serde `#[serde(default)]` gotcha where `Option<T>` fields with non-`None` intended defaults lose those defaults when a sibling field is set in user TOML. Confirmed bug surface: `[semantic] concurrency = 4` in user config → `hnsw_rebuild_threshold` becomes `null` instead of `500`.
+    *   Key additions: `default_hnsw_rebuild_threshold()` helper, `#[serde(default = "default_hnsw_rebuild_threshold")]` attribute, regression test.
+    *   Dependencies: none (foundational bug fix).
+
+*   **Track U18: Audit and Fix All `Option<T>` Serde Defaults in `Config`**
+    *   Status: Proposed
+    *   Spec: `conductor/trackU18/spec.md`
+    *   Plan: `conductor/trackU18/plan.md`
+    *   Goal: Systematically apply the U17 fix to every `Option<T>` field in the config model that has a non-`None` intended default. Document the `None` defaults that are intentional.
+    *   Key additions: `default_<field>()` helpers per affected field, doc comments on intentional `None` defaults, regression test per fix.
+    *   Dependencies: U17 (same pattern, wider scope).
+
+*   **Track U19: Data-Driven `config verify` Section Table**
+    *   Status: Proposed
+    *   Spec: `conductor/trackU19/spec.md`
+    *   Plan: `conductor/trackU19/plan.md`
+    *   Goal: Address U14 retrospective opportunity #6 — replace the hand-wired `println!` chain in `execute_config_verify` with a data-driven `ConfigSection` trait + registry pattern. Scales to 10+ sections without per-section refactors.
+    *   Key additions: `src/commands/config_verify.rs` module, `ConfigSection` trait, `ConfigRow`, `ValueSource` enum, `--json` and `--section=<name>` flags.
+    *   Dependencies: U15, U16 (so the new sections can register cleanly).
+
+*   **Track U20: Always-Visible Semantic Index Lifecycle Logging**
+    *   Status: Proposed
+    *   Spec: `conductor/trackU20/spec.md`
+    *   Plan: `conductor/trackU20/plan.md`
+    *   Goal: Address U14 retrospective opportunity #2 — move the thread-resolution `info!` log to before the early-exit at `src/commands/index.rs:612`, switch the "up to date" `println!` to `tracing::info!` (per 2026 best practices: stdout = machine contract, stderr = human via tracing).
+    *   Key additions: `Semantic indexing started:` lifecycle log, `Semantic indexing will process N files` phase boundary log, "up to date" via `tracing::info!`.
+    *   Dependencies: none.
+
+*   **Track U21: Non-Blocking Embed Concurrency Cap**
+    *   Status: Proposed
+    *   Spec: `conductor/trackU21/spec.md`
+    *   Plan: `conductor/trackU21/plan.md`
+    *   Goal: Address U14 retrospective opportunity #5 (secondary) — replace the `parking_lot::Mutex<usize>` + `Condvar` core of `EmbedSemaphore` with an `AtomicUsize`-based non-blocking implementation. Scales better when U16's configurable cap is set higher.
+    *   Key additions: `try_acquire()` (non-blocking), `try_acquire_spin(max_iters)` (bounded spin), refactored `acquire()` as a `try_acquire` loop with `std::thread::yield_now()`, `EmbedPermit::noop()` for the backoff path, 8 unit tests including race-condition stress tests.
+    *   Dependencies: U16 (the cap is the load-bearing reason to do this work).
+
 
 ## Workflow
 
