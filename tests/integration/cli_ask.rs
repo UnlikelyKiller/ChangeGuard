@@ -97,7 +97,12 @@ fn test_ask_invalid_config_fails_before_query_execution() {
 
 /// U22: end-to-end timeout test. The local model completion client must
 /// respect the per-call `timeout_secs_override` parameter, return an
-/// error, and abort well before the server's mocked 15s response delay.
+/// error, and abort well before the server's mocked response delay.
+///
+/// Server delay is intentionally small (3s) so that the httpmock
+/// listener thread exits promptly after the assertion fires — a 15s
+/// delay held the test binary open for an extra 13s, producing false
+/// "test running for over 60 seconds" reports.
 #[test]
 fn test_ask_respects_cli_timeout_override() {
     use changeguard::config::model::LocalModelConfig;
@@ -109,7 +114,7 @@ fn test_ask_respects_cli_timeout_override() {
         when.method(httpmock::Method::POST)
             .path("/v1/chat/completions");
         then.status(200)
-            .delay(std::time::Duration::from_secs(15))
+            .delay(std::time::Duration::from_secs(3))
             .header("Content-Type", "application/json")
             .json_body(serde_json::json!({
                 "choices": [{"message": {"content": "too late"}}]
@@ -143,7 +148,7 @@ fn test_ask_respects_cli_timeout_override() {
     }];
 
     let start = Instant::now();
-    let result = complete(&config, &messages, &CompletionOptions::default(), Some(2));
+    let result = complete(&config, &messages, &CompletionOptions::default(), Some(1));
     let elapsed = start.elapsed();
 
     assert!(result.is_err(), "expected timeout error, got: {result:?}");
@@ -153,8 +158,8 @@ fn test_ask_respects_cli_timeout_override() {
         "expected 'timed out' in error, got: {err}"
     );
     assert!(
-        elapsed < std::time::Duration::from_secs(4),
-        "expected <4s, got {elapsed:?}"
+        elapsed < std::time::Duration::from_secs(2),
+        "expected <2s, got {elapsed:?}"
     );
     assert_eq!(mock.hits(), 1, "the mock should have been hit exactly once");
 }
