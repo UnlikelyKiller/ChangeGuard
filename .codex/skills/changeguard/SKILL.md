@@ -10,7 +10,11 @@ Use ChangeGuard as the local safety layer and engineering intelligence engine fo
 ## Core Capabilities
 
 - **Search & Discovery**: High-performance regex (Tantivy), precise LSP navigation (SCIP), and conceptual semantic search (local embeddings) with parallel HNSW retrieval.
-- **Knowledge Graph**: Durable, billion-edge relational and vector storage (CozoDB-redux/Sled) with native code-aware tokenization (Tree-Sitter).
+- **Code Symbol Index**: Tree-sitter parsing of Rust, TypeScript, and Python — extracts every public function, struct, enum, trait, module, and HTTP route into the Knowledge Graph. Queryable via `changeguard search` and `changeguard ask`.
+- **Route Extraction**: Detects HTTP routes from Axum, Express, and other frameworks. Stores `method`, `path_pattern`, `handler_name`, `framework`, and confidence score.
+- **Call Graph**: Tracks function call relationships (`Direct`, `MethodCall`, `TraitDispatch`, `Dynamic`, `External`) so you can answer "what calls this function?" and "what does this function depend on?".
+- **Knowledge Graph**: Durable, billion-edge relational and vector storage (CozoDB-redux/Sled) with native code-aware tokenization (Tree-Sitter). Stores symbols in `project_symbol` table.
+- **AI-Brains Bridge**: Exposes its Knowledge Graph to AI-Brains via `bridge export --graph-query` IPC. AI-Brains nightly pipeline queries symbol data through this bridge (T70).
 - **Impact Analysis**: Deep "blast radius" analysis across 20+ specialized providers (Infra, Contracts, Observability, Temporal).
 - **Cryptographic Provenance**: Mathematical proof of intent via Ed25519 signing of every ledger entry. Offline verification via `verify --signatures`.
 - **Intent Capture TUI**: Interactive terminal UI for auditing and refining LLM-drafted intent payloads during the git commit process.
@@ -64,6 +68,45 @@ ChangeGuard is a **CLI-first** tool and **explicitly rejects MCP/Server/Cloud ar
 
 8. Report the outcome: impact/risk signals used, verification run, and any
    unresolved pending transactions, drift, or unavailable ChangeGuard command.
+
+## Code Symbol Queries — Use These First
+
+Before searching the web or reading files manually, query ChangeGuard's symbol index. It knows every public function, struct, route, and call edge in the codebase.
+
+```bash
+# Always refresh the index first (incremental, fast)
+changeguard index --auto-index
+
+# Find a function, struct, or type by name
+changeguard search "handleGetUser"
+changeguard search "AuthMiddleware"
+
+# Find HTTP routes
+changeguard search "POST /auth"
+changeguard ask "list all HTTP GET route handlers"
+
+# Find what calls a function
+changeguard ask "what calls validateToken"
+changeguard ask "show callers of UserRepository::find_by_id"
+
+# Find all public endpoints
+changeguard ask "find all Axum route handlers"
+changeguard ask "what API endpoints are defined in src/routes"
+
+# Dead code
+changeguard dead-code --threshold 0.75
+```
+
+These queries work because ChangeGuard indexes:
+- Every `pub fn`, `pub struct`, `pub enum`, `pub trait` via tree-sitter
+- HTTP route registrations (Axum `Router::route`, Express `app.get`, etc.)
+- Function call edges via static analysis
+- SCIP-precise symbol navigation from LSP data
+
+Symbols ingested by the bridge become AI-Brains memories (T70) and are returned
+by `ai-brains recall "<topic>"` alongside session memories. To verify the
+bridge is alive end-to-end, run `ai-brains safety sync --dry-run` and confirm
+hotspots are listed.
 
 ## Audit Smoke Tests
 
