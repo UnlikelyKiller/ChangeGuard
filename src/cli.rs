@@ -192,6 +192,10 @@ pub enum Commands {
         /// Automatically run incremental index before querying if the index is stale
         #[arg(long)]
         auto_index: bool,
+        /// Per-request timeout in seconds for LLM backend calls (default: 15).
+        /// Prevents `changeguard ask` from hanging when a backend is slow or unresponsive.
+        #[arg(long, default_value_t = 15)]
+        timeout: u64,
     },
     /// Manage ChangeGuard intent capture and TUI interaction
     Intent {
@@ -866,8 +870,9 @@ pub fn run_with(cli: Cli) -> Result<()> {
             narrative,
             backend,
             auto_index,
+            timeout,
         } => crate::commands::ask::execute_ask(
-            query, semantic, limit, mode, narrative, backend, auto_index,
+            query, semantic, limit, mode, narrative, backend, auto_index, timeout,
         ),
         Commands::Intent { command } => match command {
             IntentCommands::Demo => crate::commands::intent::execute_intent_demo(),

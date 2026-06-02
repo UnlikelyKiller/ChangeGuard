@@ -46,7 +46,11 @@ pub trait ConfigSection {
 }
 
 pub fn all_sections() -> Vec<Box<dyn ConfigSection>> {
-    vec![Box::new(BackendSection), Box::new(SemanticSection)]
+    vec![
+        Box::new(BackendSection),
+        Box::new(SemanticSection),
+        Box::new(AskSection),
+    ]
 }
 
 pub fn render_verify_report(
@@ -219,6 +223,60 @@ fn has_gemini_api_key_with(
         return true;
     }
     false
+}
+
+/// U22: surfaces the resolved timeout values that `changeguard ask` uses.
+/// The CLI `--timeout` flag always overrides these at runtime (default 15s);
+/// this section documents the *fallback* values from config.
+pub struct AskSection;
+
+impl ConfigSection for AskSection {
+    fn name(&self) -> &'static str {
+        "Ask"
+    }
+
+    fn order(&self) -> u8 {
+        3
+    }
+
+    fn render_rows(&self, config: &Config) -> Vec<ConfigRow> {
+        let mut rows = Vec::new();
+
+        rows.push(ConfigRow {
+            label: "cli_default_timeout_secs".to_string(),
+            value: "15".to_string(),
+            source: ValueSource::Default,
+        });
+
+        let local = config.local_model.timeout_secs;
+        rows.push(ConfigRow {
+            label: "local_model.timeout_secs".to_string(),
+            value: local.to_string(),
+            source: if local == 60 {
+                ValueSource::Default
+            } else {
+                ValueSource::Explicit
+            },
+        });
+
+        let gemini_value = config
+            .gemini
+            .timeout_secs
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "120 (default)".to_string());
+        let gemini_source = if config.gemini.timeout_secs.is_some() {
+            ValueSource::Explicit
+        } else {
+            ValueSource::Default
+        };
+        rows.push(ConfigRow {
+            label: "gemini.timeout_secs".to_string(),
+            value: gemini_value,
+            source: gemini_source,
+        });
+
+        rows
+    }
 }
 
 pub struct SemanticSection;
@@ -400,9 +458,10 @@ mod tests {
     #[test]
     fn test_sections_returns_all_implementations() {
         let sections = all_sections();
-        assert_eq!(sections.len(), 2);
+        assert_eq!(sections.len(), 3);
         assert_eq!(sections[0].name(), "Backend");
         assert_eq!(sections[1].name(), "Semantic");
+        assert_eq!(sections[2].name(), "Ask");
     }
 
     #[test]
@@ -422,6 +481,28 @@ mod tests {
         let report = render_verify_report(&config, false, None, true).unwrap();
         assert!(report.contains("Backend"));
         assert!(report.contains("Semantic"));
+        assert!(report.contains("Ask"));
+    }
+
+    #[test]
+    fn test_ask_section_shows_timeout() {
+        let config = Config::default();
+        let report = render_verify_report(&config, true, Some("Ask"), true).unwrap();
+        assert!(report.contains("cli_default_timeout_secs"));
+        assert!(report.contains("\"15\""));
+        assert!(report.contains("local_model.timeout_secs"));
+        assert!(report.contains("gemini.timeout_secs"));
+    }
+
+    #[test]
+    fn test_ask_section_marks_overridden_values_explicit() {
+        let mut config = Config::default();
+        config.local_model.timeout_secs = 5;
+        config.gemini.timeout_secs = Some(45);
+        let report = render_verify_report(&config, true, Some("Ask"), true).unwrap();
+        // 5s local + 45s gemini should both be marked as explicit
+        assert!(report.contains("\"5\""));
+        assert!(report.contains("\"45\""));
     }
 
     #[test]

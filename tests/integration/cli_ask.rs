@@ -42,6 +42,7 @@ fn test_ask_command_no_packet() {
         false, // narrative
         None,  // backend
         false, // auto_index
+        15,    // timeout_secs
     );
 
     // It should NOT fail with "No impact report found" anymore.
@@ -88,7 +89,72 @@ fn test_ask_invalid_config_fails_before_query_execution() {
         false, // narrative
         None,  // backend
         false, // auto_index
+        15,    // timeout_secs
     )
     .unwrap_err();
     assert!(format!("{err:?}").contains("debounce_ms"));
+}
+
+/// U22: end-to-end timeout test. The local model completion client must
+/// respect the per-call `timeout_secs_override` parameter, return an
+/// error, and abort well before the server's mocked 15s response delay.
+#[test]
+fn test_ask_respects_cli_timeout_override() {
+    use changeguard::config::model::LocalModelConfig;
+    use changeguard::local_model::client::{ChatMessage, CompletionOptions, complete};
+    use std::time::Instant;
+
+    let server = httpmock::MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(httpmock::Method::POST)
+            .path("/v1/chat/completions");
+        then.status(200)
+            .delay(std::time::Duration::from_secs(15))
+            .header("Content-Type", "application/json")
+            .json_body(serde_json::json!({
+                "choices": [{"message": {"content": "too late"}}]
+            }));
+    });
+
+    let config = LocalModelConfig {
+        base_url: server.base_url(),
+        embedding_url: None,
+        generation_url: None,
+        ollama_cloud_url: None,
+        ollama_cloud_api_key: None,
+        ollama_cloud_model: None,
+        embedding_model: String::new(),
+        generation_model: "test-model".to_string(),
+        rerank_model: String::new(),
+        dimensions: 0,
+        context_window: 38000,
+        timeout_secs: 60, // not used — override takes precedence
+        prefer_local: false,
+        chunk_top_k: 10,
+        chunk_min_similarity: 0.3,
+        chunk_dedup_threshold: 0.95,
+        disable_hnsw: false,
+        concurrency: None,
+    };
+
+    let messages = vec![ChatMessage {
+        role: "user".to_string(),
+        content: "hello".to_string(),
+    }];
+
+    let start = Instant::now();
+    let result = complete(&config, &messages, &CompletionOptions::default(), Some(2));
+    let elapsed = start.elapsed();
+
+    assert!(result.is_err(), "expected timeout error, got: {result:?}");
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("timed out"),
+        "expected 'timed out' in error, got: {err}"
+    );
+    assert!(
+        elapsed < std::time::Duration::from_secs(4),
+        "expected <4s, got {elapsed:?}"
+    );
+    assert_eq!(mock.hits(), 1, "the mock should have been hit exactly once");
 }

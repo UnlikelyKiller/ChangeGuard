@@ -1338,6 +1338,13 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Key additions: `try_acquire()` (non-blocking), `try_acquire_spin(max_iters)` (bounded spin), refactored `acquire()` as a `try_acquire` loop with `std::thread::yield_now()`, `EmbedPermit::noop()` for the backoff path, 8 unit tests including race-condition stress tests.
     *   Dependencies: U16 (the cap is the load-bearing reason to do this work).
 
+*   **Track U22: ChangeGuard LLM Query Timeout Guardrails**
+    *   Status: Completed
+    *   Spec: `conductor/trackU22/spec.md`
+    *   Plan: `conductor/trackU22/plan.md`
+    *   Goal: Introduce client-side timeout thresholds for LLM API connection queries in `changeguard ask` so that backend latency degrades gracefully with a fallback message rather than blocking pipelines indefinitely.
+    *   Key additions: `--timeout <seconds>` CLI flag (default 15) on `changeguard ask`; `complete()` accepts `timeout_secs_override: Option<u64>`; new `transport_is_timeout` helper walks ureq's `io::ErrorKind::TimedOut` source chain to produce a "timed out after Ns" error message; new `AskSection` in `config verify` shows resolved timeouts; regression tests in `src/local_model/client.rs` and `tests/integration/cli_ask.rs`.
+
 
 ## Workflow
 

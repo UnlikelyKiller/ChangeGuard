@@ -65,7 +65,7 @@ You MUST output a single JSON object in the exact format shown below, with NO ma
         temperature: 0.2, // low temperature for structured output
     };
 
-    let raw_response = complete(&custom_config, &messages, &options)?;
+    let raw_response = complete(&custom_config, &messages, &options, None)?;
 
     // 5. Parse JSON response
     parse_intent_json(&raw_response)

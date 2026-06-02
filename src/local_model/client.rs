@@ -119,6 +119,7 @@ pub fn complete(
     config: &LocalModelConfig,
     messages: &[ChatMessage],
     options: &CompletionOptions,
+    timeout_secs_override: Option<u64>,
 ) -> Result<String, String> {
     if config.base_url.is_empty()
         && config.generation_url.is_none()
@@ -140,7 +141,8 @@ pub fn complete(
                 model: &config.generation_model,
                 authorization: None,
             };
-            match complete_with_endpoint(&endpoint, config.timeout_secs, messages, options) {
+            let effective_timeout = timeout_secs_override.unwrap_or(config.timeout_secs);
+            match complete_with_endpoint(&endpoint, effective_timeout, messages, options) {
                 Ok(response) => return Ok(response),
                 Err(error) if has_ollama_cloud_fallback(config) => {
                     tracing::warn!(
@@ -163,7 +165,8 @@ pub fn complete(
     }
 
     if let Some(endpoint) = ollama_cloud_endpoint(config) {
-        return complete_with_endpoint(&endpoint, config.timeout_secs, messages, options);
+        let effective_timeout = timeout_secs_override.unwrap_or(config.timeout_secs);
+        return complete_with_endpoint(&endpoint, effective_timeout, messages, options);
     }
 
     Err(format!(
@@ -200,6 +203,22 @@ fn ollama_cloud_endpoint(config: &LocalModelConfig) -> Option<CompletionEndpoint
         model,
         authorization: Some(format!("Bearer {api_key}")),
     })
+}
+
+/// U22: Walk the `ureq::Transport` error source chain looking for an
+/// `io::Error` of `ErrorKind::TimedOut`. ureq 2.12 normalizes both read
+/// timeouts and `WouldBlock` to `TimedOut` internally, but only the inner
+/// `io::Error` carries the kind — the outer `Transport::Display` string is
+/// the OS-level error message, not "timeout".
+fn transport_is_timeout(err: &ureq::Transport) -> bool {
+    let mut source: Option<&(dyn std::error::Error + 'static)> = Some(err);
+    while let Some(e) = source {
+        if let Some(io_err) = e.downcast_ref::<std::io::Error>() {
+            return io_err.kind() == std::io::ErrorKind::TimedOut;
+        }
+        source = e.source();
+    }
+    false
 }
 
 fn complete_with_endpoint(
@@ -261,6 +280,12 @@ fn complete_with_endpoint(
                 ));
             }
             Err(ureq::Error::Transport(inner)) => {
+                if transport_is_timeout(&inner) {
+                    return Err(format!(
+                        "{} timed out after {}s",
+                        endpoint.label, timeout_secs
+                    ));
+                }
                 return Err(format!(
                     "{} not reachable at {} \u{2014} {}",
                     endpoint.label, endpoint.base_url, inner
@@ -332,7 +357,13 @@ mod tests {
         });
 
         let config = test_config(&server.base_url());
-        let result = complete(&config, &test_messages(), &CompletionOptions::default()).unwrap();
+        let result = complete(
+            &config,
+            &test_messages(),
+            &CompletionOptions::default(),
+            None,
+        )
+        .unwrap();
         assert_eq!(result, "Hello! How can I help you today?");
     }
 
@@ -347,7 +378,12 @@ mod tests {
         });
 
         let config = test_config(&server.base_url());
-        let result = complete(&config, &test_messages(), &CompletionOptions::default());
+        let result = complete(
+            &config,
+            &test_messages(),
+            &CompletionOptions::default(),
+            None,
+        );
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("503"));
         // Verify retry happened: 2 calls total
@@ -365,7 +401,12 @@ mod tests {
         });
 
         let config = test_config(&server.base_url());
-        let result = complete(&config, &test_messages(), &CompletionOptions::default());
+        let result = complete(
+            &config,
+            &test_messages(),
+            &CompletionOptions::default(),
+            None,
+        );
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "rate limited");
     }
@@ -381,7 +422,12 @@ mod tests {
         });
 
         let config = test_config(&server.base_url());
-        let result = complete(&config, &test_messages(), &CompletionOptions::default());
+        let result = complete(
+            &config,
+            &test_messages(),
+            &CompletionOptions::default(),
+            None,
+        );
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.contains("500"));
@@ -391,7 +437,12 @@ mod tests {
     #[test]
     fn complete_connection_refused() {
         let config = test_config("http://127.0.0.1:1");
-        let result = complete(&config, &test_messages(), &CompletionOptions::default());
+        let result = complete(
+            &config,
+            &test_messages(),
+            &CompletionOptions::default(),
+            None,
+        );
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("is unreachable"));
     }
@@ -411,7 +462,12 @@ mod tests {
         });
 
         let config = test_config(&server.base_url());
-        let result = complete(&config, &test_messages(), &CompletionOptions::default());
+        let result = complete(
+            &config,
+            &test_messages(),
+            &CompletionOptions::default(),
+            None,
+        );
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("No completion choices"));
     }
@@ -419,7 +475,12 @@ mod tests {
     #[test]
     fn complete_empty_url() {
         let config = test_config("");
-        let result = complete(&config, &test_messages(), &CompletionOptions::default());
+        let result = complete(
+            &config,
+            &test_messages(),
+            &CompletionOptions::default(),
+            None,
+        );
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("is not configured"));
     }
@@ -469,13 +530,86 @@ mod tests {
     fn transport_error_includes_cause() {
         // Use a port that nothing is listening on
         let config = test_config("http://127.0.0.1:1");
-        let result = complete(&config, &test_messages(), &CompletionOptions::default());
+        let result = complete(
+            &config,
+            &test_messages(),
+            &CompletionOptions::default(),
+            None,
+        );
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
             err.contains("is unreachable"),
             "expected 'is unreachable' in: {err}"
         );
+    }
+
+    /// U22.1 (red): proves the timeout override is honored. The mock delays
+    /// 5 seconds; with a 1-second override the call must abort with a
+    /// "timed out" error and return well before the mock would have responded.
+    #[test]
+    fn complete_timeout_override_fires() {
+        use std::time::Instant;
+
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::POST)
+                .path("/v1/chat/completions");
+            then.status(200)
+                .delay(std::time::Duration::from_secs(5))
+                .header("Content-Type", "application/json")
+                .json_body(serde_json::json!({
+                    "choices": [{"message": {"content": "too late"}}]
+                }));
+        });
+
+        let config = test_config(&server.base_url());
+        let start = Instant::now();
+        let result = complete(
+            &config,
+            &test_messages(),
+            &CompletionOptions::default(),
+            Some(1),
+        );
+        let elapsed = start.elapsed();
+
+        assert!(result.is_err(), "expected timeout error, got: {result:?}");
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("timed out"),
+            "expected 'timed out' in error, got: {err}"
+        );
+        assert!(
+            elapsed < std::time::Duration::from_secs(3),
+            "expected <3s, got {elapsed:?}"
+        );
+    }
+
+    /// U22.1 (red): when the override is None the call should still succeed
+    /// (and fall back to the config-provided timeout_secs, which is 30s here
+    /// — long enough to outlast the mock's 100ms response).
+    #[test]
+    fn complete_timeout_override_none_falls_back_to_config() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::POST)
+                .path("/v1/chat/completions");
+            then.status(200)
+                .header("Content-Type", "application/json")
+                .json_body(serde_json::json!({
+                    "choices": [{"message": {"content": "fast"}}]
+                }));
+        });
+
+        let config = test_config(&server.base_url());
+        let result = complete(
+            &config,
+            &test_messages(),
+            &CompletionOptions::default(),
+            None,
+        );
+        assert!(result.is_ok(), "expected Ok, got: {result:?}");
+        assert_eq!(result.unwrap(), "fast");
     }
 
     #[test]
@@ -508,7 +642,13 @@ mod tests {
             ..test_config("")
         };
 
-        let result = complete(&config, &test_messages(), &CompletionOptions::default()).unwrap();
+        let result = complete(
+            &config,
+            &test_messages(),
+            &CompletionOptions::default(),
+            None,
+        )
+        .unwrap();
         assert_eq!(result, "cloud response");
         assert_eq!(mock.hits(), 1);
     }

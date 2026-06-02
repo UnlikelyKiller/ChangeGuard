@@ -281,7 +281,7 @@ impl SemanticExtractor {
                 },
             ];
 
-            match complete(local_model_config, &messages, &options) {
+            match complete(local_model_config, &messages, &options, None) {
                 Ok(response) => {
                     let output_tokens = response.chars().count().div_ceil(4);
                     let trimmed = response.trim_end();

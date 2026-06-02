@@ -107,7 +107,7 @@ impl ExplanationEngine {
         };
 
         let response =
-            complete(&self.config, &messages, &options).map_err(|e| miette::miette!(e))?;
+            complete(&self.config, &messages, &options, None).map_err(|e| miette::miette!(e))?;
 
         Ok(response.trim().to_string())
     }

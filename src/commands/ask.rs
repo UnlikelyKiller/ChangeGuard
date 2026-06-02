@@ -18,6 +18,11 @@ pub enum Backend {
     Gemini,
 }
 
+/// Entry point for the `changeguard ask` CLI subcommand.
+///
+/// `timeout_secs` is the per-request LLM timeout (U22). It is the primary
+/// value the `--timeout` CLI flag (default 15) is wired into.
+#[allow(clippy::too_many_arguments)]
 pub fn execute_ask(
     query: Option<String>,
     semantic: bool,
@@ -26,6 +31,7 @@ pub fn execute_ask(
     narrative: bool,
     backend: Option<Backend>,
     auto_index: bool,
+    timeout_secs: u64,
 ) -> Result<()> {
     let layout = get_layout()?;
     let config = load_ledger_config(&layout)?;
@@ -254,6 +260,7 @@ pub fn execute_ask(
                 &config.local_model,
                 &messages,
                 &crate::local_model::client::CompletionOptions::default(),
+                Some(timeout_secs),
             ) {
                 Ok(response) => {
                     println!("\n{}", "Local Model Response:".bold().green());
@@ -343,7 +350,7 @@ pub fn execute_ask(
             run_query(
                 &system_prompt,
                 &sanitized_user_prompt,
-                Some(config.gemini.timeout_secs.unwrap_or(120)),
+                Some(timeout_secs),
                 &crate::gemini::wrapper::select_gemini_model(&config.gemini, mode, &latest_packet),
                 config.gemini.api_key.as_deref(),
             )
