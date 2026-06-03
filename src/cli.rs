@@ -779,7 +779,12 @@ pub fn run_with(cli: Cli) -> Result<()> {
                 compact,
                 exit_code,
                 verify_signatures,
-            } => crate::commands::ledger::execute_ledger_status(entity, compact, exit_code, verify_signatures),
+            } => crate::commands::ledger::execute_ledger_status(
+                entity,
+                compact,
+                exit_code,
+                verify_signatures,
+            ),
             LedgerCommands::Register { command } => match command {
                 RegisterCommands::Rule {
                     term,

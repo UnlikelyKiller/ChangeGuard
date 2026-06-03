@@ -1345,49 +1345,58 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Goal: Introduce client-side timeout thresholds for LLM API connection queries in `changeguard ask` so that backend latency degrades gracefully with a fallback message rather than blocking pipelines indefinitely.
     *   Key additions: `--timeout <seconds>` CLI flag (default 15) on `changeguard ask`; `complete()` accepts `timeout_secs_override: Option<u64>`; new `transport_is_timeout` helper walks ureq's `io::ErrorKind::TimedOut` source chain to produce a "timed out after Ns" error message; new `AskSection` in `config verify` shows resolved timeouts; regression tests in `src/local_model/client.rs` and `tests/integration/cli_ask.rs`.
 *   **Track U23: Signature Enforcement in Pre-Push Hook**
-    *   Status: Proposed
+    *   Status: Completed
     *   Spec: `conductor/trackU23/spec.md`
     *   Goal: Add signature verification to `ledger status --compact --exit-code` or via a strict flag, and update pre-push hook configuration.
+    *   Key additions: `--verify-signatures` flag on `ledger status`, cryptographic verification checks in status execution, updated pre-push hook template.
 
 *   **Track U24: Reset Safety & Path Hygiene**
-    *   Status: Proposed
+    *   Status: Completed
     *   Spec: `conductor/trackU24/spec.md`
     *   Goal: Add `--dry-run` and explicit pre-deletion diff to `reset`, and resolve case-mismatched path normalization.
+    *   Key additions: `--dry-run` flag on `reset` command, reset plan previews, path canonicalization in discovery/setups.
 
 *   **Track U25: Skill & Help Text Accuracy**
-    *   Status: Proposed
+    *   Status: Completed
     *   Spec: `conductor/trackU25/spec.md`
     *   Goal: Fix mismatched flags, subcommands, and options in documentation, skills, and help outputs.
+    *   Key additions: Corrected `--auto-index` documentation to `--incremental` in `.agents/skills/changeguard/SKILL.md` (and `.codex/` counterpart).
 
 *   **Track U26: Verify & Audit Output Cleanup**
-    *   Status: Proposed
+    *   Status: Completed
     *   Spec: `conductor/trackU26/spec.md`
     *   Goal: Suppress trailing error message on signature verification success, and clean up LLM noise in `audit --entity` output.
+    *   Key additions: Count validation summary to `verify_ledger_signatures` in `src/commands/verify.rs`. Demoted fallback warnings in `src/local_model/client.rs` to `debug!` level to suppress output noise.
 
 *   **Track U27: Ledger Subcommand Parity & GC Mode Validation**
-    *   Status: Proposed
+    *   Status: Completed
     *   Spec: `conductor/trackU27/spec.md`
     *   Goal: Enforce GC modes when passing `--force` to `ledger gc`, and reconcile missing ledger subcommands.
+    *   Key additions: Removed unimplemented subcommands (`ledger resume`, `ledger note`) from commands reference markdown. Changed CLI validator command parameter from `-c` to `-x` in `src/cli.rs` to resolve the duplicate `-c` flag conflict. Added explicit `--force` validation checks to `execute_ledger_gc` in `src/commands/ledger.rs`.
 
 *   **Track U28: Init Storage Bootstrap**
-    *   Status: Proposed
+    *   Status: Completed
     *   Spec: `conductor/trackU28/spec.md`
     *   Goal: Initialize the SQLite database/ledger storage directly during `init` to prevent errors on subsequent status reads.
+    *   Key additions: Modified `src/commands/init.rs` to call `StorageManager::init` directly to initialize the SQLite database.
 
 *   **Track U29: Intent Demo TTY Detection**
-    *   Status: Proposed
+    *   Status: Completed
     *   Spec: `conductor/trackU29/spec.md`
     *   Goal: Detect non-interactive TTY environments in `intent demo` to prevent indefinite hangs in scripts.
+    *   Key additions: Added non-interactive TTY bail out check in `src/commands/intent.rs`.
 
 *   **Track U30: verify Warning Hygiene**
-    *   Status: Proposed
+    *   Status: Completed
     *   Spec: `conductor/trackU30/spec.md`
     *   Goal: Suppress noisy empty diff warning logs on successful `verify` executions.
+    *   Key additions: Demoted empty diff logs in `src/verify/semantic_predictor.rs` to `debug!` level.
 
 *   **Track U31: Update --binary Pre-flight**
-    *   Status: Proposed
+    *   Status: Completed
     *   Spec: `conductor/trackU31/spec.md`
     *   Goal: Print target installation path and add `--dry-run` to the `update --binary` command.
+    *   Key additions: Added `--dry-run` to `Update` CLI command definition, mapped it in `src/cli.rs` dispatch, and implemented dry-run print warnings in `src/commands/update.rs`.
 
 
 ## Workflow

@@ -1,8 +1,8 @@
 # Track U28: Init Storage Bootstrap
 
-**Status:** ⏳ **Pending**
-**Started:** None
-**Owner:** None
+**Status:** ✅ **Completed**
+**Started:** 2026-06-02
+**Owner:** Antigravity
 **Priority:** P2 — CLI Ergonomics
 
 ---

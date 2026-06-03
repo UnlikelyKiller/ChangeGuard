@@ -1,8 +1,8 @@
 # Track U30: verify Warning Hygiene
 
-**Status:** ⏳ **Pending**
-**Started:** None
-**Owner:** None
+**Status:** ✅ **Completed**
+**Started:** 2026-06-02
+**Owner:** Antigravity
 **Priority:** P2 — UX / Output Noise
 
 ---

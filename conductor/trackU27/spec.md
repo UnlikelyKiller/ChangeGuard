@@ -1,8 +1,8 @@
 # Track U27: Ledger Subcommand Parity & GC Mode Validation
 
-**Status:** ⏳ **Pending**
-**Started:** None
-**Owner:** None
+**Status:** ✅ **Completed**
+**Started:** 2026-06-02
+**Owner:** Antigravity
 **Priority:** P1 — CLI Parity / Robustness
 
 ---

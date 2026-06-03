@@ -1,8 +1,8 @@
 # Track U25: Skill & Help Text Accuracy
 
-**Status:** ⏳ **Pending**
-**Started:** None
-**Owner:** None
+**Status:** ✅ **Completed**
+**Started:** 2026-06-02
+**Owner:** Antigravity
 **Priority:** P1 — Friction / Documentation Drift
 
 ---

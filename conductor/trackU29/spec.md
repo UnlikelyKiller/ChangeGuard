@@ -1,8 +1,8 @@
 # Track U29: Intent Demo TTY Detection
 
-**Status:** ⏳ **Pending**
-**Started:** None
-**Owner:** None
+**Status:** ✅ **Completed**
+**Started:** 2026-06-02
+**Owner:** Antigravity
 **Priority:** P2 — Minor / CLI Resilience
 
 ---

@@ -6,7 +6,13 @@ use std::fs;
 use std::process::Command;
 use tracing::info;
 
-pub fn execute_update(migrate: bool, binary: bool, force: bool, force_unlock: bool, dry_run: bool) -> Result<()> {
+pub fn execute_update(
+    migrate: bool,
+    binary: bool,
+    force: bool,
+    force_unlock: bool,
+    dry_run: bool,
+) -> Result<()> {
     if !migrate && !binary {
         println!(
             "{} Specify what to update (e.g. --migrate or --binary)",
@@ -28,7 +34,10 @@ pub fn execute_update(migrate: bool, binary: bool, force: bool, force_unlock: bo
 
 fn execute_migration(dry_run: bool) -> Result<()> {
     if dry_run {
-        println!("{} Would migrate repository state (perform full re-indexing and schema migration).", "DRY-RUN".yellow().bold());
+        println!(
+            "{} Would migrate repository state (perform full re-indexing and schema migration).",
+            "DRY-RUN".yellow().bold()
+        );
         return Ok(());
     }
 
@@ -56,7 +65,8 @@ fn execute_migration(dry_run: bool) -> Result<()> {
 }
 
 fn execute_binary_update(force: bool, force_unlock: bool, dry_run: bool) -> Result<()> {
-    let bin_path = env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("changeguard.exe"));
+    let bin_path =
+        env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("changeguard.exe"));
     let display_path = bin_path.display().to_string();
 
     if dry_run {
@@ -87,9 +97,9 @@ fn execute_binary_update(force: bool, force_unlock: bool, dry_run: bool) -> Resu
 
     // Check if the target binary is locked before starting the build
     if std::fs::OpenOptions::new()
-            .write(true)
-            .open(&bin_path)
-            .is_err()
+        .write(true)
+        .open(&bin_path)
+        .is_err()
     {
         println!(
             "{}",

@@ -554,7 +554,9 @@ pub fn execute_ledger_gc(orphans: bool, ttl_days: u64, force: bool) -> Result<()
         }
     } else {
         if force {
-            return Err(miette::miette!("--force requires --orphans (or other GC mode)."));
+            return Err(miette::miette!(
+                "--force requires --orphans (or other GC mode)."
+            ));
         }
         println!("Please specify a GC mode (e.g. --orphans)");
     }

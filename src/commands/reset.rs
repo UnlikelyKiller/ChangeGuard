@@ -27,7 +27,10 @@ pub fn execute_reset(
     confirm_destructive: bool,
     dry_run: bool,
 ) -> Result<()> {
-    if (remove_all || remove_config || remove_rules || include_ledger) && !confirm_destructive && !dry_run {
+    if (remove_all || remove_config || remove_rules || include_ledger)
+        && !confirm_destructive
+        && !dry_run
+    {
         return Err(miette!(
             "Destructive reset options require confirmation. Re-run with '--yes'."
         ));
@@ -41,7 +44,11 @@ pub fn execute_reset(
 
     // 1. Generate and print reset plan preview
     let mut plan_items = if remove_all {
-        vec![remove_path(layout.state_dir.clone(), &layout.state_dir, true)]
+        vec![remove_path(
+            layout.state_dir.clone(),
+            &layout.state_dir,
+            true,
+        )]
     } else {
         default_reset_items(&layout, remove_config, remove_rules, include_ledger, true)
     };
@@ -66,7 +73,11 @@ pub fn execute_reset(
     // 2. Perform actual reset
     println!("\nExecuting reset plan...");
     let mut items = if remove_all {
-        vec![remove_path(layout.state_dir.clone(), &layout.state_dir, false)]
+        vec![remove_path(
+            layout.state_dir.clone(),
+            &layout.state_dir,
+            false,
+        )]
     } else {
         default_reset_items(&layout, remove_config, remove_rules, include_ledger, false)
     };
@@ -109,7 +120,11 @@ fn default_reset_items(
             &layout.state_dir,
             dry_run,
         ),
-        remove_path(layout.state_subdir().join("snapshots"), &layout.state_dir, dry_run),
+        remove_path(
+            layout.state_subdir().join("snapshots"),
+            &layout.state_dir,
+            dry_run,
+        ),
         // Durable user data — preserved by default, removed only with --include-ledger
         maybe_preserve_or_remove(
             layout.state_subdir().join("ledger.db"),

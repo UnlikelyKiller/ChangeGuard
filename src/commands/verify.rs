@@ -96,7 +96,11 @@ pub fn verify_ledger_signatures(layout: &Layout) -> Result<()> {
     println!(
         "\nSignature verification summary: {} valid, {} invalid, {} skipped.",
         valid_count.green(),
-        if invalid_count > 0 { invalid_count.red().to_string() } else { invalid_count.to_string() },
+        if invalid_count > 0 {
+            invalid_count.red().to_string()
+        } else {
+            invalid_count.to_string()
+        },
         skipped_count.yellow()
     );
 
