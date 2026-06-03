@@ -1344,6 +1344,50 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Plan: `conductor/trackU22/plan.md`
     *   Goal: Introduce client-side timeout thresholds for LLM API connection queries in `changeguard ask` so that backend latency degrades gracefully with a fallback message rather than blocking pipelines indefinitely.
     *   Key additions: `--timeout <seconds>` CLI flag (default 15) on `changeguard ask`; `complete()` accepts `timeout_secs_override: Option<u64>`; new `transport_is_timeout` helper walks ureq's `io::ErrorKind::TimedOut` source chain to produce a "timed out after Ns" error message; new `AskSection` in `config verify` shows resolved timeouts; regression tests in `src/local_model/client.rs` and `tests/integration/cli_ask.rs`.
+*   **Track U23: Signature Enforcement in Pre-Push Hook**
+    *   Status: Proposed
+    *   Spec: `conductor/trackU23/spec.md`
+    *   Goal: Add signature verification to `ledger status --compact --exit-code` or via a strict flag, and update pre-push hook configuration.
+
+*   **Track U24: Reset Safety & Path Hygiene**
+    *   Status: Proposed
+    *   Spec: `conductor/trackU24/spec.md`
+    *   Goal: Add `--dry-run` and explicit pre-deletion diff to `reset`, and resolve case-mismatched path normalization.
+
+*   **Track U25: Skill & Help Text Accuracy**
+    *   Status: Proposed
+    *   Spec: `conductor/trackU25/spec.md`
+    *   Goal: Fix mismatched flags, subcommands, and options in documentation, skills, and help outputs.
+
+*   **Track U26: Verify & Audit Output Cleanup**
+    *   Status: Proposed
+    *   Spec: `conductor/trackU26/spec.md`
+    *   Goal: Suppress trailing error message on signature verification success, and clean up LLM noise in `audit --entity` output.
+
+*   **Track U27: Ledger Subcommand Parity & GC Mode Validation**
+    *   Status: Proposed
+    *   Spec: `conductor/trackU27/spec.md`
+    *   Goal: Enforce GC modes when passing `--force` to `ledger gc`, and reconcile missing ledger subcommands.
+
+*   **Track U28: Init Storage Bootstrap**
+    *   Status: Proposed
+    *   Spec: `conductor/trackU28/spec.md`
+    *   Goal: Initialize the SQLite database/ledger storage directly during `init` to prevent errors on subsequent status reads.
+
+*   **Track U29: Intent Demo TTY Detection**
+    *   Status: Proposed
+    *   Spec: `conductor/trackU29/spec.md`
+    *   Goal: Detect non-interactive TTY environments in `intent demo` to prevent indefinite hangs in scripts.
+
+*   **Track U30: verify Warning Hygiene**
+    *   Status: Proposed
+    *   Spec: `conductor/trackU30/spec.md`
+    *   Goal: Suppress noisy empty diff warning logs on successful `verify` executions.
+
+*   **Track U31: Update --binary Pre-flight**
+    *   Status: Proposed
+    *   Spec: `conductor/trackU31/spec.md`
+    *   Goal: Print target installation path and add `--dry-run` to the `update --binary` command.
 
 
 ## Workflow
