@@ -75,7 +75,7 @@ Before searching the web or reading files manually, query ChangeGuard's symbol i
 
 ```bash
 # Always refresh the index first (incremental, fast)
-changeguard index --auto-index
+changeguard index --incremental
 
 # Find a function, struct, or type by name
 changeguard search "handleGetUser"

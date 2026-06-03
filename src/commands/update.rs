@@ -6,7 +6,7 @@ use std::fs;
 use std::process::Command;
 use tracing::info;
 
-pub fn execute_update(migrate: bool, binary: bool, force: bool, force_unlock: bool) -> Result<()> {
+pub fn execute_update(migrate: bool, binary: bool, force: bool, force_unlock: bool, dry_run: bool) -> Result<()> {
     if !migrate && !binary {
         println!(
             "{} Specify what to update (e.g. --migrate or --binary)",
@@ -16,17 +16,22 @@ pub fn execute_update(migrate: bool, binary: bool, force: bool, force_unlock: bo
     }
 
     if migrate {
-        execute_migration()?;
+        execute_migration(dry_run)?;
     }
 
     if binary {
-        execute_binary_update(force, force_unlock)?;
+        execute_binary_update(force, force_unlock, dry_run)?;
     }
 
     Ok(())
 }
 
-fn execute_migration() -> Result<()> {
+fn execute_migration(dry_run: bool) -> Result<()> {
+    if dry_run {
+        println!("{} Would migrate repository state (perform full re-indexing and schema migration).", "DRY-RUN".yellow().bold());
+        return Ok(());
+    }
+
     println!("{} Migrating repository state...", "INIT".cyan().bold());
 
     // 1. Re-index
@@ -50,7 +55,19 @@ fn execute_migration() -> Result<()> {
     Ok(())
 }
 
-fn execute_binary_update(force: bool, force_unlock: bool) -> Result<()> {
+fn execute_binary_update(force: bool, force_unlock: bool, dry_run: bool) -> Result<()> {
+    let bin_path = env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("changeguard.exe"));
+    let display_path = bin_path.display().to_string();
+
+    if dry_run {
+        println!(
+            "{} Would replace binary at {} with current source build (cargo install --path .).",
+            "DRY-RUN".yellow().bold(),
+            display_path.cyan()
+        );
+        return Ok(());
+    }
+
     if force_unlock {
         crate::platform::process_policy::force_unlock_processes()?;
     }
@@ -62,11 +79,14 @@ fn execute_binary_update(force: bool, force_unlock: bool) -> Result<()> {
         ));
     }
 
-    info!("Detected local source repository. Running 'cargo install --path .'");
+    println!(
+        "Replacing {} with current source build...",
+        display_path.cyan()
+    );
+    info!("Running 'cargo install --path .'");
 
     // Check if the target binary is locked before starting the build
-    if let Ok(bin_path) = env::current_exe()
-        && std::fs::OpenOptions::new()
+    if std::fs::OpenOptions::new()
             .write(true)
             .open(&bin_path)
             .is_err()
@@ -110,7 +130,7 @@ fn execute_binary_update(force: bool, force_unlock: bool) -> Result<()> {
         }
     } else {
         // If update failed, try to restore the old binary name if we moved it
-        if let (Some(old_path), Ok(bin_path)) = (old_path_opt, env::current_exe()) {
+        if let Some(old_path) = old_path_opt {
             let _ = fs::rename(old_path, bin_path);
         }
         return Err(miette::miette!("Update failed. See above for errors."));
@@ -183,7 +203,7 @@ mod tests {
     #[test]
     fn test_execute_update_no_flags_prints_hint() {
         // Without any flag, execute_update should print the hint and not error.
-        let result = execute_update(false, false, false, false);
+        let result = execute_update(false, false, false, false, false);
         assert!(result.is_ok(), "no-flag invocation should succeed");
     }
 }

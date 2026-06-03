@@ -53,8 +53,6 @@ changeguard ledger start PATH [--category CAT] [--message TEXT] [--issue REF]
 changeguard ledger commit TX_ID --summary TEXT --reason TEXT [--change-type TYPE] [--breaking] [--auto-reconcile | --no-auto-reconcile]
 changeguard ledger rollback TX_ID --reason TEXT
 changeguard ledger atomic PATH --summary TEXT --reason TEXT [--category CAT]
-changeguard ledger note PATH NOTE
-changeguard ledger resume [ID]                              # Find most recent PENDING tx or resume specific    
 changeguard ledger status [--entity PATH] [--compact]       # Holistic view or entity history
 changeguard ledger reconcile [--tx-id ID] [--pattern GLOB] [--all] [--reason TEXT]
 changeguard ledger adopt [--pattern GLOB] [--all] --category CAT --summary TEXT --reason TEXT

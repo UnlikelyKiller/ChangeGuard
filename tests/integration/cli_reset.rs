@@ -19,7 +19,7 @@ fn test_reset_missing_state_is_safe() {
     let _lock = cwd_lock().lock().unwrap();
     let (_tmp, root, _guard) = setup_repo();
 
-    execute_reset(false, false, false, false, false).unwrap();
+    execute_reset(false, false, false, false, false, false).unwrap();
 
     assert!(!root.join(".changeguard").exists());
 }
@@ -42,7 +42,7 @@ fn test_reset_preserves_config_and_rules_by_default() {
     fs::write(state_subdir.join("ledger.db-shm"), "shm").unwrap();
     fs::write(state_subdir.join("current-batch.json"), "{}").unwrap();
 
-    execute_reset(false, false, false, false, false).unwrap();
+    execute_reset(false, false, false, false, false, false).unwrap();
 
     assert!(state_dir.exists());
     assert!(state_dir.join("config.toml").exists());
@@ -68,7 +68,7 @@ fn test_reset_preserves_ledger_by_default() {
     fs::write(state_subdir.join("ledger.db-wal"), "wal").unwrap();
 
     // Default reset preserves ledger.db
-    execute_reset(false, false, false, false, false).unwrap();
+    execute_reset(false, false, false, false, false, false).unwrap();
 
     assert!(state_subdir.join("ledger.db").exists());
     assert!(state_subdir.join("ledger.db-wal").exists());
@@ -86,7 +86,7 @@ fn test_reset_include_ledger_removes_db() {
     fs::write(state_subdir.join("ledger.db"), "db").unwrap();
 
     // --include-ledger removes ledger.db (requires --yes)
-    execute_reset(false, false, true, false, true).unwrap();
+    execute_reset(false, false, true, false, true, false).unwrap();
 
     assert!(!state_subdir.join("ledger.db").exists());
 }
@@ -97,7 +97,7 @@ fn test_reset_remove_config_and_rules_requires_confirmation() {
     let (_tmp, root, _guard) = setup_repo();
     execute_init(false).unwrap();
 
-    let err = execute_reset(true, true, false, false, false).unwrap_err();
+    let err = execute_reset(true, true, false, false, false, false).unwrap_err();
     assert!(format!("{err}").contains("--yes"));
     assert!(root.join(".changeguard").join("config.toml").exists());
     assert!(root.join(".changeguard").join("rules.toml").exists());
@@ -109,7 +109,7 @@ fn test_reset_remove_config_and_rules_with_confirmation() {
     let (_tmp, root, _guard) = setup_repo();
     execute_init(false).unwrap();
 
-    execute_reset(true, true, false, false, true).unwrap();
+    execute_reset(true, true, false, false, true, false).unwrap();
 
     let state_dir = root.join(".changeguard");
     assert!(!state_dir.join("config.toml").exists());
@@ -122,7 +122,7 @@ fn test_reset_all_requires_confirmation() {
     let (_tmp, root, _guard) = setup_repo();
     execute_init(false).unwrap();
 
-    let err = execute_reset(false, false, false, true, false).unwrap_err();
+    let err = execute_reset(false, false, false, true, false, false).unwrap_err();
     assert!(format!("{err}").contains("--yes"));
     assert!(root.join(".changeguard").exists());
 }
@@ -133,7 +133,7 @@ fn test_reset_all_removes_entire_tree() {
     let (_tmp, root, _guard) = setup_repo();
     execute_init(false).unwrap();
 
-    execute_reset(false, false, false, true, true).unwrap();
+    execute_reset(false, false, false, true, true, false).unwrap();
 
     assert!(!root.join(".changeguard").exists());
 }
@@ -144,8 +144,8 @@ fn test_reset_is_idempotent() {
     let (_tmp, root, _guard) = setup_repo();
     execute_init(false).unwrap();
 
-    execute_reset(false, false, false, false, false).unwrap();
-    execute_reset(false, false, false, false, false).unwrap();
+    execute_reset(false, false, false, false, false, false).unwrap();
+    execute_reset(false, false, false, false, false, false).unwrap();
 
     assert!(root.join(".changeguard").exists());
     assert!(root.join(".changeguard").join("config.toml").exists());
@@ -160,8 +160,25 @@ fn test_reset_never_touches_outside_changeguard() {
     let outside = root.join("keep.txt");
     fs::write(&outside, "keep").unwrap();
 
-    execute_reset(false, false, false, false, false).unwrap();
+    execute_reset(false, false, false, false, false, false).unwrap();
 
     assert!(outside.exists());
     assert_eq!(fs::read_to_string(outside).unwrap(), "keep");
+}
+
+#[test]
+fn test_reset_dry_run_does_not_modify_anything() {
+    let _lock = cwd_lock().lock().unwrap();
+    let (_tmp, root, _guard) = setup_repo();
+    execute_init(false).unwrap();
+
+    let state_dir = root.join(".changeguard");
+    let logs_dir = state_dir.join("logs");
+    fs::write(logs_dir.join("watch.log"), "hello").unwrap();
+
+    // Run with dry_run = true
+    execute_reset(false, false, false, false, false, true).unwrap();
+
+    // Verify it still exists
+    assert!(logs_dir.join("watch.log").exists());
 }

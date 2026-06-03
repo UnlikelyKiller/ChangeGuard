@@ -1,6 +1,7 @@
 use crate::state::layout::Layout;
 use camino::{Utf8Path, Utf8PathBuf};
 use miette::{Result, miette};
+use owo_colors::OwoColorize;
 use std::env;
 use std::fs;
 
@@ -24,8 +25,9 @@ pub fn execute_reset(
     include_ledger: bool,
     remove_all: bool,
     confirm_destructive: bool,
+    dry_run: bool,
 ) -> Result<()> {
-    if (remove_all || remove_config || remove_rules || include_ledger) && !confirm_destructive {
+    if (remove_all || remove_config || remove_rules || include_ledger) && !confirm_destructive && !dry_run {
         return Err(miette!(
             "Destructive reset options require confirmation. Re-run with '--yes'."
         ));
@@ -37,10 +39,36 @@ pub fn execute_reset(
         .map_err(|path| miette!("Current directory is not valid UTF-8: {:?}", path))?;
     let layout = Layout::new(root.as_str());
 
-    let mut items = if remove_all {
-        vec![remove_path(layout.state_dir.clone(), &layout.state_dir)]
+    // 1. Generate and print reset plan preview
+    let mut plan_items = if remove_all {
+        vec![remove_path(layout.state_dir.clone(), &layout.state_dir, true)]
     } else {
-        default_reset_items(&layout, remove_config, remove_rules, include_ledger)
+        default_reset_items(&layout, remove_config, remove_rules, include_ledger, true)
+    };
+    plan_items.sort_by(|a, b| a.path.cmp(&b.path));
+
+    println!("Reset Operation Plan Preview:");
+    for item in &plan_items {
+        let label = match &item.outcome {
+            RemovalOutcome::Removed => "would remove".yellow().to_string(),
+            RemovalOutcome::Absent => "absent (no action)".dimmed().to_string(),
+            RemovalOutcome::Preserved => "preserved".green().to_string(),
+            RemovalOutcome::Failed(_) => "failed validation".red().to_string(),
+        };
+        println!("  {:<25} : {}", label, item.path);
+    }
+
+    if dry_run {
+        println!("\nDry-run completed. No files were modified.");
+        return Ok(());
+    }
+
+    // 2. Perform actual reset
+    println!("\nExecuting reset plan...");
+    let mut items = if remove_all {
+        vec![remove_path(layout.state_dir.clone(), &layout.state_dir, false)]
+    } else {
+        default_reset_items(&layout, remove_config, remove_rules, include_ledger, false)
     };
     items.sort_by(|a, b| a.path.cmp(&b.path));
 
@@ -69,32 +97,37 @@ fn default_reset_items(
     remove_config: bool,
     remove_rules: bool,
     include_ledger: bool,
+    dry_run: bool,
 ) -> Vec<ResetItem> {
     let mut items = vec![
-        remove_path(layout.logs_dir(), &layout.state_dir),
-        remove_path(layout.tmp_dir(), &layout.state_dir),
-        remove_path(layout.reports_dir(), &layout.state_dir),
+        remove_path(layout.logs_dir(), &layout.state_dir, dry_run),
+        remove_path(layout.tmp_dir(), &layout.state_dir, dry_run),
+        remove_path(layout.reports_dir(), &layout.state_dir, dry_run),
         // Derived state files (cache, rebuildable) — always removed
         remove_path(
             layout.state_subdir().join("current-batch.json"),
             &layout.state_dir,
+            dry_run,
         ),
-        remove_path(layout.state_subdir().join("snapshots"), &layout.state_dir),
+        remove_path(layout.state_subdir().join("snapshots"), &layout.state_dir, dry_run),
         // Durable user data — preserved by default, removed only with --include-ledger
         maybe_preserve_or_remove(
             layout.state_subdir().join("ledger.db"),
             &layout.state_dir,
             include_ledger,
+            dry_run,
         ),
         maybe_preserve_or_remove(
             layout.state_subdir().join("ledger.db-wal"),
             &layout.state_dir,
             include_ledger,
+            dry_run,
         ),
         maybe_preserve_or_remove(
             layout.state_subdir().join("ledger.db-shm"),
             &layout.state_dir,
             include_ledger,
+            dry_run,
         ),
     ];
 
@@ -102,11 +135,13 @@ fn default_reset_items(
         layout.config_file(),
         &layout.state_dir,
         remove_config,
+        dry_run,
     ));
     items.push(maybe_preserve_or_remove(
         layout.rules_file(),
         &layout.state_dir,
         remove_rules,
+        dry_run,
     ));
 
     items
@@ -116,9 +151,10 @@ fn maybe_preserve_or_remove(
     path: Utf8PathBuf,
     state_root: &Utf8Path,
     should_remove: bool,
+    dry_run: bool,
 ) -> ResetItem {
     if should_remove {
-        remove_path(path, state_root)
+        remove_path(path, state_root, dry_run)
     } else {
         ResetItem {
             path,
@@ -127,14 +163,16 @@ fn maybe_preserve_or_remove(
     }
 }
 
-fn remove_path(path: Utf8PathBuf, state_root: &Utf8Path) -> ResetItem {
+fn remove_path(path: Utf8PathBuf, state_root: &Utf8Path, dry_run: bool) -> ResetItem {
     let outcome = match validate_target(&path, state_root) {
         Err(err) => RemovalOutcome::Failed(err),
         Ok(()) => match fs::symlink_metadata(&path) {
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => RemovalOutcome::Absent,
             Err(err) => RemovalOutcome::Failed(err.to_string()),
             Ok(metadata) => {
-                if let Err(err) = clear_readonly_recursive(&path) {
+                if dry_run {
+                    RemovalOutcome::Removed
+                } else if let Err(err) = clear_readonly_recursive(&path) {
                     RemovalOutcome::Failed(err.to_string())
                 } else {
                     let result = if metadata.file_type().is_dir() {

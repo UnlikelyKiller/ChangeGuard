@@ -38,6 +38,10 @@ pub fn verify_ledger_signatures(layout: &Layout) -> Result<()> {
         signing_required
     );
     let mut all_valid = true;
+    let mut valid_count = 0;
+    let mut invalid_count = 0;
+    let mut skipped_count = 0;
+
     for entry in &entries {
         match (&entry.signature, &entry.public_key) {
             (Some(sig), Some(pub_key)) => {
@@ -57,12 +61,14 @@ pub fn verify_ledger_signatures(layout: &Layout) -> Result<()> {
                         &entry.tx_id[..8],
                         &pub_key[..8]
                     );
+                    valid_count += 1;
                 } else {
                     println!(
                         "  [{}] TX {} signature verification FAILED!",
                         "INVALID".red(),
                         &entry.tx_id[..8]
                     );
+                    invalid_count += 1;
                     all_valid = false;
                 }
             }
@@ -73,6 +79,7 @@ pub fn verify_ledger_signatures(layout: &Layout) -> Result<()> {
                         "UNSIGNED".yellow(),
                         &entry.tx_id[..8]
                     );
+                    invalid_count += 1;
                     all_valid = false;
                 } else {
                     println!(
@@ -80,10 +87,18 @@ pub fn verify_ledger_signatures(layout: &Layout) -> Result<()> {
                         "SKIP".yellow(),
                         &entry.tx_id[..8]
                     );
+                    skipped_count += 1;
                 }
             }
         }
     }
+
+    println!(
+        "\nSignature verification summary: {} valid, {} invalid, {} skipped.",
+        valid_count.green(),
+        if invalid_count > 0 { invalid_count.red().to_string() } else { invalid_count.to_string() },
+        skipped_count.yellow()
+    );
 
     if all_valid {
         println!(
@@ -95,7 +110,8 @@ pub fn verify_ledger_signatures(layout: &Layout) -> Result<()> {
         Ok(())
     } else {
         Err(miette::miette!(
-            "Ledger signature verification failed: one or more entries have invalid or missing signatures."
+            "Ledger signature verification failed: {} entries have invalid or missing signatures.",
+            invalid_count
         ))
     }
 }

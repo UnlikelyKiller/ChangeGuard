@@ -13,7 +13,7 @@ const HOOK_MARKER: &str = "# changeguard-ledger-gate";
 const HOOK_BLOCK_TEMPLATE: &str = "\
 # changeguard-ledger-gate: auto-installed by `changeguard init`
 if command -v changeguard &>/dev/null; then
-    if ! changeguard ledger status --compact --exit-code 2>/dev/null; then
+    if ! changeguard ledger status --compact --exit-code --verify-signatures 2>/dev/null; then
         echo \"\"
         echo \"  Resolve with:\"
         echo \"    Pending tx:  changeguard ledger commit <tx-id> --summary '...' --reason '...'\"
@@ -254,6 +254,10 @@ pub fn execute_init(no_gitignore: bool) -> Result<()> {
         Ok(_) => {}
         Err(e) => eprintln!("Warning: could not install Git ledger gate hooks: {e}"),
     }
+
+    // 6. Initialize ledger storage database
+    let db_path = layout.state_subdir().join("ledger.db");
+    crate::state::storage::StorageManager::init(db_path.as_std_path())?;
 
     info!("ChangeGuard initialized successfully!");
     Ok(())

@@ -2,6 +2,11 @@ use crate::ui::intent_tui::{IntentState, run_tui};
 use miette::{IntoDiagnostic, Result};
 
 pub fn execute_intent_demo() -> Result<()> {
+    use std::io::IsTerminal;
+    if !crate::util::term::is_interactive() || !std::io::stdout().is_terminal() {
+        miette::bail!("Cannot launch intent demo: terminal is non-interactive or not a TTY");
+    }
+
     let mock_state = IntentState::new(
         "Refactor API authentication endpoints".to_string(),
         "Replace custom JWT verification with standard OAuth2 middleware to improve security and audit compliance.".to_string(),

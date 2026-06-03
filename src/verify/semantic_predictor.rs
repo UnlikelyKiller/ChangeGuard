@@ -6,7 +6,7 @@ use crate::impact::packet::ImpactPacket;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tracing::warn;
+use tracing::{debug, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TestStatus {
@@ -63,7 +63,7 @@ pub fn record_test_outcomes(
     }
 
     if diff_text.is_empty() {
-        warn!("Semantic prediction: diff_text is empty; skipping outcome recording");
+        debug!("Semantic prediction: diff_text is empty; skipping outcome recording");
         return Ok(0);
     }
 

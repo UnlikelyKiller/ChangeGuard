@@ -145,7 +145,7 @@ pub fn complete(
             match complete_with_endpoint(&endpoint, effective_timeout, messages, options) {
                 Ok(response) => return Ok(response),
                 Err(error) if has_ollama_cloud_fallback(config) => {
-                    tracing::warn!(
+                    tracing::debug!(
                         "Local completion failed ({error}); trying Ollama Cloud fallback"
                     );
                 }
@@ -157,7 +157,7 @@ pub fn complete(
                 local_base_url
             ));
         } else {
-            tracing::warn!(
+            tracing::debug!(
                 "Local model server at {} is unreachable; trying Ollama Cloud fallback",
                 local_base_url
             );

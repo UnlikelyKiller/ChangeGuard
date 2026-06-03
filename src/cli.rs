@@ -217,8 +217,11 @@ pub enum Commands {
         #[arg(long, short)]
         all: bool,
         /// Skip confirmation prompt
-        #[arg(long, short)]
+        #[arg(long, short = 'y')]
         yes: bool,
+        /// Show what files/directories would be deleted without deleting them
+        #[arg(long = "dry-run")]
+        dry_run: bool,
     },
     /// Health check for ChangeGuard and local model stack
     Doctor,
@@ -290,6 +293,9 @@ pub enum Commands {
         /// Force unlock CozoDB by terminating other running ChangeGuard processes
         #[arg(long = "force-unlock")]
         force_unlock: bool,
+        /// Show what update actions would be performed without executing them
+        #[arg(long = "dry-run")]
+        dry_run: bool,
     },
     /// Watch repository for changes and run incremental graph sync
     Watch {
@@ -481,6 +487,9 @@ pub enum LedgerCommands {
         /// Exit with 1 if there is unaudited drift
         #[arg(long)]
         exit_code: bool,
+        /// Perform signature verification and exit with 1 if signatures are invalid
+        #[arg(long = "verify-signatures")]
+        verify_signatures: bool,
     },
     /// Register a new tech stack rule or commit validator
     Register {
@@ -604,7 +613,7 @@ pub enum RegisterCommands {
         /// Name of the validator
         name: String,
         /// Command to execute (supports {entity} placeholder)
-        #[arg(short, long)]
+        #[arg(short = 'x', long)]
         command: String,
         /// Category this validator applies to (or 'ALL')
         #[arg(short, long)]
@@ -769,7 +778,8 @@ pub fn run_with(cli: Cli) -> Result<()> {
                 entity,
                 compact,
                 exit_code,
-            } => crate::commands::ledger::execute_ledger_status(entity, compact, exit_code),
+                verify_signatures,
+            } => crate::commands::ledger::execute_ledger_status(entity, compact, exit_code, verify_signatures),
             LedgerCommands::Register { command } => match command {
                 RegisterCommands::Rule {
                     term,
@@ -883,12 +893,14 @@ pub fn run_with(cli: Cli) -> Result<()> {
             include_ledger,
             all,
             yes,
+            dry_run,
         } => crate::commands::reset::execute_reset(
             remove_config,
             remove_rules,
             include_ledger,
             all,
             yes,
+            dry_run,
         ),
         Commands::Doctor => crate::commands::doctor::execute_doctor(),
         Commands::Config { command } => match command {
@@ -920,7 +932,8 @@ pub fn run_with(cli: Cli) -> Result<()> {
             binary,
             force,
             force_unlock,
-        } => crate::commands::update::execute_update(migrate, binary, force, force_unlock),
+            dry_run,
+        } => crate::commands::update::execute_update(migrate, binary, force, force_unlock, dry_run),
         Commands::Watch {
             interval,
             json,

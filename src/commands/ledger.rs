@@ -234,8 +234,14 @@ pub fn execute_ledger_status(
     entity_filter: Option<String>,
     compact: bool,
     exit_code: bool,
+    verify_signatures: bool,
 ) -> Result<()> {
     let layout = get_layout()?;
+
+    if verify_signatures {
+        crate::commands::verify::verify_ledger_signatures(&layout)?;
+    }
+
     let mut storage = StorageManager::open_read_only_sqlite_only(&layout.root)?;
     let config = load_ledger_config(&layout)?;
     let stale_threshold = config.ledger.stale_threshold_hours as i64;
@@ -547,6 +553,9 @@ pub fn execute_ledger_gc(orphans: bool, ttl_days: u64, force: bool) -> Result<()
             }
         }
     } else {
+        if force {
+            return Err(miette::miette!("--force requires --orphans (or other GC mode)."));
+        }
         println!("Please specify a GC mode (e.g. --orphans)");
     }
 
