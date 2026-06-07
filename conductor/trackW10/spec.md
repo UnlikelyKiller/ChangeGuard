@@ -6,15 +6,16 @@ Runtime and observability signal tracking currently scores 6/10. ChangeGuard has
 
 ## Objective
 
-Raise observability tracking to 9/10 by modeling metrics, logs, traces, alerts, dashboards, SLOs, incidents, owners, and service links as graph entities.
+Raise observability tracking to 9/10 by modeling metrics, logs, traces, OpenSLO reliability targets, alerts, dashboards, incidents, owners, and service links as graph entities.
 
 ## Proposed Design
 
-1. Add observability graph nodes for metric, log pattern, trace span, alert, dashboard, SLO, incident, runtime service, and owner.
-2. Parse common alerting, dashboard, and SLO config files locally.
-3. Link runtime signals to services, endpoints, code symbols, deploy manifests, tests, ADRs, and incidents.
-4. Add impact rules for changed code with missing observability, changed SLO-owned services, alerts without owners, and deploy changes without runtime signal coverage.
-5. Add `changeguard observability diff` and `changeguard observability coverage`.
+1. Add observability graph nodes for metric, log pattern, trace span, alert, dashboard, OpenSLO service, SLI, SLO, incident, runtime service, and owner.
+2. Make OpenSLO YAML the primary SLO/reliability-target ingestion format, including `Service`, `SLO`, `SLI`, `DataSource`, `AlertPolicy`, `AlertCondition`, and notification target objects where present.
+3. Keep Prometheus/log/dashboard/provider-specific parsing as secondary evidence for repos that have not adopted OpenSLO.
+4. Link runtime signals and OpenSLO targets to services, endpoints, code symbols, deploy manifests, tests, ADRs, and incidents.
+5. Add impact rules for changed code with missing observability, changed SLO-owned services, alert owner gaps, OpenSLO target changes, and deploy changes without runtime signal coverage.
+6. Add `changeguard observability diff` and `changeguard observability coverage`.
 
 ## Critical Files
 
@@ -22,6 +23,7 @@ Raise observability tracking to 9/10 by modeling metrics, logs, traces, alerts, 
 |---|---|
 | `src/observability/prometheus.rs` | Keep live query optional and local-first |
 | `src/observability/log_scanner.rs` | Link log patterns to graph nodes |
+| OpenSLO YAML importer | Add primary reliability-target parser and fixtures |
 | `src/impact/enrichment/observability.rs` | Add SLO, alert, and owner risk rules |
 | `src/coverage/traces.rs` | Link trace config to services and endpoints |
 | `src/commands/` and `src/cli.rs` | Add observability review commands |
@@ -29,6 +31,7 @@ Raise observability tracking to 9/10 by modeling metrics, logs, traces, alerts, 
 ## Definition of Done
 
 - Runtime signals link to services, endpoints, deploy surfaces, tests, and owners where known.
+- OpenSLO YAML is the primary SLO ingestion path; provider-specific alert/dashboard parsers are secondary evidence.
 - Missing observability on high-risk changes is reported with remediation guidance.
 - Live Prometheus or incident integrations remain optional.
 - Target score after completion: 9/10.

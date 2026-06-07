@@ -1,17 +1,20 @@
 # Track W8 Plan: Dependency, SDK, and Advisory Graph
 
-- [ ] Task W8.1: Create fixtures for Cargo, npm, Python, Go, and scanner output formats.
+- [ ] Task W8.1: Create fixtures for Cargo, npm, Python, Go, OSV-Scanner JSON, and optional scanner compatibility output formats.
 - [ ] Task W8.2: Write tests for direct/transitive graph construction and deterministic ordering.
 - [ ] Task W8.3: Add package graph node and edge types using W1 helpers.
 - [ ] Task W8.4: Extend SDK/provider usage extraction and service/config links.
-- [ ] Task W8.5: Add local advisory ingestion adapters for scanner JSON outputs.
-- [ ] Task W8.6: Add impact rules for vulnerable paths, major upgrades, removed SDKs, and auth/config provider changes.
-- [ ] Task W8.7: Add dependency graph review command output with human and JSON modes.
-- [ ] Task W8.8: Run package graph, SDK, advisory, and full verification gates; reinstall.
+- [ ] Task W8.5: Add the primary OSV-Scanner JSON importer, including offline-run metadata and schema-version handling.
+- [ ] Task W8.6: Add optional compatibility importers for cargo-deny, cargo-audit, npm audit, and pip-audit only after OSV ingestion is green.
+- [ ] Task W8.7: Add impact rules for OSV vulnerable paths, major upgrades, removed SDKs, and auth/config provider changes.
+- [ ] Task W8.8: Add dependency graph review command output with human and JSON modes.
+- [ ] Task W8.9: Document the local-first OSV workflow, including `--offline`, local DB cache expectations, and failure behavior when the cache is missing.
+- [ ] Task W8.10: Run package graph, SDK, advisory, and full verification gates; reinstall.
 
 ## Definition of Done Checklist
 
 - [ ] Dependency paths distinguish direct and transitive edges.
-- [ ] Advisory matches include evidence and affected services where known.
+- [ ] OSV advisory matches include evidence and affected services where known.
+- [ ] Optional scanner compatibility imports cannot bypass the normalized OSV-style advisory graph.
 - [ ] No network dependency is required for baseline functionality.
 - [ ] Full verification gate passes.

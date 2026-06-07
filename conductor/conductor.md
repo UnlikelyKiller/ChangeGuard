@@ -1461,8 +1461,8 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Dependencies: W1, W4, W6
     *   Spec: `conductor/trackW8/spec.md`
     *   Plan: `conductor/trackW8/plan.md`
-    *   Goal: Raise dependency and SDK tracking from 6/10 to 9/10 with direct/transitive package graphs, local advisory ingestion, provider SDK links, service exposure, and vulnerability-path impact.
-    *   Definition of done: Dependency paths distinguish direct/transitive edges, advisory matches name evidence and affected services, no network dependency is required for baseline behavior, and full verification plus reinstall passes.
+    *   Goal: Raise dependency and SDK tracking from 6/10 to 9/10 with direct/transitive package graphs, OSV-Scanner offline JSON ingestion, provider SDK links, service exposure, and vulnerability-path impact.
+    *   Definition of done: Dependency paths distinguish direct/transitive edges, OSV advisory matches name evidence and affected services, no network dependency is required for baseline behavior, optional scanner imports normalize through the advisory graph, and full verification plus reinstall passes.
 
 *   **Track W9: Test and Verification Mapping Confidence**
     *   Status: Proposed
@@ -1477,8 +1477,8 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Dependencies: W1, W4, W7, W9
     *   Spec: `conductor/trackW10/spec.md`
     *   Plan: `conductor/trackW10/plan.md`
-    *   Goal: Raise runtime/observability tracking from 6/10 to 9/10 with metrics, logs, traces, alerts, dashboards, SLOs, incidents, owners, runtime service identity, and observability coverage output.
-    *   Definition of done: Observability coverage is inspectable per service/endpoint, SLO and alert owner gaps are explicit, live integrations remain optional, and full verification plus reinstall passes.
+    *   Goal: Raise runtime/observability tracking from 6/10 to 9/10 with metrics, logs, traces, OpenSLO reliability targets, alerts, dashboards, incidents, owners, runtime service identity, and observability coverage output.
+    *   Definition of done: Observability coverage is inspectable per service/endpoint, OpenSLO objects link to services and owners, SLO and alert owner gaps are explicit, live integrations remain optional, and full verification plus reinstall passes.
 
 *   **Track W11: Hotspot and Temporal Coupling Trends**
     *   Status: Proposed
@@ -1501,8 +1501,8 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Dependencies: W1, W2, W4, W6, W7, W8, W9, W12
     *   Spec: `conductor/trackW13/spec.md`
     *   Plan: `conductor/trackW13/plan.md`
-    *   Goal: Raise security boundary tracking from 7/10 to 9/10 with auth/authz graph nodes, roles, scopes, policies, secret dependencies, protected resources, process boundaries, and security impact output.
-    *   Definition of done: Security graph output is useful without exposing secrets, auth/authz changes affect endpoint/service impact, protected path and process-policy changes name review requirements, and full verification plus reinstall passes.
+    *   Goal: Raise security boundary tracking from 7/10 to 9/10 with auth/authz graph nodes, Cedar policy parsing, roles, scopes, secret dependencies, protected resources, process boundaries, and security impact output.
+    *   Definition of done: Security graph output is useful without exposing secrets, Cedar principal/action/resource edges are queryable, auth/authz changes affect endpoint/service impact, protected path and process-policy changes name review requirements, and full verification plus reinstall passes.
 
 
 ## Workflow
