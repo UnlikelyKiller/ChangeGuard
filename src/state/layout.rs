@@ -2,6 +2,7 @@ use crate::state::StateError;
 use camino::{Utf8Path, Utf8PathBuf};
 use miette::Result;
 use std::fs;
+use std::path::{Component, Path, PathBuf};
 
 pub const STATE_DIR: &str = ".changeguard";
 pub const LOGS_DIR: &str = "logs";
@@ -21,7 +22,7 @@ pub struct Layout {
 
 impl Layout {
     pub fn new<P: AsRef<Utf8Path>>(root: P) -> Self {
-        let root = root.as_ref().to_path_buf();
+        let root = normalize_root(root.as_ref());
         let state_dir = root.join(STATE_DIR);
         Self { root, state_dir }
     }
@@ -106,6 +107,52 @@ impl Layout {
     }
 }
 
+fn normalize_root(root: &Utf8Path) -> Utf8PathBuf {
+    let path = root.as_std_path();
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map(|cwd| cwd.join(path))
+            .unwrap_or_else(|_| path.to_path_buf())
+    };
+    let normalized = correct_component_case(&absolute);
+
+    Utf8PathBuf::from_path_buf(normalized).unwrap_or_else(|_| root.to_path_buf())
+}
+
+fn correct_component_case(path: &Path) -> PathBuf {
+    let mut corrected = PathBuf::new();
+
+    for component in path.components() {
+        match component {
+            Component::Prefix(prefix) => corrected.push(prefix.as_os_str()),
+            Component::RootDir => corrected.push(std::path::MAIN_SEPARATOR.to_string()),
+            Component::CurDir => {}
+            Component::ParentDir => corrected.push(".."),
+            Component::Normal(name) => {
+                let parent = if corrected.as_os_str().is_empty() {
+                    Path::new(".")
+                } else {
+                    corrected.as_path()
+                };
+                let actual_name = fs::read_dir(parent).ok().and_then(|entries| {
+                    entries.filter_map(|entry| entry.ok()).find_map(|entry| {
+                        let file_name = entry.file_name();
+                        file_name
+                            .to_string_lossy()
+                            .eq_ignore_ascii_case(&name.to_string_lossy())
+                            .then_some(file_name)
+                    })
+                });
+                corrected.push(actual_name.as_deref().unwrap_or(name));
+            }
+        }
+    }
+
+    corrected
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -116,11 +163,21 @@ mod tests {
         let tmp = tempdir().unwrap();
         let root = Utf8Path::from_path(tmp.path()).unwrap();
         let layout = Layout::new(root);
+        let expected_root = Utf8PathBuf::from_path_buf(tmp.path().to_path_buf()).unwrap();
 
-        assert_eq!(layout.state_dir, root.join(STATE_DIR));
-        assert_eq!(layout.logs_dir(), root.join(STATE_DIR).join(LOGS_DIR));
-        assert_eq!(layout.config_file(), root.join(STATE_DIR).join(CONFIG_FILE));
-        assert_eq!(layout.rules_file(), root.join(STATE_DIR).join(RULES_FILE));
+        assert_eq!(layout.state_dir, expected_root.join(STATE_DIR));
+        assert_eq!(
+            layout.logs_dir(),
+            expected_root.join(STATE_DIR).join(LOGS_DIR)
+        );
+        assert_eq!(
+            layout.config_file(),
+            expected_root.join(STATE_DIR).join(CONFIG_FILE)
+        );
+        assert_eq!(
+            layout.rules_file(),
+            expected_root.join(STATE_DIR).join(RULES_FILE)
+        );
     }
 
     #[test]
@@ -136,5 +193,18 @@ mod tests {
         assert!(layout.tmp_dir().exists());
         assert!(layout.reports_dir().exists());
         assert!(layout.state_subdir().exists());
+    }
+
+    #[test]
+    fn layout_normalizes_existing_roots_to_absolute_paths() {
+        let tmp = tempdir().unwrap();
+        let original = std::env::current_dir().unwrap();
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let layout = Layout::new(".");
+
+        std::env::set_current_dir(original).unwrap();
+        assert!(layout.root.is_absolute());
+        assert_eq!(layout.root.as_std_path(), tmp.path());
     }
 }

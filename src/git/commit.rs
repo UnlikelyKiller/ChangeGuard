@@ -135,7 +135,16 @@ fn has_staged_changes() -> Result<bool, GitStateError> {
 
     // exit 0 = no differences (no staged changes) â†’ return false
     // exit 1 = differences (staged changes) â†’ return true
-    Ok(!status.success())
+    match status.code() {
+        Some(0) => Ok(false),
+        Some(1) => Ok(true),
+        Some(code) => Err(GitStateError::CommandFailed(format!(
+            "git diff --cached --quiet exited with status {code}"
+        ))),
+        None => Err(GitStateError::CommandFailed(
+            "git diff --cached --quiet terminated by signal".to_string(),
+        )),
+    }
 }
 
 /// Invoke `git commit` with the given message and optional signoff.

@@ -43,16 +43,13 @@ pub fn execute_reset(
     let layout = Layout::new(root.as_str());
 
     // 1. Generate and print reset plan preview
-    let mut plan_items = if remove_all {
-        vec![remove_path(
-            layout.state_dir.clone(),
-            &layout.state_dir,
-            true,
-        )]
-    } else {
-        default_reset_items(&layout, remove_config, remove_rules, include_ledger, true)
-    };
-    plan_items.sort_by(|a, b| a.path.cmp(&b.path));
+    let plan_items = reset_plan_items(
+        &layout,
+        remove_config,
+        remove_rules,
+        include_ledger,
+        remove_all,
+    );
 
     println!("Reset Operation Plan Preview:");
     for item in &plan_items {
@@ -160,6 +157,131 @@ fn default_reset_items(
     ));
 
     items
+}
+
+fn reset_plan_items(
+    layout: &Layout,
+    remove_config: bool,
+    remove_rules: bool,
+    include_ledger: bool,
+    remove_all: bool,
+) -> Vec<ResetItem> {
+    let mut items = if remove_all {
+        plan_path(layout.state_dir.clone(), &layout.state_dir)
+    } else {
+        default_plan_items(layout, remove_config, remove_rules, include_ledger)
+    };
+    items.sort_by(|a, b| a.path.cmp(&b.path));
+    items
+}
+
+fn default_plan_items(
+    layout: &Layout,
+    remove_config: bool,
+    remove_rules: bool,
+    include_ledger: bool,
+) -> Vec<ResetItem> {
+    let mut items = Vec::new();
+    items.extend(plan_path(layout.logs_dir(), &layout.state_dir));
+    items.extend(plan_path(layout.tmp_dir(), &layout.state_dir));
+    items.extend(plan_path(layout.reports_dir(), &layout.state_dir));
+    items.extend(plan_path(
+        layout.state_subdir().join("current-batch.json"),
+        &layout.state_dir,
+    ));
+    items.extend(plan_path(
+        layout.state_subdir().join("snapshots"),
+        &layout.state_dir,
+    ));
+    items.extend(maybe_preserve_or_plan(
+        layout.state_subdir().join("ledger.db"),
+        &layout.state_dir,
+        include_ledger,
+    ));
+    items.extend(maybe_preserve_or_plan(
+        layout.state_subdir().join("ledger.db-wal"),
+        &layout.state_dir,
+        include_ledger,
+    ));
+    items.extend(maybe_preserve_or_plan(
+        layout.state_subdir().join("ledger.db-shm"),
+        &layout.state_dir,
+        include_ledger,
+    ));
+    items.extend(maybe_preserve_or_plan(
+        layout.config_file(),
+        &layout.state_dir,
+        remove_config,
+    ));
+    items.extend(maybe_preserve_or_plan(
+        layout.rules_file(),
+        &layout.state_dir,
+        remove_rules,
+    ));
+    items
+}
+
+fn maybe_preserve_or_plan(
+    path: Utf8PathBuf,
+    state_root: &Utf8Path,
+    should_remove: bool,
+) -> Vec<ResetItem> {
+    if should_remove {
+        plan_path(path, state_root)
+    } else {
+        vec![ResetItem {
+            path,
+            outcome: RemovalOutcome::Preserved,
+        }]
+    }
+}
+
+fn plan_path(path: Utf8PathBuf, state_root: &Utf8Path) -> Vec<ResetItem> {
+    let mut items = Vec::new();
+    collect_plan_path(path, state_root, &mut items);
+    items
+}
+
+fn collect_plan_path(path: Utf8PathBuf, state_root: &Utf8Path, items: &mut Vec<ResetItem>) {
+    let outcome = match validate_target(&path, state_root) {
+        Err(err) => RemovalOutcome::Failed(err),
+        Ok(()) => match fs::symlink_metadata(&path) {
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => RemovalOutcome::Absent,
+            Err(err) => RemovalOutcome::Failed(err.to_string()),
+            Ok(metadata) => {
+                if metadata.is_dir() && !metadata.file_type().is_symlink() {
+                    match fs::read_dir(&path) {
+                        Ok(entries) => {
+                            for entry in entries {
+                                match entry {
+                                    Ok(entry) => match Utf8PathBuf::from_path_buf(entry.path()) {
+                                        Ok(child) => collect_plan_path(child, state_root, items),
+                                        Err(path) => items.push(ResetItem {
+                                            path: path.to_string_lossy().into_owned().into(),
+                                            outcome: RemovalOutcome::Failed(
+                                                "encountered non-UTF-8 path during reset preview"
+                                                    .to_string(),
+                                            ),
+                                        }),
+                                    },
+                                    Err(err) => items.push(ResetItem {
+                                        path: path.clone(),
+                                        outcome: RemovalOutcome::Failed(err.to_string()),
+                                    }),
+                                }
+                            }
+                            RemovalOutcome::Removed
+                        }
+                        Err(err) => RemovalOutcome::Failed(err.to_string()),
+                    }
+                } else {
+                    RemovalOutcome::Removed
+                }
+            }
+        },
+    };
+
+    items.push(ResetItem { path, outcome });
 }
 
 fn maybe_preserve_or_remove(
@@ -270,5 +392,38 @@ mod tests {
         let state_root = Utf8Path::new("repo/.changeguard");
         let other = Utf8Path::new("repo/src");
         assert!(validate_target(other, state_root).is_err());
+    }
+
+    #[test]
+    fn reset_all_plan_lists_nested_files_before_removal() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = Utf8PathBuf::from_path_buf(tmp.path().to_path_buf()).unwrap();
+        let layout = Layout::new(&root);
+        layout.ensure_state_dir().unwrap();
+        fs::write(layout.config_file(), "config").unwrap();
+        fs::write(layout.state_subdir().join("ledger.db"), "ledger").unwrap();
+        fs::write(layout.logs_dir().join("watch.log"), "log").unwrap();
+
+        let plan = reset_plan_items(&layout, false, false, false, true);
+        let paths = plan
+            .iter()
+            .map(|item| item.path.as_str().replace('\\', "/"))
+            .collect::<Vec<_>>();
+
+        assert!(
+            paths
+                .iter()
+                .any(|path| path.ends_with(".changeguard/config.toml"))
+        );
+        assert!(
+            paths
+                .iter()
+                .any(|path| path.ends_with(".changeguard/state/ledger.db"))
+        );
+        assert!(
+            paths
+                .iter()
+                .any(|path| path.ends_with(".changeguard/logs/watch.log"))
+        );
     }
 }

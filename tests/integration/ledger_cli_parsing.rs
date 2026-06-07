@@ -129,6 +129,69 @@ fn test_commit_success_required_only() {
     assert!(is_ledger(&cli.command));
 }
 
+#[test]
+fn test_commit_accepts_git_flags() {
+    let cli = parse_ok(&[
+        "changeguard",
+        "ledger",
+        "commit",
+        "tx-123",
+        "--summary",
+        "fix bug",
+        "--reason",
+        "it was broken",
+        "--with-git",
+        "--git-message",
+        "custom message",
+        "--no-signoff",
+        "--dry-run",
+    ]);
+    let Commands::Ledger { command, .. } = cli.command else {
+        panic!("expected Ledger command");
+    };
+    let LedgerCommands::Commit {
+        tx_id,
+        with_git,
+        git_message,
+        no_signoff,
+        dry_run,
+        ..
+    } = command
+    else {
+        panic!("expected Commit");
+    };
+    assert_eq!(tx_id.as_deref(), Some("tx-123"));
+    assert!(with_git);
+    assert_eq!(git_message.as_deref(), Some("custom message"));
+    assert!(no_signoff);
+    assert!(dry_run);
+}
+
+#[test]
+fn test_commit_rejects_git_flags_without_with_git() {
+    for flag in ["--git-message", "--no-signoff", "--dry-run"] {
+        let mut args = vec![
+            "changeguard",
+            "ledger",
+            "commit",
+            "--summary",
+            "fix bug",
+            "--reason",
+            "it was broken",
+            flag,
+        ];
+        if flag == "--git-message" {
+            args.push("custom message");
+        }
+
+        let text = parse_err(&args);
+        assert!(
+            text.contains("--with-git") || text.contains("with-git"),
+            "expected --with-git requirement for {flag}: {text}"
+        );
+    }
+}
+
 // ===========================================================================
 // Atomic
 // ===========================================================================

@@ -453,6 +453,18 @@ pub enum LedgerCommands {
         /// Mark as a breaking change
         #[arg(long)]
         breaking: bool,
+        /// Create a git commit after the ledger commit succeeds
+        #[arg(long)]
+        with_git: bool,
+        /// Override the generated git commit message
+        #[arg(long, requires = "with_git")]
+        git_message: Option<String>,
+        /// Skip adding a git Signed-off-by trailer
+        #[arg(long, requires = "with_git")]
+        no_signoff: bool,
+        /// Print the git commit command without executing it
+        #[arg(long, requires = "with_git")]
+        dry_run: bool,
     },
     /// Roll back an active transaction
     Rollback {
@@ -759,7 +771,22 @@ pub fn run_with(cli: Cli) -> Result<()> {
                 summary,
                 reason,
                 breaking,
-            } => crate::commands::ledger::execute_ledger_commit(tx_id, &summary, &reason, breaking),
+                with_git,
+                git_message,
+                no_signoff,
+                dry_run,
+            } => crate::commands::ledger::execute_ledger_commit(
+                tx_id,
+                &summary,
+                &reason,
+                breaking,
+                crate::commands::ledger::LedgerCommitGitOptions {
+                    with_git,
+                    git_message,
+                    signoff: !no_signoff,
+                    dry_run,
+                },
+            ),
             LedgerCommands::Rollback { tx_id, reason } => {
                 crate::commands::ledger::execute_ledger_rollback(tx_id, reason)
             }

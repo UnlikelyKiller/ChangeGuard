@@ -59,13 +59,17 @@ fn test_init_command_integration() {
     let pre_commit = fs::read_to_string(root.join(".git").join("hooks").join("pre-commit"))
         .expect("pre-commit hook should be installed");
     assert!(pre_commit.contains("# changeguard-ledger-gate"));
-    assert!(pre_commit.contains("changeguard ledger status --compact --exit-code"));
+    assert!(
+        pre_commit.contains("changeguard ledger status --compact --exit-code --verify-signatures")
+    );
     assert!(pre_commit.contains("git commit --no-verify"));
 
     let pre_push = fs::read_to_string(root.join(".git").join("hooks").join("pre-push"))
         .expect("pre-push hook should be installed");
     assert!(pre_push.contains("# changeguard-ledger-gate"));
-    assert!(pre_push.contains("changeguard ledger status --compact --exit-code"));
+    assert!(
+        pre_push.contains("changeguard ledger status --compact --exit-code --verify-signatures")
+    );
     assert!(pre_push.contains("git push --no-verify"));
 }
 

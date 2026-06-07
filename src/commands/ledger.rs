@@ -1,4 +1,5 @@
 use crate::commands::helpers::{get_layout, load_ledger_config};
+use crate::git::commit::{DEFAULT_COMMIT_MESSAGE_TEMPLATE, format_commit_message, git_commit};
 use crate::ledger::*;
 use crate::state::storage::StorageManager;
 use crate::util::clock::{Clock, SystemClock};
@@ -57,11 +58,20 @@ fn resolve_start_category(input: &str) -> Result<Category> {
     ))
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct LedgerCommitGitOptions {
+    pub with_git: bool,
+    pub git_message: Option<String>,
+    pub signoff: bool,
+    pub dry_run: bool,
+}
+
 pub fn execute_ledger_commit(
     tx_id: Option<String>,
     summary: &str,
     reason: &str,
     breaking: bool,
+    git_options: LedgerCommitGitOptions,
 ) -> Result<()> {
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
@@ -86,9 +96,16 @@ pub fn execute_ledger_commit(
             .ok_or_else(|| miette::miette!("No active transaction found to commit"))?
     };
 
+    let tx_category = tx_mgr
+        .get_transaction(&resolved_id)
+        .map_err(|e| miette::miette!("{}", e))?
+        .ok_or_else(|| miette::miette!("Transaction not found: {resolved_id}"))?
+        .category
+        .to_string();
+
     tx_mgr
         .commit_change(
-            resolved_id,
+            resolved_id.clone(),
             CommitRequest {
                 change_type: ChangeType::Modify,
                 summary: summary.to_string(),
@@ -101,7 +118,85 @@ pub fn execute_ledger_commit(
         .map_err(|e| miette::miette!("{}", e))?;
 
     println!("{}", "Transaction committed.".green().bold());
+
+    if git_options.with_git {
+        execute_git_commit(
+            &config.ledger.git_commit_template,
+            &tx_category,
+            summary,
+            &resolved_id,
+            git_options,
+        );
+    }
+
     Ok(())
+}
+
+fn execute_git_commit(
+    configured_template: &Option<String>,
+    category: &str,
+    summary: &str,
+    tx_id: &str,
+    options: LedgerCommitGitOptions,
+) {
+    let message = options.git_message.unwrap_or_else(|| {
+        let template = configured_template
+            .as_deref()
+            .unwrap_or(DEFAULT_COMMIT_MESSAGE_TEMPLATE);
+        format_commit_message(template, category, summary, tx_id)
+    });
+
+    if options.dry_run {
+        println!(
+            "Dry run: {}",
+            display_git_commit_command(&message, options.signoff)
+        );
+        return;
+    }
+
+    match crate::git::commit::can_commit() {
+        Ok(true) => {}
+        Ok(false) => {
+            eprintln!(
+                "{}",
+                "Warning: Git commit skipped because no files are staged. Ledger commit is complete. Stage files and retry git manually.".yellow()
+            );
+            return;
+        }
+        Err(err) => {
+            eprintln!(
+                "{}",
+                format!(
+                    "Warning: Git commit skipped: {err}. Ledger commit is complete. Resolve git state and retry manually."
+                )
+                .yellow()
+            );
+            return;
+        }
+    }
+
+    match git_commit(&message, options.signoff) {
+        Ok(()) => println!("{}", "Git commit created.".green().bold()),
+        Err(err) => {
+            eprintln!(
+                "{}",
+                format!(
+                    "Warning: Git commit failed: {err}. Ledger commit is complete. Retry with: {}",
+                    display_git_commit_command(&message, options.signoff)
+                )
+                .yellow()
+            );
+        }
+    }
+}
+
+fn display_git_commit_command(message: &str, signoff: bool) -> String {
+    let escaped_message = message.replace('"', "\\\"");
+    let mut command = format!("git commit -m \"{escaped_message}\"");
+    if signoff {
+        command.push_str(" --signoff");
+    }
+    command
 }
 
 pub fn execute_ledger_rollback(tx_id: Option<String>, reason: String) -> Result<()> {

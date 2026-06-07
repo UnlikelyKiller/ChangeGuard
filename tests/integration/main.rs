@@ -36,6 +36,7 @@ mod ledger_crypto;
 mod ledger_drift;
 mod ledger_enforcement;
 mod ledger_federation;
+mod ledger_git_commit;
 mod ledger_lifecycle;
 mod ledger_provenance;
 mod ledger_search;
