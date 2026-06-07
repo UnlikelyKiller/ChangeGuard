@@ -1399,6 +1399,112 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Key additions: Added `--dry-run` to `Update` CLI command definition, mapped it in `src/cli.rs` dispatch, and implemented dry-run print warnings in `src/commands/update.rs`.
 
 
+## Milestone W: Large-Repo Tracking Graph (Planned)
+
+*   **Track W1: Entity Graph Schema and Cross-Surface Links**
+    *   Status: Proposed
+    *   Spec: `conductor/trackW1/spec.md`
+    *   Plan: `conductor/trackW1/plan.md`
+    *   Goal: Build the typed graph foundation that links endpoints, handlers, symbols, tests, ADRs, ledger transactions, services, data, config, dependencies, deployments, observability, hotspots, and security boundaries.
+    *   Definition of done: Deterministic schema-versioned graph relations exist, at least one impact provider consumes shared traversal helpers, migrations preserve existing state, and full ChangeGuard verification plus reinstall passes.
+
+*   **Track W2: Public API Endpoint Ownership, Auth, and Consumer Graph**
+    *   Status: Proposed
+    *   Dependencies: W1
+    *   Spec: `conductor/trackW2/spec.md`
+    *   Plan: `conductor/trackW2/plan.md`
+    *   Goal: Raise endpoint tracking from 7/10 to 9/10 by linking routes, OpenAPI operations, request/response schemas, auth, services, owners, tests, and consumers.
+    *   Definition of done: Endpoint output distinguishes known, inferred, configured, and unknown facts; breaking endpoint/auth/schema changes raise explicit impact risk; full verification plus reinstall passes.
+
+*   **Track W3: ADR Lifecycle and Decision Governance**
+    *   Status: Proposed
+    *   Dependencies: W1
+    *   Spec: `conductor/trackW3/spec.md`
+    *   Plan: `conductor/trackW3/plan.md`
+    *   Goal: Raise ADR tracking from 6/10 to 9/10 with structured status, owner, supersession, review metadata, entity links, and impact warnings for governed code.
+    *   Definition of done: ADR lifecycle is manageable through CLI commands, active and superseded decisions link to graph entities, stale/conflicting decisions affect impact, and full verification plus reinstall passes.
+
+*   **Track W4: Service Boundary Ownership and Async Topology**
+    *   Status: Proposed
+    *   Dependencies: W1, W2
+    *   Spec: `conductor/trackW4/spec.md`
+    *   Plan: `conductor/trackW4/plan.md`
+    *   Goal: Raise service boundary tracking from 7/10 to 9/10 with owner overlays, runtime names, queues, topics, RPC, external calls, data stores, deploy links, and service diff output.
+    *   Definition of done: Services have declared/inferred topology with conflict reporting, async boundary changes affect impact, and full verification plus reinstall passes.
+
+*   **Track W5: Data Model and Migration Compatibility Graph**
+    *   Status: Proposed
+    *   Dependencies: W1, W4
+    *   Spec: `conductor/trackW5/spec.md`
+    *   Plan: `conductor/trackW5/plan.md`
+    *   Goal: Raise data model and migration tracking from 7/10 to 9/10 by classifying schema changes, ownership, compatibility risk, backfill requirements, and downstream endpoint/service/test impact.
+    *   Definition of done: Migration compatibility is explicit, destructive changes raise targeted risk, data models link to services/endpoints/tests/ADRs, and full verification plus reinstall passes.
+
+*   **Track W6: Config and Environment Variable Ownership**
+    *   Status: Proposed
+    *   Dependencies: W1, W4
+    *   Spec: `conductor/trackW6/spec.md`
+    *   Plan: `conductor/trackW6/plan.md`
+    *   Goal: Raise config/env tracking from 8/10 to 9/10 with requiredness, defaults, secret status, owners, environment scope, providers, rotation policy, and service-scoped diff output.
+    *   Definition of done: Config output separates unknown/optional/required/defaulted states, secret values stay redacted in every output mode, config changes map to services/tests where known, and full verification plus reinstall passes.
+
+*   **Track W7: CI/CD and Deployment Surface Ownership**
+    *   Status: Proposed
+    *   Dependencies: W1, W4, W6
+    *   Spec: `conductor/trackW7/spec.md`
+    *   Plan: `conductor/trackW7/plan.md`
+    *   Goal: Raise CI/CD and deployment tracking from 7/10 to 9/10 with workflow jobs, release gates, environments, artifacts, deploy manifests, owners, secrets, service links, and CI/deploy diff output.
+    *   Definition of done: CI/deploy surfaces include owner/environment metadata where available, release gate weakening raises risk, manifest changes map to services and verification hints, and full verification plus reinstall passes.
+
+*   **Track W8: Dependency, SDK, and Advisory Graph**
+    *   Status: Proposed
+    *   Dependencies: W1, W4, W6
+    *   Spec: `conductor/trackW8/spec.md`
+    *   Plan: `conductor/trackW8/plan.md`
+    *   Goal: Raise dependency and SDK tracking from 6/10 to 9/10 with direct/transitive package graphs, local advisory ingestion, provider SDK links, service exposure, and vulnerability-path impact.
+    *   Definition of done: Dependency paths distinguish direct/transitive edges, advisory matches name evidence and affected services, no network dependency is required for baseline behavior, and full verification plus reinstall passes.
+
+*   **Track W9: Test and Verification Mapping Confidence**
+    *   Status: Proposed
+    *   Dependencies: W1, W2, W4, W5, W6
+    *   Spec: `conductor/trackW9/spec.md`
+    *   Plan: `conductor/trackW9/plan.md`
+    *   Goal: Raise test mapping from 7/10 to 9/10 with durable test nodes, owners, risk classes, flakiness, last result, coverage confidence, and per-entity verification explanations.
+    *   Definition of done: Test selection is explainable per entity, confidence/flakiness affect recommendations, missing-test gaps are surfaced for high-risk changes, and full verification plus reinstall passes.
+
+*   **Track W10: Runtime Observability, SLO, and Alert Ownership Graph**
+    *   Status: Proposed
+    *   Dependencies: W1, W4, W7, W9
+    *   Spec: `conductor/trackW10/spec.md`
+    *   Plan: `conductor/trackW10/plan.md`
+    *   Goal: Raise runtime/observability tracking from 6/10 to 9/10 with metrics, logs, traces, alerts, dashboards, SLOs, incidents, owners, runtime service identity, and observability coverage output.
+    *   Definition of done: Observability coverage is inspectable per service/endpoint, SLO and alert owner gaps are explicit, live integrations remain optional, and full verification plus reinstall passes.
+
+*   **Track W11: Hotspot and Temporal Coupling Trends**
+    *   Status: Proposed
+    *   Dependencies: W1, W4, W9
+    *   Spec: `conductor/trackW11/spec.md`
+    *   Plan: `conductor/trackW11/plan.md`
+    *   Goal: Raise hotspot and temporal coupling tracking from 9/10 to 10/10 with persisted trend history, owner/service/test links, budgets, and explain output.
+    *   Definition of done: Trend output is reproducible, budget violations can warn or fail by policy, hotspots include owner/service/test context when known, and full verification plus reinstall passes.
+
+*   **Track W12: Ledger Transaction Entity Links and Validator UX**
+    *   Status: Proposed
+    *   Dependencies: W1, W3, W9, W11
+    *   Spec: `conductor/trackW12/spec.md`
+    *   Plan: `conductor/trackW12/plan.md`
+    *   Goal: Raise provenance/ledger tracking from 9/10 to 10/10 with validator IDs and lifecycle commands, transaction graph neighborhoods, hook diagnostics, repair commands, and stable provenance export.
+    *   Definition of done: Validator UX requires no manual database edits, transaction graph output shows affected entities and evidence, hook mismatch repair is auditable, and full verification plus reinstall passes.
+
+*   **Track W13: Security Boundary, Authz, and Policy Graph**
+    *   Status: Proposed
+    *   Dependencies: W1, W2, W4, W6, W7, W8, W9, W12
+    *   Spec: `conductor/trackW13/spec.md`
+    *   Plan: `conductor/trackW13/plan.md`
+    *   Goal: Raise security boundary tracking from 7/10 to 9/10 with auth/authz graph nodes, roles, scopes, policies, secret dependencies, protected resources, process boundaries, and security impact output.
+    *   Definition of done: Security graph output is useful without exposing secrets, auth/authz changes affect endpoint/service impact, protected path and process-policy changes name review requirements, and full verification plus reinstall passes.
+
+
 ## Workflow
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.
