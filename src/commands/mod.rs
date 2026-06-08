@@ -29,6 +29,7 @@ pub mod reset;
 pub mod scan;
 pub mod search;
 pub mod services_diff;
+pub mod test_mapping;
 pub mod update;
 pub mod verify;
 pub mod viz;
