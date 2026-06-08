@@ -426,6 +426,9 @@ pub enum InternalCommands {
 
 #[derive(Args, Debug)]
 pub struct HotspotArgs {
+    #[command(subcommand)]
+    pub command: Option<HotspotSubcommands>,
+
     /// Limit the number of hotspots displayed
     #[arg(short, long)]
     pub limit: Option<usize>,
@@ -465,6 +468,37 @@ pub struct HotspotArgs {
     /// Find semantically similar code clusters (duplication hotspots)
     #[arg(long, short)]
     pub semantic: bool,
+
+    /// Persist the results as a snapshot in the history tables
+    #[arg(long)]
+    pub snapshot: bool,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum HotspotSubcommands {
+    /// Show hotspot and temporal coupling trends over time
+    Trend {
+        /// Entity path to filter by
+        #[arg(short, long)]
+        entity: Option<String>,
+        /// Number of days to look back
+        #[arg(short, long, default_value_t = 30)]
+        days: u32,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Explain why a file is a hotspot or highly coupled
+    Explain {
+        /// Entity path to explain
+        entity: String,
+    },
+    /// Check hotspot and coupling budgets
+    Budget {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]

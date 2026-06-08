@@ -581,21 +581,176 @@ pub fn build_native_graph(
     cozo.insert_nodes(&obs_nodes)?;
     cozo.insert_edges(&obs_edges)?;
 
+    // --- 9. Read hotspot_history → Hotspot nodes and links ---
+    let mut hotspot_nodes = Vec::new();
+    let mut hotspot_edges = Vec::new();
+
+    let latest_hotspot_snapshot: Option<i64> = conn
+        .query_row("SELECT MAX(snapshot_id) FROM hotspot_history", [], |row| {
+            row.get(0)
+        })
+        .ok();
+
+    if let Some(snapshot_id) = latest_hotspot_snapshot {
+        let mut hotspot_stmt = conn
+            .prepare(
+                "SELECT file_path, score, display_score, complexity, frequency, centrality \
+                 FROM hotspot_history WHERE snapshot_id = ?1",
+            )
+            .into_diagnostic()?;
+
+        let hotspot_rows: Vec<(String, f64, f64, i32, f64, Option<f64>)> = hotspot_stmt
+            .query_map([snapshot_id], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            })
+            .into_diagnostic()?
+            .collect::<Result<Vec<_>, _>>()
+            .into_diagnostic()?;
+        drop(hotspot_stmt);
+
+        for (path, score, d_score, comp, freq, cent) in hotspot_rows {
+            let hotspot_urn = format!("urn:changeguard:hotspot:{}", path);
+            let metadata = json!({
+                "score": score,
+                "display_score": d_score,
+                "complexity": comp,
+                "frequency": freq,
+                "centrality": cent,
+                "schema_version": "v1",
+            });
+
+            hotspot_nodes.push(GraphNode {
+                id: hotspot_urn.clone(),
+                label: format!("Hotspot: {}", path),
+                category: NodeKind::Hotspot,
+                risk_score: score as f64,
+                metadata: Some(metadata),
+            });
+
+            // Hotspot -> File
+            let file_urn = crate::platform::urn::build_urn(NodeKind::File, &path);
+            hotspot_edges.push(GraphEdge {
+                source: hotspot_urn.clone(),
+                target: file_urn,
+                relation: EdgeKind::Affects,
+                confidence: 1.0,
+                provenance_id: provenance_id.to_string(),
+            });
+
+            // Link to Service and Owners
+            for ds in &config.services.definitions {
+                if path.starts_with(&ds.root) {
+                    let svc_urn = crate::platform::urn::build_urn(NodeKind::Service, &ds.name);
+                    hotspot_edges.push(GraphEdge {
+                        source: svc_urn,
+                        target: hotspot_urn.clone(),
+                        relation: EdgeKind::Affects, // Service is affected by hotspot
+                        confidence: 1.0,
+                        provenance_id: provenance_id.to_string(),
+                    });
+
+                    for owner in &ds.owners {
+                        let owner_urn = crate::platform::urn::build_urn(NodeKind::Symbol, owner);
+                        hotspot_edges.push(GraphEdge {
+                            source: owner_urn,
+                            target: hotspot_urn.clone(),
+                            relation: EdgeKind::Affects,
+                            confidence: 1.0,
+                            provenance_id: provenance_id.to_string(),
+                        });
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    // --- 10. Read temporal_coupling_history → TemporalCoupling nodes and links ---
+    let latest_coupling_snapshot: Option<i64> = conn
+        .query_row(
+            "SELECT MAX(snapshot_id) FROM temporal_coupling_history",
+            [],
+            |row| row.get(0),
+        )
+        .ok();
+
+    if let Some(snapshot_id) = latest_coupling_snapshot {
+        let mut coupling_stmt = conn
+            .prepare(
+                "SELECT file_a, file_b, score FROM temporal_coupling_history WHERE snapshot_id = ?1",
+            )
+            .into_diagnostic()?;
+
+        let coupling_rows: Vec<(String, String, f64)> = coupling_stmt
+            .query_map([snapshot_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .into_diagnostic()?
+            .collect::<Result<Vec<_>, _>>()
+            .into_diagnostic()?;
+        drop(coupling_stmt);
+
+        for (file_a, file_b, score) in coupling_rows {
+            // Sort paths to have a deterministic ID for the coupling node
+            let mut paths = vec![file_a.clone(), file_b.clone()];
+            paths.sort();
+            let coupling_id = format!("urn:changeguard:coupling:{}:{}", paths[0], paths[1]);
+
+            hotspot_nodes.push(GraphNode {
+                id: coupling_id.clone(),
+                label: format!("Coupling: {} <-> {}", file_a, file_b),
+                category: NodeKind::TemporalCoupling,
+                risk_score: score as f64,
+                metadata: Some(json!({ "score": score, "schema_version": "v1" })),
+            });
+
+            // Coupling -> File A
+            let urn_a = crate::platform::urn::build_urn(NodeKind::File, &file_a);
+            hotspot_edges.push(GraphEdge {
+                source: coupling_id.clone(),
+                target: urn_a,
+                relation: EdgeKind::ChangedWith,
+                confidence: 1.0,
+                provenance_id: provenance_id.to_string(),
+            });
+
+            // Coupling -> File B
+            let urn_b = crate::platform::urn::build_urn(NodeKind::File, &file_b);
+            hotspot_edges.push(GraphEdge {
+                source: coupling_id.clone(),
+                target: urn_b,
+                relation: EdgeKind::ChangedWith,
+                confidence: 1.0,
+                provenance_id: provenance_id.to_string(),
+            });
+        }
+    }
+
+    cozo.insert_nodes(&hotspot_nodes)?;
+    cozo.insert_edges(&hotspot_edges)?;
+
     info!(
-        "Native graph built: {} files, {} symbols, {} edges, {} endpoints, {} ADRs, {} services, {} models, {} observability",
+        "Native graph built: {} files, {} symbols, {} edges, {} endpoints, {} ADRs, {} services, {} models, {} observability, {} hotspots, {} couplings",
         files_indexed,
         symbols_indexed,
-        edges_added + endpoint_edges.len() + adr_edges.len() + service_edges.len() + obs_edges.len(),
+        edges_added + endpoint_edges.len() + adr_edges.len() + service_edges.len() + obs_edges.len() + hotspot_edges.len(),
         endpoint_nodes.len(),
         adr_nodes.len(),
         service_nodes.len(),
         model_nodes.len(),
-        obs_nodes.len()
+        obs_nodes.len(),
+        hotspot_nodes.iter().filter(|n| n.category == NodeKind::Hotspot).count(),
+        hotspot_nodes.iter().filter(|n| n.category == NodeKind::TemporalCoupling).count()
     );
 
     Ok(GraphStats {
-        nodes_added: files_indexed + symbols_indexed + endpoint_nodes.len() + adr_nodes.len() + service_nodes.len() + model_nodes.len() + obs_nodes.len(),
-        edges_added: edges_added + endpoint_edges.len() + adr_edges.len() + service_edges.len() + obs_edges.len(),
+        nodes_added: files_indexed + symbols_indexed + endpoint_nodes.len() + adr_nodes.len() + service_nodes.len() + model_nodes.len() + obs_nodes.len() + hotspot_nodes.len(),
+        edges_added: edges_added + endpoint_edges.len() + adr_edges.len() + service_edges.len() + obs_edges.len() + hotspot_edges.len(),
         files_indexed,
         symbols_indexed,
     })

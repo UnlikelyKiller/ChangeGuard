@@ -9,6 +9,7 @@ pub mod m34_api_route_enrichment;
 pub mod m35_adr_lifecycle;
 pub mod m36_env_config_metadata;
 pub mod m37_ci_deploy_enrichment;
+pub mod m38_hotspot_history;
 
 use rusqlite_migration::Migrations;
 
@@ -25,6 +26,7 @@ pub fn get_migrations() -> Migrations<'static> {
     all_m.extend(m35_adr_lifecycle::m35_adr_lifecycle());
     all_m.extend(m36_env_config_metadata::m36_env_config_metadata());
     all_m.extend(m37_ci_deploy_enrichment::m37_ci_deploy_enrichment());
+    all_m.extend(m38_hotspot_history::m38_hotspot_history());
 
     Migrations::new(all_m)
 }
@@ -84,6 +86,8 @@ mod tests {
             "observability_snapshots",
             "scip_indices",
             "ci_outcome_history",
+            "hotspot_history",
+            "temporal_coupling_history",
         ];
 
         for table in &expected_tables {
