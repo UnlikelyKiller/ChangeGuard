@@ -144,6 +144,9 @@ pub enum Commands {
         #[command(subcommand)]
         command: ServiceSubcommands,
     },
+    /// Manage data models and schema migrations
+    #[command(name = "data-models")]
+    DataModels(crate::commands::data_models::DataModelsArgs),
     /// Manage ChangeGuard bridge (AI-Brains integration)
     Bridge {
         #[command(subcommand)]
@@ -811,6 +814,7 @@ pub fn run_with(cli: Cli) -> Result<()> {
         Commands::Services { command } => match command {
             ServiceSubcommands::Diff(args) => crate::commands::services_diff::execute_services_diff(args, &config),
         },
+        Commands::DataModels(args) => crate::commands::data_models::execute_data_models(args),
         Commands::Ledger { command } => match command {
             LedgerCommands::Start {
                 entity,

@@ -474,18 +474,60 @@ pub fn build_native_graph(
     cozo.insert_nodes(&service_nodes)?;
     cozo.insert_edges(&service_edges)?;
 
+    // --- 7. Read data_models → DataModel nodes ---
+    let mut model_stmt = conn
+        .prepare("SELECT model_name, language, model_kind, confidence, evidence FROM data_models")
+        .into_diagnostic()?;
+
+    let model_rows: Vec<(String, String, String, f64, Option<String>)> = model_stmt
+        .query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        })
+        .into_diagnostic()?
+        .collect::<Result<Vec<_>, _>>()
+        .into_diagnostic()?;
+    drop(model_stmt);
+
+    let mut model_nodes = Vec::new();
+    for (name, lang, kind, conf, evidence) in &model_rows {
+        let urn = crate::platform::urn::build_urn(NodeKind::DataModel, name);
+        let metadata = json!({
+            "language": lang,
+            "kind": kind,
+            "confidence": conf,
+            "evidence": evidence,
+            "schema_version": "v1",
+        });
+
+        model_nodes.push(GraphNode {
+            id: urn,
+            label: format!("Model: {}", name),
+            category: NodeKind::DataModel,
+            risk_score: 0.0,
+            metadata: Some(metadata),
+        });
+    }
+    cozo.insert_nodes(&model_nodes)?;
+
     info!(
-        "Native graph built: {} files, {} symbols, {} edges, {} endpoints, {} ADRs, {} services",
+        "Native graph built: {} files, {} symbols, {} edges, {} endpoints, {} ADRs, {} services, {} models",
         files_indexed,
         symbols_indexed,
         edges_added + endpoint_edges.len() + adr_edges.len() + service_edges.len(),
         endpoint_nodes.len(),
         adr_nodes.len(),
-        service_nodes.len()
+        service_nodes.len(),
+        model_nodes.len()
     );
 
     Ok(GraphStats {
-        nodes_added: files_indexed + symbols_indexed + endpoint_nodes.len() + adr_nodes.len() + service_nodes.len(),
+        nodes_added: files_indexed + symbols_indexed + endpoint_nodes.len() + adr_nodes.len() + service_nodes.len() + model_nodes.len(),
         edges_added: edges_added + endpoint_edges.len() + adr_edges.len() + service_edges.len(),
         files_indexed,
         symbols_indexed,

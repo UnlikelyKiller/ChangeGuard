@@ -13,6 +13,7 @@ pub mod graph_worker;
 pub mod incremental;
 pub mod languages;
 pub mod metrics;
+pub mod migrations;
 pub mod normalize;
 pub mod observability;
 pub mod orchestrator;

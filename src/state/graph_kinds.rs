@@ -21,6 +21,8 @@ pub enum NodeKind {
     Hotspot,
     TemporalCoupling,
     SecurityBoundary,
+    Table,
+    Column,
     File,
 }
 
@@ -44,4 +46,6 @@ pub enum EdgeKind {
     Authorizes,
     Consumes,
     TouchesSecret,
+    Migrates,
+    MapsTo,
 }
