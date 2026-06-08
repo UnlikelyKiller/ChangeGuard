@@ -63,14 +63,17 @@ pub struct ServiceIndexStats {
     pub files_assigned: usize,
 }
 
+use crate::config::model::Config;
+
 pub struct ProjectIndexer {
     storage: StorageManager,
     repo_path: Utf8PathBuf,
+    config: Config,
 }
 
 impl ProjectIndexer {
-    pub fn new(storage: StorageManager, repo_path: Utf8PathBuf) -> Self {
-        Self { storage, repo_path }
+    pub fn new(storage: StorageManager, repo_path: Utf8PathBuf, config: Config) -> Self {
+        Self { storage, repo_path, config }
     }
 
     pub fn cozo(&self) -> Option<&crate::state::storage_cozo::CozoStorage> {
@@ -91,6 +94,7 @@ impl ProjectIndexer {
                 rusqlite::Connection::open_in_memory().unwrap(),
             ),
             repo_path,
+            config: Config::default(),
         }
     }
 
@@ -104,7 +108,7 @@ impl ProjectIndexer {
         };
 
         let stats =
-            crate::index::graph_loader::build_native_graph(&self.storage, cozo, "native_kg")?;
+            crate::index::graph_loader::build_native_graph(&self.storage, cozo, "native_kg", &self.config)?;
 
         // Optionally enrich with semantic extraction on a sample of files
         match self.get_semantic_sample_files() {
@@ -973,7 +977,7 @@ impl ProjectIndexer {
                 .get_directory_classifications()
                 .unwrap_or_default(),
         };
-        let services = infer_services(&routes, &data_models, &call_graph, &topology);
+        let services = infer_services(&routes, &data_models, &call_graph, &topology, &self.config.services.definitions);
 
         let mut files_assigned = 0;
         let conn_mut = self.storage.get_connection_mut();

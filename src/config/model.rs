@@ -219,6 +219,30 @@ pub struct Config {
     pub intent: IntentConfig,
     #[serde(default)]
     pub impact: ImpactConfig,
+    #[serde(default)]
+    pub services: ServiceConfig,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct ServiceConfig {
+    #[serde(default)]
+    pub definitions: Vec<ServiceDefinition>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ServiceDefinition {
+    pub name: String,
+    pub root: String, // Directory path
+    #[serde(default)]
+    pub owners: Vec<String>,
+    #[serde(default)]
+    pub runtime_name: Option<String>,
+    #[serde(default)]
+    pub queues: Vec<String>,
+    #[serde(default)]
+    pub topics: Vec<String>,
+    #[serde(default)]
+    pub rpc_endpoints: Vec<String>,
 }
 
 pub const DEFAULT_HNSW_REBUILD_THRESHOLD: usize = 500;

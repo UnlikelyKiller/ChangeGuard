@@ -20,8 +20,13 @@ pub fn infer_services(
     data_models: &[DataModelSource],
     call_graph: &CallGraph,
     topology: &DirectoryTopology,
+    declared_services: &[crate::config::model::ServiceDefinition],
 ) -> Vec<Service> {
-    if routes.is_empty() && call_graph.edges.is_empty() && topology.classifications.is_empty() {
+    if routes.is_empty()
+        && call_graph.edges.is_empty()
+        && topology.classifications.is_empty()
+        && declared_services.is_empty()
+    {
         return Vec::new();
     }
 
@@ -38,6 +43,12 @@ pub fn infer_services(
                 .unwrap_or_else(|| "root".to_string());
             service_groups.insert(path, (name, Vec::new(), Vec::new()));
         }
+    }
+
+    // 0.5 Pre-populate from declared services in config
+    for ds in declared_services {
+        let path = PathBuf::from(&ds.root);
+        service_groups.insert(path, (ds.name.clone(), Vec::new(), Vec::new()));
     }
 
     // 1. Group routes by their service root directory
@@ -96,11 +107,21 @@ pub fn infer_services(
             }
         }
 
+        // Find declared service for this root
+        let declared = declared_services
+            .iter()
+            .find(|ds| PathBuf::from(&ds.root) == *key);
+
         services.push(Service {
             name: final_name,
             directory: key.clone(),
             routes: routes.clone(),
             data_models: dms.clone(),
+            owners: declared.map(|d| d.owners.clone()).unwrap_or_default(),
+            runtime_name: declared.and_then(|d| d.runtime_name.clone()),
+            queues: declared.map(|d| d.queues.clone()).unwrap_or_default(),
+            topics: declared.map(|d| d.topics.clone()).unwrap_or_default(),
+            rpc_endpoints: declared.map(|d| d.rpc_endpoints.clone()).unwrap_or_default(),
         });
     }
 
@@ -298,6 +319,7 @@ fn path_belongs_to_service(file_path: &Path, service_dir: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::model::ServiceConfig;
     use crate::index::call_graph::{CallEdge, CallKind, ResolutionStatus};
     use crate::index::topology::DirectoryRole;
 
@@ -328,7 +350,7 @@ mod tests {
         };
         let call_graph = CallGraph { edges: Vec::new() };
 
-        let services = infer_services(&routes, &[], &call_graph, &topology);
+        let services = infer_services(&routes, &[], &call_graph, &topology, &[]);
         assert_eq!(services.len(), 1);
         assert_eq!(services[0].name, "users");
     }
@@ -360,7 +382,7 @@ mod tests {
         };
         let call_graph = CallGraph { edges: Vec::new() };
 
-        let services = infer_services(&routes, &[], &call_graph, &topology);
+        let services = infer_services(&routes, &[], &call_graph, &topology, &[]);
         assert_eq!(services.len(), 1);
         assert_eq!(services[0].name, "src");
     }
@@ -374,6 +396,7 @@ mod tests {
             &DirectoryTopology {
                 classifications: Vec::new(),
             },
+            &[],
         );
         assert!(services.is_empty());
     }
@@ -389,7 +412,7 @@ mod tests {
             }],
         };
 
-        let services = infer_services(&[], &[], &CallGraph { edges: Vec::new() }, &topology);
+        let services = infer_services(&[], &[], &CallGraph { edges: Vec::new() }, &topology, &[]);
 
         assert_eq!(services.len(), 1);
         assert_eq!(services[0].name, "billing");
@@ -418,7 +441,7 @@ mod tests {
         };
         let call_graph = CallGraph { edges: Vec::new() };
 
-        let services = infer_services(&routes, &[], &call_graph, &topology);
+        let services = infer_services(&routes, &[], &call_graph, &topology, &[]);
         assert_eq!(services.len(), 1);
         assert_eq!(services[0].name, "users");
         assert_eq!(services[0].directory, PathBuf::from("src/api/users"));
@@ -455,7 +478,7 @@ mod tests {
         };
         let call_graph = CallGraph { edges: Vec::new() };
 
-        let services = infer_services(&routes, &data_models, &call_graph, &topology);
+        let services = infer_services(&routes, &data_models, &call_graph, &topology, &[]);
         assert_eq!(services.len(), 1);
         assert_eq!(services[0].data_models, vec!["User".to_string()]);
     }
@@ -491,7 +514,7 @@ mod tests {
         };
         let call_graph = CallGraph { edges: Vec::new() };
 
-        let services = infer_services(&routes, &[], &call_graph, &topology);
+        let services = infer_services(&routes, &[], &call_graph, &topology, &[]);
 
         std::env::set_current_dir(old_cwd).unwrap();
 
@@ -507,12 +530,22 @@ mod tests {
                 routes: vec!["get_users".to_string()],
                 data_models: vec![],
                 directory: PathBuf::from("src/api/users"),
+                owners: vec![],
+                runtime_name: None,
+                queues: vec![],
+                topics: vec![],
+                rpc_endpoints: vec![],
             },
             Service {
                 name: "billing".to_string(),
                 routes: vec!["charge".to_string()],
                 data_models: vec![],
                 directory: PathBuf::from("src/api/billing"),
+                owners: vec![],
+                runtime_name: None,
+                queues: vec![],
+                topics: vec![],
+                rpc_endpoints: vec![],
             },
         ];
 
@@ -542,12 +575,22 @@ mod tests {
                 routes: vec!["get_users".to_string(), "create_user".to_string()],
                 data_models: vec![],
                 directory: PathBuf::from("src/api/users"),
+                owners: vec![],
+                runtime_name: None,
+                queues: vec![],
+                topics: vec![],
+                rpc_endpoints: vec![],
             },
             Service {
                 name: "billing".to_string(),
                 routes: vec!["charge".to_string()],
                 data_models: vec![],
                 directory: PathBuf::from("src/api/billing"),
+                owners: vec![],
+                runtime_name: None,
+                queues: vec![],
+                topics: vec![],
+                rpc_endpoints: vec![],
             },
         ];
 
@@ -589,12 +632,22 @@ mod tests {
                 routes: vec!["index".to_string(), "render".to_string()],
                 data_models: vec![],
                 directory: PathBuf::from("src/frontend"),
+                owners: vec![],
+                runtime_name: None,
+                queues: vec![],
+                topics: vec![],
+                rpc_endpoints: vec![],
             },
             Service {
                 name: "backend".to_string(),
                 routes: vec!["index".to_string(), "serve".to_string()],
                 data_models: vec![],
                 directory: PathBuf::from("src/backend"),
+                owners: vec![],
+                runtime_name: None,
+                queues: vec![],
+                topics: vec![],
+                rpc_endpoints: vec![],
             },
         ];
 

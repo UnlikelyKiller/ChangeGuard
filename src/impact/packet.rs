@@ -788,6 +788,16 @@ pub struct Service {
     pub directory: PathBuf,
     pub routes: Vec<String>,      // paths
     pub data_models: Vec<String>, // names
+    #[serde(default)]
+    pub owners: Vec<String>,
+    #[serde(default)]
+    pub runtime_name: Option<String>,
+    #[serde(default)]
+    pub queues: Vec<String>,
+    #[serde(default)]
+    pub topics: Vec<String>,
+    #[serde(default)]
+    pub rpc_endpoints: Vec<String>,
 }
 
 impl Default for ImpactPacket {

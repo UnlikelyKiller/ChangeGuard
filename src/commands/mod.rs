@@ -25,6 +25,7 @@ pub mod ledger_stack;
 pub mod reset;
 pub mod scan;
 pub mod search;
+pub mod services_diff;
 pub mod update;
 pub mod verify;
 pub mod viz;

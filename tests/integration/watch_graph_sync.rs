@@ -1,4 +1,5 @@
 use camino::Utf8PathBuf;
+use changeguard::config::model::Config;
 use changeguard::index::incremental::IncrementalSyncEngine;
 use changeguard::index::orchestrator::ProjectIndexer;
 use changeguard::state::storage::StorageManager;
@@ -32,7 +33,7 @@ fn test_watch_graph_sync() {
         eprintln!("DEBUG: Watcher callback triggered with batch: {:?}", batch);
         match StorageManager::init(cb_db_path.as_std_path()) {
             Ok(storage) => {
-                let indexer = ProjectIndexer::new(storage, repo_root.clone());
+                let indexer = ProjectIndexer::new(storage, repo_root.clone(), Config::default());
                 let mut engine = IncrementalSyncEngine::new(indexer, repo_root.clone());
                 match engine.process_batch(&batch) {
                     Ok(delta) => {

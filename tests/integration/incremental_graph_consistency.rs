@@ -1,4 +1,5 @@
 use camino::Utf8PathBuf;
+use changeguard::config::model::Config;
 use changeguard::index::graph_loader::build_native_graph;
 use changeguard::index::incremental::IncrementalSyncEngine;
 use changeguard::index::orchestrator::ProjectIndexer;
@@ -45,12 +46,12 @@ fn test_incremental_graph_consistency() {
 
     // --- Build graph A via full index ---
     let storage_a = StorageManager::init(db_a.as_std_path()).unwrap();
-    let mut indexer_a = ProjectIndexer::new(storage_a, root.clone());
+    let mut indexer_a = ProjectIndexer::new(storage_a, root.clone(), Config::default());
     indexer_a.full_index().unwrap();
     indexer_a.build_call_graph().unwrap();
     {
         let cozo = indexer_a.cozo().expect("CozoDB A should be available");
-        build_native_graph(indexer_a.storage(), cozo, "full").unwrap();
+        build_native_graph(indexer_a.storage(), cozo, "full", &Config::default()).unwrap();
     }
 
     // --- Apply 5 mutations via IncrementalSyncEngine ---
@@ -116,12 +117,12 @@ fn test_incremental_graph_consistency() {
 
     // --- Build graph B via full index into fresh DB ---
     let storage_b = StorageManager::init(db_b.as_std_path()).unwrap();
-    let mut indexer_b = ProjectIndexer::new(storage_b, root.clone());
+    let mut indexer_b = ProjectIndexer::new(storage_b, root.clone(), Config::default());
     indexer_b.full_index().unwrap();
     indexer_b.build_call_graph().unwrap();
     {
         let cozo = indexer_b.cozo().expect("CozoDB B should be available");
-        build_native_graph(indexer_b.storage(), cozo, "full").unwrap();
+        build_native_graph(indexer_b.storage(), cozo, "full", &Config::default()).unwrap();
     }
 
     // --- Compare A and B ---

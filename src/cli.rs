@@ -139,6 +139,11 @@ pub enum Commands {
         #[command(subcommand)]
         command: FederateCommands,
     },
+    /// Service boundary and topology commands
+    Services {
+        #[command(subcommand)]
+        command: ServiceSubcommands,
+    },
     /// Manage ChangeGuard bridge (AI-Brains integration)
     Bridge {
         #[command(subcommand)]
@@ -385,6 +390,12 @@ pub enum AdrSubcommands {
         #[arg(short, long)]
         message: Option<String>,
     },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ServiceSubcommands {
+    /// Show service boundary changes and topology
+    Diff(crate::commands::services_diff::ServicesDiffArgs),
 }
 
 #[derive(Subcommand)]
@@ -706,6 +717,7 @@ pub enum ConfigCommands {
 pub fn run_with(cli: Cli) -> Result<()> {
     let current_dir = env::current_dir().into_diagnostic()?;
     let layout = crate::state::layout::Layout::new(current_dir.to_string_lossy().as_ref());
+    let config = crate::config::load::load_config(&layout).unwrap_or_default();
 
     match cli.command {
         Commands::Init { force } => crate::commands::init::execute_init(force),
@@ -796,6 +808,9 @@ pub fn run_with(cli: Cli) -> Result<()> {
             FederateCommands::Status => crate::commands::federate::execute_federate_status(),
         },
         Commands::Bridge { subcommand } => crate::commands::bridge::execute(subcommand),
+        Commands::Services { command } => match command {
+            ServiceSubcommands::Diff(args) => crate::commands::services_diff::execute_services_diff(args, &config),
+        },
         Commands::Ledger { command } => match command {
             LedgerCommands::Start {
                 entity,

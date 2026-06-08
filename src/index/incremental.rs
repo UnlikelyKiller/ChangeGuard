@@ -550,7 +550,7 @@ pub fn main() { helper(); }
 "#,
         );
 
-        let indexer = ProjectIndexer::new(storage, repo_path.clone());
+        let indexer = ProjectIndexer::new(storage, repo_path.clone(), Config::default());
         let mut engine = IncrementalSyncEngine::new(indexer, repo_path.clone());
 
         // Pre-seed with an old version of the file
@@ -593,7 +593,7 @@ pub fn main() { helper(); }
         let storage = in_memory_storage_with_cozo();
         let (_dir, repo_path) = temp_repo_with_file("lib.rs", "pub fn foo() {}");
 
-        let indexer = ProjectIndexer::new(storage, repo_path.clone());
+        let indexer = ProjectIndexer::new(storage, repo_path.clone(), Config::default());
         let mut engine = IncrementalSyncEngine::new(indexer, repo_path.clone());
 
         let batch = WatchBatch::new(vec![
@@ -616,7 +616,7 @@ pub fn main() { helper(); }
         let storage = in_memory_storage_with_cozo();
         let (_dir, repo_path) = temp_repo_with_file("lib.rs", "pub fn foo() {}");
 
-        let indexer = ProjectIndexer::new(storage, repo_path.clone());
+        let indexer = ProjectIndexer::new(storage, repo_path.clone(), Config::default());
         let mut engine = IncrementalSyncEngine::new(indexer, repo_path.clone());
 
         // Pre-seed
@@ -663,7 +663,7 @@ pub fn main() { helper(); }
         // Write invalid UTF-8 to trigger a read failure / PARSE_FAILED
         std::fs::write(&bad_path, vec![0x80, 0x81, 0x82]).unwrap();
 
-        let indexer = ProjectIndexer::new(storage, repo_path.clone());
+        let indexer = ProjectIndexer::new(storage, repo_path.clone(), Config::default());
         let mut engine = IncrementalSyncEngine::new(indexer, repo_path.clone());
 
         let batch = WatchBatch::new(vec![
@@ -686,7 +686,7 @@ pub fn main() { helper(); }
         let storage = in_memory_storage_without_cozo();
         let (_dir, repo_path) = temp_repo_with_file("lib.rs", "pub fn foo() {}");
 
-        let indexer = ProjectIndexer::new(storage, repo_path.clone());
+        let indexer = ProjectIndexer::new(storage, repo_path.clone(), Config::default());
         let mut engine = IncrementalSyncEngine::new(indexer, repo_path.clone());
 
         let batch = WatchBatch::new(vec![WatchEvent {

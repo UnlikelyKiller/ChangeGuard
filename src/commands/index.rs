@@ -105,7 +105,7 @@ pub fn execute_index(args: IndexArgs) -> Result<()> {
         None
     };
 
-    let mut indexer = ProjectIndexer::new(storage, repo_path);
+    let mut indexer = ProjectIndexer::new(storage, repo_path, config.clone());
 
     if args.check {
         let status = indexer.check_status()?;

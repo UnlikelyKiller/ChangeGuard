@@ -108,12 +108,16 @@ impl EnrichmentProvider for ServiceProvider {
                 .parent()
                 .unwrap_or(Path::new("."))
                 .to_path_buf();
-
             services.push(Service {
                 name: name.clone(),
                 directory,
                 routes,
                 data_models,
+                owners: Vec::new(),
+                runtime_name: None,
+                queues: Vec::new(),
+                topics: Vec::new(),
+                rpc_endpoints: Vec::new(),
             });
         }
 

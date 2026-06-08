@@ -25,6 +25,7 @@ pub fn build_native_graph(
     storage: &StorageManager,
     cozo: &CozoStorage,
     provenance_id: &str,
+    config: &crate::config::model::Config,
 ) -> Result<GraphStats> {
     let conn = storage.get_connection();
 
@@ -397,18 +398,95 @@ pub fn build_native_graph(
     cozo.insert_nodes(&adr_nodes)?;
     cozo.insert_edges(&adr_edges)?;
 
+    // --- 6. Read declared services → Service nodes and topology links ---
+    let mut service_nodes = Vec::new();
+    let mut service_edges = Vec::new();
+
+    for ds in &config.services.definitions {
+        let urn = crate::platform::urn::build_urn(NodeKind::Service, &ds.name);
+        let metadata = json!({
+            "root": ds.root,
+            "runtime_name": ds.runtime_name,
+            "schema_version": "v1",
+        });
+
+        service_nodes.push(GraphNode {
+            id: urn.clone(),
+            label: format!("Service: {}", ds.name),
+            category: NodeKind::Service,
+            risk_score: 0.0,
+            metadata: Some(metadata),
+        });
+
+        // Service -> Owners
+        for owner in &ds.owners {
+            let owner_urn = crate::platform::urn::build_urn(NodeKind::Symbol, owner); // Heuristic: owners are people/teams modeled as symbols or just strings
+            service_edges.push(GraphEdge {
+                source: owner_urn,
+                target: urn.clone(),
+                relation: EdgeKind::Owns,
+                confidence: 1.0,
+                provenance_id: provenance_id.to_string(),
+            });
+        }
+
+        // Service -> Queues (Emits)
+        for queue in &ds.queues {
+            let queue_urn = format!("urn:changeguard:queue:{}", queue);
+            service_edges.push(GraphEdge {
+                source: urn.clone(),
+                target: queue_urn.clone(),
+                relation: EdgeKind::Emits,
+                confidence: 1.0,
+                provenance_id: provenance_id.to_string(),
+            });
+            // Ensure queue node exists
+            service_nodes.push(GraphNode {
+                id: queue_urn,
+                label: format!("Queue: {}", queue),
+                category: NodeKind::Service, // Or a new Queue kind? Using Service for now.
+                risk_score: 0.0,
+                metadata: None,
+            });
+        }
+
+        // Service -> Topics (Emits)
+        for topic in &ds.topics {
+            let topic_urn = format!("urn:changeguard:topic:{}", topic);
+            service_edges.push(GraphEdge {
+                source: urn.clone(),
+                target: topic_urn.clone(),
+                relation: EdgeKind::Emits,
+                confidence: 1.0,
+                provenance_id: provenance_id.to_string(),
+            });
+            // Ensure topic node exists
+            service_nodes.push(GraphNode {
+                id: topic_urn,
+                label: format!("Topic: {}", topic),
+                category: NodeKind::Service,
+                risk_score: 0.0,
+                metadata: None,
+            });
+        }
+    }
+
+    cozo.insert_nodes(&service_nodes)?;
+    cozo.insert_edges(&service_edges)?;
+
     info!(
-        "Native graph built: {} files, {} symbols, {} edges, {} endpoints, {} ADRs",
+        "Native graph built: {} files, {} symbols, {} edges, {} endpoints, {} ADRs, {} services",
         files_indexed,
         symbols_indexed,
-        edges_added + endpoint_edges.len() + adr_edges.len(),
+        edges_added + endpoint_edges.len() + adr_edges.len() + service_edges.len(),
         endpoint_nodes.len(),
-        adr_nodes.len()
+        adr_nodes.len(),
+        service_nodes.len()
     );
 
     Ok(GraphStats {
-        nodes_added: files_indexed + symbols_indexed + endpoint_nodes.len() + adr_nodes.len(),
-        edges_added: edges_added + endpoint_edges.len() + adr_edges.len(),
+        nodes_added: files_indexed + symbols_indexed + endpoint_nodes.len() + adr_nodes.len() + service_nodes.len(),
+        edges_added: edges_added + endpoint_edges.len() + adr_edges.len() + service_edges.len(),
         files_indexed,
         symbols_indexed,
     })

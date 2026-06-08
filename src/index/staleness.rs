@@ -190,7 +190,8 @@ pub fn try_auto_index(storage: StorageManager, threshold_days: u64) -> Result<St
                 .as_std_path(),
         )?;
 
-        let mut indexer = ProjectIndexer::new(write_storage, root.clone());
+        use crate::config::model::Config;
+        let mut indexer = ProjectIndexer::new(write_storage, root.clone(), Config::default());
         indexer.incremental_index()?;
 
         // Re-open in read-only mode for the caller
