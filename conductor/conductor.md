@@ -1283,7 +1283,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Key additions: `src/semantic/concurrency.rs` (`resolve_semantic_concurrency`, `EmbedSemaphore`), stdlib `available_parallelism()`-based auto-default, separate `DEFAULT_EMBED_CAP=4` cap on concurrent embed requests, refactor of `execute_semantic_index` to consume the new helper.
 
 *   **Track U15: Split Semantic Concurrency + Always-Visible Diagnostics**
-    *   Status: Proposed
+    *   Status: Completed
     *   Spec: `conductor/trackU15/spec.md`
     *   Plan: `conductor/trackU15/plan.md`
     *   Goal: Address the U14 retrospective opportunities #5, #2, #3 in one pass: split `[semantic].concurrency` into `parse_concurrency` and `embed_concurrency` (with legacy back-compat), move the Phase 2 thread-resolution log above the empty-files early-exit, and add `--semantic-dry-run` for config diagnostics.
@@ -1291,7 +1291,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Dependencies: none (consolidates three U14 retrospective opportunities into one shippable unit).
 
 *   **Track U16: Configurable Embed Concurrency Cap**
-    *   Status: Proposed
+    *   Status: Completed
     *   Spec: `conductor/trackU16/spec.md`
     *   Plan: `conductor/trackU16/plan.md`
     *   Goal: Address U14 retrospective opportunity #4 — expose `DEFAULT_EMBED_CAP = 4` as `[semantic].embed_concurrency_cap` for users on non-standard hardware (beefier GPU box, Raspberry Pi, etc.).
@@ -1299,7 +1299,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Dependencies: U15 (so the dry-run output can show the cap alongside the other concurrency values).
 
 *   **Track U17: Fix TOML Merge Regression for `[semantic]` Defaults**
-    *   Status: Proposed
+    *   Status: Completed
     *   Spec: `conductor/trackU17/spec.md`
     *   Plan: `conductor/trackU17/plan.md`
     *   Goal: Address U14 retrospective opportunity #6 — fix the serde `#[serde(default)]` gotcha where `Option<T>` fields with non-`None` intended defaults lose those defaults when a sibling field is set in user TOML. Confirmed bug surface: `[semantic] concurrency = 4` in user config → `hnsw_rebuild_threshold` becomes `null` instead of `500`.
@@ -1307,7 +1307,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Dependencies: none (foundational bug fix).
 
 *   **Track U18: Audit and Fix All `Option<T>` Serde Defaults in `Config`**
-    *   Status: Proposed
+    *   Status: Completed
     *   Spec: `conductor/trackU18/spec.md`
     *   Plan: `conductor/trackU18/plan.md`
     *   Goal: Systematically apply the U17 fix to every `Option<T>` field in the config model that has a non-`None` intended default. Document the `None` defaults that are intentional.
@@ -1315,7 +1315,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Dependencies: U17 (same pattern, wider scope).
 
 *   **Track U19: Data-Driven `config verify` Section Table**
-    *   Status: Proposed
+    *   Status: Completed
     *   Spec: `conductor/trackU19/spec.md`
     *   Plan: `conductor/trackU19/plan.md`
     *   Goal: Address U14 retrospective opportunity #6 — replace the hand-wired `println!` chain in `execute_config_verify` with a data-driven `ConfigSection` trait + registry pattern. Scales to 10+ sections without per-section refactors.
@@ -1323,7 +1323,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Dependencies: U15, U16 (so the new sections can register cleanly).
 
 *   **Track U20: Always-Visible Semantic Index Lifecycle Logging**
-    *   Status: Proposed
+    *   Status: Completed
     *   Spec: `conductor/trackU20/spec.md`
     *   Plan: `conductor/trackU20/plan.md`
     *   Goal: Address U14 retrospective opportunity #2 — move the thread-resolution `info!` log to before the early-exit at `src/commands/index.rs:612`, switch the "up to date" `println!` to `tracing::info!` (per 2026 best practices: stdout = machine contract, stderr = human via tracing).
@@ -1331,7 +1331,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Dependencies: none.
 
 *   **Track U21: Non-Blocking Embed Concurrency Cap**
-    *   Status: Proposed
+    *   Status: Completed
     *   Spec: `conductor/trackU21/spec.md`
     *   Plan: `conductor/trackU21/plan.md`
     *   Goal: Address U14 retrospective opportunity #5 (secondary) — replace the `parking_lot::Mutex<usize>` + `Condvar` core of `EmbedSemaphore` with an `AtomicUsize`-based non-blocking implementation. Scales better when U16's configurable cap is set higher.
@@ -1402,14 +1402,14 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
 ## Milestone W: Large-Repo Tracking Graph (Planned)
 
 *   **Track W1: Entity Graph Schema and Cross-Surface Links**
-    *   Status: Proposed
+    *   Status: Completed
     *   Spec: `conductor/trackW1/spec.md`
     *   Plan: `conductor/trackW1/plan.md`
     *   Goal: Build the typed graph foundation that links endpoints, handlers, symbols, tests, ADRs, ledger transactions, services, data, config, dependencies, deployments, observability, hotspots, and security boundaries.
     *   Definition of done: Deterministic schema-versioned graph relations exist, at least one impact provider consumes shared traversal helpers, migrations preserve existing state, and full ChangeGuard verification plus reinstall passes.
 
 *   **Track W2: Public API Endpoint Ownership, Auth, and Consumer Graph**
-    *   Status: Proposed
+    *   Status: Completed
     *   Dependencies: W1
     *   Spec: `conductor/trackW2/spec.md`
     *   Plan: `conductor/trackW2/plan.md`
@@ -1417,7 +1417,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Definition of done: Endpoint output distinguishes known, inferred, configured, and unknown facts; breaking endpoint/auth/schema changes raise explicit impact risk; full verification plus reinstall passes.
 
 *   **Track W3: ADR Lifecycle and Decision Governance**
-    *   Status: Proposed
+    *   Status: Completed
     *   Dependencies: W1
     *   Spec: `conductor/trackW3/spec.md`
     *   Plan: `conductor/trackW3/plan.md`
@@ -1425,7 +1425,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Definition of done: ADR lifecycle is manageable through CLI commands, active and superseded decisions link to graph entities, stale/conflicting decisions affect impact, and full verification plus reinstall passes.
 
 *   **Track W4: Service Boundary Ownership and Async Topology**
-    *   Status: Proposed
+    *   Status: Completed
     *   Dependencies: W1, W2
     *   Spec: `conductor/trackW4/spec.md`
     *   Plan: `conductor/trackW4/plan.md`
@@ -1433,7 +1433,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Definition of done: Services have declared/inferred topology with conflict reporting, async boundary changes affect impact, and full verification plus reinstall passes.
 
 *   **Track W5: Data Model and Migration Compatibility Graph**
-    *   Status: Proposed
+    *   Status: Completed
     *   Dependencies: W1, W4
     *   Spec: `conductor/trackW5/spec.md`
     *   Plan: `conductor/trackW5/plan.md`
@@ -1441,7 +1441,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Definition of done: Migration compatibility is explicit, destructive changes raise targeted risk, data models link to services/endpoints/tests/ADRs, and full verification plus reinstall passes.
 
 *   **Track W6: Config and Environment Variable Ownership**
-    *   Status: Proposed
+    *   Status: Completed
     *   Dependencies: W1, W4
     *   Spec: `conductor/trackW6/spec.md`
     *   Plan: `conductor/trackW6/plan.md`
@@ -1449,7 +1449,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Definition of done: Config output separates unknown/optional/required/defaulted states, secret values stay redacted in every output mode, config changes map to services/tests where known, and full verification plus reinstall passes.
 
 *   **Track W7: CI/CD and Deployment Surface Ownership**
-    *   Status: Proposed
+    *   Status: Completed
     *   Dependencies: W1, W4, W6
     *   Spec: `conductor/trackW7/spec.md`
     *   Plan: `conductor/trackW7/plan.md`
@@ -1457,7 +1457,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Definition of done: CI/deploy surfaces include owner/environment metadata where available, release gate weakening raises risk, manifest changes map to services and verification hints, and full verification plus reinstall passes.
 
 *   **Track W8: Dependency, SDK, and Advisory Graph**
-    *   Status: Proposed
+    *   Status: Completed
     *   Dependencies: W1, W4, W6
     *   Spec: `conductor/trackW8/spec.md`
     *   Plan: `conductor/trackW8/plan.md`
@@ -1465,7 +1465,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Definition of done: Dependency paths distinguish direct/transitive edges, OSV advisory matches name evidence and affected services, no network dependency is required for baseline behavior, optional scanner imports normalize through the advisory graph, and full verification plus reinstall passes.
 
 *   **Track W9: Test and Verification Mapping Confidence**
-    *   Status: Proposed
+    *   Status: Completed
     *   Dependencies: W1, W2, W4, W5, W6
     *   Spec: `conductor/trackW9/spec.md`
     *   Plan: `conductor/trackW9/plan.md`
@@ -1473,7 +1473,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Definition of done: Test selection is explainable per entity, confidence/flakiness affect recommendations, missing-test gaps are surfaced for high-risk changes, and full verification plus reinstall passes.
 
 *   **Track W10: Runtime Observability, SLO, and Alert Ownership Graph**
-    *   Status: Proposed
+    *   Status: Completed
     *   Dependencies: W1, W4, W7, W9
     *   Spec: `conductor/trackW10/spec.md`
     *   Plan: `conductor/trackW10/plan.md`
@@ -1481,7 +1481,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Definition of done: Observability coverage is inspectable per service/endpoint, OpenSLO objects link to services and owners, SLO and alert owner gaps are explicit, live integrations remain optional, and full verification plus reinstall passes.
 
 *   **Track W11: Hotspot and Temporal Coupling Trends**
-    *   Status: Proposed
+    *   Status: Completed
     *   Dependencies: W1, W4, W9
     *   Spec: `conductor/trackW11/spec.md`
     *   Plan: `conductor/trackW11/plan.md`
@@ -1489,7 +1489,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Definition of done: Trend output is reproducible, budget violations can warn or fail by policy, hotspots include owner/service/test context when known, and full verification plus reinstall passes.
 
 *   **Track W12: Ledger Transaction Entity Links and Validator UX**
-    *   Status: Proposed
+    *   Status: Completed
     *   Dependencies: W1, W3, W9, W11
     *   Spec: `conductor/trackW12/spec.md`
     *   Plan: `conductor/trackW12/plan.md`
@@ -1497,7 +1497,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Definition of done: Validator UX requires no manual database edits, transaction graph output shows affected entities and evidence, hook mismatch repair is auditable, and full verification plus reinstall passes.
 
 *   **Track W13: Security Boundary, Authz, and Policy Graph**
-    *   Status: Proposed
+    *   Status: Completed
     *   Dependencies: W1, W2, W4, W6, W7, W8, W9, W12
     *   Spec: `conductor/trackW13/spec.md`
     *   Plan: `conductor/trackW13/plan.md`
