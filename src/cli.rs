@@ -715,6 +715,18 @@ pub enum ConfigCommands {
         #[arg(long, short)]
         key: Option<String>,
     },
+    /// Manage environment and config schemas
+    Schema {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show differences between declared and inferred config
+    Diff {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 pub fn run_with(cli: Cli) -> Result<()> {
@@ -1002,7 +1014,10 @@ pub fn run_with(cli: Cli) -> Result<()> {
             ConfigCommands::View { json, section, key } => {
                 crate::commands::config::execute_config_view(json, section, key)
             }
+            ConfigCommands::Schema { json } => crate::commands::config::execute_config_schema(json),
+            ConfigCommands::Diff { json } => crate::commands::config::execute_config_diff(json),
         },
+
         Commands::DeadCode {
             threshold,
             limit,

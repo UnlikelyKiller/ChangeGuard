@@ -7,6 +7,7 @@ pub mod m32_symbol_metadata;
 pub mod m33_intent_provenance;
 pub mod m34_api_route_enrichment;
 pub mod m35_adr_lifecycle;
+pub mod m36_env_config_metadata;
 
 use rusqlite_migration::Migrations;
 
@@ -21,6 +22,7 @@ pub fn get_migrations() -> Migrations<'static> {
     all_m.extend(m33_intent_provenance::m33_intent_provenance());
     all_m.extend(m34_api_route_enrichment::m34_api_route_enrichment());
     all_m.extend(m35_adr_lifecycle::m35_adr_lifecycle());
+    all_m.extend(m36_env_config_metadata::m36_env_config_metadata());
 
     Migrations::new(all_m)
 }
