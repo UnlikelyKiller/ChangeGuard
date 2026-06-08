@@ -5,6 +5,7 @@ pub mod m30_scip;
 pub mod m31_ci_predict;
 pub mod m32_symbol_metadata;
 pub mod m33_intent_provenance;
+pub mod m34_api_route_enrichment;
 
 use rusqlite_migration::Migrations;
 
@@ -17,6 +18,7 @@ pub fn get_migrations() -> Migrations<'static> {
     all_m.extend(m31_ci_predict::m31_ci_predict());
     all_m.extend(m32_symbol_metadata::m32_symbol_metadata());
     all_m.extend(m33_intent_provenance::m33_intent_provenance());
+    all_m.extend(m34_api_route_enrichment::m34_api_route_enrichment());
 
     Migrations::new(all_m)
 }

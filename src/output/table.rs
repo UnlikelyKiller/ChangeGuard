@@ -1,4 +1,4 @@
-use comfy_table::Table;
+pub use comfy_table::Table;
 
 pub fn build_table(headers: impl IntoIterator<Item = impl ToString>) -> Table {
     let mut table = Table::new();

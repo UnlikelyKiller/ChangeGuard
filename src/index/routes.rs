@@ -18,6 +18,14 @@ pub struct ExtractedRoute {
     pub is_dynamic: bool,
     pub route_confidence: f64,
     pub evidence: String,
+    #[serde(default)]
+    pub auth_requirements: Option<Vec<String>>,
+    #[serde(default)]
+    pub schema_refs: Option<Vec<String>>,
+    #[serde(default)]
+    pub owning_service: Option<String>,
+    #[serde(default)]
+    pub consumers: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -184,6 +192,10 @@ impl<'a> RouteExtractor<'a> {
                     is_dynamic: route.is_dynamic,
                     route_confidence: route.route_confidence,
                     evidence: Some(route.evidence.clone()),
+                    auth_requirements: route.auth_requirements.clone(),
+                    schema_refs: route.schema_refs.clone(),
+                    owning_service: route.owning_service.clone(),
+                    consumers: route.consumers.clone(),
                 });
             }
 
@@ -222,11 +234,16 @@ impl<'a> RouteExtractor<'a> {
         let now = chrono::Utc::now().to_rfc3339();
 
         for route in routes {
+            let auth_reqs = serde_json::to_string(&route.auth_requirements).unwrap_or_else(|_| "[]".to_string());
+            let schema_refs = serde_json::to_string(&route.schema_refs).unwrap_or_else(|_| "[]".to_string());
+            let consumers = serde_json::to_string(&route.consumers).unwrap_or_else(|_| "[]".to_string());
+
             tx.execute(
                 "INSERT INTO api_routes \
                  (method, path_pattern, handler_symbol_id, handler_symbol_name, handler_file_id, \
-                  framework, route_source, mount_prefix, is_dynamic, route_confidence, evidence, last_indexed_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                  framework, route_source, mount_prefix, is_dynamic, route_confidence, evidence, \
+                  auth_requirements, schema_refs, owning_service, consumers, last_indexed_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
                 rusqlite::params![
                     route.method,
                     route.path_pattern,
@@ -239,6 +256,10 @@ impl<'a> RouteExtractor<'a> {
                     route.is_dynamic as i32,
                     route.route_confidence,
                     route.evidence,
+                    auth_reqs,
+                    schema_refs,
+                    route.owning_service,
+                    consumers,
                     now,
                 ],
             )
@@ -277,6 +298,10 @@ struct RouteRow {
     is_dynamic: bool,
     route_confidence: f64,
     evidence: Option<String>,
+    auth_requirements: Option<Vec<String>>,
+    schema_refs: Option<Vec<String>>,
+    owning_service: Option<String>,
+    consumers: Option<Vec<String>>,
 }
 
 /// Helper: parse a symbol_kind string from the DB into a SymbolKind enum.
@@ -337,6 +362,10 @@ mod tests {
             is_dynamic: false,
             route_confidence: 1.0,
             evidence: "test".to_string(),
+            auth_requirements: None,
+            schema_refs: None,
+            owning_service: None,
+            consumers: None,
         };
         let r2 = r1.clone();
         assert_eq!(r1, r2);

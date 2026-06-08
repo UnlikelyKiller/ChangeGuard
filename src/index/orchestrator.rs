@@ -914,9 +914,18 @@ impl ProjectIndexer {
         use crate::index::call_graph::CallGraph;
         let (routes, data_models, call_graph) = {
             let conn = self.storage.get_connection();
-            let mut route_stmt = conn.prepare("SELECT method, path_pattern, handler_symbol_name, framework, route_source, mount_prefix, is_dynamic, route_confidence, evidence FROM api_routes").into_diagnostic()?;
+            let mut route_stmt = conn.prepare("SELECT method, path_pattern, handler_symbol_name, framework, route_source, mount_prefix, is_dynamic, route_confidence, evidence, \
+                                               auth_requirements, schema_refs, owning_service, consumers FROM api_routes").into_diagnostic()?;
             let routes: Vec<ApiRoute> = route_stmt
                 .query_map([], |row| {
+                    let auth_raw: Option<String> = row.get(9)?;
+                    let schema_raw: Option<String> = row.get(10)?;
+                    let consumers_raw: Option<String> = row.get(12)?;
+
+                    let auth_requirements = auth_raw.and_then(|s| serde_json::from_str(&s).ok());
+                    let schema_refs = schema_raw.and_then(|s| serde_json::from_str(&s).ok());
+                    let consumers = consumers_raw.and_then(|s| serde_json::from_str(&s).ok());
+
                     Ok(ApiRoute {
                         method: row.get(0)?,
                         path_pattern: row.get(1)?,
@@ -927,6 +936,10 @@ impl ProjectIndexer {
                         is_dynamic: row.get::<_, i32>(6)? != 0,
                         route_confidence: row.get(7)?,
                         evidence: row.get(8)?,
+                        auth_requirements,
+                        schema_refs,
+                        owning_service: row.get(11)?,
+                        consumers,
                     })
                 })
                 .into_diagnostic()?

@@ -1,6 +1,6 @@
 use crate::state::graph_kinds::{EdgeKind, NodeKind};
 use crate::state::storage::StorageManager;
-use crate::state::storage_cozo::CozoStorage;
+use crate::state::storage_cozo::{CozoStorage, GraphEdge, GraphNode};
 use miette::{IntoDiagnostic, Result};
 use serde_json::json;
 use tracing::info;
@@ -155,14 +155,156 @@ pub fn build_native_graph(
         cozo.run_script_with_params(script, params, cozo::ScriptMutability::Mutable)?;
     }
 
+    // --- 4. Read api_routes → endpoint nodes and edges ---
+    let mut route_stmt = conn
+        .prepare(
+            "SELECT \
+             ar.method, ar.path_pattern, ps.qualified_name, \
+             ar.auth_requirements, ar.schema_refs, ar.owning_service, ar.consumers \
+             FROM api_routes ar \
+             LEFT JOIN project_symbols ps ON ar.handler_symbol_id = ps.id",
+        )
+        .into_diagnostic()?;
+
+    #[allow(clippy::type_complexity)]
+    let route_rows: Vec<(
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    )> = route_stmt
+        .query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+                row.get(6)?,
+            ))
+        })
+        .into_diagnostic()?
+        .collect::<Result<Vec<_>, _>>()
+        .into_diagnostic()?;
+    drop(route_stmt);
+
+    let mut endpoint_nodes = Vec::new();
+    let mut endpoint_edges = Vec::new();
+
+    for (method, path, qn_opt, auth_json, schema_json, service_opt, consumers_json) in &route_rows {
+        let endpoint_id = format!("urn:changeguard:endpoint:{}:{}", method, path);
+        let metadata = json!({
+            "method": method,
+            "path": path,
+            "schema_version": "v1",
+            "auth": auth_json,
+            "schemas": schema_json,
+        });
+
+        endpoint_nodes.push(GraphNode {
+            id: endpoint_id.clone(),
+            label: format!("{} {}", method, path),
+            category: NodeKind::Endpoint,
+            risk_score: 0.0,
+            metadata: Some(metadata),
+        });
+
+        // Handler -> Endpoint
+        if let Some(qn) = qn_opt {
+            let handler_urn = crate::platform::urn::build_urn(NodeKind::Symbol, qn);
+            endpoint_edges.push(GraphEdge {
+                source: handler_urn,
+                target: endpoint_id.clone(),
+                relation: EdgeKind::Handles,
+                confidence: 1.0,
+                provenance_id: provenance_id.to_string(),
+            });
+        }
+
+        // Service -> Endpoint
+        if let Some(service) = service_opt {
+            let service_urn = crate::platform::urn::build_urn(NodeKind::Service, service);
+            endpoint_edges.push(GraphEdge {
+                source: service_urn,
+                target: endpoint_id.clone(),
+                relation: EdgeKind::Owns,
+                confidence: 1.0,
+                provenance_id: provenance_id.to_string(),
+            });
+        }
+
+        // Auth -> Endpoint
+        if let Some(auth_reqs_raw) = auth_json
+            && let Ok(auth_reqs) = serde_json::from_str::<Vec<String>>(auth_reqs_raw)
+        {
+            for auth in auth_reqs {
+                let auth_urn = crate::platform::urn::build_urn(NodeKind::SecurityBoundary, &auth);
+                endpoint_edges.push(GraphEdge {
+                    source: endpoint_id.clone(),
+                    target: auth_urn,
+                    relation: EdgeKind::Authenticates,
+                    confidence: 1.0,
+                    provenance_id: provenance_id.to_string(),
+                });
+            }
+        }
+
+        // Consumers -> Endpoint
+        if let Some(consumers_raw) = consumers_json
+            && let Ok(consumers) = serde_json::from_str::<Vec<String>>(consumers_raw)
+        {
+            for consumer in consumers {
+                // Try to guess kind: if it looks like a URN, use it, otherwise assume Service
+                let consumer_urn = if consumer.starts_with("urn:") {
+                    consumer
+                } else {
+                    crate::platform::urn::build_urn(NodeKind::Service, &consumer)
+                };
+                endpoint_edges.push(GraphEdge {
+                    source: consumer_urn,
+                    target: endpoint_id.clone(),
+                    relation: EdgeKind::Consumes,
+                    confidence: 1.0,
+                    provenance_id: provenance_id.to_string(),
+                });
+            }
+        }
+
+        // Schemas -> Endpoint
+        if let Some(schemas_raw) = schema_json
+            && let Ok(schemas) = serde_json::from_str::<Vec<String>>(schemas_raw)
+        {
+            for schema in schemas {
+                let schema_urn = crate::platform::urn::build_urn(NodeKind::DataModel, &schema);
+                endpoint_edges.push(GraphEdge {
+                    source: endpoint_id.clone(),
+                    target: schema_urn,
+                    relation: EdgeKind::Handles,
+                    confidence: 1.0,
+                    provenance_id: provenance_id.to_string(),
+                });
+            }
+        }
+    }
+
+    cozo.insert_nodes(&endpoint_nodes)?;
+    cozo.insert_edges(&endpoint_edges)?;
+
     info!(
-        "Native graph built: {} files, {} symbols, {} edges",
-        files_indexed, symbols_indexed, edges_added
+        "Native graph built: {} files, {} symbols, {} edges, {} endpoints",
+        files_indexed,
+        symbols_indexed,
+        edges_added + endpoint_edges.len(),
+        endpoint_nodes.len()
     );
 
     Ok(GraphStats {
-        nodes_added: files_indexed + symbols_indexed,
-        edges_added,
+        nodes_added: files_indexed + symbols_indexed + endpoint_nodes.len(),
+        edges_added: edges_added + endpoint_edges.len(),
         files_indexed,
         symbols_indexed,
     })

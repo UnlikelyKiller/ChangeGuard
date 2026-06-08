@@ -732,7 +732,11 @@ mod tests {
             mount_prefix: None,
             is_dynamic: false,
             route_confidence: 1.0,
-            evidence: None,
+            evidence: String::new(),
+            auth_requirements: None,
+            schema_refs: None,
+            owning_service: None,
+            consumers: None,
         }];
 
         let chains = graph.enumerate_call_chains(&routes, 5);
@@ -785,7 +789,11 @@ mod tests {
             mount_prefix: None,
             is_dynamic: false,
             route_confidence: 1.0,
-            evidence: None,
+            evidence: String::new(),
+            auth_requirements: None,
+            schema_refs: None,
+            owning_service: None,
+            consumers: None,
         }];
 
         let chains = graph.enumerate_call_chains(&routes, 3);
@@ -834,7 +842,11 @@ mod tests {
             mount_prefix: None,
             is_dynamic: false,
             route_confidence: 1.0,
-            evidence: None,
+            evidence: String::new(),
+            auth_requirements: None,
+            schema_refs: None,
+            owning_service: None,
+            consumers: None,
         }];
 
         let chains = graph.enumerate_call_chains(&routes, 5);

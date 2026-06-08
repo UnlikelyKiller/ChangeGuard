@@ -50,8 +50,17 @@ pub struct ApiRoute {
     pub mount_prefix: Option<String>,
     pub is_dynamic: bool,
     pub route_confidence: f64,
-    pub evidence: Option<String>,
+    pub evidence: String,
+    #[serde(default)]
+    pub auth_requirements: Option<Vec<String>>,
+    #[serde(default)]
+    pub schema_refs: Option<Vec<String>>,
+    #[serde(default)]
+    pub owning_service: Option<String>,
+    #[serde(default)]
+    pub consumers: Option<Vec<String>>,
 }
+
 
 impl Eq for ApiRoute {}
 

@@ -42,5 +42,6 @@ pub enum EdgeKind {
     Validates,
     Authenticates,
     Authorizes,
+    Consumes,
     TouchesSecret,
 }

@@ -6,6 +6,7 @@ pub mod config_verify;
 pub mod daemon;
 pub mod dead_code;
 pub mod doctor;
+pub mod endpoints;
 pub mod federate;
 pub mod helpers;
 pub mod hook_commit_msg;

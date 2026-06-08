@@ -312,7 +312,11 @@ mod tests {
             mount_prefix: None,
             is_dynamic: false,
             route_confidence: 1.0,
-            evidence: None,
+            evidence: String::new(),
+            auth_requirements: None,
+            schema_refs: None,
+            owning_service: None,
+            consumers: None,
         }];
         let topology = DirectoryTopology {
             classifications: vec![DirectoryClassification {
@@ -340,7 +344,11 @@ mod tests {
             mount_prefix: None,
             is_dynamic: false,
             route_confidence: 1.0,
-            evidence: None,
+            evidence: String::new(),
+            auth_requirements: None,
+            schema_refs: None,
+            owning_service: None,
+            consumers: None,
         }];
         let topology = DirectoryTopology {
             classifications: vec![DirectoryClassification {
@@ -399,7 +407,11 @@ mod tests {
             mount_prefix: None,
             is_dynamic: false,
             route_confidence: 1.0,
-            evidence: None,
+            evidence: String::new(),
+            auth_requirements: None,
+            schema_refs: None,
+            owning_service: None,
+            consumers: None,
         }];
         let topology = DirectoryTopology {
             classifications: vec![],
@@ -423,7 +435,11 @@ mod tests {
             mount_prefix: None,
             is_dynamic: false,
             route_confidence: 1.0,
-            evidence: None,
+            evidence: String::new(),
+            auth_requirements: None,
+            schema_refs: None,
+            owning_service: None,
+            consumers: None,
         }];
         let data_models = vec![DataModelSource {
             model: DataModel {
@@ -460,7 +476,11 @@ mod tests {
             mount_prefix: None,
             is_dynamic: false,
             route_confidence: 1.0,
-            evidence: None,
+            evidence: String::new(),
+            auth_requirements: None,
+            schema_refs: None,
+            owning_service: None,
+            consumers: None,
         }];
 
         let old_cwd = std::env::current_dir().unwrap();

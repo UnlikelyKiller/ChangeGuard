@@ -25,13 +25,22 @@ impl EnrichmentProvider for ApiProvider {
 
             let mut stmt = conn
                 .prepare(
-                    "SELECT method, path_pattern, handler_symbol_name, framework, route_source, mount_prefix, is_dynamic, route_confidence, evidence 
+                    "SELECT method, path_pattern, handler_symbol_name, framework, route_source, mount_prefix, is_dynamic, route_confidence, evidence, \
+                     auth_requirements, schema_refs, owning_service, consumers \
                      FROM api_routes WHERE handler_file_id = ?1"
                 )
                 .into_diagnostic()?;
 
             let routes = stmt
                 .query_map([file_id], |row| {
+                    let auth_raw: Option<String> = row.get(9)?;
+                    let schema_raw: Option<String> = row.get(10)?;
+                    let consumers_raw: Option<String> = row.get(12)?;
+
+                    let auth_requirements = auth_raw.and_then(|s| serde_json::from_str(&s).ok());
+                    let schema_refs = schema_raw.and_then(|s| serde_json::from_str(&s).ok());
+                    let consumers = consumers_raw.and_then(|s| serde_json::from_str(&s).ok());
+
                     Ok(ApiRoute {
                         method: row.get(0)?,
                         path_pattern: row.get(1)?,
@@ -42,12 +51,23 @@ impl EnrichmentProvider for ApiProvider {
                         is_dynamic: row.get::<_, i32>(6)? != 0,
                         route_confidence: row.get(7)?,
                         evidence: row.get(8)?,
+                        auth_requirements,
+                        schema_refs,
+                        owning_service: row.get(11)?,
+                        consumers,
                     })
                 })
                 .into_diagnostic()?;
 
             for route in routes {
-                changed_file.api_routes.push(route.into_diagnostic()?);
+                let route = route.into_diagnostic()?;
+                
+                // Add impact reasons for API changes
+                if changed_file.status == "Deleted" {
+                    packet.risk_reasons.push(format!("Public API removal: {} {}", route.method, route.path_pattern));
+                }
+                
+                changed_file.api_routes.push(route);
             }
         }
 

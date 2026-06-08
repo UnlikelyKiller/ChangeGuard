@@ -132,6 +132,8 @@ pub enum Commands {
         #[command(flatten)]
         args: HotspotArgs,
     },
+    /// List and filter API endpoints
+    Endpoints(crate::commands::endpoints::EndpointsArgs),
     /// Manage cross-repo federation
     Federate {
         #[command(subcommand)]
@@ -748,6 +750,7 @@ pub fn run_with(cli: Cli) -> Result<()> {
             })
         }
         Commands::Hotspots { args } => crate::commands::hotspots::execute_hotspots(args),
+        Commands::Endpoints(args) => crate::commands::endpoints::execute_endpoints(args),
         Commands::Federate { command } => match command {
             FederateCommands::Export { dry_run, out } => {
                 crate::commands::federate::execute_federate_export(dry_run, out)

@@ -208,6 +208,10 @@ fn collect_py_routes(
                         is_dynamic: false,
                         route_confidence: 1.0,
                         evidence,
+                        auth_requirements: None,
+                        schema_refs: None,
+                        owning_service: None,
+                        consumers: None,
                     });
                 }
             }
@@ -233,6 +237,10 @@ fn collect_py_routes(
                     is_dynamic: false,
                     route_confidence: 1.0,
                     evidence,
+                    auth_requirements: None,
+                    schema_refs: None,
+                    owning_service: None,
+                    consumers: None,
                 });
             }
         }
