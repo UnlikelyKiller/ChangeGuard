@@ -147,6 +147,10 @@ pub enum Commands {
     /// Manage data models and schema migrations
     #[command(name = "data-models")]
     DataModels(crate::commands::data_models::DataModelsArgs),
+    /// CI configuration and gate commands
+    Ci(crate::commands::deploy::CiArgs),
+    /// Deployment manifest and surface commands
+    Deploy(crate::commands::deploy::DeployArgs),
     /// Manage ChangeGuard bridge (AI-Brains integration)
     Bridge {
         #[command(subcommand)]
@@ -827,6 +831,8 @@ pub fn run_with(cli: Cli) -> Result<()> {
             ServiceSubcommands::Diff(args) => crate::commands::services_diff::execute_services_diff(args, &config),
         },
         Commands::DataModels(args) => crate::commands::data_models::execute_data_models(args),
+        Commands::Ci(args) => crate::commands::deploy::execute_ci(args),
+        Commands::Deploy(args) => crate::commands::deploy::execute_deploy(args),
         Commands::Ledger { command } => match command {
             LedgerCommands::Start {
                 entity,

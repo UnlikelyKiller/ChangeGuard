@@ -124,6 +124,14 @@ pub struct CIGate {
     pub platform: String,
     pub job_name: String,
     pub trigger: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub artifacts: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub release_gates: Vec<String>,
 }
 
 impl Eq for CIGate {}
@@ -139,6 +147,7 @@ impl Ord for CIGate {
         self.platform
             .cmp(&other.platform)
             .then_with(|| self.job_name.cmp(&other.job_name))
+            .then_with(|| self.workflow_name.cmp(&other.workflow_name))
             .then_with(|| self.trigger.cmp(&other.trigger))
     }
 }
@@ -533,6 +542,10 @@ pub struct DeployManifestChange {
     pub risk_tier: u8,
     pub coupled_files: Vec<String>,
     pub high_blast_resources: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
 }
 
 impl PartialEq for DeployManifestChange {
@@ -542,6 +555,8 @@ impl PartialEq for DeployManifestChange {
             && self.risk_tier == other.risk_tier
             && self.coupled_files == other.coupled_files
             && self.high_blast_resources == other.high_blast_resources
+            && self.service_name == other.service_name
+            && self.owner == other.owner
     }
 }
 

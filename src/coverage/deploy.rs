@@ -264,6 +264,8 @@ pub fn detect_deploy_manifest_changes(
             risk_tier,
             coupled_files,
             high_blast_resources,
+            service_name: None,
+            owner: None,
         });
     }
 

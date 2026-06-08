@@ -8,6 +8,7 @@ pub mod m33_intent_provenance;
 pub mod m34_api_route_enrichment;
 pub mod m35_adr_lifecycle;
 pub mod m36_env_config_metadata;
+pub mod m37_ci_deploy_enrichment;
 
 use rusqlite_migration::Migrations;
 
@@ -23,6 +24,7 @@ pub fn get_migrations() -> Migrations<'static> {
     all_m.extend(m34_api_route_enrichment::m34_api_route_enrichment());
     all_m.extend(m35_adr_lifecycle::m35_adr_lifecycle());
     all_m.extend(m36_env_config_metadata::m36_env_config_metadata());
+    all_m.extend(m37_ci_deploy_enrichment::m37_ci_deploy_enrichment());
 
     Migrations::new(all_m)
 }
