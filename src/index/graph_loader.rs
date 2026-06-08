@@ -842,7 +842,7 @@ mod tests {
         )
         .unwrap();
 
-        let stats = build_native_graph(&storage, &cozo, "test_provenance").unwrap();
+        let stats = build_native_graph(&storage, &cozo, "test_provenance", &crate::config::model::Config::default()).unwrap();
 
         // Verify stats
         assert_eq!(stats.files_indexed, 2);

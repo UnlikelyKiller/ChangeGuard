@@ -411,6 +411,31 @@ pub enum ServiceSubcommands {
     Diff(crate::commands::services_diff::ServicesDiffArgs),
 }
 
+#[derive(Subcommand, Debug)]
+pub enum ValidatorSubcommands {
+    /// List all registered commit validators
+    List {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Enable a commit validator
+    Enable {
+        /// Name of the validator
+        name: String,
+    },
+    /// Disable a commit validator
+    Disable {
+        /// Name of the validator
+        name: String,
+    },
+    /// Remove a commit validator from the registry
+    Remove {
+        /// Name of the validator
+        name: String,
+    },
+}
+
 #[derive(Subcommand)]
 pub enum InternalCommands {
     /// Internal git hook command for commit message validation
@@ -615,6 +640,13 @@ pub enum LedgerCommands {
         #[command(subcommand)]
         command: AdrSubcommands,
     },
+    /// Manage commit validators
+    Validator {
+        #[command(subcommand)]
+        command: ValidatorSubcommands,
+    },
+    /// Show the entity graph neighborhood governed by a transaction
+    Graph(crate::commands::ledger_graph::LedgerGraphArgs),
     /// Full-text search across ledger history
 
     Search {
@@ -957,6 +989,10 @@ pub fn run_with(cli: Cli) -> Result<()> {
             LedgerCommands::Adr { command } => {
                 crate::commands::ledger_adr::execute_ledger_adr(command)
             }
+            LedgerCommands::Validator { command } => {
+                crate::commands::ledger_register::execute_validator_lifecycle(command)
+            }
+            LedgerCommands::Graph(args) => crate::commands::ledger_graph::execute_ledger_graph(args),
             LedgerCommands::Search {
                 query,
                 category,

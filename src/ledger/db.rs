@@ -674,7 +674,12 @@ impl<'a> LedgerDb<'a> {
         self.conn.execute(
             "INSERT INTO commit_validators (
                 category, name, description, executable, args, timeout_ms, glob, validation_level, enabled
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            ON CONFLICT(name, category) DO UPDATE SET
+                executable = EXCLUDED.executable,
+                args = EXCLUDED.args,
+                timeout_ms = EXCLUDED.timeout_ms,
+                enabled = EXCLUDED.enabled",
             params![
                 validator.category,
                 validator.name,
@@ -689,6 +694,22 @@ impl<'a> LedgerDb<'a> {
                     .trim_matches('"'),
                 validator.enabled as i32,
             ],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_validator_enabled(&self, name: &str, enabled: bool) -> Result<(), LedgerError> {
+        self.conn.execute(
+            "UPDATE commit_validators SET enabled = ?1 WHERE name = ?2",
+            rusqlite::params![enabled as i32, name],
+        )?;
+        Ok(())
+    }
+
+    pub fn remove_validator(&self, name: &str) -> Result<(), LedgerError> {
+        self.conn.execute(
+            "DELETE FROM commit_validators WHERE name = ?1",
+            [name],
         )?;
         Ok(())
     }

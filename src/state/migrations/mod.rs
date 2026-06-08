@@ -10,6 +10,8 @@ pub mod m35_adr_lifecycle;
 pub mod m36_env_config_metadata;
 pub mod m37_ci_deploy_enrichment;
 pub mod m38_hotspot_history;
+pub mod m39_ledger_neighborhood;
+pub mod m40_validator_management;
 
 use rusqlite_migration::Migrations;
 
@@ -27,6 +29,8 @@ pub fn get_migrations() -> Migrations<'static> {
     all_m.extend(m36_env_config_metadata::m36_env_config_metadata());
     all_m.extend(m37_ci_deploy_enrichment::m37_ci_deploy_enrichment());
     all_m.extend(m38_hotspot_history::m38_hotspot_history());
+    all_m.extend(m39_ledger_neighborhood::m39_ledger_neighborhood());
+    all_m.extend(m40_validator_management::m40_validator_management());
 
     Migrations::new(all_m)
 }
@@ -88,6 +92,7 @@ mod tests {
             "ci_outcome_history",
             "hotspot_history",
             "temporal_coupling_history",
+            "transaction_links",
         ];
 
         for table in &expected_tables {

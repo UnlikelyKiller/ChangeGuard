@@ -1,12 +1,56 @@
+use crate::cli::ValidatorSubcommands;
 use crate::commands::helpers::get_layout;
 use crate::ledger::db::LedgerDb;
 use crate::ledger::enforcement::{
     CategoryStackMapping, CommitValidator, RuleType, TechStackRule, WatcherPattern,
 };
 use crate::state::storage::StorageManager;
+use crate::output::table::Table;
 use chrono::Utc;
-use miette::Result;
+use miette::{IntoDiagnostic, Result};
 use owo_colors::OwoColorize;
+
+pub fn execute_validator_lifecycle(subcommand: ValidatorSubcommands) -> Result<()> {
+    let layout = get_layout()?;
+    let storage = StorageManager::open_read_only(&layout.root)?;
+    let db = LedgerDb::new(storage.get_connection());
+
+    match subcommand {
+        ValidatorSubcommands::List { json } => {
+            let validators = db.get_commit_validators(None).map_err(|e| miette::miette!("{}", e))?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&validators).into_diagnostic()?);
+            } else {
+                println!("{}", "Registered Commit Validators".bold().cyan());
+                let mut table = Table::new();
+                table.set_header(vec!["Name", "Category", "Executable", "Enabled", "Level"]);
+                for v in validators {
+                    table.add_row(vec![
+                        v.name.bold().to_string(),
+                        v.category,
+                        v.executable,
+                        if v.enabled { "YES".green().to_string() } else { "no".red().to_string() },
+                        format!("{:?}", v.validation_level),
+                    ]);
+                }
+                println!("{}", table);
+            }
+        }
+        ValidatorSubcommands::Enable { name } => {
+            db.set_validator_enabled(&name, true).map_err(|e| miette::miette!("{}", e))?;
+            println!("Enabled validator: {}", name);
+        }
+        ValidatorSubcommands::Disable { name } => {
+            db.set_validator_enabled(&name, false).map_err(|e| miette::miette!("{}", e))?;
+            println!("Disabled validator: {}", name);
+        }
+        ValidatorSubcommands::Remove { name } => {
+            db.remove_validator(&name).map_err(|e| miette::miette!("{}", e))?;
+            println!("Removed validator: {}", name);
+        }
+    }
+    Ok(())
+}
 
 pub fn execute_ledger_register(rule_type: RuleType, payload: String, force: bool) -> Result<()> {
     let layout = get_layout()?;
