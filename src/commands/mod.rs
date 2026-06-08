@@ -30,6 +30,7 @@ pub mod observability;
 pub mod reset;
 pub mod scan;
 pub mod search;
+pub mod security;
 pub mod services_diff;
 pub mod test_mapping;
 pub mod update;

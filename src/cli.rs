@@ -155,6 +155,8 @@ pub enum Commands {
     Dependencies(crate::commands::dependencies::DependenciesArgs),
     /// Manage runtime observability and SLOs
     Observability(crate::commands::observability::ObservabilityArgs),
+    /// Manage security boundaries and policies
+    Security(crate::commands::security::SecurityArgs),
     /// List tests validating a specific entity
     Tests(crate::commands::test_mapping::TestsForEntityArgs),
     /// Manage ChangeGuard bridge (AI-Brains integration)
@@ -907,6 +909,7 @@ pub fn run_with(cli: Cli) -> Result<()> {
         Commands::Deploy(args) => crate::commands::deploy::execute_deploy(args),
         Commands::Dependencies(args) => crate::commands::dependencies::execute_dependencies(args),
         Commands::Observability(args) => crate::commands::observability::execute_observability(args),
+        Commands::Security(args) => crate::commands::security::execute_security(args),
         Commands::Tests(args) => crate::commands::test_mapping::execute_tests_for_entity(args),
         Commands::Ledger { command } => match command {
             LedgerCommands::Start {

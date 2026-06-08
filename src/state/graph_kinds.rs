@@ -32,6 +32,12 @@ pub enum NodeKind {
     Table,
     Column,
     File,
+    Role,
+    Scope,
+    Policy,
+    Principal,
+    Action,
+    Resource,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Display, EnumString)]

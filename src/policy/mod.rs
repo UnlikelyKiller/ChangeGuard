@@ -6,6 +6,7 @@ pub mod mode;
 pub mod protected_paths;
 pub mod rules;
 pub mod validate;
+pub mod cedar;
 
 pub use error::PolicyError;
 pub use load::load_rules;
