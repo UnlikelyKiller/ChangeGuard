@@ -757,7 +757,9 @@ pub struct AiInsight {
 #[serde(rename_all = "camelCase")]
 pub struct KGImpact {
     pub source_node: String,
+    pub source_category: String,
     pub impacted_node: String,
+    pub impacted_category: String,
     pub relation: String,
     pub path_length: usize,
     pub reason: String,

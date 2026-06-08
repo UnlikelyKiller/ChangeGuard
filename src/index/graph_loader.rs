@@ -1,3 +1,4 @@
+use crate::state::graph_kinds::{EdgeKind, NodeKind};
 use crate::state::storage::StorageManager;
 use crate::state::storage_cozo::CozoStorage;
 use miette::{IntoDiagnostic, Result};
@@ -44,11 +45,12 @@ pub fn build_native_graph(
     let mut node_batch = Vec::new();
     let mut files_indexed = 0usize;
     for (file_path, language) in &file_rows {
-        let metadata = json!({ "language": language });
+        let metadata = json!({ "language": language, "schema_version": "v1" });
+        let id = crate::platform::urn::build_urn(NodeKind::File, file_path);
         node_batch.push(json!([
+            id,
             file_path.as_str(),
-            file_path.as_str(),
-            "file",
+            NodeKind::File.to_string(),
             0.0,
             metadata
         ]));
@@ -75,11 +77,12 @@ pub fn build_native_graph(
 
     let mut symbols_indexed = 0usize;
     for (qualified_name, symbol_name, symbol_kind) in &sym_rows {
-        let metadata = json!({ "kind": symbol_kind });
+        let metadata = json!({ "kind": symbol_kind, "schema_version": "v1" });
+        let id = crate::platform::urn::build_urn(NodeKind::Symbol, qualified_name);
         node_batch.push(json!([
-            qualified_name.as_str(),
+            id,
             symbol_name.as_str(),
-            "symbol",
+            NodeKind::Symbol.to_string(),
             0.0,
             metadata
         ]));
@@ -129,10 +132,13 @@ pub fn build_native_graph(
             Some(t) => t.as_str(),
             None => continue,
         };
+        let source_id = crate::platform::urn::build_urn(NodeKind::Symbol, source);
+        let target_id = crate::platform::urn::build_urn(NodeKind::Symbol, target);
+
         edge_batch.push(json!([
-            source.as_str(),
-            target,
-            "calls",
+            source_id,
+            target_id,
+            EdgeKind::Calls.to_string(),
             1.0,
             provenance_id
         ]));
@@ -266,9 +272,9 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert!(ids.contains(&"src/main.rs".to_string()));
-        assert!(ids.contains(&"crate::main".to_string()));
-        assert!(ids.contains(&"crate::helper".to_string()));
+        assert!(ids.contains(&crate::platform::urn::build_urn(NodeKind::File, "src/main.rs")));
+        assert!(ids.contains(&crate::platform::urn::build_urn(NodeKind::Symbol, "crate::main")));
+        assert!(ids.contains(&crate::platform::urn::build_urn(NodeKind::Symbol, "crate::helper")));
 
         // Verify CozoDB edges
         let res = cozo
@@ -278,8 +284,8 @@ mod tests {
         if let (Some(cozo::DataValue::Str(src)), Some(cozo::DataValue::Str(tgt))) =
             (res.rows[0].first(), res.rows[0].get(1))
         {
-            assert_eq!(src.as_str(), "crate::main");
-            assert_eq!(tgt.as_str(), "crate::helper");
+            assert_eq!(src.as_str(), &crate::platform::urn::build_urn(NodeKind::Symbol, "crate::main"));
+            assert_eq!(tgt.as_str(), &crate::platform::urn::build_urn(NodeKind::Symbol, "crate::helper"));
         } else {
             panic!("Expected string edge endpoints");
         }

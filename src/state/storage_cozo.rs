@@ -6,11 +6,13 @@ use tracing::debug;
 
 use crate::state::cozo::{init, queries};
 
+use crate::state::graph_kinds::{EdgeKind, NodeKind};
+
 #[derive(Debug, Clone)]
 pub struct GraphNode {
     pub id: String,
     pub label: String,
-    pub category: String,
+    pub category: NodeKind,
     pub risk_score: f64,
     pub metadata: Option<serde_json::Value>,
 }
@@ -19,7 +21,7 @@ pub struct GraphNode {
 pub struct GraphEdge {
     pub source: String,
     pub target: String,
-    pub relation: String,
+    pub relation: EdgeKind,
     pub confidence: f64,
     pub provenance_id: String,
 }
@@ -157,16 +159,21 @@ impl CozoStorage {
         if ids.is_empty() {
             return Ok(());
         }
-        let mut script = String::from("?[id] <- [\n");
-        for (i, id) in ids.iter().enumerate() {
-            script.push_str(&format!(
-                "  ['{}']{}\n",
-                id,
-                if i == ids.len() - 1 { "" } else { "," }
-            ));
+        for chunk in ids.chunks(200) {
+            let batch: Vec<Vec<String>> = chunk.iter().map(|id| vec![id.clone()]).collect();
+            let script = "?[id] <- $batch :rm node {id}";
+            let mut params = std::collections::BTreeMap::new();
+            params.insert(
+                "batch".to_string(),
+                cozo::DataValue::from(serde_json::Value::Array(
+                    batch
+                        .into_iter()
+                        .map(|v| serde_json::Value::Array(v.into_iter().map(serde_json::Value::String).collect()))
+                        .collect(),
+                )),
+            );
+            self.run_script_with_params(script, params, cozo::ScriptMutability::Mutable)?;
         }
-        script.push_str("] :rm node {id}");
-        self.run_script(&script)?;
         Ok(())
     }
 
@@ -174,18 +181,21 @@ impl CozoStorage {
         if source_ids.is_empty() {
             return Ok(());
         }
-        let mut script = String::from("source_input[source] <- [\n");
-        for (i, id) in source_ids.iter().enumerate() {
-            script.push_str(&format!(
-                "  ['{}']{}\n",
-                id,
-                if i == source_ids.len() - 1 { "" } else { "," }
-            ));
+        for chunk in source_ids.chunks(200) {
+            let batch: Vec<Vec<String>> = chunk.iter().map(|id| vec![id.clone()]).collect();
+            let script = "source_input[source] <- $batch\n?[source, target, relation] := source_input[source], *edge{source, target, relation}\n:rm edge {source, target, relation}";
+            let mut params = std::collections::BTreeMap::new();
+            params.insert(
+                "batch".to_string(),
+                cozo::DataValue::from(serde_json::Value::Array(
+                    batch
+                        .into_iter()
+                        .map(|v| serde_json::Value::Array(v.into_iter().map(serde_json::Value::String).collect()))
+                        .collect(),
+                )),
+            );
+            self.run_script_with_params(script, params, cozo::ScriptMutability::Mutable)?;
         }
-        script.push_str("]\n");
-        script.push_str("?[source, target, relation] := source_input[source], *edge{source, target, relation}\n");
-        script.push_str(":rm edge {source, target, relation}");
-        self.run_script(&script)?;
         Ok(())
     }
 
@@ -223,21 +233,26 @@ impl CozoStorage {
         if nodes.is_empty() {
             return Ok(());
         }
-        let mut script = String::from("?[id, label, category, risk_score, metadata] <- [\n");
-        for (i, node) in nodes.iter().enumerate() {
-            let metadata = node.metadata.as_ref().cloned().unwrap_or(json!({}));
-            script.push_str(&format!(
-                "  ['{}', '{}', '{}', {}, {}]{}\n",
-                node.id,
-                node.label,
-                node.category,
-                node.risk_score,
-                metadata,
-                if i == nodes.len() - 1 { "" } else { "," }
-            ));
+        for chunk in nodes.chunks(200) {
+            let mut node_batch = Vec::new();
+            for node in chunk {
+                let metadata = node.metadata.as_ref().cloned().unwrap_or(json!({}));
+                node_batch.push(json!([
+                    node.id,
+                    node.label,
+                    node.category.to_string(),
+                    node.risk_score,
+                    metadata
+                ]));
+            }
+            let script = "?[id, label, category, risk_score, metadata] <- $batch :put node";
+            let mut params = std::collections::BTreeMap::new();
+            params.insert(
+                "batch".to_string(),
+                cozo::DataValue::from(serde_json::Value::Array(node_batch)),
+            );
+            self.run_script_with_params(script, params, cozo::ScriptMutability::Mutable)?;
         }
-        script.push_str("] :put node");
-        self.run_script(&script)?;
         Ok(())
     }
 
@@ -245,21 +260,25 @@ impl CozoStorage {
         if edges.is_empty() {
             return Ok(());
         }
-        let mut script =
-            String::from("?[source, target, relation, confidence, provenance_id] <- [\n");
-        for (i, edge) in edges.iter().enumerate() {
-            script.push_str(&format!(
-                "  ['{}', '{}', '{}', {}, '{}']{}\n",
-                edge.source,
-                edge.target,
-                edge.relation,
-                edge.confidence,
-                edge.provenance_id,
-                if i == edges.len() - 1 { "" } else { "," }
-            ));
+        for chunk in edges.chunks(200) {
+            let mut edge_batch = Vec::new();
+            for edge in chunk {
+                edge_batch.push(json!([
+                    edge.source,
+                    edge.target,
+                    edge.relation.to_string(),
+                    edge.confidence,
+                    edge.provenance_id,
+                ]));
+            }
+            let script = "?[source, target, relation, confidence, provenance_id] <- $batch :put edge";
+            let mut params = std::collections::BTreeMap::new();
+            params.insert(
+                "batch".to_string(),
+                cozo::DataValue::from(serde_json::Value::Array(edge_batch)),
+            );
+            self.run_script_with_params(script, params, cozo::ScriptMutability::Mutable)?;
         }
-        script.push_str("] :put edge");
-        self.run_script(&script)?;
         Ok(())
     }
 

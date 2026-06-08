@@ -1,5 +1,7 @@
 pub mod cozo;
 pub mod delta;
+pub mod graph_kinds;
+pub mod graph_traversal;
 pub mod layout;
 pub mod locks;
 pub mod migration;

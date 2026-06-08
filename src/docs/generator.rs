@@ -121,6 +121,7 @@ pub fn execute_export(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::graph_kinds::{EdgeKind, NodeKind};
     use crate::state::storage_cozo::{CozoStorage, GraphEdge, GraphNode};
     use camino::Utf8Path;
 
@@ -134,7 +135,7 @@ mod tests {
             .map(|path| GraphNode {
                 id: path.to_string(),
                 label: path.to_string(),
-                category: "file".to_string(),
+                category: NodeKind::File,
                 risk_score: 0.0,
                 metadata: None,
             })
@@ -162,7 +163,7 @@ mod tests {
             .map(|(src, tgt)| GraphEdge {
                 source: src.to_string(),
                 target: tgt.to_string(),
-                relation: "call".to_string(),
+                relation: EdgeKind::Calls,
                 confidence: 1.0,
                 provenance_id: "ev".to_string(),
             })

@@ -4,6 +4,7 @@ use crate::index::orchestrator::{
     get_file_id_by_path, insert_symbol_row, upsert_file_row,
 };
 use crate::index::types::{ProjectFile, ProjectSymbol};
+use crate::state::graph_kinds::{EdgeKind, NodeKind};
 use crate::state::storage_cozo::{GraphEdge, GraphNode};
 use crate::watch::batch::{WatchBatch, WatchEvent, WatchEventKind};
 use camino::Utf8PathBuf;
@@ -360,9 +361,9 @@ impl IncrementalSyncEngine {
                     && let Some(target) = name_to_qualified.get(&callee_id)
                 {
                     record.new_edges.push(GraphEdge {
-                        source: caller_qualified.clone(),
-                        target: target.clone(),
-                        relation: "calls".to_string(),
+                        source: crate::platform::urn::build_urn(NodeKind::Symbol, &caller_qualified),
+                        target: crate::platform::urn::build_urn(NodeKind::Symbol, target),
+                        relation: EdgeKind::Calls,
                         confidence: call.confidence,
                         provenance_id: "incremental_sync".to_string(),
                     });
@@ -389,11 +390,11 @@ impl IncrementalSyncEngine {
         let mut edges_to_add: Vec<GraphEdge> = Vec::new();
 
         for record in affected {
-            // Old nodes: file path + old qualified names
-            nodes_to_remove.push(record.file_path.clone());
+            // Old nodes: file path + old qualified names (MUST use URNs for deletion)
+            nodes_to_remove.push(crate::platform::urn::build_urn(NodeKind::File, &record.file_path));
             for qn in &record.old_qualified_names {
-                nodes_to_remove.push(qn.clone());
-                edges_to_remove_sources.push(qn.clone());
+                nodes_to_remove.push(crate::platform::urn::build_urn(NodeKind::Symbol, qn));
+                edges_to_remove_sources.push(crate::platform::urn::build_urn(NodeKind::Symbol, qn));
             }
 
             // New nodes and edges
@@ -481,19 +482,19 @@ impl IncrementalSyncEngine {
     ) -> Vec<GraphNode> {
         let mut nodes = Vec::new();
         nodes.push(GraphNode {
-            id: file_path.to_string(),
+            id: crate::platform::urn::build_urn(NodeKind::File, file_path),
             label: file_path.to_string(),
-            category: "file".to_string(),
+            category: NodeKind::File,
             risk_score: 0.0,
-            metadata: Some(json!({ "language": project_file.language })),
+            metadata: Some(json!({ "language": project_file.language, "schema_version": "v1" })),
         });
         for ps in project_symbols {
             nodes.push(GraphNode {
-                id: ps.qualified_name.clone(),
+                id: crate::platform::urn::build_urn(NodeKind::Symbol, &ps.qualified_name),
                 label: ps.symbol_name.clone(),
-                category: "symbol".to_string(),
+                category: NodeKind::Symbol,
                 risk_score: 0.0,
-                metadata: Some(json!({ "kind": ps.symbol_kind })),
+                metadata: Some(json!({ "kind": ps.symbol_kind, "schema_version": "v1" })),
             });
         }
         nodes

@@ -4,6 +4,7 @@ pub mod gpu;
 pub mod paths;
 pub mod process_policy;
 pub mod shell;
+pub mod urn;
 
 pub use detect::*;
 pub use env::*;

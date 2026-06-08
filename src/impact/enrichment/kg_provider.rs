@@ -5,6 +5,9 @@ use miette::Result;
 use std::time::Instant;
 use tracing::{debug, warn};
 
+use crate::state::graph_kinds::NodeKind;
+use crate::platform::urn::build_urn;
+
 pub struct KGProvider;
 
 impl EnrichmentProvider for KGProvider {
@@ -40,8 +43,9 @@ impl EnrichmentProvider for KGProvider {
 
             let mut risk_updates = Vec::new();
             for hotspot in &packet.hotspots {
+                let id = build_urn(NodeKind::File, &hotspot.path.to_string_lossy());
                 risk_updates.push(vec![
-                    cozo::DataValue::Str(hotspot.path.to_string_lossy().to_string().into()),
+                    cozo::DataValue::Str(id.into()),
                     cozo::DataValue::Num(cozo::Num::Float(hotspot.score as f64)),
                 ]);
             }
@@ -84,22 +88,19 @@ impl EnrichmentProvider for KGProvider {
 
             // Find nodes associated with this file
             let file_path = file.path.to_string_lossy();
+            let file_urn = build_urn(NodeKind::File, &file_path);
+            
+            // Query for symbol nodes associated with this file in SQLite project_symbols,
+            // then find their corresponding node IDs in Cozo (which are URNs).
             let query = format!(
-                "?[id] := *project_symbol{{file_path: '{}', id: symbol_id}}, *node{{id: id}}, *ledger_link{{node_id: id, ledger_id: _}}",
+                "?[id] := *project_symbol{{file_path: '{}', qualified_name: qn}}, *node{{id: id}}, id == concat('urn:changeguard:symbol:', qn)",
                 file_path
             );
 
-            // Wait, I should also check 'node' directly if I used file_path as ID for file nodes
-            let query_file = format!("?[id] := *node{{id: id, label: '{}'}}", file_path);
+            // Also check the file node directly
+            seed_nodes.push(vec![file_urn]);
 
             if let Ok(res) = cozo.run_script(&query) {
-                for row in res.rows {
-                    if let Some(cozo::DataValue::Str(id)) = row.first() {
-                        seed_nodes.push(vec![id.to_string()]);
-                    }
-                }
-            }
-            if let Ok(res) = cozo.run_script(&query_file) {
                 for row in res.rows {
                     if let Some(cozo::DataValue::Str(id)) = row.first() {
                         seed_nodes.push(vec![id.to_string()]);
@@ -141,9 +142,12 @@ impl EnrichmentProvider for KGProvider {
                         Some(cozo::DataValue::Num(cozo::Num::Int(len))),
                     ) = (row.first(), row.get(1), row.get(2))
                     {
+                        let impacted_category = target.split(':').nth(2).unwrap_or("unknown").to_string();
                         packet.knowledge_graph.push(KGImpact {
                             source_node: "change_seed".to_string(),
+                            source_category: "seed".to_string(),
                             impacted_node: target.to_string(),
+                            impacted_category,
                             relation: rel.to_string(),
                             path_length: *len as usize,
                             reason: format!("KG reachability via {} ({} hops)", rel, len),
@@ -167,8 +171,9 @@ mod tests {
     use super::*;
     use crate::impact::enrichment::EnrichmentContext;
     use crate::impact::packet::{ChangedFile, ImpactPacket};
+    use crate::state::graph_kinds::{EdgeKind, NodeKind};
     use crate::state::storage::StorageManager;
-    use crate::state::storage_cozo::CozoStorage;
+    use crate::state::storage_cozo::{CozoStorage, GraphEdge, GraphNode};
     use std::collections::HashMap;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
@@ -178,26 +183,48 @@ mod tests {
         let cozo = CozoStorage::new(&PathBuf::from("")).unwrap();
 
         // Setup KG data
-        cozo.run_script(
-            "
-            ?[id, label, category, risk_score, metadata] <- [
-                ['file_1', 'file_1.rs', 'code', 0.0, {}],
-                ['file_2', 'file_2.rs', 'code', 0.0, {}],
-                ['file_3', 'file_3.rs', 'code', 0.0, {}]
-            ] :put node
-        ",
-        )
-        .unwrap();
+        let nodes = vec![
+            GraphNode {
+                id: build_urn(NodeKind::File, "file_1.rs"),
+                label: "file_1.rs".to_string(),
+                category: NodeKind::File,
+                risk_score: 0.0,
+                metadata: None,
+            },
+            GraphNode {
+                id: build_urn(NodeKind::File, "file_2.rs"),
+                label: "file_2.rs".to_string(),
+                category: NodeKind::File,
+                risk_score: 0.0,
+                metadata: None,
+            },
+            GraphNode {
+                id: build_urn(NodeKind::File, "file_3.rs"),
+                label: "file_3.rs".to_string(),
+                category: NodeKind::File,
+                risk_score: 0.0,
+                metadata: None,
+            },
+        ];
+        cozo.insert_nodes(&nodes).unwrap();
 
-        cozo.run_script(
-            "
-            ?[source, target, relation, confidence, provenance_id] <- [
-                ['file_1', 'file_2', 'depends_on', 1.0, 'tx1'],
-                ['file_2', 'file_3', 'imports', 1.0, 'tx2']
-            ] :put edge
-        ",
-        )
-        .unwrap();
+        let edges = vec![
+            GraphEdge {
+                source: build_urn(NodeKind::File, "file_1.rs"),
+                target: build_urn(NodeKind::File, "file_2.rs"),
+                relation: EdgeKind::DependsOn,
+                confidence: 1.0,
+                provenance_id: "tx1".to_string(),
+            },
+            GraphEdge {
+                source: build_urn(NodeKind::File, "file_2.rs"),
+                target: build_urn(NodeKind::File, "file_3.rs"),
+                relation: EdgeKind::DependsOn,
+                confidence: 1.0,
+                provenance_id: "tx2".to_string(),
+            },
+        ];
+        cozo.insert_edges(&edges).unwrap();
 
         let mut storage =
             StorageManager::init_from_conn(rusqlite::Connection::open_in_memory().unwrap());
@@ -231,7 +258,13 @@ mod tests {
             .iter()
             .map(|k| k.impacted_node.clone())
             .collect();
-        assert!(nodes.contains(&"file_2".to_string()));
-        assert!(nodes.contains(&"file_3".to_string()));
+        assert!(nodes.contains(&build_urn(NodeKind::File, "file_2.rs")));
+        assert!(nodes.contains(&build_urn(NodeKind::File, "file_3.rs")));
+
+        // Verify categories are populated
+        for impact in &packet.knowledge_graph {
+            assert_eq!(impact.impacted_category, "file");
+            assert_eq!(impact.source_category, "seed");
+        }
     }
 }
