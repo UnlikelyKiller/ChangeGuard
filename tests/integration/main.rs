@@ -58,6 +58,7 @@ mod semantic_search;
 mod tantivy_hardening;
 mod temporal_coupling;
 mod watch_graph_sync;
+mod adr_lifecycle;
 
 #[test]
 fn test_integration_harness_init() {

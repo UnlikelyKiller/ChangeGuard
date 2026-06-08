@@ -350,6 +350,43 @@ pub enum Commands {
     },
 }
 
+#[derive(Subcommand, Debug)]
+pub enum AdrSubcommands {
+    /// Export MADR files from ledger history
+    Export {
+        /// Output path for ADR files
+        #[arg(short, long, alias = "output-dir", default_value = "docs/adr")]
+        output: String,
+        /// Filter entries from the last N days
+        #[arg(short, long)]
+        days: Option<u64>,
+    },
+    /// Update lifecycle status of an ADR
+    UpdateStatus {
+        /// ADR ID (transaction ID or prefix)
+        adr_id: String,
+        /// New status
+        #[arg(value_enum)]
+        status: crate::ledger::types::AdrStatus,
+    },
+    /// Link an ADR as superseding another
+    Link {
+        /// Current ADR ID
+        adr_id: String,
+        /// ID of the ADR being superseded
+        #[arg(short, long)]
+        supersedes: String,
+    },
+    /// Record a review for an ADR
+    Review {
+        /// ADR ID
+        adr_id: String,
+        /// Optional review notes
+        #[arg(short, long)]
+        message: Option<String>,
+    },
+}
+
 #[derive(Subcommand)]
 pub enum InternalCommands {
     /// Internal git hook command for commit message validation
@@ -515,13 +552,13 @@ pub enum LedgerCommands {
         /// Filter by category (e.g. Database, Auth)
         category: Option<Category>,
     },
-    /// Generate Architectural Decision Records (MADR format)
+    /// Architectural Decision Records (MADR format)
     Adr {
-        /// Output path for ADR files
-        #[arg(short, long, alias = "output-dir", default_value = "docs/adr")]
-        output: String,
+        #[command(subcommand)]
+        command: AdrSubcommands,
     },
     /// Full-text search across ledger history
+
     Search {
         /// Search query
         query: String,
@@ -837,10 +874,9 @@ pub fn run_with(cli: Cli) -> Result<()> {
             LedgerCommands::Stack { category } => {
                 crate::commands::ledger_stack::execute_ledger_stack(category.map(|c| c.to_string()))
             }
-            LedgerCommands::Adr { output } => crate::commands::ledger_adr::execute_ledger_adr(
-                Some(camino::Utf8PathBuf::from(output)),
-                None,
-            ),
+            LedgerCommands::Adr { command } => {
+                crate::commands::ledger_adr::execute_ledger_adr(command)
+            }
             LedgerCommands::Search {
                 query,
                 category,

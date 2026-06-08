@@ -722,4 +722,24 @@ impl<'a> TransactionManager<'a> {
 
         Ok(normalized)
     }
+
+    pub fn update_adr_metadata(
+        &mut self,
+        adr_id: &str,
+        update: AdrMetadataUpdate,
+    ) -> Result<(), LedgerError> {
+        let db = LedgerDb::new(self.conn);
+        db.update_adr_metadata(adr_id, update)
+    }
+
+    pub fn get_adr_metadata(&self, adr_id: &str) -> Result<AdrMetadata, LedgerError> {
+        let db = LedgerDb::new(self.conn);
+        db.get_adr_metadata(adr_id)?
+            .ok_or_else(|| LedgerError::NotFound(format!("ADR metadata for ID {}", adr_id)))
+    }
+
+    pub fn link_adr_supersedes(&mut self, adr_id: &str, supersedes_id: &str) -> Result<(), LedgerError> {
+        let db = LedgerDb::new(self.conn);
+        db.link_adr_supersedes(adr_id, supersedes_id)
+    }
 }

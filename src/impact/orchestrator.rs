@@ -86,6 +86,9 @@ impl ImpactOrchestrator {
         orch.register_enrichment_provider(Box::new(
             crate::impact::enrichment::kg_provider::KGProvider,
         ));
+        orch.register_enrichment_provider(Box::new(
+            crate::impact::enrichment::adr_provider::AdrProvider,
+        ));
         orch
     }
 

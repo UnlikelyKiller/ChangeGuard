@@ -294,17 +294,121 @@ pub fn build_native_graph(
     cozo.insert_nodes(&endpoint_nodes)?;
     cozo.insert_edges(&endpoint_edges)?;
 
+    // --- 5. Read adr_metadata → ADR nodes and links ---
+    let mut adr_stmt = conn
+        .prepare(
+            "SELECT am.adr_id, am.status, am.owner, am.supersedes, am.affected_entities, le.summary \
+             FROM adr_metadata am \
+             JOIN ledger_entries le ON am.adr_id = le.tx_id",
+        )
+        .into_diagnostic()?;
+
+    let adr_rows: Vec<(
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        String,
+    )> = adr_stmt
+        .query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+            ))
+        })
+        .into_diagnostic()?
+        .collect::<Result<Vec<_>, _>>()
+        .into_diagnostic()?;
+    drop(adr_stmt);
+
+    let mut adr_nodes = Vec::new();
+    let mut adr_edges = Vec::new();
+
+    for (adr_id, status, owner, supersedes, affected, summary) in &adr_rows {
+        let urn = format!("urn:changeguard:adr:{}", adr_id);
+        let metadata = json!({
+            "status": status,
+            "owner": owner,
+            "schema_version": "v1",
+        });
+
+        adr_nodes.push(GraphNode {
+            id: urn.clone(),
+            label: format!("ADR: {}", summary),
+            category: NodeKind::Adr,
+            risk_score: 0.0,
+            metadata: Some(metadata),
+        });
+
+        // ADR -> Ledger Transaction
+        let tx_urn = format!("urn:changeguard:transaction:{}", adr_id);
+        adr_edges.push(GraphEdge {
+            source: urn.clone(),
+            target: tx_urn,
+            relation: EdgeKind::Governs,
+            confidence: 1.0,
+            provenance_id: provenance_id.to_string(),
+        });
+
+        // Supersession
+        if let Some(old_adr_id) = supersedes {
+            let old_urn = format!("urn:changeguard:adr:{}", old_adr_id);
+            adr_edges.push(GraphEdge {
+                source: urn.clone(),
+                target: old_urn,
+                relation: EdgeKind::Supersedes,
+                confidence: 1.0,
+                provenance_id: provenance_id.to_string(),
+            });
+        }
+
+        // Affected Entities
+        if let Some(affected_raw) = affected {
+            if let Ok(entities) = serde_json::from_str::<Vec<String>>(affected_raw) {
+                for entity in entities {
+                    // Try to guess kind, or use as is if URN
+                    let target_urn = if entity.starts_with("urn:") {
+                        entity
+                    } else {
+                        // Assume it's a file or symbol
+                        if entity.contains('/') || entity.ends_with(".rs") {
+                            crate::platform::urn::build_urn(NodeKind::File, &entity)
+                        } else {
+                            crate::platform::urn::build_urn(NodeKind::Symbol, &entity)
+                        }
+                    };
+                    adr_edges.push(GraphEdge {
+                        source: urn.clone(),
+                        target: target_urn,
+                        relation: EdgeKind::Governs,
+                        confidence: 0.9,
+                        provenance_id: provenance_id.to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    cozo.insert_nodes(&adr_nodes)?;
+    cozo.insert_edges(&adr_edges)?;
+
     info!(
-        "Native graph built: {} files, {} symbols, {} edges, {} endpoints",
+        "Native graph built: {} files, {} symbols, {} edges, {} endpoints, {} ADRs",
         files_indexed,
         symbols_indexed,
-        edges_added + endpoint_edges.len(),
-        endpoint_nodes.len()
+        edges_added + endpoint_edges.len() + adr_edges.len(),
+        endpoint_nodes.len(),
+        adr_nodes.len()
     );
 
     Ok(GraphStats {
-        nodes_added: files_indexed + symbols_indexed + endpoint_nodes.len(),
-        edges_added: edges_added + endpoint_edges.len(),
+        nodes_added: files_indexed + symbols_indexed + endpoint_nodes.len() + adr_nodes.len(),
+        edges_added: edges_added + endpoint_edges.len() + adr_edges.len(),
         files_indexed,
         symbols_indexed,
     })

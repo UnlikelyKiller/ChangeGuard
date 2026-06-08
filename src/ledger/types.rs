@@ -260,6 +260,45 @@ pub struct LedgerEntry {
     pub related_tickets: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum, Default)]
+#[serde(rename_all = "snake_case")]
+#[value(rename_all = "snake_case")]
+pub enum AdrStatus {
+    #[default]
+    Proposed,
+    Accepted,
+    Rejected,
+    Deprecated,
+    Superseded,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AdrMetadata {
+    pub adr_id: String,
+    pub status: AdrStatus,
+    pub owner: Option<String>,
+    pub reviewers: Option<String>,
+    pub supersedes: Option<String>,
+    pub superseded_by: Option<String>,
+    pub affected_entities: Option<String>,
+    pub decision_scope: Option<String>,
+    pub reviewed_at: Option<String>,
+    pub review_interval_days: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AdrMetadataUpdate {
+    pub status: Option<AdrStatus>,
+    pub owner: Option<String>,
+    pub reviewers: Option<String>,
+    pub supersedes: Option<String>,
+    pub superseded_by: Option<String>,
+    pub affected_entities: Option<String>,
+    pub decision_scope: Option<String>,
+    pub reviewed_at: Option<String>,
+    pub review_interval_days: Option<i32>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

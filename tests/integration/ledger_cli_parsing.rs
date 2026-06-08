@@ -244,7 +244,7 @@ fn test_ledger_audit_with_json() {
 // ===========================================================================
 #[test]
 fn test_adr_success_no_args() {
-    let cli = parse_ok(&["changeguard", "ledger", "adr"]);
+    let cli = parse_ok(&["changeguard", "ledger", "adr", "export"]);
     assert!(is_ledger(&cli.command));
 }
 
