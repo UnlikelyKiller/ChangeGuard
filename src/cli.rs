@@ -151,6 +151,8 @@ pub enum Commands {
     Ci(crate::commands::deploy::CiArgs),
     /// Deployment manifest and surface commands
     Deploy(crate::commands::deploy::DeployArgs),
+    /// Manage project dependencies and security advisories
+    Dependencies(crate::commands::dependencies::DependenciesArgs),
     /// Manage ChangeGuard bridge (AI-Brains integration)
     Bridge {
         #[command(subcommand)]
@@ -833,6 +835,7 @@ pub fn run_with(cli: Cli) -> Result<()> {
         Commands::DataModels(args) => crate::commands::data_models::execute_data_models(args),
         Commands::Ci(args) => crate::commands::deploy::execute_ci(args),
         Commands::Deploy(args) => crate::commands::deploy::execute_deploy(args),
+        Commands::Dependencies(args) => crate::commands::dependencies::execute_dependencies(args),
         Commands::Ledger { command } => match command {
             LedgerCommands::Start {
                 entity,

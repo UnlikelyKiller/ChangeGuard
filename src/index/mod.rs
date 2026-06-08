@@ -1,4 +1,5 @@
 pub mod analysis;
+pub mod advisories;
 pub mod ast_worker;
 pub mod call_graph;
 pub mod centrality;

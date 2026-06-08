@@ -17,6 +17,8 @@ pub enum NodeKind {
     CiEnvironment,
     CiArtifact,
     Dependency,
+    Package,
+    Advisory,
     Test,
     ObservabilitySignal,
     Adr,
@@ -52,4 +54,5 @@ pub enum EdgeKind {
     TouchesSecret,
     Migrates,
     MapsTo,
+    Affects,
 }

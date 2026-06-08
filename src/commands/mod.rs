@@ -6,6 +6,7 @@ pub mod data_models;
 #[cfg(feature = "daemon")]
 pub mod daemon;
 pub mod dead_code;
+pub mod dependencies;
 pub mod deploy;
 pub mod doctor;
 pub mod endpoints;
