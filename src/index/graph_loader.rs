@@ -515,20 +515,87 @@ pub fn build_native_graph(
     }
     cozo.insert_nodes(&model_nodes)?;
 
+    // --- 8. Read OpenSLO YAMLs → SLO/Metric nodes and edges ---
+    let mut obs_nodes = Vec::new();
+    let mut obs_edges = Vec::new();
+
+    let mut yaml_files = Vec::new();
+    let obs_dir = storage.root_path().join("observability");
+    if obs_dir.exists() {
+        if let Ok(entries) = std::fs::read_dir(obs_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                    if ext == "yml" || ext == "yaml" {
+                        yaml_files.push(path);
+                    }
+                }
+            }
+        }
+    }
+
+    for path in yaml_files {
+        let content = std::fs::read_to_string(&path).unwrap_or_default();
+        if let Ok(slos) = crate::observability::openslo::parse_openslo(&content) {
+            for slo in slos {
+                obs_nodes.push(GraphNode {
+                    id: slo.urn.clone(),
+                    label: format!("SLO: {}", slo.name),
+                    category: NodeKind::Slo,
+                    risk_score: 0.0,
+                    metadata: Some(slo.metadata),
+                });
+
+                if let Some(svc) = slo.service_name {
+                    let svc_urn = crate::platform::urn::build_urn(NodeKind::Service, &svc);
+                    obs_edges.push(GraphEdge {
+                        source: slo.urn.clone(),
+                        target: svc_urn,
+                        relation: EdgeKind::Monitors,
+                        confidence: 1.0,
+                        provenance_id: provenance_id.to_string(),
+                    });
+                }
+
+                for metric in slo.metrics {
+                    obs_nodes.push(GraphNode {
+                        id: metric.urn.clone(),
+                        label: format!("Metric: {}", metric.name),
+                        category: NodeKind::Metric,
+                        risk_score: 0.0,
+                        metadata: Some(json!({"query": metric.query, "source": metric.source})),
+                    });
+
+                    obs_edges.push(GraphEdge {
+                        source: slo.urn.clone(),
+                        target: metric.urn,
+                        relation: EdgeKind::DependsOn,
+                        confidence: 1.0,
+                        provenance_id: provenance_id.to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    cozo.insert_nodes(&obs_nodes)?;
+    cozo.insert_edges(&obs_edges)?;
+
     info!(
-        "Native graph built: {} files, {} symbols, {} edges, {} endpoints, {} ADRs, {} services, {} models",
+        "Native graph built: {} files, {} symbols, {} edges, {} endpoints, {} ADRs, {} services, {} models, {} observability",
         files_indexed,
         symbols_indexed,
-        edges_added + endpoint_edges.len() + adr_edges.len() + service_edges.len(),
+        edges_added + endpoint_edges.len() + adr_edges.len() + service_edges.len() + obs_edges.len(),
         endpoint_nodes.len(),
         adr_nodes.len(),
         service_nodes.len(),
-        model_nodes.len()
+        model_nodes.len(),
+        obs_nodes.len()
     );
 
     Ok(GraphStats {
-        nodes_added: files_indexed + symbols_indexed + endpoint_nodes.len() + adr_nodes.len() + service_nodes.len() + model_nodes.len(),
-        edges_added: edges_added + endpoint_edges.len() + adr_edges.len() + service_edges.len(),
+        nodes_added: files_indexed + symbols_indexed + endpoint_nodes.len() + adr_nodes.len() + service_nodes.len() + model_nodes.len() + obs_nodes.len(),
+        edges_added: edges_added + endpoint_edges.len() + adr_edges.len() + service_edges.len() + obs_edges.len(),
         files_indexed,
         symbols_indexed,
     })

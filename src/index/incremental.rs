@@ -4,6 +4,7 @@ use crate::index::orchestrator::{
     get_file_id_by_path, insert_symbol_row, upsert_file_row,
 };
 use crate::index::types::{ProjectFile, ProjectSymbol};
+use crate::config::model::Config;
 use crate::state::graph_kinds::{EdgeKind, NodeKind};
 use crate::state::storage_cozo::{GraphEdge, GraphNode};
 use crate::watch::batch::{WatchBatch, WatchEvent, WatchEventKind};

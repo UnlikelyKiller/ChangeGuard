@@ -1,4 +1,5 @@
 pub mod log_scanner;
+pub mod openslo;
 pub mod prometheus;
 pub mod signal;
 

@@ -26,6 +26,10 @@ pub struct StorageManager {
 }
 
 impl StorageManager {
+    pub fn root_path(&self) -> &Utf8Path {
+        &self.root_path
+    }
+
     pub fn init(db_path: &Path) -> Result<Self> {
         debug!("StorageManager::init called with {:?}", db_path);
         let mut conn = Connection::open(db_path).into_diagnostic()?;

@@ -25,6 +25,7 @@ pub mod ledger_audit;
 pub mod ledger_register;
 pub mod ledger_search;
 pub mod ledger_stack;
+pub mod observability;
 pub mod reset;
 pub mod scan;
 pub mod search;
