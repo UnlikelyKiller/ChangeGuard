@@ -40,14 +40,16 @@ ledger{
   hooks[2]:
     "pre-commit: changeguard ledger status --compact --exit-code"
     "pre-push: changeguard ledger status --compact --exit-code"
+  stale_sidecar:"after git commit, if ledger status shows 1 pending, run ledger commit immediately; the hook removes the sidecar before post-commit can promote it"
 }
 
 verify{
   scope:"targeted during work; full commands before commit"
-  commands[3]:
+  commands[4]:
     "cargo fmt --all -- --check"
     "cargo clippy --all-targets --all-features -- -D warnings"
     "cargo nextest run --lib --bins --workspace"
+    "cargo nextest run --test integration (when integration test files are touched)"
   hygiene[2]:
     "no secrets or .env commits"
     "temporary output belongs in output/ and should be removed before finish"
@@ -73,6 +75,15 @@ kg{
     "changeguard ask for architecture/codebase questions"
     "changeguard index --analyze-graph to refresh structure"
     "changeguard viz for deep architecture review"
+  surfaces[8]:
+    "changeguard endpoints --changed / --json"
+    "changeguard services diff"
+    "changeguard data-models impact --changed"
+    "changeguard config schema / config diff"
+    "changeguard observability diff / observability coverage"
+    "changeguard hotspots trend / hotspots explain"
+    "changeguard security boundaries / security impact --changed"
+    "changeguard ledger graph <tx-id>"
 }
 
 powershell{
