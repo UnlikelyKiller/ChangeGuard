@@ -391,7 +391,7 @@ impl<'a> TransactionManager<'a> {
         tx_req: TransactionRequest,
         commit_req: CommitRequest,
         force: bool,
-    ) -> Result<(), LedgerError> {
+    ) -> Result<String, LedgerError> {
         let tx_id = self.start_change(tx_req)?;
         if let Err(commit_err) = self.commit_change(tx_id.clone(), commit_req, force) {
             // Attempt cleanup rollback; prefer returning the original error
@@ -404,7 +404,7 @@ impl<'a> TransactionManager<'a> {
             }
             return Err(commit_err);
         }
-        Ok(())
+        Ok(tx_id)
     }
 
     pub fn reconcile_drift(
@@ -511,7 +511,7 @@ impl<'a> TransactionManager<'a> {
         pattern: Option<String>,
         all: bool,
         reason: Option<String>,
-    ) -> Result<(), LedgerError> {
+    ) -> Result<Vec<String>, LedgerError> {
         let db = LedgerDb::new(self.conn);
         let to_adopt = if all {
             db.get_all_unaudited()?
@@ -533,7 +533,7 @@ impl<'a> TransactionManager<'a> {
         };
 
         if to_adopt.is_empty() {
-            return Ok(());
+            return Ok(vec![]);
         }
 
         let tx_ids: Vec<String> = to_adopt.iter().map(|tx| tx.tx_id.clone()).collect();
@@ -549,7 +549,7 @@ impl<'a> TransactionManager<'a> {
             tracing::info!("Adopted drift with reason: {reason_text}");
         }
 
-        Ok(())
+        Ok(tx_ids)
     }
 
     pub fn auto_reconcile_entity(
@@ -745,5 +745,51 @@ impl<'a> TransactionManager<'a> {
     ) -> Result<(), LedgerError> {
         let db = LedgerDb::new(self.conn);
         db.link_adr_supersedes(adr_id, supersedes_id)
+    }
+
+    pub fn get_transaction_files(&self, tx_id: &str) -> Result<Vec<String>, LedgerError> {
+        let tx_id = self.resolve_tx_id(tx_id)?;
+        let db = LedgerDb::new(self.conn);
+        let tx = db
+            .get_transaction(&tx_id)?
+            .ok_or_else(|| LedgerError::NotFound(tx_id.clone()))?;
+
+        let mut files = std::collections::BTreeSet::new();
+        files.insert(tx.entity_normalized);
+
+        let provs = db.get_token_provenance_for_tx(&tx_id)?;
+        for prov in provs {
+            files.insert(prov.entity_normalized);
+        }
+
+        // Check if there are other files in changed_files via snapshot_id
+        let stmt = self.conn.prepare(
+            "SELECT path FROM changed_files WHERE snapshot_id = (SELECT snapshot_id FROM transactions WHERE tx_id = ?1)"
+        );
+        if let Ok(mut stmt) = stmt
+            && let Ok(mut rows) = stmt.query([&tx_id])
+        {
+            while let Ok(Some(row)) = rows.next() {
+                if let Ok(file_path) = row.get::<_, String>(0) {
+                    files.insert(file_path);
+                }
+            }
+        }
+
+        // Check transaction_links if the table exists
+        let stmt = self.conn.prepare(
+            "SELECT entity_normalized FROM transaction_links WHERE tx_id = ?1 AND entity_type = 'FILE'"
+        );
+        if let Ok(mut stmt) = stmt
+            && let Ok(mut rows) = stmt.query([&tx_id])
+        {
+            while let Ok(Some(row)) = rows.next() {
+                if let Ok(file_path) = row.get::<_, String>(0) {
+                    files.insert(file_path);
+                }
+            }
+        }
+
+        Ok(files.into_iter().collect())
     }
 }

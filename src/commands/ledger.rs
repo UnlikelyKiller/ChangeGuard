@@ -117,6 +117,26 @@ pub fn execute_ledger_commit(
         )
         .map_err(|e| miette::miette!("{}", e))?;
 
+    let changed_files = match tx_mgr.get_transaction_files(&resolved_id) {
+        Ok(files) => files,
+        Err(e) => {
+            tracing::warn!(
+                "ledger commit: could not discover changed files for KG edges (tx={resolved_id}): {e}"
+            );
+            vec![]
+        }
+    };
+    drop(tx_mgr);
+
+    write_ledger_graph_edges(
+        &storage.cozo,
+        &resolved_id,
+        summary,
+        reason,
+        &tx_category,
+        changed_files,
+    );
+
     println!("{}", "Transaction committed.".green().bold());
 
     if git_options.with_git {
@@ -261,22 +281,51 @@ pub fn execute_ledger_adopt(
     let mut tx_mgr =
         TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
 
+    // Collect unaudited drift entities *before* adopt to derive real file set for KG edges.
+    // adopt_drift returns the tx_ids it promoted; we then gather files from each.
+    let adopted_tx_ids = tx_mgr
+        .adopt_drift(None, pattern, all, Some(reason.to_string()))
+        .map_err(|e| miette::miette!("{}", e))?;
+
+    if adopted_tx_ids.is_empty() {
+        println!("No unaudited drift found to adopt.");
+        return Ok(());
+    }
+
+    // Collect all changed files from the adopted drift transactions for KG provenance.
+    let mut changed_files: Vec<String> = Vec::new();
+    for adopted_id in &adopted_tx_ids {
+        match tx_mgr.get_transaction_files(adopted_id) {
+            Ok(mut files) => changed_files.append(&mut files),
+            Err(e) => tracing::warn!(
+                "ledger adopt: could not discover changed files for KG edges (adopted_tx={adopted_id}): {e}"
+            ),
+        }
+    }
+    changed_files.sort_unstable();
+    changed_files.dedup();
+
+    // Use the first adopted entity as the ledger transaction entity for human readability.
+    // For multi-entity adoption, we use the count as a synthetic label.
+    let adopt_entity = if adopted_tx_ids.len() == 1 {
+        adopted_tx_ids[0].clone()
+    } else {
+        format!("drift_adoption:{}_items", adopted_tx_ids.len())
+    };
+
     let tx_id = tx_mgr
         .start_change(TransactionRequest {
             category,
-            entity: "drift_adoption".to_string(),
+            entity: adopt_entity,
             planned_action: Some(summary.to_string()),
             ..Default::default()
         })
         .map_err(|e| miette::miette!("{}", e))?;
 
-    tx_mgr
-        .adopt_drift(Some(tx_id.clone()), pattern, all, Some(reason.to_string()))
-        .map_err(|e| miette::miette!("{}", e))?;
-
+    let category_str = category.to_string();
     tx_mgr
         .commit_change(
-            tx_id,
+            tx_id.clone(),
             CommitRequest {
                 change_type: ChangeType::Modify,
                 summary: summary.to_string(),
@@ -286,6 +335,17 @@ pub fn execute_ledger_adopt(
             false,
         )
         .map_err(|e| miette::miette!("{}", e))?;
+
+    drop(tx_mgr);
+
+    write_ledger_graph_edges(
+        &storage.cozo,
+        &tx_id,
+        summary,
+        reason,
+        &category_str,
+        changed_files,
+    );
 
     println!("{}", "Drift adopted and committed.".green());
     Ok(())
@@ -304,7 +364,7 @@ pub fn execute_ledger_atomic(
     let mut tx_mgr =
         TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
 
-    tx_mgr
+    let tx_id = tx_mgr
         .atomic_change(
             TransactionRequest {
                 category,
@@ -320,6 +380,27 @@ pub fn execute_ledger_atomic(
             false,
         )
         .map_err(|e| miette::miette!("{}", e))?;
+
+    let changed_files = match tx_mgr.get_transaction_files(&tx_id) {
+        Ok(files) => files,
+        Err(e) => {
+            tracing::warn!(
+                "ledger atomic: could not discover changed files for KG edges (tx={tx_id}): {e}"
+            );
+            vec![]
+        }
+    };
+    drop(tx_mgr);
+
+    let category_str = category.to_string();
+    write_ledger_graph_edges(
+        &storage.cozo,
+        &tx_id,
+        summary,
+        reason,
+        &category_str,
+        changed_files,
+    );
 
     println!("{}", "Atomic change committed.".green().bold());
     Ok(())
@@ -744,4 +825,54 @@ pub fn execute_ledger_export_provenance(output: Option<String>) -> Result<()> {
         output_path
     );
     Ok(())
+}
+
+fn write_ledger_graph_edges(
+    cozo_opt: &Option<crate::state::storage_cozo::CozoStorage>,
+    tx_id: &str,
+    summary: &str,
+    reason: &str,
+    category: &str,
+    changed_files: Vec<String>,
+) {
+    if let Some(cozo) = cozo_opt {
+        use crate::platform::urn::build_urn;
+        use crate::state::graph_kinds::{EdgeKind, NodeKind};
+        use crate::state::storage_cozo::{GraphEdge, GraphNode};
+
+        let tx_urn = build_urn(NodeKind::LedgerTransaction, tx_id);
+
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+
+        nodes.push(GraphNode {
+            id: tx_urn.clone(),
+            label: tx_id.to_string(),
+            category: NodeKind::LedgerTransaction,
+            risk_score: 0.0,
+            metadata: Some(serde_json::json!({
+                "summary": summary,
+                "reason": reason,
+                "category": category,
+            })),
+        });
+
+        for file in changed_files {
+            let file_urn = build_urn(NodeKind::File, &file);
+            edges.push(GraphEdge {
+                source: tx_urn.clone(),
+                target: file_urn,
+                relation: EdgeKind::Affects,
+                confidence: 1.0,
+                provenance_id: tx_id.to_string(),
+            });
+        }
+
+        if let Err(e) = cozo.insert_nodes(&nodes) {
+            tracing::warn!("ledger graph: failed to write transaction node: {}", e);
+        }
+        if let Err(e) = cozo.insert_edges(&edges) {
+            tracing::warn!("ledger graph: failed to write KG edges: {}", e);
+        }
+    }
 }
