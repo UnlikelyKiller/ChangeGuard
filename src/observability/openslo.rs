@@ -1,31 +1,57 @@
-use serde::{Deserialize, Serialize};
-use crate::state::graph_kinds::NodeKind;
 use crate::platform::urn::build_urn;
+use crate::state::graph_kinds::NodeKind;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OpenSloFile {
-    pub api_version: String,
-    pub kind: String,
-    pub metadata: OpenSloMetadata,
-    pub spec: OpenSloSpec,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenSloMetadata {
     pub name: String,
     pub display_name: Option<String>,
+    pub owner: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct OpenSloSpec {
+pub struct SloSpec {
     pub service: Option<String>,
     pub indicator: Option<OpenSloIndicator>,
-    pub objectives: Option<Vec<OpenSloObjective>>,
+    pub sli_ref: Option<String>,
     pub alert_policies: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SliSpec {
+    pub service: Option<String>,
+    pub indicator: Option<OpenSloIndicator>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DataSourceSpec {
+    #[serde(rename = "type")]
+    pub source_type: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlertPolicySpec {
+    pub alert_conditions: Option<Vec<serde_yaml::Value>>,
+    pub notification_targets: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlertConditionSpec {
+    pub alert_policy: Option<String>,
+    pub severity: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlertNotificationTargetSpec {
+    pub target: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,7 +64,7 @@ pub struct OpenSloIndicator {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenSloMetric {
-    pub metric_source: OpenSloMetricSource,
+    pub metric_source: Option<OpenSloMetricSource>,
     pub metric_query: String,
 }
 
@@ -52,25 +78,19 @@ pub struct OpenSloRatioMetric {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenSloMetricSource {
-    pub metric_source_ref: String,
+    pub metric_source_ref: Option<String>,
     #[serde(rename = "type")]
-    pub source_type: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OpenSloObjective {
-    pub target: f64,
-    pub display_name: Option<String>,
-    pub value: Option<f64>,
+    pub source_type: Option<String>,
 }
 
 pub struct ParsedSlo {
+    pub kind: String,
     pub urn: String,
     pub name: String,
     pub service_name: Option<String>,
     pub metrics: Vec<ParsedMetric>,
     pub alerts: Vec<String>,
+    pub owner: Option<String>,
     pub metadata: serde_json::Value,
 }
 
@@ -81,58 +101,227 @@ pub struct ParsedMetric {
     pub source: String,
 }
 
-pub fn parse_openslo(yaml: &str) -> Result<Vec<ParsedSlo>, String> {
-    let docs: Vec<serde_yaml::Value> = serde_yaml::from_str(yaml).map_err(|e| e.to_string())?;
-    let mut slos = Vec::new();
-
-    for doc in docs {
-        let slo_file: OpenSloFile = serde_yaml::from_value(doc).map_err(|e| e.to_string())?;
-        
-        if slo_file.kind.to_lowercase() != "slo" {
-            continue;
-        }
-
-        let mut metrics = Vec::new();
-        if let Some(indicator) = &slo_file.spec.indicator {
-            if let Some(tm) = &indicator.threshold_metric {
-                metrics.push(ParsedMetric {
-                    urn: build_urn(NodeKind::Metric, &format!("{}-threshold", slo_file.metadata.name)),
-                    name: format!("{}-threshold", slo_file.metadata.name),
-                    query: tm.metric_query.clone(),
-                    source: tm.metric_source.source_type.clone(),
-                });
-            }
-            if let Some(rm) = &indicator.ratio_metric {
-                metrics.push(ParsedMetric {
-                    urn: build_urn(NodeKind::Metric, &format!("{}-good", slo_file.metadata.name)),
-                    name: format!("{}-good", slo_file.metadata.name),
-                    query: rm.good.metric_query.clone(),
-                    source: rm.good.metric_source.source_type.clone(),
-                });
-                metrics.push(ParsedMetric {
-                    urn: build_urn(NodeKind::Metric, &format!("{}-total", slo_file.metadata.name)),
-                    name: format!("{}-total", slo_file.metadata.name),
-                    query: rm.total.metric_query.clone(),
-                    source: rm.total.metric_source.source_type.clone(),
-                });
-            }
-        }
-
-        let slo_urn = build_urn(NodeKind::Slo, &slo_file.metadata.name);
-        slos.push(ParsedSlo {
-            urn: slo_urn,
-            name: slo_file.metadata.name.clone(),
-            service_name: slo_file.spec.service.clone(),
-            metrics,
-            alerts: slo_file.spec.alert_policies.unwrap_or_default(),
-            metadata: json!({
-                "displayName": slo_file.metadata.display_name,
-                "apiVersion": slo_file.api_version,
-            }),
+fn extract_metrics_from_indicator(
+    name: &str,
+    indicator: &OpenSloIndicator,
+    metrics: &mut Vec<ParsedMetric>,
+) {
+    if let Some(tm) = &indicator.threshold_metric {
+        let src_type = tm
+            .metric_source
+            .as_ref()
+            .and_then(|s| s.source_type.clone())
+            .unwrap_or_else(|| "prometheus".to_string());
+        metrics.push(ParsedMetric {
+            urn: build_urn(NodeKind::Metric, &format!("{}-threshold", name)),
+            name: format!("{}-threshold", name),
+            query: tm.metric_query.clone(),
+            source: src_type,
         });
     }
+    if let Some(rm) = &indicator.ratio_metric {
+        let good_src = rm
+            .good
+            .metric_source
+            .as_ref()
+            .and_then(|s| s.source_type.clone())
+            .unwrap_or_else(|| "prometheus".to_string());
+        let total_src = rm
+            .total
+            .metric_source
+            .as_ref()
+            .and_then(|s| s.source_type.clone())
+            .unwrap_or_else(|| "prometheus".to_string());
 
-    Ok(slos)
+        metrics.push(ParsedMetric {
+            urn: build_urn(NodeKind::Metric, &format!("{}-good", name)),
+            name: format!("{}-good", name),
+            query: rm.good.metric_query.clone(),
+            source: good_src,
+        });
+        metrics.push(ParsedMetric {
+            urn: build_urn(NodeKind::Metric, &format!("{}-total", name)),
+            name: format!("{}-total", name),
+            query: rm.total.metric_query.clone(),
+            source: total_src,
+        });
+    }
+}
+
+pub fn parse_openslo(yaml: &str) -> Result<Vec<ParsedSlo>, String> {
+    let mut entities = Vec::new();
+
+    for document in serde_yaml::Deserializer::from_str(yaml) {
+        let value = serde_yaml::Value::deserialize(document).map_err(|e| e.to_string())?;
+
+        #[derive(Debug, Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct RawFile {
+            api_version: String,
+            kind: String,
+            metadata: OpenSloMetadata,
+            spec: serde_yaml::Value,
+        }
+
+        let raw: RawFile = serde_yaml::from_value(value).map_err(|e| e.to_string())?;
+        let kind = raw.kind.clone();
+        let name = raw.metadata.name.clone();
+
+        match kind.as_str() {
+            "Service" => {
+                let urn = build_urn(NodeKind::Service, &name);
+                entities.push(ParsedSlo {
+                    kind,
+                    urn,
+                    name,
+                    service_name: None,
+                    metrics: Vec::new(),
+                    alerts: Vec::new(),
+                    owner: raw.metadata.owner.clone(),
+                    metadata: json!({
+                        "displayName": raw.metadata.display_name,
+                        "apiVersion": raw.api_version,
+                        "owner": raw.metadata.owner,
+                    }),
+                });
+            }
+            "SLI" => {
+                let spec: SliSpec = serde_yaml::from_value(raw.spec).map_err(|e| e.to_string())?;
+                let urn = build_urn(NodeKind::Metric, &name);
+                let mut metrics = Vec::new();
+                if let Some(indicator) = &spec.indicator {
+                    extract_metrics_from_indicator(&name, indicator, &mut metrics);
+                }
+                entities.push(ParsedSlo {
+                    kind,
+                    urn,
+                    name,
+                    service_name: spec.service,
+                    metrics,
+                    alerts: Vec::new(),
+                    owner: raw.metadata.owner.clone(),
+                    metadata: json!({
+                        "displayName": raw.metadata.display_name,
+                        "apiVersion": raw.api_version,
+                        "owner": raw.metadata.owner,
+                    }),
+                });
+            }
+            "SLO" => {
+                let spec: SloSpec = serde_yaml::from_value(raw.spec).map_err(|e| e.to_string())?;
+                let urn = build_urn(NodeKind::Slo, &name);
+                let mut metrics = Vec::new();
+                if let Some(indicator) = &spec.indicator {
+                    extract_metrics_from_indicator(&name, indicator, &mut metrics);
+                }
+                if let Some(sli_ref) = &spec.sli_ref {
+                    metrics.push(ParsedMetric {
+                        urn: build_urn(NodeKind::Metric, sli_ref),
+                        name: sli_ref.clone(),
+                        query: "".to_string(),
+                        source: "".to_string(),
+                    });
+                }
+                entities.push(ParsedSlo {
+                    kind,
+                    urn,
+                    name,
+                    service_name: spec.service,
+                    metrics,
+                    alerts: spec.alert_policies.unwrap_or_default(),
+                    owner: raw.metadata.owner.clone(),
+                    metadata: json!({
+                        "displayName": raw.metadata.display_name,
+                        "apiVersion": raw.api_version,
+                        "owner": raw.metadata.owner,
+                        "sliRef": spec.sli_ref,
+                    }),
+                });
+            }
+            "DataSource" => {
+                let spec: DataSourceSpec =
+                    serde_yaml::from_value(raw.spec).map_err(|e| e.to_string())?;
+                let urn = build_urn(NodeKind::ObservabilitySignal, &name);
+                entities.push(ParsedSlo {
+                    kind,
+                    urn,
+                    name,
+                    service_name: None,
+                    metrics: Vec::new(),
+                    alerts: Vec::new(),
+                    owner: raw.metadata.owner.clone(),
+                    metadata: json!({
+                        "displayName": raw.metadata.display_name,
+                        "apiVersion": raw.api_version,
+                        "type": spec.source_type,
+                    }),
+                });
+            }
+            "AlertPolicy" => {
+                let spec: AlertPolicySpec =
+                    serde_yaml::from_value(raw.spec).map_err(|e| e.to_string())?;
+                let urn = build_urn(NodeKind::Alert, &name);
+                let alerts = spec.notification_targets.unwrap_or_default();
+                entities.push(ParsedSlo {
+                    kind,
+                    urn,
+                    name,
+                    service_name: None,
+                    metrics: Vec::new(),
+                    alerts,
+                    owner: raw.metadata.owner.clone(),
+                    metadata: json!({
+                        "displayName": raw.metadata.display_name,
+                        "apiVersion": raw.api_version,
+                    }),
+                });
+            }
+            "AlertCondition" => {
+                let spec: AlertConditionSpec =
+                    serde_yaml::from_value(raw.spec).map_err(|e| e.to_string())?;
+                let urn = build_urn(NodeKind::Alert, &name);
+                let alerts = spec.alert_policy.map(|p| vec![p]).unwrap_or_default();
+                entities.push(ParsedSlo {
+                    kind,
+                    urn,
+                    name,
+                    service_name: None,
+                    metrics: Vec::new(),
+                    alerts,
+                    owner: raw.metadata.owner.clone(),
+                    metadata: json!({
+                        "displayName": raw.metadata.display_name,
+                        "apiVersion": raw.api_version,
+                        "severity": spec.severity,
+                    }),
+                });
+            }
+            "AlertNotificationTarget" => {
+                let spec: AlertNotificationTargetSpec =
+                    serde_yaml::from_value(raw.spec).map_err(|e| e.to_string())?;
+                let urn = build_urn(NodeKind::Role, &name);
+                entities.push(ParsedSlo {
+                    kind,
+                    urn,
+                    name,
+                    service_name: None,
+                    metrics: Vec::new(),
+                    alerts: Vec::new(),
+                    owner: raw.metadata.owner.clone(),
+                    metadata: json!({
+                        "displayName": raw.metadata.display_name,
+                        "apiVersion": raw.api_version,
+                        "target": spec.target,
+                    }),
+                });
+            }
+            _ => {
+                tracing::debug!("Skipping unsupported OpenSLO kind: {kind}");
+            }
+        }
+    }
+
+    Ok(entities)
 }
 
 #[cfg(test)]

@@ -436,6 +436,8 @@ pub enum ValidatorSubcommands {
         /// Name of the validator
         name: String,
     },
+    /// Check validator executables and report health
+    Doctor,
 }
 
 #[derive(Subcommand)]
@@ -650,7 +652,6 @@ pub enum LedgerCommands {
     /// Show the entity graph neighborhood governed by a transaction
     Graph(crate::commands::ledger_graph::LedgerGraphArgs),
     /// Full-text search across ledger history
-
     Search {
         /// Search query
         query: String,
@@ -902,13 +903,17 @@ pub fn run_with(cli: Cli) -> Result<()> {
         },
         Commands::Bridge { subcommand } => crate::commands::bridge::execute(subcommand),
         Commands::Services { command } => match command {
-            ServiceSubcommands::Diff(args) => crate::commands::services_diff::execute_services_diff(args, &config),
+            ServiceSubcommands::Diff(args) => {
+                crate::commands::services_diff::execute_services_diff(args, &config)
+            }
         },
         Commands::DataModels(args) => crate::commands::data_models::execute_data_models(args),
         Commands::Ci(args) => crate::commands::deploy::execute_ci(args),
         Commands::Deploy(args) => crate::commands::deploy::execute_deploy(args),
         Commands::Dependencies(args) => crate::commands::dependencies::execute_dependencies(args),
-        Commands::Observability(args) => crate::commands::observability::execute_observability(args),
+        Commands::Observability(args) => {
+            crate::commands::observability::execute_observability(args)
+        }
         Commands::Security(args) => crate::commands::security::execute_security(args),
         Commands::Tests(args) => crate::commands::test_mapping::execute_tests_for_entity(args),
         Commands::Ledger { command } => match command {
@@ -995,7 +1000,9 @@ pub fn run_with(cli: Cli) -> Result<()> {
             LedgerCommands::Validator { command } => {
                 crate::commands::ledger_register::execute_validator_lifecycle(command)
             }
-            LedgerCommands::Graph(args) => crate::commands::ledger_graph::execute_ledger_graph(args),
+            LedgerCommands::Graph(args) => {
+                crate::commands::ledger_graph::execute_ledger_graph(args)
+            }
             LedgerCommands::Search {
                 query,
                 category,

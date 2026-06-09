@@ -658,3 +658,90 @@ pub fn execute_ledger_gc(orphans: bool, ttl_days: u64, force: bool) -> Result<()
 
     Ok(())
 }
+
+pub fn execute_ledger_hook_repair(force: bool) -> Result<()> {
+    let layout = get_layout()?;
+    let sidecar_path = layout.state_subdir().join("pending_hook_tx");
+
+    println!("{}", "ChangeGuard Hook Repair".bold().cyan());
+
+    if !sidecar_path.exists() {
+        println!("No pending hook sidecar found. Lifecycle is consistent.");
+        return Ok(());
+    }
+
+    let sidecar_content = std::fs::read_to_string(&sidecar_path).into_diagnostic()?;
+    let pending: crate::commands::hook_post_commit::PendingHookTx =
+        serde_json::from_str(&sidecar_content).into_diagnostic()?;
+
+    // Fetch HEAD commit msg
+    let repo_root = layout.root.clone();
+    let git_out = std::process::Command::new("git")
+        .args(["log", "-1", "--format=%B"])
+        .current_dir(repo_root)
+        .output()
+        .into_diagnostic()?;
+
+    let current_commit_msg = String::from_utf8_lossy(&git_out.stdout).to_string();
+    let cleaned_msg = crate::util::text::clean_commit_msg(&current_commit_msg);
+
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(cleaned_msg.as_bytes());
+    let current_hash = hex::encode(hasher.finalize());
+
+    if pending.commit_msg_hash == current_hash {
+        println!("Hook sidecar is matching HEAD commit hash. No repair needed.");
+        return Ok(());
+    }
+
+    println!(
+        "{} Hook sidecar mismatch detected!",
+        "WARNING:".yellow().bold()
+    );
+    println!("  Pending Tx ID: {}", pending.tx_id);
+    println!(
+        "  Expected commit message hash: {}",
+        pending.commit_msg_hash
+    );
+    println!("  Current HEAD commit message hash: {}", current_hash);
+
+    if force {
+        println!("Repairing hook state (force)...");
+        let storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
+        let db = LedgerDb::new(storage.get_connection());
+        let now = chrono::Utc::now().to_rfc3339();
+        let _ = db.update_transaction_status(&pending.tx_id, "ROLLBACK", Some(&now));
+        let _ = std::fs::remove_file(&sidecar_path);
+        println!(
+            "{} Stale sidecar removed and transaction rolled back in DB.",
+            "SUCCESS:".green().bold()
+        );
+    } else {
+        println!(
+            "\nRun with --force to repair the hook state by rolling back the stale transaction and removing the sidecar."
+        );
+    }
+
+    Ok(())
+}
+
+pub fn execute_ledger_export_provenance(output: Option<String>) -> Result<()> {
+    let layout = get_layout()?;
+    let storage = StorageManager::open_read_only(&layout.root)?;
+    let db = LedgerDb::new(storage.get_connection());
+    let entries = db
+        .get_all_committed_ledger_entries()
+        .map_err(|e| miette::miette!("{}", e))?;
+
+    let output_path = output.unwrap_or_else(|| "provenance-export.json".to_string());
+    let file = std::fs::File::create(&output_path).into_diagnostic()?;
+    serde_json::to_writer_pretty(file, &entries).into_diagnostic()?;
+
+    println!(
+        "{} Stable provenance exported to {}",
+        "SUCCESS:".green().bold(),
+        output_path
+    );
+    Ok(())
+}

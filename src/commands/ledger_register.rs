@@ -4,8 +4,8 @@ use crate::ledger::db::LedgerDb;
 use crate::ledger::enforcement::{
     CategoryStackMapping, CommitValidator, RuleType, TechStackRule, WatcherPattern,
 };
-use crate::state::storage::StorageManager;
 use crate::output::table::Table;
+use crate::state::storage::StorageManager;
 use chrono::Utc;
 use miette::{IntoDiagnostic, Result};
 use owo_colors::OwoColorize;
@@ -17,9 +17,14 @@ pub fn execute_validator_lifecycle(subcommand: ValidatorSubcommands) -> Result<(
 
     match subcommand {
         ValidatorSubcommands::List { json } => {
-            let validators = db.get_commit_validators(None).map_err(|e| miette::miette!("{}", e))?;
+            let validators = db
+                .get_commit_validators(None)
+                .map_err(|e| miette::miette!("{}", e))?;
             if json {
-                println!("{}", serde_json::to_string_pretty(&validators).into_diagnostic()?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&validators).into_diagnostic()?
+                );
             } else {
                 println!("{}", "Registered Commit Validators".bold().cyan());
                 let mut table = Table::new();
@@ -29,7 +34,11 @@ pub fn execute_validator_lifecycle(subcommand: ValidatorSubcommands) -> Result<(
                         v.name.bold().to_string(),
                         v.category,
                         v.executable,
-                        if v.enabled { "YES".green().to_string() } else { "no".red().to_string() },
+                        if v.enabled {
+                            "YES".green().to_string()
+                        } else {
+                            "no".red().to_string()
+                        },
                         format!("{:?}", v.validation_level),
                     ]);
                 }
@@ -37,16 +46,61 @@ pub fn execute_validator_lifecycle(subcommand: ValidatorSubcommands) -> Result<(
             }
         }
         ValidatorSubcommands::Enable { name } => {
-            db.set_validator_enabled(&name, true).map_err(|e| miette::miette!("{}", e))?;
+            db.set_validator_enabled(&name, true)
+                .map_err(|e| miette::miette!("{}", e))?;
             println!("Enabled validator: {}", name);
         }
         ValidatorSubcommands::Disable { name } => {
-            db.set_validator_enabled(&name, false).map_err(|e| miette::miette!("{}", e))?;
+            db.set_validator_enabled(&name, false)
+                .map_err(|e| miette::miette!("{}", e))?;
             println!("Disabled validator: {}", name);
         }
         ValidatorSubcommands::Remove { name } => {
-            db.remove_validator(&name).map_err(|e| miette::miette!("{}", e))?;
+            db.remove_validator(&name)
+                .map_err(|e| miette::miette!("{}", e))?;
             println!("Removed validator: {}", name);
+        }
+        ValidatorSubcommands::Doctor => {
+            let validators = db
+                .get_commit_validators(None)
+                .map_err(|e| miette::miette!("{}", e))?;
+            println!("\n{}", "Commit Validator Doctor Report".bold().cyan());
+            let mut all_ok = true;
+            for v in validators {
+                print!("  Validator {}: ", v.name.bold());
+                let exe = v.executable.trim();
+                let exists = if exe.is_empty() {
+                    false
+                } else {
+                    let path = std::path::Path::new(exe);
+                    if path.exists() {
+                        true
+                    } else {
+                        std::process::Command::new("where.exe")
+                            .arg(exe)
+                            .output()
+                            .map(|o| o.status.success())
+                            .unwrap_or(false)
+                    }
+                };
+
+                if !v.enabled {
+                    println!("{}", "DISABLED".yellow());
+                } else if exists {
+                    println!("{}", "OK".green());
+                } else {
+                    println!("{} (Executable '{}' not found)", "MISSING/ERROR".red(), exe);
+                    all_ok = false;
+                }
+            }
+            if all_ok {
+                println!("\n{}", "All enabled validators are healthy!".green());
+            } else {
+                println!(
+                    "\n{}",
+                    "Some enabled validators have issues. Please check the paths.".red()
+                );
+            }
         }
     }
     Ok(())
