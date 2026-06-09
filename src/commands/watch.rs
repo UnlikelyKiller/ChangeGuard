@@ -102,7 +102,8 @@ pub fn execute_watch(interval_ms: u64, json_output: bool, no_graph_sync: bool) -
 
             // Incremental graph sync
             if !no_graph_sync {
-                let indexer = ProjectIndexer::new(storage, repo_root.clone(), config_for_callback.clone());
+                let indexer =
+                    ProjectIndexer::new(storage, repo_root.clone(), config_for_callback.clone());
                 let mut engine = IncrementalSyncEngine::new(indexer, repo_root.clone());
                 match engine.process_batch(&batch) {
                     Ok(delta) => {

@@ -12,6 +12,10 @@ pub fn query_unified(query: &str) -> Result<Vec<BridgeRecord>> {
     let layout = Layout::new(current_dir.to_string_lossy().as_ref());
     let project_id = layout.get_project_id();
 
+    if std::env::var("CHANGEGUARD_NON_INTERACTIVE").is_ok() {
+        return Ok(Vec::new());
+    }
+
     // 1. Try IPC
     if let Ok(mut client) = IpcClient::connect_with_timeout(Duration::from_millis(200)) {
         let payload = BridgePayload::Query {

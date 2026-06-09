@@ -1,8 +1,8 @@
+use crate::commands::helpers::get_layout;
+use crate::output::table::Table;
+use crate::state::storage::StorageManager;
 use clap::Args;
 use miette::{IntoDiagnostic, Result};
-use crate::commands::helpers::get_layout;
-use crate::state::storage::StorageManager;
-use crate::output::table::Table;
 use owo_colors::OwoColorize;
 
 #[derive(Args, Debug)]
@@ -17,7 +17,10 @@ pub struct LedgerGraphArgs {
 pub fn execute_ledger_graph(args: LedgerGraphArgs) -> Result<()> {
     let layout = get_layout()?;
     let storage = StorageManager::open_read_only(&layout.root)?;
-    let cozo = storage.cozo.as_ref().ok_or_else(|| miette::miette!("CozoDB not available"))?;
+    let cozo = storage
+        .cozo
+        .as_ref()
+        .ok_or_else(|| miette::miette!("CozoDB not available"))?;
 
     // Resolve prefix
     let db_path = layout.state_subdir().join("ledger.db");
@@ -28,24 +31,28 @@ pub fn execute_ledger_graph(args: LedgerGraphArgs) -> Result<()> {
         layout.root.clone().into(),
         config,
     );
-    let full_id = manager.resolve_tx_id(&args.tx_id).map_err(|e| miette::miette!("{}", e))?;
+    let full_id = manager
+        .resolve_tx_id(&args.tx_id)
+        .map_err(|e| miette::miette!("{}", e))?;
 
     let tx_urn = format!("urn:changeguard:transaction:{}", full_id);
 
-    // Query Cozo for entities governed by this transaction
-    let query = format!(
-        "?[entity_id, label, category, relation] := *node{{id: entity_id, label: label, category: category}}, \
-         *edge{{source: '{}', target: entity_id, relation: relation}}",
-        tx_urn
-    );
+    let query = "?[entity_id, label, category, relation] := *node{id: entity_id, label: label, category: category}, \
+                 *edge{source: $tx_urn, target: entity_id, relation: relation}";
 
-    let res = cozo.run_script(&query)?;
+    let mut params = std::collections::BTreeMap::new();
+    params.insert("tx_urn".to_string(), cozo::DataValue::Str(tx_urn.into()));
+    let res = cozo.run_script_with_params(query, params, cozo::ScriptMutability::Immutable)?;
 
     if args.json {
         let mut results = Vec::new();
         for row in res.rows {
-            if let (Some(cozo::DataValue::Str(id)), Some(cozo::DataValue::Str(label)), Some(cozo::DataValue::Str(cat)), Some(cozo::DataValue::Str(rel))) = 
-                (row.get(0), row.get(1), row.get(2), row.get(3))
+            if let (
+                Some(cozo::DataValue::Str(id)),
+                Some(cozo::DataValue::Str(label)),
+                Some(cozo::DataValue::Str(cat)),
+                Some(cozo::DataValue::Str(rel)),
+            ) = (row.first(), row.get(1), row.get(2), row.get(3))
             {
                 results.push(serde_json::json!({
                     "entity_id": id,
@@ -55,15 +62,26 @@ pub fn execute_ledger_graph(args: LedgerGraphArgs) -> Result<()> {
                 }));
             }
         }
-        println!("{}", serde_json::to_string_pretty(&results).into_diagnostic()?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&results).into_diagnostic()?
+        );
     } else {
-        println!("{} {}", "Graph neighborhood for transaction:".bold(), full_id.cyan());
+        println!(
+            "{} {}",
+            "Graph neighborhood for transaction:".bold(),
+            full_id.cyan()
+        );
         let mut table = Table::new();
         table.set_header(vec!["Entity ID", "Label", "Category", "Relation"]);
 
         for row in res.rows {
-            if let (Some(cozo::DataValue::Str(id)), Some(cozo::DataValue::Str(label)), Some(cozo::DataValue::Str(cat)), Some(cozo::DataValue::Str(rel))) = 
-                (row.get(0), row.get(1), row.get(2), row.get(3))
+            if let (
+                Some(cozo::DataValue::Str(id)),
+                Some(cozo::DataValue::Str(label)),
+                Some(cozo::DataValue::Str(cat)),
+                Some(cozo::DataValue::Str(rel)),
+            ) = (row.first(), row.get(1), row.get(2), row.get(3))
             {
                 table.add_row(vec![
                     id.to_string(),

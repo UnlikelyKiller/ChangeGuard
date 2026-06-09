@@ -3,14 +3,14 @@ use changeguard::commands::verify::execute_verify;
 #[test]
 fn test_verify_command_pass() {
     let cmd = "echo hello";
-    let result = execute_verify(Some(cmd.into()), 5, false, false, false, false);
+    let result = execute_verify(Some(cmd.into()), 5, false, false, None, false, false);
     assert!(result.is_ok());
 }
 
 #[test]
 fn test_verify_command_fail() {
     let cmd = "exit 1";
-    let result = execute_verify(Some(cmd.into()), 5, false, false, false, false);
+    let result = execute_verify(Some(cmd.into()), 5, false, false, None, false, false);
     assert!(result.is_err());
 }
 
@@ -21,7 +21,7 @@ fn test_verify_command_timeout() {
     } else {
         "sleep 10"
     };
-    let result = execute_verify(Some(cmd.into()), 1, false, false, false, false);
+    let result = execute_verify(Some(cmd.into()), 1, false, false, None, false, false);
     assert!(result.is_err());
     let err_msg = format!("{:?}", result.err().unwrap());
     assert!(err_msg.contains("Timed out"));
@@ -34,6 +34,7 @@ fn test_verify_command_not_found() {
         5,
         false,
         false,
+        None,
         false,
         false,
     );
@@ -50,6 +51,7 @@ fn test_verify_dry_run_does_not_execute() {
         5,
         false,
         false,
+        None,
         false,
         true, // dry_run = true
     );
@@ -68,6 +70,7 @@ fn test_verify_health_check_known_executable() {
         10,
         false,
         false,
+        None,
         true, // health = true
         false,
     );
@@ -86,6 +89,7 @@ fn test_verify_health_check_missing_executable() {
         5,
         false,
         false,
+        None,
         true, // health = true
         false,
     );
@@ -104,6 +108,7 @@ fn test_verify_health_check_env_prefix_command() {
         10,
         false,
         false,
+        None,
         true, // health = true
         false,
     );

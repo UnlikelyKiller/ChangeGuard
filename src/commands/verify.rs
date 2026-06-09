@@ -125,6 +125,7 @@ pub fn execute_verify(
     timeout_secs: u64,
     no_predict: bool,
     explain: bool,
+    entity: Option<String>,
     health: bool,
     dry_run: bool,
 ) -> Result<()> {
@@ -212,6 +213,61 @@ pub fn execute_verify(
             }
         }
     };
+
+    // Entity-scoped explanation: show tests mapped to the entity and relevant steps.
+    if explain && entity.is_some() {
+        let target = entity.as_deref().unwrap_or("");
+        println!(
+            "\n{}",
+            format!("Verification explanation for entity: {}", target)
+                .bold()
+                .cyan()
+        );
+
+        if let Some(storage) = &ctx.storage {
+            let conn = storage.get_connection();
+            let mapped: Vec<String> = conn
+                .prepare(
+                    "SELECT DISTINCT tm.test_name FROM test_mappings tm \
+                     JOIN project_files pf ON tm.source_file_id = pf.id \
+                     WHERE pf.file_path LIKE ?1 OR pf.file_path = ?1",
+                )
+                .and_then(|mut s| {
+                    s.query_map([format!("%{}%", target)], |row| row.get(0))
+                        .map(|rows| rows.filter_map(|r| r.ok()).collect())
+                })
+                .unwrap_or_default();
+
+            if mapped.is_empty() {
+                println!(
+                    "  No test mappings found for '{}'. Run `changeguard index --incremental` to refresh.",
+                    target
+                );
+            } else {
+                println!("  Mapped tests ({}):", mapped.len());
+                for t in &mapped {
+                    println!("    • {}", t);
+                }
+            }
+        }
+
+        let relevant: Vec<_> = steps
+            .iter()
+            .filter(|s| {
+                let cmd = s.command.to_lowercase();
+                let t = target.to_lowercase();
+                cmd.contains(&t) || cmd.contains("test") || cmd.contains("check")
+            })
+            .collect();
+        println!(
+            "\n  Verification steps relevant to this entity ({}):",
+            relevant.len()
+        );
+        for s in &relevant {
+            println!("    • {} (timeout: {}s)", s.command, s.timeout_secs);
+        }
+        println!();
+    }
 
     // Dry Run early exit
     if dry_run {

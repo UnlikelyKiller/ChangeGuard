@@ -42,11 +42,16 @@ fn test_adr_lifecycle_status_and_owner() {
         .unwrap();
 
     // 2. Update status and owner (Proposed API)
-    manager.update_adr_metadata(&tx_id, AdrMetadataUpdate {
-        status: Some(AdrStatus::Accepted),
-        owner: Some("alice".to_string()),
-        ..Default::default()
-    }).unwrap();
+    manager
+        .update_adr_metadata(
+            &tx_id,
+            AdrMetadataUpdate {
+                status: Some(AdrStatus::Accepted),
+                owner: Some("alice".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
     // 3. Verify metadata
     let metadata = manager.get_adr_metadata(&tx_id).unwrap();
@@ -79,10 +84,16 @@ fn test_adr_lifecycle_supersession() {
             ..Default::default()
         })
         .unwrap();
-    manager.commit_change(adr1_id.clone(), CommitRequest {
-        summary: "Old Decision".to_string(),
-        ..Default::default()
-    }, false).unwrap();
+    manager
+        .commit_change(
+            adr1_id.clone(),
+            CommitRequest {
+                summary: "Old Decision".to_string(),
+                ..Default::default()
+            },
+            false,
+        )
+        .unwrap();
 
     // 2. Create ADR 2
     let adr2_id = manager
@@ -92,10 +103,16 @@ fn test_adr_lifecycle_supersession() {
             ..Default::default()
         })
         .unwrap();
-    manager.commit_change(adr2_id.clone(), CommitRequest {
-        summary: "New Decision".to_string(),
-        ..Default::default()
-    }, false).unwrap();
+    manager
+        .commit_change(
+            adr2_id.clone(),
+            CommitRequest {
+                summary: "New Decision".to_string(),
+                ..Default::default()
+            },
+            false,
+        )
+        .unwrap();
 
     // 3. Link ADR 2 to supersede ADR 1 (Proposed API)
     manager.link_adr_supersedes(&adr2_id, &adr1_id).unwrap();

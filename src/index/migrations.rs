@@ -1,8 +1,8 @@
+use crate::state::storage::StorageManager;
 use miette::{IntoDiagnostic, Result};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use regex::Regex;
-use crate::state::storage::StorageManager;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Migration {
@@ -14,12 +14,30 @@ pub struct Migration {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SchemaChange {
-    CreateTable { table: String, columns: Vec<ColumnInfo> },
-    DropTable { table: String },
-    AddColumn { table: String, column: ColumnInfo },
-    DropColumn { table: String, column: String },
-    RenameColumn { table: String, old_name: String, new_name: String },
-    ModifyColumn { table: String, column: ColumnInfo },
+    CreateTable {
+        table: String,
+        columns: Vec<ColumnInfo>,
+    },
+    DropTable {
+        table: String,
+    },
+    AddColumn {
+        table: String,
+        column: ColumnInfo,
+    },
+    DropColumn {
+        table: String,
+        column: String,
+    },
+    RenameColumn {
+        table: String,
+        old_name: String,
+        new_name: String,
+    },
+    ModifyColumn {
+        table: String,
+        column: ColumnInfo,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,7 +115,7 @@ impl<'a> MigrationParser<'a> {
 
     fn parse_sql(&self, content: &str) -> Vec<SchemaChange> {
         let mut changes = Vec::new();
-        
+
         // CREATE TABLE regex
         let re_create = Regex::new(r"(?i)CREATE\s+TABLE\s+(\w+)\s*\(([\s\S]+?)\)").unwrap();
         for cap in re_create.captures_iter(content) {
@@ -105,7 +123,7 @@ impl<'a> MigrationParser<'a> {
             let col_defs = &cap[2];
             let mut columns = Vec::new();
             for col_line in col_defs.split(',') {
-                let parts: Vec<&str> = col_line.trim().split_whitespace().collect();
+                let parts: Vec<&str> = col_line.split_whitespace().collect();
                 if parts.len() >= 2 {
                     columns.push(ColumnInfo {
                         name: parts[0].to_string(),
@@ -117,7 +135,8 @@ impl<'a> MigrationParser<'a> {
         }
 
         // ALTER TABLE ADD COLUMN
-        let re_add_col = Regex::new(r"(?i)ALTER\s+TABLE\s+(\w+)\s+ADD\s+(?:COLUMN\s+)?(\w+)\s+(\w+)").unwrap();
+        let re_add_col =
+            Regex::new(r"(?i)ALTER\s+TABLE\s+(\w+)\s+ADD\s+(?:COLUMN\s+)?(\w+)\s+(\w+)").unwrap();
         for cap in re_add_col.captures_iter(content) {
             changes.push(SchemaChange::AddColumn {
                 table: cap[1].to_string(),
@@ -131,7 +150,9 @@ impl<'a> MigrationParser<'a> {
         // DROP TABLE
         let re_drop_table = Regex::new(r"(?i)DROP\s+TABLE\s+(\w+)").unwrap();
         for cap in re_drop_table.captures_iter(content) {
-            changes.push(SchemaChange::DropTable { table: cap[1].to_string() });
+            changes.push(SchemaChange::DropTable {
+                table: cap[1].to_string(),
+            });
         }
 
         changes
@@ -139,7 +160,7 @@ impl<'a> MigrationParser<'a> {
 
     fn parse_rust(&self, content: &str) -> Vec<SchemaChange> {
         let mut changes = Vec::new();
-        
+
         // Heuristic for diesel table! macro or similar
         let re_table_macro = Regex::new(r"table!\s*\{\s*(\w+)\s*\(([\s\S]+?)\)").unwrap();
         for cap in re_table_macro.captures_iter(content) {

@@ -5,8 +5,8 @@ use miette::Result;
 use std::time::Instant;
 use tracing::{debug, warn};
 
-use crate::state::graph_kinds::NodeKind;
 use crate::platform::urn::build_urn;
+use crate::state::graph_kinds::NodeKind;
 
 pub struct KGProvider;
 
@@ -68,13 +68,32 @@ impl EnrichmentProvider for KGProvider {
                 return Ok(());
             }
 
-            let propagation_script = "
-                diffused[id, s] := *node{id: src, risk_score: src_s}, *edge{source: src, target: id}, s = src_s * 0.5
-                ?[id, label, category, risk_score, metadata] := *node{id, label, category, risk_score: current, metadata}, diffused[id, s], s > current, risk_score = s
-                :put node
-            ";
-            if let Err(e) = cozo.run_script(propagation_script) {
-                warn!("Failed to propagate risk in KG: {}", e);
+            let propagation_query = "?[id, s] := *node{id: src, risk_score: src_s}, *edge{source: src, target: id}, s = src_s * 0.5";
+            if let Ok(res) = cozo.run_script(propagation_query) {
+                let mut updates = Vec::new();
+                for row in res.rows {
+                    if let (Some(cozo::DataValue::Str(id)), Some(cozo::DataValue::Num(num))) =
+                        (row.first(), row.get(1))
+                    {
+                        let score = match num {
+                            cozo::Num::Float(f) => *f,
+                            cozo::Num::Int(i) => *i as f64,
+                        };
+                        if score > 0.0 {
+                            updates.push(serde_json::json!([id, score]));
+                        }
+                    }
+                }
+                if !updates.is_empty() {
+                    let updates_json = serde_json::Value::Array(updates).to_string();
+                    let put_script = format!(
+                        "updates[id, score] <- {}\n?[id, label, category, risk_score, metadata] := *node{{id, label, category, metadata, risk_score: current}}, updates[id, score], score > current, risk_score = score\n:put node",
+                        updates_json
+                    );
+                    if let Err(e) = cozo.run_script(&put_script) {
+                        warn!("Failed to apply propagated risk: {}", e);
+                    }
+                }
             }
         }
 
@@ -89,11 +108,11 @@ impl EnrichmentProvider for KGProvider {
             // Find nodes associated with this file
             let file_path = file.path.to_string_lossy();
             let file_urn = build_urn(NodeKind::File, &file_path);
-            
+
             // Query for symbol nodes associated with this file in SQLite project_symbols,
             // then find their corresponding node IDs in Cozo (which are URNs).
             let query = format!(
-                "?[id] := *project_symbol{{file_path: '{}', qualified_name: qn}}, *node{{id: id}}, id == concat('urn:changeguard:symbol:', qn)",
+                "?[id] := *project_symbol{{file_path: '{}', id: id}}, *node{{id: id}}",
                 file_path
             );
 
@@ -142,7 +161,8 @@ impl EnrichmentProvider for KGProvider {
                         Some(cozo::DataValue::Num(cozo::Num::Int(len))),
                     ) = (row.first(), row.get(1), row.get(2))
                     {
-                        let impacted_category = target.split(':').nth(2).unwrap_or("unknown").to_string();
+                        let impacted_category =
+                            target.split(':').nth(2).unwrap_or("unknown").to_string();
                         packet.knowledge_graph.push(KGImpact {
                             source_node: "change_seed".to_string(),
                             source_category: "seed".to_string(),

@@ -179,9 +179,12 @@ pub enum Commands {
         /// Disable Bayesian failure prediction
         #[arg(long)]
         no_predict: bool,
-        /// Explain failure probability via local LLM
+        /// Explain failure probability via local LLM for a specific entity
         #[arg(long)]
         explain: bool,
+        /// Entity path for verification explanation (use with --explain; does not narrow executed steps)
+        #[arg(long, short)]
+        entity: Option<String>,
         /// Show detailed health of the verification system
         #[arg(long)]
         health: bool,
@@ -1057,6 +1060,7 @@ pub fn run_with(cli: Cli) -> Result<()> {
             timeout,
             no_predict,
             explain,
+            entity,
             health,
             signatures,
             dry_run,
@@ -1065,7 +1069,7 @@ pub fn run_with(cli: Cli) -> Result<()> {
                 crate::commands::verify::verify_ledger_signatures(&layout)
             } else {
                 crate::commands::verify::execute_verify(
-                    command, timeout, no_predict, explain, health, dry_run,
+                    command, timeout, no_predict, explain, entity, health, dry_run,
                 )
             }
         }

@@ -1141,6 +1141,14 @@ fn resolve_local_model_config_with(
         "CHANGEGUARD_LOCAL_EMBEDDING_URL",
     ))
     .filter(|s| !s.is_empty());
+
+    if resolved.embedding_url.is_none()
+        && (resolved.base_url == "http://127.0.0.1:8081"
+            || resolved.base_url == "http://localhost:8081")
+    {
+        resolved.embedding_url = Some("http://127.0.0.1:8083".to_string());
+    }
+
     resolved.generation_url = Some(resolve_string(
         config.generation_url.as_deref().unwrap_or(""),
         "CHANGEGUARD_LOCAL_GENERATION_URL",

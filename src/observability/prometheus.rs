@@ -69,10 +69,11 @@ pub fn query_prometheus(
             if obj.is_empty() {
                 "unknown".to_string()
             } else {
-                let parts: Vec<String> = obj
+                let mut parts: Vec<String> = obj
                     .iter()
                     .map(|(k, v)| format!("{}={}", k, v.as_str().unwrap_or("")))
                     .collect();
+                parts.sort();
                 parts.join(", ")
             }
         } else {

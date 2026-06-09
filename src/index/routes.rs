@@ -234,9 +234,12 @@ impl<'a> RouteExtractor<'a> {
         let now = chrono::Utc::now().to_rfc3339();
 
         for route in routes {
-            let auth_reqs = serde_json::to_string(&route.auth_requirements).unwrap_or_else(|_| "[]".to_string());
-            let schema_refs = serde_json::to_string(&route.schema_refs).unwrap_or_else(|_| "[]".to_string());
-            let consumers = serde_json::to_string(&route.consumers).unwrap_or_else(|_| "[]".to_string());
+            let auth_reqs = serde_json::to_string(&route.auth_requirements)
+                .unwrap_or_else(|_| "[]".to_string());
+            let schema_refs =
+                serde_json::to_string(&route.schema_refs).unwrap_or_else(|_| "[]".to_string());
+            let consumers =
+                serde_json::to_string(&route.consumers).unwrap_or_else(|_| "[]".to_string());
 
             tx.execute(
                 "INSERT INTO api_routes \

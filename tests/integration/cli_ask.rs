@@ -11,6 +11,14 @@ use crate::common::{DirGuard, cwd_lock};
 #[test]
 fn test_ask_command_no_packet() {
     let _lock = cwd_lock().lock().unwrap();
+    unsafe {
+        std::env::set_var("CHANGEGUARD_NON_INTERACTIVE", "1");
+    }
+    let old_gemini_key = std::env::var("GEMINI_API_KEY");
+    unsafe {
+        std::env::remove_var("GEMINI_API_KEY");
+    }
+
     let tmp = tempdir().unwrap();
     let root = camino::Utf8Path::from_path(tmp.path()).unwrap();
     let _guard = DirGuard::from_utf8(root);
@@ -53,6 +61,13 @@ fn test_ask_command_no_packet() {
             !err_str.contains("No impact report found"),
             "Should fallback to global mode"
         );
+    }
+
+    unsafe {
+        if let Ok(val) = old_gemini_key {
+            std::env::set_var("GEMINI_API_KEY", val);
+        }
+        std::env::remove_var("CHANGEGUARD_NON_INTERACTIVE");
     }
 }
 

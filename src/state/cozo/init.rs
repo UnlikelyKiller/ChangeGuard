@@ -142,20 +142,24 @@ pub fn migrate_cozo_schema(storage: &CozoStorage) -> Result<()> {
             let mut new_nodes = Vec::new();
             let mut old_ids = Vec::new();
             for row in nodes.rows {
-                if let (Some(DataValue::Str(id)), Some(DataValue::Str(label)), Some(DataValue::Str(cat)), Some(risk_val), Some(meta_val)) = 
-                    (row.first(), row.get(1), row.get(2), row.get(3), row.get(4)) 
+                if let (
+                    Some(DataValue::Str(id)),
+                    Some(DataValue::Str(label)),
+                    Some(DataValue::Str(cat)),
+                    Some(risk_val),
+                    Some(meta_val),
+                ) = (row.first(), row.get(1), row.get(2), row.get(3), row.get(4))
                 {
-
                     // Convert old category to NodeKind
                     let kind = match cat.as_str() {
                         "file" => NodeKind::File,
                         "symbol" | "code" => NodeKind::Symbol,
                         _ => NodeKind::File, // Default
                     };
-                    
+
                     // Build new URN ID
                     let new_id = crate::platform::urn::build_urn(kind, id);
-                    
+
                     // Update metadata with schema_version
                     let mut metadata: serde_json::Value = if let DataValue::Json(j) = meta_val {
                         serde_json::to_value(j).unwrap_or(json!({}))
@@ -182,10 +186,10 @@ pub fn migrate_cozo_schema(storage: &CozoStorage) -> Result<()> {
                     old_ids.push(id.to_string());
                 }
             }
-            
+
             // Put new nodes
             storage.insert_nodes(&new_nodes)?;
-            
+
             // Remove old nodes (only if they are different from new IDs)
             storage.remove_nodes_by_id(&old_ids)?;
         }
@@ -196,16 +200,29 @@ pub fn migrate_cozo_schema(storage: &CozoStorage) -> Result<()> {
             let mut new_edges = Vec::new();
             let mut old_edge_triples = Vec::new();
             for row in edges.rows {
-                if let (Some(DataValue::Str(src)), Some(DataValue::Str(tgt)), Some(DataValue::Str(rel)), Some(conf_val), Some(prov_val)) = 
-                    (row.first(), row.get(1), row.get(2), row.get(3), row.get(4)) 
+                if let (
+                    Some(DataValue::Str(src)),
+                    Some(DataValue::Str(tgt)),
+                    Some(DataValue::Str(rel)),
+                    Some(conf_val),
+                    Some(prov_val),
+                ) = (row.first(), row.get(1), row.get(2), row.get(3), row.get(4))
                 {
                     // Guess kinds
-                    let src_kind = if rel == "calls" || rel == "call" { NodeKind::Symbol } else { NodeKind::File };
-                    let tgt_kind = if rel == "calls" || rel == "call" { NodeKind::Symbol } else { NodeKind::File };
-                    
+                    let src_kind = if rel == "calls" || rel == "call" {
+                        NodeKind::Symbol
+                    } else {
+                        NodeKind::File
+                    };
+                    let tgt_kind = if rel == "calls" || rel == "call" {
+                        NodeKind::Symbol
+                    } else {
+                        NodeKind::File
+                    };
+
                     let new_src = crate::platform::urn::build_urn(src_kind, src);
                     let new_tgt = crate::platform::urn::build_urn(tgt_kind, tgt);
-                    
+
                     let new_rel = match rel.as_str() {
                         "calls" | "call" => EdgeKind::Calls,
                         _ => EdgeKind::DependsOn,
@@ -216,7 +233,7 @@ pub fn migrate_cozo_schema(storage: &CozoStorage) -> Result<()> {
                         DataValue::Num(Num::Int(i)) => *i as f64,
                         _ => 1.0,
                     };
-                    
+
                     new_edges.push(GraphEdge {
                         source: new_src,
                         target: new_tgt,
@@ -227,10 +244,10 @@ pub fn migrate_cozo_schema(storage: &CozoStorage) -> Result<()> {
                     old_edge_triples.push((src.to_string(), tgt.to_string(), rel.to_string()));
                 }
             }
-            
+
             // Put new edges
             storage.insert_edges(&new_edges)?;
-            
+
             // Remove old edges
             if !old_edge_triples.is_empty() {
                 for chunk in old_edge_triples.chunks(100) {

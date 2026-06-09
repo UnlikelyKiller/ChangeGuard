@@ -2,9 +2,9 @@ pub mod ask;
 pub mod bridge;
 pub mod config;
 pub mod config_verify;
-pub mod data_models;
 #[cfg(feature = "daemon")]
 pub mod daemon;
+pub mod data_models;
 pub mod dead_code;
 pub mod dependencies;
 pub mod deploy;

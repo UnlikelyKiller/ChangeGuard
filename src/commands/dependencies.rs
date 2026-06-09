@@ -1,9 +1,10 @@
+use crate::commands::helpers::get_layout;
+use crate::output::table::Table;
+use crate::state::storage::StorageManager;
 use clap::{Args, Subcommand};
 use miette::{IntoDiagnostic, Result};
-use crate::commands::helpers::get_layout;
-use crate::state::storage::StorageManager;
-use crate::output::table::Table;
 use owo_colors::OwoColorize;
+use serde::Serialize;
 
 #[derive(Args, Debug)]
 pub struct DependenciesArgs {
@@ -32,13 +33,63 @@ pub enum DependencySubcommands {
 
 pub fn execute_dependencies(args: DependenciesArgs) -> Result<()> {
     let layout = get_layout()?;
-    let _storage = StorageManager::open_read_only(&layout.root)?;
 
     match args.command {
         DependencySubcommands::List { json } => {
-            // Simplified: read from Cargo.lock if exists, or query KG
-            println!("Dependency listing is coming soon.");
-            if json { /* stub */ }
+            let storage = StorageManager::open_read_only(&layout.root)?;
+            let cozo = storage
+                .cozo
+                .as_ref()
+                .ok_or_else(|| miette::miette!("CozoDB storage is unavailable"))?;
+            let res = cozo.run_script("?[id, name, metadata] := *node{id: id, label: name, category: 'package', metadata: metadata}")?;
+
+            #[derive(Serialize)]
+            struct ListedDep {
+                name: String,
+                version: String,
+                ecosystem: String,
+            }
+
+            let mut deps = Vec::new();
+            for row in res.rows {
+                if let (
+                    Some(cozo::DataValue::Str(_id)),
+                    Some(cozo::DataValue::Str(name)),
+                    Some(cozo::DataValue::Json(meta)),
+                ) = (row.first(), row.get(1), row.get(2))
+                {
+                    let version = meta
+                        .get("version")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("-")
+                        .to_string();
+                    let ecosystem = meta
+                        .get("ecosystem")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("-")
+                        .to_string();
+                    deps.push(ListedDep {
+                        name: name.to_string(),
+                        version,
+                        ecosystem,
+                    });
+                }
+            }
+
+            if json {
+                println!("{}", serde_json::to_string_pretty(&deps).into_diagnostic()?);
+            } else {
+                println!(
+                    "{}",
+                    "Project Dependencies (from Knowledge Graph)".bold().green()
+                );
+                let mut table = Table::new();
+                table.set_header(vec!["Package", "Version", "Ecosystem"]);
+                for dep in deps {
+                    table.add_row(vec![dep.name, dep.version, dep.ecosystem]);
+                }
+                println!("{}", table);
+            }
         }
         DependencySubcommands::Audit { input, json } => {
             let path = std::path::Path::new(&input);
@@ -47,23 +98,35 @@ pub fn execute_dependencies(args: DependenciesArgs) -> Result<()> {
             }
 
             let result = crate::index::advisories::OsvImporter::import_from_json(path)?;
-            
+
+            // Open writeable storage to populate KG
+            let db_path = layout.state_subdir().join("ledger.db");
+            let storage = StorageManager::init(db_path.as_std_path())?;
+            if let Some(cozo) = &storage.cozo {
+                crate::index::advisories::OsvImporter::populate_kg(cozo, &result, "audit-tx")?;
+            }
+
             if json {
-                println!("{}", serde_json::to_string_pretty(&result).into_diagnostic()?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&result).into_diagnostic()?
+                );
             } else {
                 println!("{}", "Security Advisory Audit (OSV)".bold().red());
                 let mut table = Table::new();
                 table.set_header(vec!["Package", "Version", "Vulnerability", "Summary"]);
 
-                for pkg_res in result.results {
-                    if let Some(vulns) = pkg_res.vulnerabilities {
-                        for vuln in vulns {
-                            table.add_row(vec![
-                                pkg_res.package.name.clone(),
-                                pkg_res.package.version.clone(),
-                                vuln.id.red().to_string(),
-                                vuln.summary.unwrap_or_else(|| "-".to_string()),
-                            ]);
+                for src_res in &result.results {
+                    for pkg_res in &src_res.packages {
+                        if let Some(vulns) = &pkg_res.vulnerabilities {
+                            for vuln in vulns {
+                                table.add_row(vec![
+                                    pkg_res.package.name.clone(),
+                                    pkg_res.package.version.clone(),
+                                    vuln.id.red().to_string(),
+                                    vuln.summary.as_deref().unwrap_or("-").to_string(),
+                                ]);
+                            }
                         }
                     }
                 }

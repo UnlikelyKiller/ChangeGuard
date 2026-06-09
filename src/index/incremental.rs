@@ -1,10 +1,11 @@
+#[cfg(test)]
+use crate::config::model::Config;
 use crate::index::call_graph::CallEdge;
 use crate::index::orchestrator::{
     BINARY_EXTENSIONS, ProjectIndexer, SUPPORTED_EXTENSIONS, delete_file_index_dependents,
     get_file_id_by_path, insert_symbol_row, upsert_file_row,
 };
 use crate::index::types::{ProjectFile, ProjectSymbol};
-use crate::config::model::Config;
 use crate::state::graph_kinds::{EdgeKind, NodeKind};
 use crate::state::storage_cozo::{GraphEdge, GraphNode};
 use crate::watch::batch::{WatchBatch, WatchEvent, WatchEventKind};
@@ -362,7 +363,10 @@ impl IncrementalSyncEngine {
                     && let Some(target) = name_to_qualified.get(&callee_id)
                 {
                     record.new_edges.push(GraphEdge {
-                        source: crate::platform::urn::build_urn(NodeKind::Symbol, &caller_qualified),
+                        source: crate::platform::urn::build_urn(
+                            NodeKind::Symbol,
+                            &caller_qualified,
+                        ),
                         target: crate::platform::urn::build_urn(NodeKind::Symbol, target),
                         relation: EdgeKind::Calls,
                         confidence: call.confidence,
@@ -392,7 +396,10 @@ impl IncrementalSyncEngine {
 
         for record in affected {
             // Old nodes: file path + old qualified names (MUST use URNs for deletion)
-            nodes_to_remove.push(crate::platform::urn::build_urn(NodeKind::File, &record.file_path));
+            nodes_to_remove.push(crate::platform::urn::build_urn(
+                NodeKind::File,
+                &record.file_path,
+            ));
             for qn in &record.old_qualified_names {
                 nodes_to_remove.push(crate::platform::urn::build_urn(NodeKind::Symbol, qn));
                 edges_to_remove_sources.push(crate::platform::urn::build_urn(NodeKind::Symbol, qn));
@@ -584,7 +591,7 @@ pub fn main() { helper(); }
 
         let cozo = engine.indexer.cozo().unwrap();
         let res = cozo
-            .run_script("?[id] := *node{id: id}, id = 'src/lib.rs'")
+            .run_script("?[id] := *node{id: id}, id = 'urn:changeguard:file:src/lib.rs'")
             .unwrap();
         assert_eq!(res.rows.len(), 1);
     }
@@ -651,7 +658,7 @@ pub fn main() { helper(); }
 
         let cozo = engine.indexer.cozo().unwrap();
         let res = cozo
-            .run_script("?[id] := *node{id: id}, id = 'src/lib.rs'")
+            .run_script("?[id] := *node{id: id}, id = 'urn:changeguard:file:src/lib.rs'")
             .unwrap();
         assert_eq!(res.rows.len(), 0);
     }

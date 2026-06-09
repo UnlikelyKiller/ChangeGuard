@@ -1399,7 +1399,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Key additions: Added `--dry-run` to `Update` CLI command definition, mapped it in `src/cli.rs` dispatch, and implemented dry-run print warnings in `src/commands/update.rs`.
 
 
-## Milestone W: Large-Repo Tracking Graph (Planned)
+## Milestone W: Large-Repo Tracking Graph (Completed)
 
 *   **Track W1: Entity Graph Schema and Cross-Surface Links**
     *   Status: Completed

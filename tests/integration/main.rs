@@ -1,3 +1,4 @@
+mod adr_lifecycle;
 mod bridge_ask_tests;
 mod bridge_export_tests;
 mod bridge_import_tests;
@@ -45,6 +46,7 @@ mod m33_migration;
 mod milestone_j_remediation;
 mod narrative_golden;
 mod narrative_prompt;
+mod observability_cedar_graph_test;
 mod persistence;
 mod platform_windows;
 mod platform_wsl;
@@ -58,7 +60,6 @@ mod semantic_search;
 mod tantivy_hardening;
 mod temporal_coupling;
 mod watch_graph_sync;
-mod adr_lifecycle;
 
 #[test]
 fn test_integration_harness_init() {

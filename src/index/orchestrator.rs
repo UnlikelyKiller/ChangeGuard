@@ -73,7 +73,11 @@ pub struct ProjectIndexer {
 
 impl ProjectIndexer {
     pub fn new(storage: StorageManager, repo_path: Utf8PathBuf, config: Config) -> Self {
-        Self { storage, repo_path, config }
+        Self {
+            storage,
+            repo_path,
+            config,
+        }
     }
 
     pub fn cozo(&self) -> Option<&crate::state::storage_cozo::CozoStorage> {
@@ -107,8 +111,12 @@ impl ProjectIndexer {
             return Ok(());
         };
 
-        let stats =
-            crate::index::graph_loader::build_native_graph(&self.storage, cozo, "native_kg", &self.config)?;
+        let stats = crate::index::graph_loader::build_native_graph(
+            &self.storage,
+            cozo,
+            "native_kg",
+            &self.config,
+        )?;
 
         // Optionally enrich with semantic extraction on a sample of files
         match self.get_semantic_sample_files() {
@@ -977,7 +985,13 @@ impl ProjectIndexer {
                 .get_directory_classifications()
                 .unwrap_or_default(),
         };
-        let services = infer_services(&routes, &data_models, &call_graph, &topology, &self.config.services.definitions);
+        let services = infer_services(
+            &routes,
+            &data_models,
+            &call_graph,
+            &topology,
+            &self.config.services.definitions,
+        );
 
         let mut files_assigned = 0;
         let conn_mut = self.storage.get_connection_mut();

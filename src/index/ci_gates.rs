@@ -2,7 +2,6 @@ use crate::impact::packet::{ChangedFile, CiConfigChange};
 use crate::state::storage::StorageManager;
 use miette::{IntoDiagnostic, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::path::PathBuf;
 use tracing::{info, warn};
 
@@ -103,8 +102,14 @@ impl<'a> CIGateExtractor<'a> {
                     steps: gate.steps.clone(),
                     workflow_name: gate.workflow_name.clone(),
                     environment: gate.environment.clone(),
-                    artifacts: gate.artifacts.as_ref().map(|a| serde_json::to_string(a).unwrap_or_default()),
-                    release_gates: gate.release_gates.as_ref().map(|a| serde_json::to_string(a).unwrap_or_default()),
+                    artifacts: gate
+                        .artifacts
+                        .as_ref()
+                        .map(|a| serde_json::to_string(a).unwrap_or_default()),
+                    release_gates: gate
+                        .release_gates
+                        .as_ref()
+                        .map(|a| serde_json::to_string(a).unwrap_or_default()),
                 });
 
                 match platform.as_str() {
@@ -299,7 +304,15 @@ fn parse_github_actions(content: &str) -> Vec<ParsedCIGate> {
 
         // Detect workflow name
         if trimmed.starts_with("name:") {
-            workflow_name = Some(trimmed.strip_prefix("name:").unwrap().trim().trim_matches('"').trim_matches('\'').to_string());
+            workflow_name = Some(
+                trimmed
+                    .strip_prefix("name:")
+                    .unwrap()
+                    .trim()
+                    .trim_matches('"')
+                    .trim_matches('\'')
+                    .to_string(),
+            );
         }
 
         // Detect "on:" key at top level
@@ -389,11 +402,23 @@ fn parse_github_actions(content: &str) -> Vec<ParsedCIGate> {
                     gates.push(ParsedCIGate {
                         job_name,
                         trigger: trigger_str.clone(),
-                        steps: if current_job_steps.is_empty() { None } else { Some(current_job_steps.join("; ")) },
+                        steps: if current_job_steps.is_empty() {
+                            None
+                        } else {
+                            Some(current_job_steps.join("; "))
+                        },
                         workflow_name: workflow_name.clone(),
                         environment: current_job_env.take(),
-                        artifacts: if current_job_artifacts.is_empty() { None } else { Some(current_job_artifacts.clone()) },
-                        release_gates: if current_job_releases.is_empty() { None } else { Some(current_job_releases.clone()) },
+                        artifacts: if current_job_artifacts.is_empty() {
+                            None
+                        } else {
+                            Some(current_job_artifacts.clone())
+                        },
+                        release_gates: if current_job_releases.is_empty() {
+                            None
+                        } else {
+                            Some(current_job_releases.clone())
+                        },
                     });
                     current_job_steps.clear();
                     current_job_artifacts.clear();
@@ -402,16 +427,29 @@ fn parse_github_actions(content: &str) -> Vec<ParsedCIGate> {
                 continue;
             }
 
-            if line_indent == jobs_indent + 2 && trimmed.ends_with(':') && !trimmed.starts_with('-') {
+            if line_indent == jobs_indent + 2 && trimmed.ends_with(':') && !trimmed.starts_with('-')
+            {
                 if let Some(job_name) = current_job.take() {
                     gates.push(ParsedCIGate {
                         job_name,
                         trigger: trigger_str.clone(),
-                        steps: if current_job_steps.is_empty() { None } else { Some(current_job_steps.join("; ")) },
+                        steps: if current_job_steps.is_empty() {
+                            None
+                        } else {
+                            Some(current_job_steps.join("; "))
+                        },
                         workflow_name: workflow_name.clone(),
                         environment: current_job_env.take(),
-                        artifacts: if current_job_artifacts.is_empty() { None } else { Some(current_job_artifacts.clone()) },
-                        release_gates: if current_job_releases.is_empty() { None } else { Some(current_job_releases.clone()) },
+                        artifacts: if current_job_artifacts.is_empty() {
+                            None
+                        } else {
+                            Some(current_job_artifacts.clone())
+                        },
+                        release_gates: if current_job_releases.is_empty() {
+                            None
+                        } else {
+                            Some(current_job_releases.clone())
+                        },
                     });
                     current_job_steps.clear();
                     current_job_artifacts.clear();
@@ -426,7 +464,8 @@ fn parse_github_actions(content: &str) -> Vec<ParsedCIGate> {
                 if trimmed.starts_with("environment:") {
                     let env = trimmed.strip_prefix("environment:").unwrap().trim();
                     if !env.is_empty() {
-                        current_job_env = Some(env.trim_matches('"').trim_matches('\'').to_string());
+                        current_job_env =
+                            Some(env.trim_matches('"').trim_matches('\'').to_string());
                     }
                 }
 
@@ -437,12 +476,24 @@ fn parse_github_actions(content: &str) -> Vec<ParsedCIGate> {
 
                 if in_steps && line_indent > 0 {
                     if trimmed.starts_with("- name:") {
-                        let name = trimmed.strip_prefix("- name:").unwrap().trim().trim_matches('"').trim_matches('\'').to_string();
+                        let name = trimmed
+                            .strip_prefix("- name:")
+                            .unwrap()
+                            .trim()
+                            .trim_matches('"')
+                            .trim_matches('\'')
+                            .to_string();
                         if !name.is_empty() {
                             current_job_steps.push(name);
                         }
                     } else if trimmed.starts_with("- run:") {
-                        let cmd = trimmed.strip_prefix("- run:").unwrap().trim().trim_matches('"').trim_matches('\'').to_string();
+                        let cmd = trimmed
+                            .strip_prefix("- run:")
+                            .unwrap()
+                            .trim()
+                            .trim_matches('"')
+                            .trim_matches('\'')
+                            .to_string();
                         if !cmd.is_empty() {
                             current_job_steps.push(cmd);
                         }
@@ -460,11 +511,23 @@ fn parse_github_actions(content: &str) -> Vec<ParsedCIGate> {
         gates.push(ParsedCIGate {
             job_name,
             trigger: trigger_str.clone(),
-            steps: if current_job_steps.is_empty() { None } else { Some(current_job_steps.join("; ")) },
+            steps: if current_job_steps.is_empty() {
+                None
+            } else {
+                Some(current_job_steps.join("; "))
+            },
             workflow_name: workflow_name.clone(),
             environment: current_job_env,
-            artifacts: if current_job_artifacts.is_empty() { None } else { Some(current_job_artifacts) },
-            release_gates: if current_job_releases.is_empty() { None } else { Some(current_job_releases) },
+            artifacts: if current_job_artifacts.is_empty() {
+                None
+            } else {
+                Some(current_job_artifacts)
+            },
+            release_gates: if current_job_releases.is_empty() {
+                None
+            } else {
+                Some(current_job_releases)
+            },
         });
     }
 
@@ -489,7 +552,9 @@ fn parse_gitlab_ci(content: &str) -> Vec<ParsedCIGate> {
                     let inner = rest.trim_start_matches('[').trim_end_matches(']');
                     for stage in inner.split(',') {
                         let s = stage.trim().trim_matches('"').trim_matches('\'');
-                        if !s.is_empty() { stages.push(s.to_string()); }
+                        if !s.is_empty() {
+                            stages.push(s.to_string());
+                        }
                     }
                     in_stages = false;
                 }
@@ -498,8 +563,15 @@ fn parse_gitlab_ci(content: &str) -> Vec<ParsedCIGate> {
         }
         if in_stages {
             if trimmed.starts_with('-') {
-                let item = trimmed.strip_prefix('-').unwrap().trim().trim_matches('"').trim_matches('\'');
-                if !item.is_empty() && !item.contains(':') { stages.push(item.to_string()); }
+                let item = trimmed
+                    .strip_prefix('-')
+                    .unwrap()
+                    .trim()
+                    .trim_matches('"')
+                    .trim_matches('\'');
+                if !item.is_empty() && !item.contains(':') {
+                    stages.push(item.to_string());
+                }
             } else if !trimmed.is_empty() && !trimmed.starts_with('#') {
                 in_stages = false;
             }
@@ -509,11 +581,27 @@ fn parse_gitlab_ci(content: &str) -> Vec<ParsedCIGate> {
     let mut current_job: Option<String> = None;
     let mut current_steps: Vec<String> = Vec::new();
     let mut current_trigger: Option<String> = None;
-    let top_level_keys: std::collections::HashSet<&str> = ["image", "services", "stages", "variables", "before_script", "after_script", "cache", "default", "include", "workflow"].iter().copied().collect();
+    let top_level_keys: std::collections::HashSet<&str> = [
+        "image",
+        "services",
+        "stages",
+        "variables",
+        "before_script",
+        "after_script",
+        "cache",
+        "default",
+        "include",
+        "workflow",
+    ]
+    .iter()
+    .copied()
+    .collect();
 
     for line in content.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with('#') || trimmed.is_empty() { continue; }
+        if trimmed.starts_with('#') || trimmed.is_empty() {
+            continue;
+        }
         let line_indent = line.len() - line.trim_start().len();
 
         if line_indent == 0 && trimmed.contains(':') && !trimmed.starts_with('-') {
@@ -522,7 +610,11 @@ fn parse_gitlab_ci(content: &str) -> Vec<ParsedCIGate> {
                     gates.push(ParsedCIGate {
                         job_name,
                         trigger: current_trigger.take(),
-                        steps: if current_steps.is_empty() { None } else { Some(current_steps.join("; ")) },
+                        steps: if current_steps.is_empty() {
+                            None
+                        } else {
+                            Some(current_steps.join("; "))
+                        },
                         workflow_name: None,
                         environment: None,
                         artifacts: None,
@@ -533,33 +625,55 @@ fn parse_gitlab_ci(content: &str) -> Vec<ParsedCIGate> {
             }
             let key = trimmed.split(':').next().unwrap().trim();
             current_job = Some(key.to_string());
-            if top_level_keys.contains(key) { current_job = None; }
+            if top_level_keys.contains(key) {
+                current_job = None;
+            }
         }
 
         if let Some(ref _job) = current_job {
             if trimmed.starts_with("- ") {
-                let item = trimmed.strip_prefix("- ").unwrap().trim().trim_matches('"').trim_matches('\'');
-                if !item.is_empty() && item.len() < 200 { current_steps.push(item.to_string()); }
+                let item = trimmed
+                    .strip_prefix("- ")
+                    .unwrap()
+                    .trim()
+                    .trim_matches('"')
+                    .trim_matches('\'');
+                if !item.is_empty() && item.len() < 200 {
+                    current_steps.push(item.to_string());
+                }
             }
-            if (trimmed.starts_with("only:") || trimmed.starts_with("except:")) && let Some(trigger_type) = trimmed.strip_suffix(':') {
+            if (trimmed.starts_with("only:") || trimmed.starts_with("except:"))
+                && let Some(trigger_type) = trimmed.strip_suffix(':')
+            {
                 current_trigger = Some(trigger_type.to_string());
             }
         }
     }
 
-    if let Some(job_name) = current_job.take() && !top_level_keys.contains(job_name.as_str()) {
+    if let Some(job_name) = current_job.take()
+        && !top_level_keys.contains(job_name.as_str())
+    {
         gates.push(ParsedCIGate {
             job_name,
             trigger: current_trigger,
-            steps: if current_steps.is_empty() { None } else { Some(current_steps.join("; ")) },
-            workflow_name: None, environment: None, artifacts: None, release_gates: None,
+            steps: if current_steps.is_empty() {
+                None
+            } else {
+                Some(current_steps.join("; "))
+            },
+            workflow_name: None,
+            environment: None,
+            artifacts: None,
+            release_gates: None,
         });
     }
 
     if !stages.is_empty() {
         let trigger_str = stages.join(", ");
         for gate in &mut gates {
-            if gate.trigger.is_none() { gate.trigger = Some(format!("stages: {}", trigger_str)); }
+            if gate.trigger.is_none() {
+                gate.trigger = Some(format!("stages: {}", trigger_str));
+            }
         }
     }
     gates
@@ -576,7 +690,9 @@ fn parse_circleci(content: &str) -> Vec<ParsedCIGate> {
 
     for line in content.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with('#') || trimmed.is_empty() { continue; }
+        if trimmed.starts_with('#') || trimmed.is_empty() {
+            continue;
+        }
         let line_indent = line.len() - line.trim_start().len();
 
         if trimmed == "jobs:" || trimmed.starts_with("jobs:") {
@@ -590,21 +706,38 @@ fn parse_circleci(content: &str) -> Vec<ParsedCIGate> {
                 in_jobs = false;
                 if let Some(job_name) = current_job.take() {
                     gates.push(ParsedCIGate {
-                        job_name, trigger: Some("push".to_string()),
-                        steps: if current_steps.is_empty() { None } else { Some(current_steps.join("; ")) },
-                        workflow_name: None, environment: None, artifacts: None, release_gates: None,
+                        job_name,
+                        trigger: Some("push".to_string()),
+                        steps: if current_steps.is_empty() {
+                            None
+                        } else {
+                            Some(current_steps.join("; "))
+                        },
+                        workflow_name: None,
+                        environment: None,
+                        artifacts: None,
+                        release_gates: None,
                     });
                     current_steps.clear();
                 }
                 continue;
             }
 
-            if line_indent == jobs_indent + 2 && trimmed.ends_with(':') && !trimmed.starts_with('-') {
+            if line_indent == jobs_indent + 2 && trimmed.ends_with(':') && !trimmed.starts_with('-')
+            {
                 if let Some(job_name) = current_job.take() {
                     gates.push(ParsedCIGate {
-                        job_name, trigger: Some("push".to_string()),
-                        steps: if current_steps.is_empty() { None } else { Some(current_steps.join("; ")) },
-                        workflow_name: None, environment: None, artifacts: None, release_gates: None,
+                        job_name,
+                        trigger: Some("push".to_string()),
+                        steps: if current_steps.is_empty() {
+                            None
+                        } else {
+                            Some(current_steps.join("; "))
+                        },
+                        workflow_name: None,
+                        environment: None,
+                        artifacts: None,
+                        release_gates: None,
                     });
                     current_steps.clear();
                 }
@@ -612,10 +745,18 @@ fn parse_circleci(content: &str) -> Vec<ParsedCIGate> {
                 continue;
             }
 
-            if current_job.is_some() {
-                if trimmed.starts_with("- run:") || trimmed.starts_with("- name:") {
-                    let cmd = trimmed.splitn(2, ':').nth(1).unwrap_or("").trim().trim_matches('"').trim_matches('\'');
-                    if !cmd.is_empty() { current_steps.push(cmd.to_string()); }
+            if current_job.is_some()
+                && (trimmed.starts_with("- run:") || trimmed.starts_with("- name:"))
+            {
+                let cmd = trimmed
+                    .split_once(':')
+                    .map(|x| x.1)
+                    .unwrap_or("")
+                    .trim()
+                    .trim_matches('"')
+                    .trim_matches('\'');
+                if !cmd.is_empty() {
+                    current_steps.push(cmd.to_string());
                 }
             }
         }
@@ -623,9 +764,17 @@ fn parse_circleci(content: &str) -> Vec<ParsedCIGate> {
 
     if let Some(job_name) = current_job.take() {
         gates.push(ParsedCIGate {
-            job_name, trigger: Some("push".to_string()),
-            steps: if current_steps.is_empty() { None } else { Some(current_steps.join("; ")) },
-            workflow_name: None, environment: None, artifacts: None, release_gates: None,
+            job_name,
+            trigger: Some("push".to_string()),
+            steps: if current_steps.is_empty() {
+                None
+            } else {
+                Some(current_steps.join("; "))
+            },
+            workflow_name: None,
+            environment: None,
+            artifacts: None,
+            release_gates: None,
         });
     }
     gates
@@ -637,21 +786,40 @@ fn parse_makefile(content: &str) -> Vec<ParsedCIGate> {
     let mut gates = Vec::new();
     for line in content.lines() {
         let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with('.') { continue; }
-        if line.starts_with('\t') || line.starts_with(' ') { continue; }
+        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with('.') {
+            continue;
+        }
+        if line.starts_with('\t') || line.starts_with(' ') {
+            continue;
+        }
 
         if let Some(colon_pos) = trimmed.find(':') {
             let target_part = trimmed[..colon_pos].trim();
-            if target_part.is_empty() || target_part.contains('=') || target_part.contains('%') || target_part.starts_with('.') { continue; }
+            if target_part.is_empty()
+                || target_part.contains('=')
+                || target_part.contains('%')
+                || target_part.starts_with('.')
+            {
+                continue;
+            }
 
             for target in target_part.split_whitespace() {
-                if target.contains('%') || target.contains('(') || target.contains(')') { continue; }
+                if target.contains('%') || target.contains('(') || target.contains(')') {
+                    continue;
+                }
                 let steps_str = extract_makefile_steps(content, target);
                 gates.push(ParsedCIGate {
                     job_name: target.to_string(),
                     trigger: Some("manual".to_string()),
-                    steps: if steps_str.is_empty() { None } else { Some(steps_str) },
-                    workflow_name: None, environment: None, artifacts: None, release_gates: None,
+                    steps: if steps_str.is_empty() {
+                        None
+                    } else {
+                        Some(steps_str)
+                    },
+                    workflow_name: None,
+                    environment: None,
+                    artifacts: None,
+                    release_gates: None,
                 });
             }
         }
@@ -664,22 +832,29 @@ fn extract_makefile_steps(content: &str, target: &str) -> String {
     let mut in_target = false;
     for line in content.lines() {
         if !in_target {
-            if let Some(colon_pos) = line.find(':') {
-                if line[..colon_pos].trim().split_whitespace().any(|t| t == target) { in_target = true; }
+            if let Some(colon_pos) = line.find(':')
+                && line[..colon_pos].split_whitespace().any(|t| t == target)
+            {
+                in_target = true;
             }
         } else {
             if line.starts_with('\t') || (line.starts_with("    ") && !line.trim().is_empty()) {
                 let cmd = line.trim();
                 if !cmd.is_empty() && !cmd.starts_with('#') {
-                    if cmd.len() > 200 { steps.push(format!("{}...", &cmd[..197])); }
-                    else { steps.push(cmd.to_string()); }
+                    if cmd.len() > 200 {
+                        steps.push(format!("{}...", &cmd[..197]));
+                    } else {
+                        steps.push(cmd.to_string());
+                    }
                 }
             } else if !line.is_empty() && !line.starts_with(' ') && !line.starts_with('\t') {
                 break;
             }
         }
     }
-    if steps.len() > 20 { steps.truncate(20); }
+    if steps.len() > 20 {
+        steps.truncate(20);
+    }
     steps.join("; ")
 }
 
@@ -699,9 +874,16 @@ pub fn is_ci_config_changed(changed_files: &[ChangedFile]) -> Option<CiConfigCha
         }
         if is_known_ci_path(&path_str) {
             if is_root_makefile(&path_str) {
-                let has_ci_targets = file.ci_gates.iter().any(|g| g.platform == "makefile" && ["test", "build", "deploy", "lint", "ci"].contains(&g.job_name.as_str()));
-                if has_ci_targets { result.known_ci_files.push(path_str.clone()); }
-                else if file.ci_gates.is_empty() && let Ok(content) = std::fs::read_to_string(&file.path) && makefile_has_ci_targets(&content) {
+                let has_ci_targets = file.ci_gates.iter().any(|g| {
+                    g.platform == "makefile"
+                        && ["test", "build", "deploy", "lint", "ci"].contains(&g.job_name.as_str())
+                });
+                if has_ci_targets {
+                    result.known_ci_files.push(path_str.clone());
+                } else if file.ci_gates.is_empty()
+                    && let Ok(content) = std::fs::read_to_string(&file.path)
+                    && makefile_has_ci_targets(&content)
+                {
                     result.known_ci_files.push(path_str.clone());
                 }
             } else {
@@ -709,14 +891,22 @@ pub fn is_ci_config_changed(changed_files: &[ChangedFile]) -> Option<CiConfigCha
             }
             continue;
         }
-        if is_unknown_ci_path(&path_str) { result.unknown_ci_files.push(path_str.clone()); }
+        if is_unknown_ci_path(&path_str) {
+            result.unknown_ci_files.push(path_str.clone());
+        }
     }
-    result.source_changed = changed_files.iter().any(|c| c.symbols.is_some() || c.imports.is_some());
+    result.source_changed = changed_files
+        .iter()
+        .any(|c| c.symbols.is_some() || c.imports.is_some());
     result.known_ci_files.sort();
     result.unknown_ci_files.sort();
     result.pre_commit_files.sort();
     result.generated_ci_files.sort();
-    if !result.known_ci_files.is_empty() || !result.unknown_ci_files.is_empty() || !result.pre_commit_files.is_empty() || !result.generated_ci_files.is_empty() {
+    if !result.known_ci_files.is_empty()
+        || !result.unknown_ci_files.is_empty()
+        || !result.pre_commit_files.is_empty()
+        || !result.generated_ci_files.is_empty()
+    {
         Some(result)
     } else {
         None
@@ -727,7 +917,9 @@ pub fn detect_pre_commit_changes(changed_files: &[ChangedFile]) -> Vec<String> {
     let mut result = Vec::new();
     for file in changed_files {
         let path_str = file.path.to_string_lossy().replace('\\', "/");
-        if is_pre_commit_path(&path_str) { result.push(path_str); }
+        if is_pre_commit_path(&path_str) {
+            result.push(path_str);
+        }
     }
     result.sort();
     result
@@ -736,7 +928,12 @@ pub fn detect_pre_commit_changes(changed_files: &[ChangedFile]) -> Vec<String> {
 pub fn is_generated_ci_file(content: &str) -> bool {
     for line in content.lines().take(10) {
         let trimmed = line.trim();
-        if trimmed.starts_with("# auto-generated") || trimmed.starts_with("# generated") || trimmed.contains("@generated") { return true; }
+        if trimmed.starts_with("# auto-generated")
+            || trimmed.starts_with("# generated")
+            || trimmed.contains("@generated")
+        {
+            return true;
+        }
     }
     false
 }
@@ -744,24 +941,46 @@ pub fn is_generated_ci_file(content: &str) -> bool {
 pub fn makefile_has_ci_targets(content: &str) -> bool {
     let ci_targets: &[&str] = &["test", "build", "deploy", "lint", "ci"];
     let gates = parse_makefile(content);
-    gates.iter().any(|g| ci_targets.contains(&g.job_name.as_str()))
+    gates
+        .iter()
+        .any(|g| ci_targets.contains(&g.job_name.as_str()))
 }
 
 // --- Path matching helpers ---
 
 fn is_known_ci_path(path: &str) -> bool {
-    if path.starts_with(".github/workflows/") && (path.ends_with(".yml") || path.ends_with(".yaml")) { return true; }
-    if path == ".gitlab-ci.yml" || path.starts_with("Jenkinsfile") || path == ".circleci/config.yml" || path == ".travis.yml" || path == "azure-pipelines.yml" || is_root_makefile(path) { return true; }
+    if path.starts_with(".github/workflows/") && (path.ends_with(".yml") || path.ends_with(".yaml"))
+    {
+        return true;
+    }
+    if path == ".gitlab-ci.yml"
+        || path.starts_with("Jenkinsfile")
+        || path == ".circleci/config.yml"
+        || path == ".travis.yml"
+        || path == "azure-pipelines.yml"
+        || is_root_makefile(path)
+    {
+        return true;
+    }
     false
 }
 
-fn is_root_makefile(path: &str) -> bool { path == "Makefile" || path == "makefile" || path == "GNUmakefile" }
+fn is_root_makefile(path: &str) -> bool {
+    path == "Makefile" || path == "makefile" || path == "GNUmakefile"
+}
 fn is_unknown_ci_path(path: &str) -> bool {
-    if path.starts_with(".github/") && !path.starts_with(".github/workflows/") { return true; }
+    if path.starts_with(".github/") && !path.starts_with(".github/workflows/") {
+        return true;
+    }
     path.starts_with(".ci/") || path.starts_with("ci/")
 }
-fn is_pre_commit_path(path: &str) -> bool { path == ".pre-commit-config.yaml" || path == "lefthook.yml" || path.starts_with(".husky/") }
-fn is_generated_ci_path(path: &str) -> bool { path.starts_with(".github/workflows/generated-") && (path.ends_with(".yml") || path.ends_with(".yaml")) }
+fn is_pre_commit_path(path: &str) -> bool {
+    path == ".pre-commit-config.yaml" || path == "lefthook.yml" || path.starts_with(".husky/")
+}
+fn is_generated_ci_path(path: &str) -> bool {
+    path.starts_with(".github/workflows/generated-")
+        && (path.ends_with(".yml") || path.ends_with(".yaml"))
+}
 
 #[cfg(test)]
 mod tests {

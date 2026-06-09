@@ -61,7 +61,6 @@ pub struct ApiRoute {
     pub consumers: Option<Vec<String>>,
 }
 
-
 impl Eq for ApiRoute {}
 
 impl PartialOrd for ApiRoute {
@@ -1640,12 +1639,22 @@ mod tests {
                         directory: PathBuf::from("services/users"),
                         routes: vec!["/api/v1/users".to_string()],
                         data_models: vec!["User".to_string()],
+                        owners: Vec::new(),
+                        runtime_name: None,
+                        queues: Vec::new(),
+                        topics: Vec::new(),
+                        rpc_endpoints: Vec::new(),
                     },
                     Service {
                         name: "orders".to_string(),
                         directory: PathBuf::from("services/orders"),
                         routes: vec!["/api/v1/orders".to_string()],
                         data_models: vec!["Order".to_string()],
+                        owners: Vec::new(),
+                        runtime_name: None,
+                        queues: Vec::new(),
+                        topics: Vec::new(),
+                        rpc_endpoints: Vec::new(),
                     },
                 ],
                 affected_services: vec!["users".to_string(), "orders".to_string()],
@@ -1674,6 +1683,11 @@ mod tests {
                     directory: PathBuf::from("services/users"),
                     routes: vec!["/api/v1/users".to_string()],
                     data_models: vec!["User".to_string()],
+                    owners: Vec::new(),
+                    runtime_name: None,
+                    queues: Vec::new(),
+                    topics: Vec::new(),
+                    rpc_endpoints: Vec::new(),
                 }],
                 affected_services: vec!["users".to_string()],
                 cross_service_edges: Vec::new(),
@@ -1778,6 +1792,8 @@ mod tests {
             risk_tier: 2,
             coupled_files: vec!["src/".to_string()],
             high_blast_resources: vec![],
+            service_name: None,
+            owner: None,
         };
         let json = serde_json::to_string(&original).unwrap();
         let parsed: DeployManifestChange = serde_json::from_str(&json).unwrap();
@@ -1794,6 +1810,8 @@ mod tests {
                     risk_tier: 1,
                     coupled_files: Vec::new(),
                     high_blast_resources: Vec::new(),
+                    service_name: None,
+                    owner: None,
                 },
                 DeployManifestChange {
                     file: PathBuf::from("main.tf"),
@@ -1801,6 +1819,8 @@ mod tests {
                     risk_tier: 3,
                     coupled_files: Vec::new(),
                     high_blast_resources: Vec::new(),
+                    service_name: None,
+                    owner: None,
                 },
                 DeployManifestChange {
                     file: PathBuf::from("docker-compose.yml"),
@@ -1808,6 +1828,8 @@ mod tests {
                     risk_tier: 2,
                     coupled_files: Vec::new(),
                     high_blast_resources: Vec::new(),
+                    service_name: None,
+                    owner: None,
                 },
             ],
             ..ImpactPacket::default()

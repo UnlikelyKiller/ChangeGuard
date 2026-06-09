@@ -8,8 +8,8 @@ use crate::index::warn_if_stale;
 use crate::state::storage::StorageManager;
 use chrono::Utc;
 use miette::{IntoDiagnostic, Result};
-use std::env;
 use owo_colors::OwoColorize;
+use std::env;
 
 pub fn execute_hotspots(args: HotspotArgs) -> Result<()> {
     let current_dir = env::current_dir()
@@ -35,11 +35,7 @@ pub fn execute_hotspots(args: HotspotArgs) -> Result<()> {
 
     if let Some(command) = args.command {
         match command {
-            HotspotSubcommands::Trend {
-                entity,
-                days,
-                json,
-            } => {
+            HotspotSubcommands::Trend { entity, days, json } => {
                 return execute_hotspots_trend(&storage, entity, days, json);
             }
             HotspotSubcommands::Explain { entity } => {
@@ -122,9 +118,11 @@ fn persist_hotspots_and_couplings(
     let timestamp = Utc::now().to_rfc3339();
 
     let snapshot_id: Option<i64> = conn
-        .query_row("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1", [], |row| {
-            row.get(0)
-        })
+        .query_row(
+            "SELECT id FROM snapshots ORDER BY id DESC LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
         .ok();
 
     // Insert Hotspots
@@ -163,7 +161,8 @@ fn persist_hotspots_and_couplings(
                 coupling.score,
                 timestamp
             ],
-        ).into_diagnostic()?;
+        )
+        .into_diagnostic()?;
     }
 
     Ok(())
@@ -180,23 +179,33 @@ fn execute_hotspots_trend(
     let cutoff_str = cutoff.to_rfc3339();
 
     let rows: Vec<(String, String, f64)> = if let Some(ref path) = entity {
-        let mut stmt = conn.prepare(
-            "SELECT file_path, timestamp, score FROM hotspot_history \
+        let mut stmt = conn
+            .prepare(
+                "SELECT file_path, timestamp, score FROM hotspot_history \
              WHERE timestamp >= ?1 AND file_path = ?2 \
              ORDER BY timestamp ASC",
-        ).into_diagnostic()?;
+            )
+            .into_diagnostic()?;
         stmt.query_map(rusqlite::params![&cutoff_str, path], |row| {
             Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-        }).into_diagnostic()?.collect::<rusqlite::Result<Vec<_>>>().into_diagnostic()?
+        })
+        .into_diagnostic()?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .into_diagnostic()?
     } else {
-        let mut stmt = conn.prepare(
-            "SELECT file_path, timestamp, score FROM hotspot_history \
+        let mut stmt = conn
+            .prepare(
+                "SELECT file_path, timestamp, score FROM hotspot_history \
              WHERE timestamp >= ?1 \
              ORDER BY timestamp ASC",
-        ).into_diagnostic()?;
+            )
+            .into_diagnostic()?;
         stmt.query_map([&cutoff_str], |row| {
             Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-        }).into_diagnostic()?.collect::<rusqlite::Result<Vec<_>>>().into_diagnostic()?
+        })
+        .into_diagnostic()?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .into_diagnostic()?
     };
 
     if json {
@@ -246,9 +255,7 @@ fn execute_hotspots_explain(
     let couplings = engine.calculate_couplings().unwrap_or_default();
     let entity_couplings: Vec<_> = couplings
         .into_iter()
-        .filter(|c| {
-            c.file_a.to_string_lossy() == entity || c.file_b.to_string_lossy() == entity
-        })
+        .filter(|c| c.file_a.to_string_lossy() == entity || c.file_b.to_string_lossy() == entity)
         .collect();
 
     println!("\nMetrics:");
@@ -277,19 +284,23 @@ fn execute_hotspots_budget(
     json: bool,
 ) -> Result<()> {
     let conn = storage.get_connection();
-    
-    let mut stmt = conn.prepare(
-        "SELECT file_path, score FROM hotspot_history \
-         WHERE timestamp = (SELECT MAX(timestamp) FROM hotspot_history) \
-         ORDER BY score DESC"
-    ).into_diagnostic()?;
 
-    let rows = stmt.query_map([], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
-    }).into_diagnostic()?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT file_path, score FROM hotspot_history \
+         WHERE timestamp = (SELECT MAX(timestamp) FROM hotspot_history) \
+         ORDER BY score DESC",
+        )
+        .into_diagnostic()?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
+        })
+        .into_diagnostic()?;
 
     let mut violations = Vec::new();
-    let threshold = 5.0; 
+    let threshold = 5.0;
 
     for row in rows {
         let (path, score) = row.into_diagnostic()?;
@@ -303,10 +314,14 @@ fn execute_hotspots_budget(
     }
 
     if json {
-        println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-            "status": if violations.is_empty() { "OK" } else { "VIOLATION" },
-            "violations": violations,
-        })).unwrap());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "status": if violations.is_empty() { "OK" } else { "VIOLATION" },
+                "violations": violations,
+            }))
+            .unwrap()
+        );
     } else {
         println!("{}", "Hotspot Budget Check".bold().cyan());
         if violations.is_empty() {
@@ -315,7 +330,8 @@ fn execute_hotspots_budget(
         } else {
             println!("  Status: {}", "VIOLATION".red().bold());
             for v in &violations {
-                println!("  ! {} exceeds budget: {:.2} > {:.2}", 
+                println!(
+                    "  ! {} exceeds budget: {:.2} > {:.2}",
                     v["path"].as_str().unwrap().yellow(),
                     v["score"].as_f64().unwrap(),
                     v["threshold"].as_f64().unwrap()

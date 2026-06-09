@@ -9,7 +9,9 @@ pub fn extract_routes(content: &str, _symbols: &[Symbol]) -> Result<Vec<Extracte
         .set_language(&tree_sitter_rust::LANGUAGE.into())
         .into_diagnostic()?;
 
-    let tree = parser.parse(content, None).ok_or_else(|| miette::miette!("Failed to parse Rust content"))?;
+    let tree = parser
+        .parse(content, None)
+        .ok_or_else(|| miette::miette!("Failed to parse Rust content"))?;
     let root = tree.root_node();
 
     let handler_info = collect_handler_info(root, content);
@@ -26,7 +28,10 @@ struct HandlerInfo {
     is_secured: bool,
 }
 
-fn collect_handler_info(root: Node, content: &str) -> std::collections::HashMap<String, HandlerInfo> {
+fn collect_handler_info(
+    root: Node,
+    content: &str,
+) -> std::collections::HashMap<String, HandlerInfo> {
     let mut info_map = std::collections::HashMap::new();
     let mut stack = vec![root];
 
@@ -34,7 +39,10 @@ fn collect_handler_info(root: Node, content: &str) -> std::collections::HashMap<
         if node.kind() == "function_item"
             && let Some(name_node) = node.child_by_field_name("name")
         {
-            let name = name_node.utf8_text(content.as_bytes()).unwrap_or("").to_string();
+            let name = name_node
+                .utf8_text(content.as_bytes())
+                .unwrap_or("")
+                .to_string();
             let mut info = HandlerInfo::default();
 
             if let Some(params_node) = node.child_by_field_name("parameters") {
@@ -46,7 +54,10 @@ fn collect_handler_info(root: Node, content: &str) -> std::collections::HashMap<
                         info.schemas.push(schema);
                     }
                     // Detect Auth extractors (heuristic: contains "Auth" or "Claims")
-                    if param_text.contains("Auth") || param_text.contains("Claims") || param_text.contains("Session") {
+                    if param_text.contains("Auth")
+                        || param_text.contains("Claims")
+                        || param_text.contains("Session")
+                    {
                         info.is_secured = true;
                     }
                 }
@@ -80,8 +91,11 @@ fn collect_rust_routes(
     handler_info: &std::collections::HashMap<String, HandlerInfo>,
 ) {
     if node.kind() == "call_expression" {
-        let function = node.child_by_field_name("function").map(|f| f.utf8_text(content.as_bytes()).unwrap_or("")).unwrap_or("");
-        
+        let function = node
+            .child_by_field_name("function")
+            .map(|f| f.utf8_text(content.as_bytes()).unwrap_or(""))
+            .unwrap_or("");
+
         // Axum .route()
         if function == "route" || function.ends_with(".route") {
             extract_axum_route(&node, content, routes, handler_info);
@@ -94,7 +108,12 @@ fn collect_rust_routes(
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "attribute_item"
-                && let Some(route) = extract_decorator_route(child.utf8_text(content.as_bytes()).unwrap_or(""), &node, content, handler_info)
+                && let Some(route) = extract_decorator_route(
+                    child.utf8_text(content.as_bytes()).unwrap_or(""),
+                    &node,
+                    content,
+                    handler_info,
+                )
             {
                 routes.push(route);
             }
@@ -104,7 +123,12 @@ fn collect_rust_routes(
         let mut prev = node.prev_sibling();
         while let Some(p) = prev {
             if p.kind() == "attribute_item"
-                && let Some(route) = extract_decorator_route(p.utf8_text(content.as_bytes()).unwrap_or(""), &node, content, handler_info)
+                && let Some(route) = extract_decorator_route(
+                    p.utf8_text(content.as_bytes()).unwrap_or(""),
+                    &node,
+                    content,
+                    handler_info,
+                )
             {
                 routes.push(route);
             } else if p.kind() == "line_comment" || p.kind() == "block_comment" {
@@ -122,7 +146,9 @@ fn collect_rust_routes(
     }
 }
 
-const HTTP_METHODS: &[&str] = &["get", "post", "put", "delete", "patch", "options", "head", "trace"];
+const HTTP_METHODS: &[&str] = &[
+    "get", "post", "put", "delete", "patch", "options", "head", "trace",
+];
 
 fn extract_axum_route(
     call_node: &Node,
@@ -130,11 +156,15 @@ fn extract_axum_route(
     routes: &mut Vec<ExtractedRoute>,
     handler_info: &std::collections::HashMap<String, HandlerInfo>,
 ) {
-    let args_node = call_node.child_by_field_name("arguments").expect("route() should have arguments");
+    let args_node = call_node
+        .child_by_field_name("arguments")
+        .expect("route() should have arguments");
     let mut arg_cursor = args_node.walk();
     let args: Vec<Node> = args_node.children(&mut arg_cursor).collect();
 
-    if args.len() < 2 { return; }
+    if args.len() < 2 {
+        return;
+    }
 
     let path = match args.get(1) {
         Some(t) => {
@@ -149,12 +179,16 @@ fn extract_axum_route(
     let mut current = call_node.parent();
     while let Some(parent) = current {
         let parent_text = parent.utf8_text(content.as_bytes()).unwrap_or("");
-        if parent_text.contains(".layer") && (parent_text.contains("auth") || parent_text.contains("Auth")) {
+        if parent_text.contains(".layer")
+            && (parent_text.contains("auth") || parent_text.contains("Auth"))
+        {
             middleware_auth.push("secured".to_string());
             break;
         }
         current = parent.parent();
-        if parent.kind() == "function_item" { break; }
+        if parent.kind() == "function_item" {
+            break;
+        }
     }
 
     for arg in args {
@@ -164,9 +198,10 @@ fn extract_axum_route(
                 if text.starts_with(method) || text.contains(&format!("::{}", method)) {
                     let handler = find_axum_handler(&arg, content);
                     let info = handler_info.get(&handler);
-                    
+
                     let mut auth = middleware_auth.clone();
-                    if let Some(i) = info && i.is_secured
+                    if let Some(i) = info
+                        && i.is_secured
                         && !auth.contains(&"secured".to_string())
                     {
                         auth.push("secured".to_string());
@@ -216,9 +251,10 @@ fn extract_decorator_route(
     let text = attr_text.to_lowercase();
     for &method in HTTP_METHODS {
         // Match #[get(...)] or #[actix_web::get(...)] or @get(...) etc.
-        if text.contains(&format!("[{}(", method)) 
+        if text.contains(&format!("[{}(", method))
             || text.contains(&format!("::{}", method))
-            || text.contains(&format!("[{}", method)) // Some might not have ( if no path
+            || text.contains(&format!("[{}", method))
+        // Some might not have ( if no path
         {
             let path = if let Some(start) = attr_text.find('(') {
                 if let Some(end) = attr_text.rfind(')') {
@@ -231,10 +267,19 @@ fn extract_decorator_route(
             };
 
             let name_node = fn_node.child_by_field_name("name")?;
-            let handler = name_node.utf8_text(content.as_bytes()).unwrap_or("").to_string();
+            let handler = name_node
+                .utf8_text(content.as_bytes())
+                .unwrap_or("")
+                .to_string();
             let info = handler_info.get(&handler);
-            
-            let auth = if let Some(i) = info && i.is_secured { Some(vec!["secured".to_string()]) } else { None };
+
+            let auth = if let Some(i) = info
+                && i.is_secured
+            {
+                Some(vec!["secured".to_string()])
+            } else {
+                None
+            };
             let schemas = info.map(|i| i.schemas.clone());
 
             let framework = if text.contains("actix") {

@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod tests {
     use changeguard::index::languages::rust::routes::extract_routes;
-    use changeguard::index::symbols::Symbol;
 
     #[test]
     fn test_axum_auth_and_schema_extraction() {
@@ -27,13 +26,32 @@ mod tests {
         "#;
 
         let routes = extract_routes(content, &[]).unwrap();
-        
+
         // Find POST /users
-        let post_route = routes.iter().find(|r| r.method == "POST" && r.path_pattern == "/users").expect("POST /users not found");
-        
+        let post_route = routes
+            .iter()
+            .find(|r| r.method == "POST" && r.path_pattern == "/users")
+            .expect("POST /users not found");
+
         assert_eq!(post_route.handler_name, "create_user");
         // These will fail currently
-        assert!(post_route.schema_refs.as_ref().map(|s| s.contains(&"CreateUser".to_string())).unwrap_or(false), "Schema CreateUser not found in {:?}", post_route.schema_refs);
-        assert!(post_route.auth_requirements.as_ref().map(|a| a.contains(&"secured".to_string())).unwrap_or(false), "Auth requirement 'secured' not found in {:?}", post_route.auth_requirements);
+        assert!(
+            post_route
+                .schema_refs
+                .as_ref()
+                .map(|s| s.contains(&"CreateUser".to_string()))
+                .unwrap_or(false),
+            "Schema CreateUser not found in {:?}",
+            post_route.schema_refs
+        );
+        assert!(
+            post_route
+                .auth_requirements
+                .as_ref()
+                .map(|a| a.contains(&"secured".to_string()))
+                .unwrap_or(false),
+            "Auth requirement 'secured' not found in {:?}",
+            post_route.auth_requirements
+        );
     }
 }

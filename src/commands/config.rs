@@ -1,6 +1,7 @@
 use crate::policy::load as policy_load;
 use crate::state::layout::Layout;
 use miette::{IntoDiagnostic, Result};
+use owo_colors::OwoColorize;
 
 pub fn execute_config_verify(json: bool, section: Option<&str>, verbose: bool) -> Result<()> {
     let current_dir = std::env::current_dir()
@@ -163,26 +164,32 @@ pub fn execute_config_schema(json: bool) -> Result<()> {
          FROM env_declarations ORDER BY var_name ASC"
     ).into_diagnostic()?;
 
-    let rows = stmt.query_map([], |row| {
-        Ok(crate::index::env_schema::EnvDeclaration {
-            var_name: row.get(0)?,
-            source_kind: serde_json::from_str(&format!("\"{}\"", row.get::<_, String>(1)?)).unwrap_or(crate::index::env_schema::EnvSourceKind::Config),
-            required: row.get::<_, i32>(2)? != 0,
-            is_secret: row.get::<_, i32>(3)? != 0,
-            default_value_redacted: row.get(4)?,
-            description: row.get(5)?,
-            owner: row.get(6)?,
-            environment: row.get(7)?,
-            confidence: 1.0,
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(crate::index::env_schema::EnvDeclaration {
+                var_name: row.get(0)?,
+                source_kind: serde_json::from_str(&format!("\"{}\"", row.get::<_, String>(1)?))
+                    .unwrap_or(crate::index::env_schema::EnvSourceKind::Config),
+                required: row.get::<_, i32>(2)? != 0,
+                is_secret: row.get::<_, i32>(3)? != 0,
+                default_value_redacted: row.get(4)?,
+                description: row.get(5)?,
+                owner: row.get(6)?,
+                environment: row.get(7)?,
+                confidence: 1.0,
+            })
         })
-    }).into_diagnostic()?;
+        .into_diagnostic()?;
 
     if json {
         let mut results = Vec::new();
         for row in rows {
             results.push(row.into_diagnostic()?);
         }
-        println!("{}", serde_json::to_string_pretty(&results).into_diagnostic()?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&results).into_diagnostic()?
+        );
     } else {
         use crate::output::table::Table;
         let mut table = Table::new();
@@ -205,7 +212,87 @@ pub fn execute_config_schema(json: bool) -> Result<()> {
     Ok(())
 }
 
-pub fn execute_config_diff(_json: bool) -> Result<()> {
-    println!("Config diff analysis is coming soon.");
+pub fn execute_config_diff(json: bool) -> Result<()> {
+    let current_dir = std::env::current_dir()
+        .map_err(|e| miette::miette!("Failed to get current directory: {e}"))?;
+    let layout = Layout::new(current_dir.to_string_lossy().as_ref());
+    let storage = crate::state::storage::StorageManager::open_read_only(&layout.root)?;
+    let conn = storage.get_connection();
+
+    let mut decl_stmt = conn
+        .prepare("SELECT DISTINCT var_name FROM env_declarations")
+        .into_diagnostic()?;
+    let declared_vars: std::collections::HashSet<String> = decl_stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .into_diagnostic()?
+        .collect::<rusqlite::Result<std::collections::HashSet<_>>>()
+        .into_diagnostic()?;
+
+    let mut ref_stmt = conn
+        .prepare("SELECT DISTINCT var_name FROM env_references")
+        .into_diagnostic()?;
+    let referenced_vars: std::collections::HashSet<String> = ref_stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .into_diagnostic()?
+        .collect::<rusqlite::Result<std::collections::HashSet<_>>>()
+        .into_diagnostic()?;
+
+    let mut missing_declarations = Vec::new();
+    for r_var in &referenced_vars {
+        if r_var != "*" && !declared_vars.contains(r_var) {
+            missing_declarations.push(r_var.clone());
+        }
+    }
+    missing_declarations.sort();
+
+    let mut unused_declarations = Vec::new();
+    for d_var in &declared_vars {
+        if !referenced_vars.contains(d_var) {
+            unused_declarations.push(d_var.clone());
+        }
+    }
+    unused_declarations.sort();
+
+    if json {
+        let res = serde_json::json!({
+            "missing_declarations": missing_declarations,
+            "unused_declarations": unused_declarations,
+        });
+        println!("{}", serde_json::to_string_pretty(&res).into_diagnostic()?);
+    } else {
+        println!(
+            "{}",
+            "Configuration Diff (Declarations vs References)"
+                .bold()
+                .cyan()
+        );
+
+        println!(
+            "\n{}",
+            "⚠️  Referenced in code but missing from declarations:"
+                .yellow()
+                .bold()
+        );
+        if missing_declarations.is_empty() {
+            println!("  None");
+        } else {
+            for var in &missing_declarations {
+                println!("  - {}", var.red());
+            }
+        }
+
+        println!(
+            "\n{}",
+            "ℹ️  Declared but not referenced in code:".blue().bold()
+        );
+        if unused_declarations.is_empty() {
+            println!("  None");
+        } else {
+            for var in &unused_declarations {
+                println!("  - {}", var.dimmed());
+            }
+        }
+    }
+
     Ok(())
 }

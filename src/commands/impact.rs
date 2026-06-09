@@ -59,6 +59,8 @@ pub fn execute_impact_silent() -> Result<crate::impact::packet::ImpactPacket> {
     // Write report
     write_impact_report(&layout, &packet)?;
 
+    storage.shutdown()?;
+
     Ok(packet)
 }
 
@@ -125,6 +127,8 @@ pub fn execute_impact(
 
     // Write report
     write_impact_report(&layout, &packet)?;
+
+    storage.shutdown()?;
 
     if summary {
         crate::output::human::print_impact_brief(&packet);

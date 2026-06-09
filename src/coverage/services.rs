@@ -110,7 +110,7 @@ pub fn infer_services(
         // Find declared service for this root
         let declared = declared_services
             .iter()
-            .find(|ds| PathBuf::from(&ds.root) == *key);
+            .find(|ds| std::path::Path::new(&ds.root) == key);
 
         services.push(Service {
             name: final_name,
@@ -121,7 +121,9 @@ pub fn infer_services(
             runtime_name: declared.and_then(|d| d.runtime_name.clone()),
             queues: declared.map(|d| d.queues.clone()).unwrap_or_default(),
             topics: declared.map(|d| d.topics.clone()).unwrap_or_default(),
-            rpc_endpoints: declared.map(|d| d.rpc_endpoints.clone()).unwrap_or_default(),
+            rpc_endpoints: declared
+                .map(|d| d.rpc_endpoints.clone())
+                .unwrap_or_default(),
         });
     }
 
@@ -319,7 +321,6 @@ fn path_belongs_to_service(file_path: &Path, service_dir: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::model::ServiceConfig;
     use crate::index::call_graph::{CallEdge, CallKind, ResolutionStatus};
     use crate::index::topology::DirectoryRole;
 

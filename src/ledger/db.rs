@@ -707,10 +707,8 @@ impl<'a> LedgerDb<'a> {
     }
 
     pub fn remove_validator(&self, name: &str) -> Result<(), LedgerError> {
-        self.conn.execute(
-            "DELETE FROM commit_validators WHERE name = ?1",
-            [name],
-        )?;
+        self.conn
+            .execute("DELETE FROM commit_validators WHERE name = ?1", [name])?;
         Ok(())
     }
 
@@ -1033,22 +1031,40 @@ impl<'a> LedgerDb<'a> {
         update: AdrMetadataUpdate,
     ) -> Result<(), LedgerError> {
         let now = chrono::Utc::now().to_rfc3339();
-        
+
         let existing = self.get_adr_metadata(adr_id)?;
         let mut metadata = existing.unwrap_or_else(|| AdrMetadata {
             adr_id: adr_id.to_string(),
             ..Default::default()
         });
 
-        if let Some(s) = update.status { metadata.status = s; }
-        if let Some(o) = update.owner { metadata.owner = Some(o); }
-        if let Some(r) = update.reviewers { metadata.reviewers = Some(r); }
-        if let Some(s) = update.supersedes { metadata.supersedes = Some(s); }
-        if let Some(sb) = update.superseded_by { metadata.superseded_by = Some(sb); }
-        if let Some(ae) = update.affected_entities { metadata.affected_entities = Some(ae); }
-        if let Some(ds) = update.decision_scope { metadata.decision_scope = Some(ds); }
-        if let Some(ra) = update.reviewed_at { metadata.reviewed_at = Some(ra); }
-        if let Some(rid) = update.review_interval_days { metadata.review_interval_days = Some(rid); }
+        if let Some(s) = update.status {
+            metadata.status = s;
+        }
+        if let Some(o) = update.owner {
+            metadata.owner = Some(o);
+        }
+        if let Some(r) = update.reviewers {
+            metadata.reviewers = Some(r);
+        }
+        if let Some(s) = update.supersedes {
+            metadata.supersedes = Some(s);
+        }
+        if let Some(sb) = update.superseded_by {
+            metadata.superseded_by = Some(sb);
+        }
+        if let Some(ae) = update.affected_entities {
+            metadata.affected_entities = Some(ae);
+        }
+        if let Some(ds) = update.decision_scope {
+            metadata.decision_scope = Some(ds);
+        }
+        if let Some(ra) = update.reviewed_at {
+            metadata.reviewed_at = Some(ra);
+        }
+        if let Some(rid) = update.review_interval_days {
+            metadata.review_interval_days = Some(rid);
+        }
 
         self.conn.execute(
             "INSERT INTO adr_metadata (
@@ -1115,18 +1131,28 @@ impl<'a> LedgerDb<'a> {
             .map_err(LedgerError::from)
     }
 
-    pub fn link_adr_supersedes(&self, adr_id: &str, supersedes_id: &str) -> Result<(), LedgerError> {
-        self.update_adr_metadata(adr_id, AdrMetadataUpdate {
-            supersedes: Some(supersedes_id.to_string()),
-            ..Default::default()
-        })?;
-        
-        self.update_adr_metadata(supersedes_id, AdrMetadataUpdate {
-            status: Some(AdrStatus::Superseded),
-            superseded_by: Some(adr_id.to_string()),
-            ..Default::default()
-        })?;
-        
+    pub fn link_adr_supersedes(
+        &self,
+        adr_id: &str,
+        supersedes_id: &str,
+    ) -> Result<(), LedgerError> {
+        self.update_adr_metadata(
+            adr_id,
+            AdrMetadataUpdate {
+                supersedes: Some(supersedes_id.to_string()),
+                ..Default::default()
+            },
+        )?;
+
+        self.update_adr_metadata(
+            supersedes_id,
+            AdrMetadataUpdate {
+                status: Some(AdrStatus::Superseded),
+                superseded_by: Some(adr_id.to_string()),
+                ..Default::default()
+            },
+        )?;
+
         Ok(())
     }
 }

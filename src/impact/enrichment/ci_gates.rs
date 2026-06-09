@@ -25,7 +25,7 @@ impl EnrichmentProvider for CIGateProvider {
 
             let mut stmt = conn
                 .prepare(
-                    "SELECT platform, job_name, trigger, workflow_name, environment, artifacts, release_gates 
+                    "SELECT platform, job_name, trigger, workflow_name, environment, artifacts, release_gates \
                      FROM ci_gates WHERE ci_file_id = ?1",
                 )
                 .into_diagnostic()?;
@@ -36,7 +36,7 @@ impl EnrichmentProvider for CIGateProvider {
                     let artifacts = artifacts_json
                         .and_then(|s| serde_json::from_str(&s).ok())
                         .unwrap_or_default();
-                    
+
                     let release_gates_json: Option<String> = row.get(6)?;
                     let release_gates = release_gates_json
                         .and_then(|s| serde_json::from_str(&s).ok())

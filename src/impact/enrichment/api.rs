@@ -61,12 +61,15 @@ impl EnrichmentProvider for ApiProvider {
 
             for route in routes {
                 let route = route.into_diagnostic()?;
-                
+
                 // Add impact reasons for API changes
                 if changed_file.status == "Deleted" {
-                    packet.risk_reasons.push(format!("Public API removal: {} {}", route.method, route.path_pattern));
+                    packet.risk_reasons.push(format!(
+                        "Public API removal: {} {}",
+                        route.method, route.path_pattern
+                    ));
                 }
-                
+
                 changed_file.api_routes.push(route);
             }
         }

@@ -1,9 +1,11 @@
-use tree_sitter::{Parser, Node};
+use tree_sitter::{Node, Parser};
 
 #[test]
 fn test_dump_rust_tree() {
     let mut parser = Parser::new();
-    parser.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
+    parser
+        .set_language(&tree_sitter_rust::LANGUAGE.into())
+        .unwrap();
 
     let content = r#"
         use actix_web::get;
@@ -13,7 +15,7 @@ fn test_dump_rust_tree() {
 
     let tree = parser.parse(content, None).unwrap();
     let root = tree.root_node();
-    
+
     print_node(root, content, 0);
 }
 
@@ -27,9 +29,17 @@ fn print_node(node: Node, content: &str, depth: usize) {
     } else {
         text.to_string()
     };
-    
-    eprintln!("{:indent$}{} [{} - {}]: {}", "", kind, start, end, display_text, indent = depth * 2);
-    
+
+    eprintln!(
+        "{:indent$}{} [{} - {}]: {}",
+        "",
+        kind,
+        start,
+        end,
+        display_text,
+        indent = depth * 2
+    );
+
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         print_node(child, content, depth + 1);

@@ -21,6 +21,6 @@ fn test_verify_invalid_rules_fail_visibly() {
     )
     .unwrap();
 
-    let err = execute_verify(None, 5, false, false, false, false).unwrap_err();
+    let err = execute_verify(None, 5, false, false, None, false, false).unwrap_err();
     assert!(format!("{err:?}").contains("Invalid glob pattern"));
 }

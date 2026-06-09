@@ -170,24 +170,37 @@ fn redact_default(var_name: &str, value: &str) -> String {
 }
 
 // --- Regex patterns ---
-static RUST_ENV_VAR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"std::env::var\("([^"]+)"\)"#).unwrap());
-static RUST_ENV_MACRO: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"env!\("([^"]+)"\)"#).unwrap());
+static RUST_ENV_VAR: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"std::env::var\("([^"]+)"\)"#).unwrap());
+static RUST_ENV_MACRO: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"env!\("([^"]+)"\)"#).unwrap());
 #[allow(dead_code)]
-static RUST_ENV_VAR_DEFAULT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"std::env::var\("([^"]+)"\)\.(?:unwrap_or|ok|unwrap_or_else)"#).unwrap());
-static TS_ENV_DOT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"process\.env\.([A-Z_][A-Z0-9_]*)"#).unwrap());
+static RUST_ENV_VAR_DEFAULT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"std::env::var\("([^"]+)"\)\.(?:unwrap_or|ok|unwrap_or_else)"#).unwrap()
+});
+static TS_ENV_DOT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"process\.env\.([A-Z_][A-Z0-9_]*)"#).unwrap());
 #[allow(dead_code)]
-static TS_ENV_INDEXED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"process\.env\[['"]([^'"]+)['"]\]"#).unwrap());
+static TS_ENV_INDEXED: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"process\.env\[['"]([^'"]+)['"]\]"#).unwrap());
 #[allow(dead_code)]
-static TS_ENV_DEFAULT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"process\.env\.([A-Z_][A-Z0-9_]*)\s*\|\|"#).unwrap());
-static PY_ENV_GET: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"os\.(?:environ\.get|getenv)\(['"]([^'"]+)['"]\)"#).unwrap());
+static TS_ENV_DEFAULT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"process\.env\.([A-Z_][A-Z0-9_]*)\s*\|\|"#).unwrap());
+static PY_ENV_GET: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"os\.(?:environ\.get|getenv)\(['"]([^'"]+)['"]\)"#).unwrap());
 #[allow(dead_code)]
-static PY_ENV_GET_DEFAULT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"os\.(?:environ\.get|getenv)\(['"]([^'"]+)['"]\s*,\s*"#).unwrap());
+static PY_ENV_GET_DEFAULT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"os\.(?:environ\.get|getenv)\(['"]([^'"]+)['"]\s*,\s*"#).unwrap()
+});
 #[allow(dead_code)]
-static PY_ENV_INDEXED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"os\.environ\[['"]([^'"]+)['"]\]"#).unwrap());
+static PY_ENV_INDEXED: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"os\.environ\[['"]([^'"]+)['"]\]"#).unwrap());
 #[allow(dead_code)]
-static RUST_SET_ENV: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"std::env::set_var\("([^"]+)""#).unwrap());
+static RUST_SET_ENV: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"std::env::set_var\("([^"]+)""#).unwrap());
 #[allow(dead_code)]
-static TS_SET_ENV: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"process\.env\[?\.?([A-Z_][A-Z0-9_]*)\]?\s*="#).unwrap());
+static TS_SET_ENV: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"process\.env\[?\.?([A-Z_][A-Z0-9_]*)\]?\s*="#).unwrap());
 
 fn collect_env_captures(regex: &Regex, content: &str, out: &mut Vec<String>) {
     for capture in regex.captures_iter(content) {
@@ -204,12 +217,29 @@ impl EnvSchemaExtractor {
         let mut declarations = Vec::new();
         for line in content.lines() {
             let trimmed = line.trim();
-            if trimmed.is_empty() || trimmed.starts_with('#') { continue; }
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
             if let Some(eq_pos) = trimmed.find('=') {
-                let key = trimmed[..eq_pos].trim().strip_prefix("export ").unwrap_or(trimmed[..eq_pos].trim()).trim().to_string();
-                let value = trimmed[eq_pos + 1..].trim().trim_matches('"').trim_matches('\'').to_string();
-                if key.is_empty() { continue; }
-                let default_value_redacted = if value.is_empty() { Some(EMPTY_DEFAULT.to_string()) } else { Some(redact_default(&key, &value)) };
+                let key = trimmed[..eq_pos]
+                    .trim()
+                    .strip_prefix("export ")
+                    .unwrap_or(trimmed[..eq_pos].trim())
+                    .trim()
+                    .to_string();
+                let value = trimmed[eq_pos + 1..]
+                    .trim()
+                    .trim_matches('"')
+                    .trim_matches('\'')
+                    .to_string();
+                if key.is_empty() {
+                    continue;
+                }
+                let default_value_redacted = if value.is_empty() {
+                    Some(EMPTY_DEFAULT.to_string())
+                } else {
+                    Some(redact_default(&key, &value))
+                };
                 declarations.push(EnvDeclaration {
                     var_name: key.clone(),
                     source_kind: EnvSourceKind::DotenvExample,
@@ -240,7 +270,11 @@ impl EnvSchemaExtractor {
             }
             if in_env_section && let Some(eq_pos) = trimmed.find('=') {
                 let key = trimmed[..eq_pos].trim().to_string();
-                let value = trimmed[eq_pos + 1..].trim().trim_matches('"').trim_matches('\'').to_string();
+                let value = trimmed[eq_pos + 1..]
+                    .trim()
+                    .trim_matches('"')
+                    .trim_matches('\'')
+                    .to_string();
                 declarations.push(EnvDeclaration {
                     var_name: key.clone(),
                     source_kind: EnvSourceKind::Config,
@@ -259,22 +293,25 @@ impl EnvSchemaExtractor {
 
     pub fn extract_from_json(content: &str) -> Vec<EnvDeclaration> {
         let mut declarations = Vec::new();
-        if let Ok(val) = serde_json::from_str::<serde_json::Value>(content) {
-            if let Some(obj) = val.as_object() {
-                for (key, _val) in obj {
-                    if key.chars().all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit()) {
-                        declarations.push(EnvDeclaration {
-                            var_name: key.clone(),
-                            source_kind: EnvSourceKind::Config,
-                            required: false,
-                            is_secret: is_secret_name(key),
-                            default_value_redacted: Some(HAS_DEFAULT.to_string()),
-                            description: None,
-                            owner: None,
-                            environment: None,
-                            confidence: 0.7,
-                        });
-                    }
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(content)
+            && let Some(obj) = val.as_object()
+        {
+            for (key, _val) in obj {
+                if key
+                    .chars()
+                    .all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit())
+                {
+                    declarations.push(EnvDeclaration {
+                        var_name: key.clone(),
+                        source_kind: EnvSourceKind::Config,
+                        required: false,
+                        is_secret: is_secret_name(key),
+                        default_value_redacted: Some(HAS_DEFAULT.to_string()),
+                        description: None,
+                        owner: None,
+                        environment: None,
+                        confidence: 0.7,
+                    });
                 }
             }
         }
@@ -283,7 +320,10 @@ impl EnvSchemaExtractor {
 
     pub fn extract_references_from_source(path: &Path, content: &str) -> Vec<EnvReference> {
         let mut result = Vec::new();
-        let extension = path.extension().and_then(|e| e.to_str()).unwrap_or_default();
+        let extension = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or_default();
         let mut names = Vec::new();
         match extension {
             "rs" => {
@@ -299,18 +339,30 @@ impl EnvSchemaExtractor {
             _ => {}
         }
         for name in names {
-            result.push(EnvReference { var_name: name, reference_kind: EnvReferenceKind::Read, confidence: 1.0 });
+            result.push(EnvReference {
+                var_name: name,
+                reference_kind: EnvReferenceKind::Read,
+                confidence: 1.0,
+            });
         }
         result
     }
 
-    pub fn find_undeclared(references: &[EnvReference], declarations: &[EnvDeclaration]) -> Vec<EnvVarDep> {
-        let declared: std::collections::HashSet<_> = declarations.iter().map(|d| &d.var_name).collect();
-        references.iter().filter(|r| !declared.contains(&r.var_name)).map(|r| EnvVarDep {
-            var_name: r.var_name.clone(),
-            declared: false,
-            evidence: format!("Referenced as {:?}", r.reference_kind),
-        }).collect()
+    pub fn find_undeclared(
+        references: &[EnvReference],
+        declarations: &[EnvDeclaration],
+    ) -> Vec<EnvVarDep> {
+        let declared: std::collections::HashSet<_> =
+            declarations.iter().map(|d| &d.var_name).collect();
+        references
+            .iter()
+            .filter(|r| !declared.contains(&r.var_name))
+            .map(|r| EnvVarDep {
+                var_name: r.var_name.clone(),
+                declared: false,
+                evidence: format!("Referenced as {:?}", r.reference_kind),
+            })
+            .collect()
     }
 }
 
@@ -332,6 +384,7 @@ struct EnvDeclarationRow {
     confidence: f64,
 }
 
+#[allow(dead_code)]
 struct EnvReferenceRow {
     file_id: i64,
     symbol_id: Option<i64>,
@@ -364,18 +417,21 @@ impl<'a> EnvSchemaIndexer<'a> {
             files_processed: 1,
         };
 
-        let rows: Vec<EnvDeclarationRow> = decls.into_iter().map(|d| EnvDeclarationRow {
-            source_file_id: 1, // Placeholder
-            var_name: d.var_name,
-            source_kind: d.source_kind.to_string(),
-            required: d.required,
-            is_secret: d.is_secret,
-            default_value_redacted: d.default_value_redacted,
-            description: d.description,
-            owner: d.owner,
-            environment: d.environment,
-            confidence: d.confidence,
-        }).collect();
+        let rows: Vec<EnvDeclarationRow> = decls
+            .into_iter()
+            .map(|d| EnvDeclarationRow {
+                source_file_id: 1, // Placeholder
+                var_name: d.var_name,
+                source_kind: d.source_kind.to_string(),
+                required: d.required,
+                is_secret: d.is_secret,
+                default_value_redacted: d.default_value_redacted,
+                description: d.description,
+                owner: d.owner,
+                environment: d.environment,
+                confidence: d.confidence,
+            })
+            .collect();
 
         self.insert_declaration_batch(&rows, &now)?;
         Ok(stats)
@@ -395,6 +451,7 @@ impl<'a> EnvSchemaIndexer<'a> {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn insert_reference_batch(&self, rows: &[EnvReferenceRow], now: &str) -> Result<()> {
         let conn = self.storage.get_connection();
         let tx = conn.unchecked_transaction().into_diagnostic()?;

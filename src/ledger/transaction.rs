@@ -738,7 +738,11 @@ impl<'a> TransactionManager<'a> {
             .ok_or_else(|| LedgerError::NotFound(format!("ADR metadata for ID {}", adr_id)))
     }
 
-    pub fn link_adr_supersedes(&mut self, adr_id: &str, supersedes_id: &str) -> Result<(), LedgerError> {
+    pub fn link_adr_supersedes(
+        &mut self,
+        adr_id: &str,
+        supersedes_id: &str,
+    ) -> Result<(), LedgerError> {
         let db = LedgerDb::new(self.conn);
         db.link_adr_supersedes(adr_id, supersedes_id)
     }

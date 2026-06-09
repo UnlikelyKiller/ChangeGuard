@@ -168,7 +168,11 @@ impl CozoStorage {
                 cozo::DataValue::from(serde_json::Value::Array(
                     batch
                         .into_iter()
-                        .map(|v| serde_json::Value::Array(v.into_iter().map(serde_json::Value::String).collect()))
+                        .map(|v| {
+                            serde_json::Value::Array(
+                                v.into_iter().map(serde_json::Value::String).collect(),
+                            )
+                        })
                         .collect(),
                 )),
             );
@@ -190,7 +194,11 @@ impl CozoStorage {
                 cozo::DataValue::from(serde_json::Value::Array(
                     batch
                         .into_iter()
-                        .map(|v| serde_json::Value::Array(v.into_iter().map(serde_json::Value::String).collect()))
+                        .map(|v| {
+                            serde_json::Value::Array(
+                                v.into_iter().map(serde_json::Value::String).collect(),
+                            )
+                        })
                         .collect(),
                 )),
             );
@@ -271,7 +279,8 @@ impl CozoStorage {
                     edge.provenance_id,
                 ]));
             }
-            let script = "?[source, target, relation, confidence, provenance_id] <- $batch :put edge";
+            let script =
+                "?[source, target, relation, confidence, provenance_id] <- $batch :put edge";
             let mut params = std::collections::BTreeMap::new();
             params.insert(
                 "batch".to_string(),

@@ -1,8 +1,8 @@
+use crate::commands::helpers::get_layout;
+use crate::output::table::Table;
+use crate::state::storage::StorageManager;
 use clap::{Args, Subcommand};
 use miette::{IntoDiagnostic, Result};
-use crate::commands::helpers::get_layout;
-use crate::state::storage::StorageManager;
-use crate::output::table::Table;
 use owo_colors::OwoColorize;
 
 #[derive(Args, Debug)]
@@ -30,25 +30,52 @@ pub fn execute_deploy(args: DeployArgs) -> Result<()> {
     let conn = storage.get_connection();
 
     match args.command {
-        DeploySubcommands::Impact { changed: _, json } => {
-            let mut stmt = conn.prepare(
-                "SELECT file_path, manifest_type, risk_tier, service_name, owner FROM deploy_manifests"
-            ).into_diagnostic()?;
-            
-            let rows = stmt.query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, i32>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                ))
-            }).into_diagnostic()?;
+        DeploySubcommands::Impact { changed, json } => {
+            let changed_files: Option<std::collections::HashSet<String>> = if changed {
+                let packet = crate::commands::impact::execute_impact_silent()?;
+                let set = packet
+                    .changes
+                    .iter()
+                    .map(|c| c.path.to_string_lossy().replace('\\', "/"))
+                    .collect();
+                Some(set)
+            } else {
+                None
+            };
+
+            let mut stmt = conn
+                .prepare(
+                    "SELECT file_path, manifest_type, risk_tier, service_name, owner FROM deploy_manifests",
+                )
+                .into_diagnostic()?;
+
+            #[allow(clippy::type_complexity)]
+            let all_rows: Vec<(String, String, i32, Option<String>, Option<String>)> = stmt
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i32>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                    ))
+                })
+                .into_diagnostic()?
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .into_diagnostic()?;
+
+            let rows: Vec<_> = if let Some(ref cf) = changed_files {
+                all_rows
+                    .into_iter()
+                    .filter(|(fp, _, _, _, _)| cf.contains(&fp.replace('\\', "/")))
+                    .collect()
+            } else {
+                all_rows
+            };
 
             if json {
                 let mut results = Vec::new();
-                for row in rows {
-                    let (path, mtype, risk, service, owner) = row.into_diagnostic()?;
+                for (path, mtype, risk, service, owner) in &rows {
                     results.push(serde_json::json!({
                         "path": path,
                         "type": mtype,
@@ -57,14 +84,16 @@ pub fn execute_deploy(args: DeployArgs) -> Result<()> {
                         "owner": owner,
                     }));
                 }
-                println!("{}", serde_json::to_string_pretty(&results).into_diagnostic()?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&results).into_diagnostic()?
+                );
             } else {
                 println!("{}", "Deployment Manifest Impact".bold().cyan());
                 let mut table = Table::new();
                 table.set_header(vec!["Manifest", "Type", "Risk", "Service", "Owner"]);
-                
-                for row in rows {
-                    let (path, mtype, risk, service, owner) = row.into_diagnostic()?;
+
+                for (path, mtype, risk, service, owner) in &rows {
                     let risk_str = match risk {
                         3 => risk.to_string().red().to_string(),
                         2 => risk.to_string().yellow().to_string(),
@@ -72,11 +101,11 @@ pub fn execute_deploy(args: DeployArgs) -> Result<()> {
                     };
 
                     table.add_row(vec![
-                        path,
-                        mtype,
+                        path.clone(),
+                        mtype.clone(),
                         risk_str,
-                        service.unwrap_or_else(|| "-".to_string()),
-                        owner.unwrap_or_else(|| "-".to_string()),
+                        service.clone().unwrap_or_else(|| "-".to_string()),
+                        owner.clone().unwrap_or_else(|| "-".to_string()),
                     ]);
                 }
                 println!("{}", table);
@@ -110,18 +139,20 @@ pub fn execute_ci(args: CiArgs) -> Result<()> {
 
     match args.command {
         CiSubcommands::Diff { json } => {
-            let mut stmt = conn.prepare(
-                "SELECT platform, job_name, workflow_name, environment FROM ci_gates"
-            ).into_diagnostic()?;
-            
-            let rows = stmt.query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                ))
-            }).into_diagnostic()?;
+            let mut stmt = conn
+                .prepare("SELECT platform, job_name, workflow_name, environment FROM ci_gates")
+                .into_diagnostic()?;
+
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                    ))
+                })
+                .into_diagnostic()?;
 
             if json {
                 let mut results = Vec::new();
@@ -134,12 +165,15 @@ pub fn execute_ci(args: CiArgs) -> Result<()> {
                         "environment": env,
                     }));
                 }
-                println!("{}", serde_json::to_string_pretty(&results).into_diagnostic()?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&results).into_diagnostic()?
+                );
             } else {
                 println!("{}", "CI Gate Summary".bold().cyan());
                 let mut table = Table::new();
                 table.set_header(vec!["Platform", "Job", "Workflow", "Environment"]);
-                
+
                 for row in rows {
                     let (plat, job, workflow, env) = row.into_diagnostic()?;
                     table.add_row(vec![

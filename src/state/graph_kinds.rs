@@ -65,4 +65,6 @@ pub enum EdgeKind {
     Migrates,
     MapsTo,
     Affects,
+    Configures,
+    ProtectedBy,
 }
