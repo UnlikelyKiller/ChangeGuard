@@ -213,7 +213,11 @@ fn execute_hotspots_trend(
     } else {
         println!("Hotspot Trends (Last {} days):", days);
         if rows.is_empty() {
-            println!("  No trend data available. Run 'hotspots --snapshot' to start tracking.");
+            println!("  {}", "No baseline snapshot found.".yellow());
+            println!(
+                "  Run {} to capture the first snapshot, then re-run trend.",
+                "changeguard hotspots --snapshot".cyan().bold()
+            );
         } else {
             for (path, ts, score) in rows {
                 println!("  {} | {} | Score: {:.4}", ts, path, score);

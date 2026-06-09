@@ -871,13 +871,75 @@ pub fn build_native_graph(
     let mut policy_nodes = Vec::new();
     let mut policy_edges = Vec::new();
     let policy_dir = storage.root_path().join("policies");
+
+    // Collect valid cedar filenames from disk (non-test-fixture .cedar files).
+    // Used to prune stale policy nodes that were indexed in a previous run but
+    // whose source file has since been deleted or was a test fixture.
+    let valid_cedar_filenames: std::collections::HashSet<String> = std::fs::read_dir(&policy_dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let p = e.path();
+            let stem = p
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+            let is_test = stem == "test"
+                || stem.starts_with("test_")
+                || stem.starts_with("mock_")
+                || stem.ends_with("_test");
+            if p.extension().and_then(|e| e.to_str()) == Some("cedar") && !is_test {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.to_lowercase())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Prune policy nodes in CozoDB whose source file is no longer on disk or is a test fixture.
+    if valid_cedar_filenames.is_empty() {
+        // No valid cedar files on disk — wipe all policy nodes from a previous run.
+        let _ = cozo.run_script("?[id] := *node{id, category: 'policy'} :rm node {id}");
+    } else if let Ok(res) = cozo.run_script("?[id] := *node{id, category: 'policy'}") {
+        let stale_ids: Vec<String> = res
+            .rows
+            .into_iter()
+            .filter_map(|row| {
+                if let Some(cozo::DataValue::Str(id)) = row.into_iter().next() {
+                    let id_lower = id.to_lowercase();
+                    let is_valid = valid_cedar_filenames
+                        .iter()
+                        .any(|fname| id_lower.contains(fname.as_str()));
+                    if !is_valid {
+                        Some(id.to_string())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let _ = cozo.remove_nodes_by_id(&stale_ids);
+    }
+
     if policy_dir.exists()
-        && let Ok(entries) = std::fs::read_dir(policy_dir)
+        && let Ok(entries) = std::fs::read_dir(&policy_dir)
     {
         let cedar_importer = crate::policy::cedar::CedarImporter::new();
+
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("cedar") {
+            let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+            let is_test_fixture = stem == "test"
+                || stem.starts_with("test_")
+                || stem.starts_with("mock_")
+                || stem.ends_with("_test");
+            if path.extension().and_then(|e| e.to_str()) == Some("cedar") && !is_test_fixture {
                 let content = std::fs::read_to_string(&path).unwrap_or_default();
                 let policies = cedar_importer.parse(&content);
                 for (i, policy) in policies.iter().enumerate() {

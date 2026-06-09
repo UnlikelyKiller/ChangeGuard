@@ -40,21 +40,23 @@ pub fn query_unified(query: &str) -> Result<Vec<BridgeRecord>> {
 }
 
 pub fn execute_query(query: String) -> Result<()> {
+    eprintln!("Querying AI-Brains (IPC → CLI fallback)...");
     let records = query_unified(&query)?;
     if records.is_empty() {
-        println!("No memories recalled from AI-Brains.");
+        println!("No memories recalled from AI-Brains for {:?}.", query);
+        println!(
+            "If AI-Brains is installed, run `ai-brains sync query {:?}` directly \
+             or `ai-brains daemon start` to enable IPC.",
+            query
+        );
     } else {
         println!("Recalled {} memories from AI-Brains:", records.len());
         for record in records {
-            match record.payload {
-                BridgePayload::Insight {
-                    content, relevance, ..
-                } => {
-                    println!("- [{:.2}] {}", relevance, content);
-                }
-                _ => {
-                    // Other record types not handled here
-                }
+            if let BridgePayload::Insight {
+                content, relevance, ..
+            } = record.payload
+            {
+                println!("- [{:.2}] {}", relevance, content);
             }
         }
     }

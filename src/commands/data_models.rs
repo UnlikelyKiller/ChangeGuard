@@ -146,6 +146,15 @@ pub fn execute_data_models(args: DataModelsArgs) -> Result<()> {
                 println!("{}", "Data Model Impact Analysis".bold().cyan());
                 let mut table = Table::new();
                 table.set_header(vec!["Name", "File", "Language", "Kind", "Changed?"]);
+                if impacted.is_empty() {
+                    println!(
+                        "{}",
+                        "  No data models indexed. Data models are extracted from ORM structs, \
+                         SQL table definitions, and migration files. Run `changeguard index \
+                         --incremental` if models exist, or confirm your ORM/framework is supported."
+                            .dimmed()
+                    );
+                }
                 for item in impacted {
                     table.add_row(vec![
                         item["name"].as_str().unwrap_or("").bold().to_string(),

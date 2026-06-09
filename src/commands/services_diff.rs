@@ -62,9 +62,11 @@ pub fn execute_services_diff(
         println!("{}", "Service Boundary Summary".bold().cyan());
         let mut table = Table::new();
         table.set_header(vec!["Service", "Files", "Endpoints", "Status"]);
+        let mut row_count = 0usize;
 
         for row in rows {
             let (name, files, routes) = row.into_diagnostic()?;
+            row_count += 1;
 
             // Check if declared in config
             let is_declared = config.services.definitions.iter().any(|d| d.name == name);
@@ -80,6 +82,14 @@ pub fn execute_services_diff(
                 routes.to_string(),
                 status,
             ]);
+        }
+        if row_count == 0 {
+            println!(
+                "{}",
+                "  No services found. Declare services in `.changeguard/config.toml` under \
+                 `[services]`, or run `changeguard index --incremental` to infer from file structure."
+                    .dimmed()
+            );
         }
         println!("{}", table);
     }

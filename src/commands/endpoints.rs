@@ -3,6 +3,7 @@ use crate::output::table::Table;
 use crate::state::storage::StorageManager;
 use clap::Args;
 use miette::{IntoDiagnostic, Result};
+use owo_colors::OwoColorize;
 
 #[derive(Args, Debug)]
 pub struct EndpointsArgs {
@@ -145,6 +146,15 @@ pub fn execute_endpoints(args: EndpointsArgs) -> Result<()> {
                 service.clone().unwrap_or_else(|| "-".to_string()),
                 auth_str,
             ]);
+        }
+        if rows.is_empty() {
+            println!(
+                "{}",
+                "  No endpoints indexed. Endpoints are extracted from HTTP route registrations \
+                 (Axum, Express, etc.). Run `changeguard index --incremental` if routes exist, \
+                 or confirm your framework is supported."
+                    .dimmed()
+            );
         }
         println!("{}", table);
     }

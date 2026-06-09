@@ -66,7 +66,22 @@ pub fn execute_doctor() -> Result<()> {
                     .as_deref()
                     .unwrap_or(&config.local_model.base_url)
             ),
-            Err(e) => format!("unreachable ({})", e.yellow()),
+            Err(_) => {
+                if let (Some(cloud_url), Some(cloud_model)) = (
+                    config.local_model.ollama_cloud_url.as_deref(),
+                    config.local_model.ollama_cloud_model.as_deref(),
+                ) {
+                    format!(
+                        "local unreachable → cloud fallback: {} @ {}",
+                        cloud_model.cyan(),
+                        cloud_url
+                    )
+                } else {
+                    "unreachable (no cloud fallback configured)"
+                        .yellow()
+                        .to_string()
+                }
+            }
         };
 
     // --- Graph Probe ---
