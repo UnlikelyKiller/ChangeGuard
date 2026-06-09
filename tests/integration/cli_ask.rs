@@ -51,6 +51,7 @@ fn test_ask_command_no_packet() {
         None,  // backend
         false, // auto_index
         15,    // timeout_secs
+        false, // no_kg_fallback
     );
 
     // It should NOT fail with "No impact report found" anymore.
@@ -105,6 +106,7 @@ fn test_ask_invalid_config_fails_before_query_execution() {
         None,  // backend
         false, // auto_index
         15,    // timeout_secs
+        false, // no_kg_fallback
     )
     .unwrap_err();
     assert!(format!("{err:?}").contains("debounce_ms"));

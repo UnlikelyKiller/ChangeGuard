@@ -221,6 +221,9 @@ pub enum Commands {
         /// Prevents `changeguard ask` from hanging when a backend is slow or unresponsive.
         #[arg(long, default_value_t = 15)]
         timeout: u64,
+        /// Disable Knowledge Graph BM25 fallback when semantic index is empty
+        #[arg(long)]
+        no_kg_fallback: bool,
     },
     /// Manage ChangeGuard intent capture and TUI interaction
     Intent {
@@ -1082,8 +1085,17 @@ pub fn run_with(cli: Cli) -> Result<()> {
             backend,
             auto_index,
             timeout,
+            no_kg_fallback,
         } => crate::commands::ask::execute_ask(
-            query, semantic, limit, mode, narrative, backend, auto_index, timeout,
+            query,
+            semantic,
+            limit,
+            mode,
+            narrative,
+            backend,
+            auto_index,
+            timeout,
+            no_kg_fallback,
         ),
         Commands::Intent { command } => match command {
             IntentCommands::Demo => crate::commands::intent::execute_intent_demo(),

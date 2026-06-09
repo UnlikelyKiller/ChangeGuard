@@ -235,32 +235,89 @@ fn execute_hotspots_explain(
 ) -> Result<()> {
     println!("Explaining hotspots for: {}", entity);
 
+    let layout = get_layout()?;
+    let p = std::path::Path::new(&entity);
+    let (abs_entity, rel_entity) = if p.is_absolute() {
+        let abs = entity.clone();
+        let rel = p
+            .strip_prefix(layout.root.as_std_path())
+            .map(|p| p.to_string_lossy().into_owned().replace('\\', "/"))
+            .unwrap_or_else(|_| entity.clone());
+        (abs, rel)
+    } else {
+        let rel = entity.replace('\\', "/");
+        let abs = layout
+            .root
+            .as_std_path()
+            .join(&entity)
+            .to_string_lossy()
+            .into_owned();
+        (abs, rel)
+    };
+
     // 1. Complexity factor
     let conn = storage.get_connection();
     let complexity: i32 = conn.query_row(
         "SELECT MAX(IFNULL(cognitive_complexity, 0), IFNULL(cyclomatic_complexity, 0)) \
          FROM project_symbols ps JOIN project_files pf ON ps.file_id = pf.id WHERE pf.file_path = ?1",
-        [&entity],
+        [&rel_entity],
         |row| row.get(0)
     ).unwrap_or(0);
 
     // 2. Frequency factor
+    let config = load_config(&layout).unwrap_or_default();
     let history_provider = GixHistoryProvider::new(repo);
     let query = HotspotQuery {
-        dir_filter: Some(entity.clone()),
+        limit: config.hotspots.limit,
+        commits: config.hotspots.max_commits,
+        decay_half_life: config.hotspots.decay_half_life,
+        exact_file: Some(rel_entity.clone()),
         ..Default::default()
     };
     let hotspots = calculate_hotspots(storage, &history_provider, &query)?;
     let frequency = hotspots.first().map(|h| h.frequency).unwrap_or(0.0);
 
     // 3. Temporal couplings
-    let config = load_config(&get_layout()?).unwrap_or_default();
     let engine = TemporalEngine::new(history_provider, config.temporal.clone());
     let couplings = engine.calculate_couplings().unwrap_or_default();
     let entity_couplings: Vec<_> = couplings
         .into_iter()
-        .filter(|c| c.file_a.to_string_lossy() == entity || c.file_b.to_string_lossy() == entity)
+        .filter(|c| {
+            let p_a = if c.file_a.is_absolute() {
+                c.file_a.to_string_lossy().into_owned()
+            } else {
+                layout
+                    .root
+                    .as_std_path()
+                    .join(&c.file_a)
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            let p_b = if c.file_b.is_absolute() {
+                c.file_b.to_string_lossy().into_owned()
+            } else {
+                layout
+                    .root
+                    .as_std_path()
+                    .join(&c.file_b)
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            p_a == abs_entity || p_b == abs_entity
+        })
         .collect();
+
+    if complexity == 0 && frequency == 0.0 && entity_couplings.is_empty() {
+        println!(
+            "{}",
+            format!(
+                "No indexed data for '{}'. Run 'changeguard index' to populate metrics.",
+                entity
+            )
+            .yellow()
+        );
+        return Ok(());
+    }
 
     println!("\nMetrics:");
     println!("  Complexity: {}", complexity);
@@ -270,7 +327,18 @@ fn execute_hotspots_explain(
     if !entity_couplings.is_empty() {
         println!("\nTop Couplings:");
         for c in entity_couplings.iter().take(5) {
-            let other = if c.file_a.to_string_lossy() == entity {
+            let p_a = if c.file_a.is_absolute() {
+                c.file_a.to_string_lossy().into_owned()
+            } else {
+                layout
+                    .root
+                    .as_std_path()
+                    .join(&c.file_a)
+                    .to_string_lossy()
+                    .into_owned()
+            };
+
+            let other = if p_a == abs_entity {
                 &c.file_b
             } else {
                 &c.file_a

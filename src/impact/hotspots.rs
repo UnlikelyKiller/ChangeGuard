@@ -19,6 +19,7 @@ pub struct HotspotQuery {
     pub decay_half_life: usize,
     pub dir_filter: Option<String>,
     pub lang_filter: Option<String>,
+    pub exact_file: Option<String>,
 }
 
 pub fn calculate_hotspots(
@@ -56,6 +57,10 @@ pub fn calculate_hotspots(
         for file in &commit_set.files {
             // Apply filtering during crawl
             let path_str = file.as_str();
+
+            if query.exact_file.as_ref().is_some_and(|f| path_str != f) {
+                continue;
+            }
 
             if query
                 .dir_filter

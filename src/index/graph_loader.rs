@@ -927,6 +927,83 @@ pub fn build_native_graph(
         let _ = cozo.remove_nodes_by_id(&stale_ids);
     }
 
+    // Section 9b -- cascade pruning to policy child nodes (principal / action / resource).
+    // A child node is orphaned if it has no incoming Authorizes edge from a currently-valid
+    // policy node (i.e. one whose id contains a valid cedar filename).
+    // @cg-tx: 495acfd7-5356-4041-8092-585eea54f348
+    const CHILD_CATEGORIES: &[&str] = &["principal", "action", "resource"];
+    if valid_cedar_filenames.is_empty() {
+        // No valid cedar files at all -- prune every child node unconditionally.
+        for cat in CHILD_CATEGORIES {
+            if let Err(e) = cozo.run_script(&format!(
+                "?[id] := *node{{id, category: '{cat}'}} :rm node {{id}}"
+            )) {
+                tracing::warn!(
+                    "Cedar child node cleanup (empty): failed to prune {cat} nodes: {e}"
+                );
+            }
+        }
+        tracing::info!(
+            "Cedar child node cleanup: pruned all principal/action/resource orphans (no valid policies)"
+        );
+    } else {
+        // Some policies remain -- only prune child nodes that have NO incoming Authorizes
+        // edge from a live policy node.  A policy node is live when its id contains a
+        // valid cedar filename (same heuristic used for the policy-prune block above).
+        for cat in CHILD_CATEGORIES {
+            let Ok(child_res) =
+                cozo.run_script(&format!("?[id] := *node{{id, category: '{cat}'}}"))
+            else {
+                continue;
+            };
+
+            let stale_child_ids: Vec<String> = child_res
+                .rows
+                .into_iter()
+                .filter_map(|row| {
+                    let Some(cozo::DataValue::Str(child_id)) = row.into_iter().next() else {
+                        return None;
+                    };
+                    // Escape single-quotes in the URN so the Datalog literal is valid.
+                    let escaped = child_id.replace('\'', "\\'");
+                    let check = format!(
+                        "?[src] := *edge{{source: src, target: '{escaped}', relation: 'authorizes'}}, \
+                         *node{{id: src, category: 'policy'}}"
+                    );
+                    let has_live_edge = cozo
+                        .run_script(&check)
+                        .map(|r| {
+                            // At least one edge source must be a live (valid-filename) policy node.
+                            r.rows.iter().any(|edge_row| {
+                                if let Some(cozo::DataValue::Str(src_id)) = edge_row.first() {
+                                    let src_lower = src_id.to_lowercase();
+                                    valid_cedar_filenames
+                                        .iter()
+                                        .any(|fname| src_lower.contains(fname.as_str()))
+                                } else {
+                                    false
+                                }
+                            })
+                        })
+                        .unwrap_or(false);
+
+                    if has_live_edge {
+                        None
+                    } else {
+                        Some(child_id.to_string())
+                    }
+                })
+                .collect();
+
+            let pruned = stale_child_ids.len();
+            if let Err(e) = cozo.remove_nodes_by_id(&stale_child_ids) {
+                tracing::warn!("Cedar child node cleanup: failed to prune {cat} orphans: {e}");
+            } else {
+                tracing::info!("Cedar child node cleanup: pruned {pruned} stale {cat} nodes");
+            }
+        }
+    }
+
     if policy_dir.exists()
         && let Ok(entries) = std::fs::read_dir(&policy_dir)
     {
@@ -1167,11 +1244,78 @@ pub fn build_native_graph(
         }
     }
 
+    // --- Section 10: Cargo.lock ingestion ---
+    #[derive(serde::Deserialize)]
+    struct CargoLockFile {
+        #[serde(default)]
+        package: Vec<CargoLockPackage>,
+    }
+    #[derive(serde::Deserialize)]
+    struct CargoLockPackage {
+        name: String,
+        version: String,
+        #[serde(default)]
+        dependencies: Option<Vec<String>>,
+    }
+
+    let mut pkg_nodes = Vec::new();
+    let mut pkg_edges = Vec::new();
+    let lock_path = storage.root_path().join("Cargo.lock");
+    if lock_path.exists() {
+        if let Ok(lock_str) = std::fs::read_to_string(&lock_path) {
+            if let Ok(lock_file) = toml::from_str::<CargoLockFile>(&lock_str) {
+                for pkg in &lock_file.package {
+                    let pkg_urn = format!("urn:changeguard:package:{}:{}", pkg.name, pkg.version);
+                    pkg_nodes.push(GraphNode {
+                        id: pkg_urn.clone(),
+                        label: pkg.name.clone(),
+                        category: NodeKind::Package,
+                        risk_score: 0.0,
+                        metadata: Some(json!({
+                            "version": pkg.version,
+                            "ecosystem": "rust/cargo",
+                            "manifest": "Cargo.lock"
+                        })),
+                    });
+
+                    if let Some(deps) = &pkg.dependencies {
+                        for dep_str in deps {
+                            let dep_name = dep_str.split_whitespace().next().unwrap_or(dep_str);
+                            if let Some(dep_pkg) =
+                                lock_file.package.iter().find(|p| p.name == dep_name)
+                            {
+                                let dep_urn = format!(
+                                    "urn:changeguard:package:{}:{}",
+                                    dep_pkg.name, dep_pkg.version
+                                );
+                                pkg_edges.push(GraphEdge {
+                                    source: pkg_urn.clone(),
+                                    target: dep_urn,
+                                    relation: EdgeKind::DependsOn,
+                                    confidence: 1.0,
+                                    provenance_id: provenance_id.to_string(),
+                                });
+                            }
+                        }
+                    }
+                }
+                tracing::info!("Cargo.lock: {} packages indexed", lock_file.package.len());
+            } else {
+                tracing::warn!("Failed to parse Cargo.lock");
+            }
+        }
+    } else {
+        tracing::warn!("No Cargo.lock found at {:?}", lock_path);
+    }
+
+    cozo.insert_nodes(&pkg_nodes)?;
+    cozo.insert_edges(&pkg_edges)?;
+
     cozo.insert_edges(&cross_edges)?;
 
     info!(
         "Native graph built: {} files, {} symbols, {} edges, {} endpoints, {} ADRs, {} services, \
-         {} models, {} config_keys, {} obs, {} policies, {} cross-surface edges",
+         {} models, {} config_keys, {} obs, {} policies, {} cross-surface edges, {} packages",
         files_indexed,
         symbols_indexed,
         edges_added
@@ -1179,7 +1323,8 @@ pub fn build_native_graph(
             + adr_edges.len()
             + obs_edges.len()
             + policy_edges.len()
-            + cross_edges.len(),
+            + cross_edges.len()
+            + pkg_edges.len(),
         endpoint_nodes.len(),
         adr_nodes.len(),
         service_nodes.len(),
@@ -1188,6 +1333,7 @@ pub fn build_native_graph(
         obs_nodes.len(),
         policy_nodes.len(),
         cross_edges.len(),
+        pkg_nodes.len()
     );
 
     Ok(GraphStats {
@@ -1199,7 +1345,8 @@ pub fn build_native_graph(
             + model_nodes.len()
             + config_nodes.len()
             + obs_nodes.len()
-            + policy_nodes.len(),
+            + policy_nodes.len()
+            + pkg_nodes.len(),
         edges_added: edges_added
             + endpoint_edges.len()
             + adr_edges.len()
@@ -1208,7 +1355,8 @@ pub fn build_native_graph(
             + config_edges.len()
             + obs_edges.len()
             + policy_edges.len()
-            + cross_edges.len(),
+            + cross_edges.len()
+            + pkg_edges.len(),
         files_indexed,
         symbols_indexed,
     })

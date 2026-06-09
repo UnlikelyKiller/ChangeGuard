@@ -1505,6 +1505,114 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Definition of done: Security graph output is useful without exposing secrets, Cedar principal/action/resource edges are queryable, auth/authz changes affect endpoint/service impact, protected path and process-policy changes name review requirements, and full verification plus reinstall passes.
 
 
+## Milestone X: Command Surface Correctness (Planned)
+
+*   **Track X1: `ask` KG Fallback When Semantic Index Is Absent**
+    *   Status: Completed
+    *   Spec: `conductor/trackX1/spec.md`
+    *   Plan: `conductor/trackX1/plan.md`
+    *   Goal: When the semantic vector store is empty, `changeguard ask` falls back to CozoDB BM25 text search for KG context instead of returning generic LLM answers.
+    *   Definition of done: `ask "query"` returns project-grounded answer using KG when no semantic index exists; fallback note printed; `--no-kg-fallback` flag suppresses it; tests pass.
+
+*   **Track X2: `dependencies list` Populates from Cargo.lock During Index**
+    *   Status: Completed
+    *   Spec: `conductor/trackX2/spec.md`
+    *   Plan: `conductor/trackX2/plan.md`
+    *   Goal: `graph_loader.rs` parses `Cargo.lock` during `index --analyze-graph` and creates `NodeKind::Package` nodes and `DependsOn` edges so `dependencies list` works without a prior OSV audit.
+    *   Definition of done: After `index --analyze-graph` on a Rust project, `dependencies list` shows 200+ packages; idempotent re-index; tests pass.
+
+*   **Track X3: `hotspots explain` Correct Complexity and Frequency**
+    *   Status: Completed
+    *   Spec: `conductor/trackX3/spec.md`
+    *   Plan: `conductor/trackX3/plan.md`
+    *   Goal: Fix path normalization in `execute_hotspots_explain` so complexity SQL query uses the absolute path and frequency uses exact-file filtering instead of dir-prefix matching.
+    *   Definition of done: `hotspots explain src/commands/hotspots.rs` shows non-zero complexity and frequency; tests pass.
+
+*   **Track X4: `ledger graph` Writes Transaction→Entity Edges on Commit**
+    *   Status: Completed
+    *   Spec: `conductor/trackX4/spec.md`
+    *   Plan: `conductor/trackX4/plan.md`
+    *   Goal: During `ledger commit`, write CozoDB `Affects` edges from the transaction URN to each changed file node so `ledger graph <tx-id>` returns populated results.
+    *   Definition of done: `ledger graph <tx-id>` shows ≥ 1 file row for a recently committed transaction; edge writes gated on CozoDB availability; tests pass.
+
+*   **Track X5: Security Child Node Orphan Pruning**
+    *   Status: Planned
+    *   Spec: `conductor/trackX5/spec.md`
+    *   Plan: `conductor/trackX5/plan.md`
+    *   Goal: Extend the Cedar orphan-pruning logic in `graph_loader.rs` to cascade from `policy` nodes to `principal`, `action`, and `resource` nodes derived from deleted Cedar files.
+    *   Definition of done: After deleting all Cedar policies and re-indexing, `security boundaries` shows 0 entries; tests pass.
+
+*   **Track X6: `audit <entity>` Resolves File Paths to Ledger Entities**
+    *   Status: Planned
+    *   Spec: `conductor/trackX6/spec.md`
+    *   Plan: `conductor/trackX6/plan.md`
+    *   Goal: When `<entity>` looks like a file path, `ledger audit` queries `project_file_changes` for matching transactions in addition to entity-name lookup, so `audit src/commands/hotspots.rs` works.
+    *   Definition of done: File-path audit returns all transactions touching that file; entity-name lookup unchanged; tests pass.
+
+*   **Track X7: `doctor` Shows `(not configured)` for Blank Model Name**
+    *   Status: Planned
+    *   Spec: `conductor/trackX7/spec.md`
+    *   Plan: `conductor/trackX7/plan.md`
+    *   Goal: When `embedding_model` or `generation_model` is empty string (unconfigured), `doctor` prints `(not configured)` in yellow instead of a blank-prefixed status line.
+    *   Definition of done: `doctor` displays yellow `(not configured)` for blank model names; tests pass.
+
+*   **Track X8: `hotspots trend` Human-Readable Timestamps**
+    *   Status: Planned
+    *   Spec: `conductor/trackX8/spec.md`
+    *   Plan: `conductor/trackX8/plan.md`
+    *   Goal: Format trend timestamps as `YYYY-MM-DD HH:MM UTC` in human output; JSON mode retains full RFC3339.
+    *   Definition of done: `hotspots trend` shows short timestamps; `--json` unchanged; tests pass.
+
+*   **Track X9: Empty-State Hints for `observability coverage`, `deploy impact`, and `tests`**
+    *   Status: Planned
+    *   Spec: `conductor/trackX9/spec.md`
+    *   Plan: `conductor/trackX9/plan.md`
+    *   Goal: Add empty-state hints with run-command suggestions to `observability coverage`, `deploy impact --changed`, and `changeguard tests <file>` when they return no data.
+    *   Definition of done: Each command shows yellow hint + cyan run-command when empty; JSON unaffected; tests pass.
+
+*   **Track X10: `ledger gc` No-Args UX and `ledger adr list`**
+    *   Status: Planned
+    *   Spec: `conductor/trackX10/spec.md`
+    *   Plan: `conductor/trackX10/plan.md`
+    *   Goal: `ledger gc` with no args shows styled usage (exit 0) instead of raw clap error; `ledger adr list` shows all ADRs in a table.
+    *   Definition of done: `ledger gc` prints usage gracefully; `ledger adr list` works; tests pass.
+
+*   **Track X11: `verify` Uses `cargo nextest run` When Available**
+    *   Status: Planned
+    *   Spec: `conductor/trackX11/spec.md`
+    *   Plan: `conductor/trackX11/plan.md`
+    *   Goal: `changeguard verify` probes for `cargo nextest` and uses it when available, falling back to `cargo test --workspace`. Adds `verify.prefer_nextest` config option.
+    *   Definition of done: `verify` on a nextest-equipped machine runs nextest; plan output shows selected runner; tests pass.
+
+*   **Track X12: `hotspots explain` Filters Directory-Level Coupling Noise**
+    *   Status: Planned
+    *   Spec: `conductor/trackX12/spec.md`
+    *   Plan: `conductor/trackX12/plan.md`
+    *   Goal: Filter out directory-level entries (no file extension) from Top Couplings in `hotspots explain`; show `(N directory-level entries hidden)` count note.
+    *   Definition of done: Only file-path couplings appear; hidden count shown when > 0; tests pass.
+
+*   **Track X13: `security boundaries` Summary Counts and Empty Hint**
+    *   Status: Planned
+    *   Spec: `conductor/trackX13/spec.md`
+    *   Plan: `conductor/trackX13/plan.md`
+    *   Goal: Add `[N policies | N principals | N actions | N resources]` summary to `security boundaries` header; empty state shows add-Cedar hint.
+    *   Definition of done: Summary counts in header; empty hint shown when no data; JSON includes `meta.counts`; tests pass.
+
+*   **Track X14: `scan --impact` Clean-Tree Message and Risk Reconciliation**
+    *   Status: Planned
+    *   Spec: `conductor/trackX14/spec.md`
+    *   Plan: `conductor/trackX14/plan.md`
+    *   Goal: On a clean working tree, `scan --impact` shows "Working tree is clean" instead of empty output; `Overall Risk` matches highest line-item or shows escalation note.
+    *   Definition of done: Clean-tree message shown when no changes; risk reconciliation note printed; `--json` includes `tree_clean`; tests pass.
+
+*   **Track X15: `watch` Startup Banner and Clean Exit Handling**
+    *   Status: Planned
+    *   Spec: `conductor/trackX15/spec.md`
+    *   Plan: `conductor/trackX15/plan.md`
+    *   Goal: Print repo path + Ctrl+C hint immediately on `watch` start; exit with code 0 and "Watch stopped." on Ctrl+C; ignore `.changeguard/state/` events.
+    *   Definition of done: Startup banner appears; Ctrl+C exits 0; state dir changes ignored; tests pass.
+
+
 ## Workflow
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.

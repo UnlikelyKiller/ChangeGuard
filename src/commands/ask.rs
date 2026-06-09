@@ -32,6 +32,7 @@ pub fn execute_ask(
     backend: Option<Backend>,
     auto_index: bool,
     timeout_secs: u64,
+    no_kg_fallback: bool,
 ) -> Result<()> {
     let layout = get_layout()?;
     let config = load_ledger_config(&layout)?;
@@ -196,6 +197,25 @@ pub fn execute_ask(
                     tracing::warn!("Chunk retrieval failed: {e}, proceeding without chunks");
                     Vec::new()
                 });
+
+                // KG Fallback logic for Local Backend
+                if is_global
+                    && relevant_chunks.is_empty()
+                    && !no_kg_fallback
+                    && let Some(cozo) = &storage.cozo
+                    && let Some(kg_bm25_context) = fetch_kg_bm25(cozo, &query_string, limit)
+                {
+                    println!(
+                        "{}",
+                        "Note: semantic index empty — using KG text search for context".yellow()
+                    );
+                    relevant_chunks.push(crate::local_model::pruner::RankedChunk {
+                        source: "Knowledge Graph (BM25)".to_string(),
+                        content: kg_bm25_context,
+                        score: 1.0,
+                    });
+                }
+
                 // CR7: Apply KG neighborhood to pruner fallback chunks as well.
                 // Pruner chunks only have file paths as source, so extract the file
                 // stem (module name) as a candidate symbol for KG lookups.
@@ -216,16 +236,14 @@ pub fn execute_ask(
                     }
                 }
             }
-            if is_global && relevant_chunks.is_empty() {
-                return Err(miette::miette!(
-                    "Global Ask requires codebase context, but semantic search returned no results. \
-                     Run 'changeguard index --semantic' to build the index."
-                ));
-            }
 
             // 4. Assemble context with budget enforcement
             let system_prompt = if is_global {
-                "You are ChangeGuard, an expert software engineering assistant. You act as a codebase oracle answering architectural and implementation questions based on retrieved knowledge graph and semantic context snippets. Provide direct, technical, and accurate answers citing the retrieved snippets where relevant.".to_string()
+                let mut base = "You are ChangeGuard, an expert software engineering assistant. You act as a codebase oracle answering architectural and implementation questions based on retrieved knowledge graph and semantic context snippets. Provide direct, technical, and accurate answers citing the retrieved snippets where relevant.".to_string();
+                if relevant_chunks.is_empty() {
+                    base.push_str("\n\nNote: no project context available for this query.");
+                }
+                base
             } else {
                 crate::local_model::context::get_system_prompt(&mode.to_string())
             };
@@ -307,19 +325,34 @@ pub fn execute_ask(
                     .unwrap_or_default();
                 }
 
-                if is_global && relevant_chunks.is_empty() {
-                    return Err(miette::miette!(
-                        "Global Ask requires codebase context, but semantic search returned no results. \
-                         Run 'changeguard index --semantic' to build the index."
-                    ));
+                // KG Fallback logic for Gemini Backend
+                if is_global
+                    && relevant_chunks.is_empty()
+                    && !no_kg_fallback
+                    && let Some(cozo) = &storage.cozo
+                    && let Some(kg_bm25_context) = fetch_kg_bm25(cozo, &query_string, limit)
+                {
+                    println!(
+                        "{}",
+                        "Note: semantic index empty — using KG text search for context".yellow()
+                    );
+                    relevant_chunks.push(crate::local_model::pruner::RankedChunk {
+                        source: "Knowledge Graph (BM25)".to_string(),
+                        content: kg_bm25_context,
+                        score: 1.0,
+                    });
                 }
 
                 // Build a combined prompt for Gemini that includes semantic snippets
-                let codebase_context = relevant_chunks
-                    .iter()
-                    .map(|c| format!("[{}] {}", c.source, c.content))
-                    .collect::<Vec<_>>()
-                    .join("\n\n");
+                let codebase_context = if relevant_chunks.is_empty() {
+                    "No project context available for this query.".to_string()
+                } else {
+                    relevant_chunks
+                        .iter()
+                        .map(|c| format!("[{}] {}", c.source, c.content))
+                        .collect::<Vec<_>>()
+                        .join("\n\n")
+                };
 
                 format!(
                     "{}\n\n## Codebase Context Chunks\n\n{}\n\nUser Question: {}",
@@ -340,7 +373,11 @@ pub fn execute_ask(
             }
 
             let system_prompt = if is_global {
-                "You are ChangeGuard, an expert software engineering assistant. You act as a codebase oracle answering architectural and implementation questions based on retrieved knowledge graph and semantic context snippets. Provide direct, technical, and accurate answers citing the retrieved snippets where relevant.".to_string()
+                let mut base = "You are ChangeGuard, an expert software engineering assistant. You act as a codebase oracle answering architectural and implementation questions based on retrieved knowledge graph and semantic context snippets. Provide direct, technical, and accurate answers citing the retrieved snippets where relevant.".to_string();
+                if sanitized_user_prompt.contains("No project context available") {
+                    base.push_str("\n\nNote: no project context available for this query.");
+                }
+                base
             } else {
                 build_system_prompt(mode)
             };
@@ -450,6 +487,46 @@ fn fetch_kg_neighborhood(
         }
     }
     if kg_context.len() > 30 {
+        Some(kg_context)
+    } else {
+        None
+    }
+}
+
+/// CRX1: Perform BM25 text search on KG nodes when semantic index is absent.
+fn fetch_kg_bm25(
+    cozo: &crate::state::storage_cozo::CozoStorage,
+    query: &str,
+    limit: usize,
+) -> Option<String> {
+    let escaped_query = escape_cozo_string(query);
+    let script = format!(
+        r#"
+        ?[id, label, category] := *node{{id, label, category}},
+          label ~ '(?i).*{}.*'
+        :limit {limit}
+    "#,
+        escaped_query
+    );
+
+    let res = cozo.run_script(&script).ok()?;
+    if res.rows.is_empty() {
+        return None;
+    }
+
+    let mut kg_context = String::from("Knowledge Graph (Text Search) Matches:\n");
+    for row in res.rows {
+        if let (
+            Some(cozo::DataValue::Str(id)),
+            Some(cozo::DataValue::Str(label)),
+            Some(cozo::DataValue::Str(category)),
+        ) = (row.first(), row.get(1), row.get(2))
+        {
+            kg_context.push_str(&format!("- [{}] {} ({})\n", category, label, id));
+        }
+    }
+
+    if kg_context.len() > 40 {
         Some(kg_context)
     } else {
         None
