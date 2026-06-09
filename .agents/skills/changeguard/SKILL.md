@@ -23,6 +23,17 @@ Use ChangeGuard as the local safety layer and engineering intelligence engine fo
 - **Documentation Generation**: Export Knowledge Graph data to Markdown/Mermaid passive documentation (`index --export-docs`).
 - **Dead Code Detection**: Confidence-based dead code detection blending graph reachability, git activity, and test history (`dead-code` command).
 - **Live Visualization**: WebSocket-based Arc Diagram for real-time Knowledge Graph updates (`viz-server`, `viz-server --stop`).
+- **Endpoints**: Indexed endpoint graph with auth, schemas, consumers, and owner links. `changeguard endpoints --json` / `--changed` for direct review.
+- **Services Diff**: Declared service map with queue/topic/RPC edges and PR-style boundary diff. `changeguard services diff`.
+- **Data Models**: Durable data model, table, migration, and compatibility-class relations with impact rules for destructive changes. `changeguard data-models impact --changed`.
+- **Config Schema & Diff**: Explicit env var schema metadata (required/secret/owner/provider) and change diff. `changeguard config schema` / `changeguard config diff`.
+- **Dependency & Advisory Graph**: Cargo/npm/Python lockfile ingestion with cargo-audit/osv advisory matching. Impact rules for vulnerable dependency introduction.
+- **Test Mapping**: Durable test nodes linked to endpoints, symbols, services, and data models. `changeguard verify explain --entity <path>` for entity-scoped test explanation.
+- **Observability Graph**: SLO, metric, alert, and signal nodes from OpenSLO YAML. Source-file-backed diff matching. `changeguard observability diff` / `observability coverage`.
+- **Hotspot Trends**: Persistent hotspot and temporal coupling snapshots with trend deltas. `changeguard hotspots trend` / `hotspots explain`.
+- **Ledger Graph**: Per-transaction entity neighborhood view linking ledger entries to symbols, endpoints, services, ADRs, config keys, and deploy surfaces. `changeguard ledger graph <tx-id>`.
+- **Ledger Validator Lifecycle**: Full validator lifecycle with `ledger validator list`, `disable`, `enable`, `remove`, `doctor`, and hook-repair rollback for sidecar/pending mismatches.
+- **Security Boundaries**: Cedar policy parsing with cross-surface links (policy→endpoint/service/config_key/deploy_surface/ADR). `changeguard security boundaries` / `security impact --changed`.
 
 ## Philosophy: CLI-First Intelligence
 
