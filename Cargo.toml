@@ -1,6 +1,6 @@
 [package]
 name = "changeguard"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 license = "MIT"
 
@@ -75,6 +75,7 @@ rand = "0.8"
 ignore = "0.4.25"
 inquire = "0.7.5"
 strum = { version = "0.28.0", features = ["derive"] }
+cedar-policy = "4.11.0"
 
 
 [target.'cfg(target_os = "windows")'.dependencies]
