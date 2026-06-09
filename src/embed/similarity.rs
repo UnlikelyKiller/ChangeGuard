@@ -7,6 +7,10 @@ pub fn cosine_sim(a: &[f32], b: &[f32]) -> Result<f32, String> {
         ));
     }
 
+    if a.iter().chain(b.iter()).any(|value| !value.is_finite()) {
+        return Err("Non-finite vector value: cannot compute cosine similarity".to_string());
+    }
+
     let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
     let mag_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
     let mag_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
@@ -16,6 +20,10 @@ pub fn cosine_sim(a: &[f32], b: &[f32]) -> Result<f32, String> {
     }
 
     let sim = dot / (mag_a * mag_b);
+    if !sim.is_finite() {
+        return Err("Non-finite cosine similarity".to_string());
+    }
+    let sim = sim.clamp(-1.0, 1.0);
 
     #[cfg(debug_assertions)]
     debug_assert!((-1.0..=1.0).contains(&sim));
@@ -67,6 +75,19 @@ mod tests {
         let v = vec![1.0_f32, 2.0, 3.0];
         let result = cosine_sim(&v, &v).unwrap();
         assert!((result - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn cosine_sim_clamps_f32_roundoff_above_one() {
+        let v = vec![0.066030696_f32, 1.1272413, 0.46750933];
+        let result = cosine_sim(&v, &v).unwrap();
+        assert_eq!(result, 1.0);
+    }
+
+    #[test]
+    fn cosine_sim_non_finite_vector_returns_error() {
+        let result = cosine_sim(&[f32::NAN, 1.0], &[1.0, 1.0]);
+        assert!(result.is_err());
     }
 
     #[test]

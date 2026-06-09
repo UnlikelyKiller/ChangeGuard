@@ -9,6 +9,8 @@ use miette::Result;
 use owo_colors::OwoColorize;
 use std::env;
 
+const ASK_COMPLETION_MAX_TOKENS: usize = 512;
+
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, clap::ValueEnum,
 )]
@@ -284,7 +286,7 @@ pub fn execute_ask(
             match crate::local_model::client::complete(
                 &config.local_model,
                 &messages,
-                &crate::local_model::client::CompletionOptions::default(),
+                &ask_completion_options(),
                 Some(timeout_secs),
             ) {
                 Ok(response) => {
@@ -475,6 +477,13 @@ fn gather_semantic_chunks(
 /// Backslashes are also escaped to prevent unintended Datalog escaping sequences.
 pub fn escape_cozo_string(s: &str) -> String {
     s.replace('\\', "\\\\").replace('\'', "''")
+}
+
+fn ask_completion_options() -> crate::local_model::client::CompletionOptions {
+    crate::local_model::client::CompletionOptions {
+        max_tokens: ASK_COMPLETION_MAX_TOKENS,
+        ..crate::local_model::client::CompletionOptions::default()
+    }
 }
 
 /// CR7: Run the KG neighborhood edge query for a set of symbol names and return a
@@ -670,5 +679,12 @@ mod tests {
 
         let backend = resolve_backend_with(&config, None, &|_| None, &|_| None);
         assert_eq!(backend, Backend::Local);
+    }
+
+    #[test]
+    fn ask_completion_options_are_bounded() {
+        let options = ask_completion_options();
+        assert_eq!(options.max_tokens, ASK_COMPLETION_MAX_TOKENS);
+        assert!(options.max_tokens < Config::default().local_model.context_window);
     }
 }

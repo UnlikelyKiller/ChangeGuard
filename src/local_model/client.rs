@@ -25,7 +25,10 @@ impl Default for CompletionOptions {
 
 #[derive(Debug, Deserialize)]
 struct ChoiceMessage {
+    #[serde(default)]
     content: String,
+    #[serde(default)]
+    reasoning: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -60,11 +63,21 @@ enum EndpointKind {
     OllamaNative,
 }
 
+#[derive(Debug, Clone)]
+struct EndpointTarget {
+    kind: EndpointKind,
+    url: String,
+}
+
 struct CompletionEndpoint<'a> {
     label: &'a str,
     base_url: &'a str,
     model: &'a str,
     authorization: Option<String>,
+}
+
+fn ollama_native_num_predict(max_tokens: usize) -> usize {
+    max_tokens.clamp(1, 1024)
 }
 
 pub fn ping_completions(config: &LocalModelConfig) -> Result<String, String> {
@@ -227,30 +240,51 @@ fn ollama_cloud_endpoint(config: &LocalModelConfig) -> Option<CompletionEndpoint
     })
 }
 
-/// Detect whether a base URL should use Ollama native `/api/chat` or
-/// OpenAI-compatible `/v1/chat/completions`.
+/// Detect whether a base URL should use Ollama native chat or
+/// OpenAI-compatible chat completions.
 fn detect_endpoint_kind(base_url: &str) -> EndpointKind {
     let trimmed = base_url.trim_end_matches('/');
-    if trimmed.ends_with("/api") {
+    if trimmed.ends_with("/api") || trimmed == "https://api.ollama.com" {
         EndpointKind::OllamaNative
     } else {
         EndpointKind::OpenAICompatible
     }
 }
 
-/// Validate the base URL shape and return a diagnostic warning if the
-/// URL is known to be problematic (e.g. `https://api.ollama.com` which
-/// does NOT support `/v1/chat/completions`).
-fn check_base_url_warnings(base_url: &str, kind: EndpointKind) -> Option<String> {
-    let trimmed = base_url.trim_end_matches('/').to_lowercase();
-    match kind {
-        EndpointKind::OpenAICompatible if trimmed == "https://api.ollama.com" => Some(
-            "WARNING: https://api.ollama.com does not support /v1/chat/completions. \
-                 Use https://ollama.com for OpenAI-compatible mode or https://ollama.com/api \
-                 for native Ollama mode."
+fn completion_target(base_url: &str) -> EndpointTarget {
+    let base = base_url.trim_end_matches('/');
+    match detect_endpoint_kind(base_url) {
+        EndpointKind::OllamaNative => {
+            let url = if base == "https://api.ollama.com" {
+                "https://api.ollama.com/api/chat".to_string()
+            } else {
+                format!("{}/chat", base)
+            };
+            EndpointTarget {
+                kind: EndpointKind::OllamaNative,
+                url,
+            }
+        }
+        EndpointKind::OpenAICompatible => EndpointTarget {
+            kind: EndpointKind::OpenAICompatible,
+            url: format!("{}/v1/chat/completions", base),
+        },
+    }
+}
+
+/// Validate the base URL shape and return a diagnostic warning if it is
+/// malformed enough that endpoint selection would be ambiguous.
+fn check_base_url_warnings(base_url: &str, _kind: EndpointKind) -> Option<String> {
+    let trimmed = base_url.trim_end_matches('/');
+    let lower = trimmed.to_lowercase();
+    if lower.ends_with("/api/v1") {
+        Some(
+            "Unsupported Ollama URL shape. Use https://ollama.com/api for native Ollama \
+             mode or https://ollama.com for OpenAI-compatible mode."
                 .to_string(),
-        ),
-        _ => None,
+        )
+    } else {
+        None
     }
 }
 
@@ -276,39 +310,41 @@ fn complete_with_endpoint(
     messages: &[ChatMessage],
     options: &CompletionOptions,
 ) -> Result<String, String> {
-    let kind = detect_endpoint_kind(endpoint.base_url);
+    let target = completion_target(endpoint.base_url);
 
     // Check for known problematic base URL shapes
-    if let Some(warning) = check_base_url_warnings(endpoint.base_url, kind) {
+    if let Some(warning) = check_base_url_warnings(endpoint.base_url, target.kind) {
         return Err(warning);
     }
 
-    let (url, body) = match kind {
+    let body = match target.kind {
         EndpointKind::OllamaNative => {
-            let base = endpoint.base_url.trim_end_matches('/');
-            let url = format!("{}/chat", base);
-            let body = serde_json::json!({
+            serde_json::json!({
                 "model": endpoint.model,
                 "messages": messages,
                 "stream": false,
-            });
-            (url, body)
+                "options": {
+                    "num_predict": ollama_native_num_predict(options.max_tokens),
+                    "temperature": options.temperature,
+                },
+            })
         }
         EndpointKind::OpenAICompatible => {
-            let base = endpoint.base_url.trim_end_matches('/');
-            let url = format!("{}/v1/chat/completions", base);
-            let body = serde_json::json!({
+            serde_json::json!({
                 "model": endpoint.model,
                 "messages": messages,
                 "max_tokens": options.max_tokens,
                 "temperature": options.temperature,
                 "stream": false,
-            });
-            (url, body)
+            })
         }
     };
 
-    tracing::debug!("Using completion URL: {} (kind={:?})", url, kind);
+    tracing::debug!(
+        "Using completion URL: {} (kind={:?})",
+        target.url,
+        target.kind
+    );
 
     let agent = ureq::AgentBuilder::new()
         .timeout_read(Duration::from_secs(timeout_secs))
@@ -318,7 +354,9 @@ fn complete_with_endpoint(
     let mut retry = false;
 
     let response = loop {
-        let mut request = agent.post(&url).set("Content-Type", "application/json");
+        let mut request = agent
+            .post(&target.url)
+            .set("Content-Type", "application/json");
         if let Some(value) = &endpoint.authorization {
             request = request.set("Authorization", value);
         }
@@ -363,7 +401,7 @@ fn complete_with_endpoint(
         };
     };
 
-    match kind {
+    match target.kind {
         EndpointKind::OllamaNative => {
             let parsed: OllamaChatResponse = response
                 .into_json()
@@ -386,12 +424,24 @@ fn complete_with_endpoint(
             let parsed: CompletionResponse = response
                 .into_json()
                 .map_err(|e| format!("Failed to parse completion response: {e}"))?;
-            parsed
+            let choice = parsed
                 .choices
                 .into_iter()
                 .next()
-                .map(|c| c.message.content)
-                .ok_or_else(|| "No completion choices returned".to_string())
+                .ok_or_else(|| "No completion choices returned".to_string())?;
+            if choice.message.content.is_empty() {
+                if let Some(reasoning) = choice.message.reasoning
+                    && !reasoning.is_empty()
+                {
+                    return Err(format!(
+                        "{} returned empty content (reasoning only: {} chars)",
+                        endpoint.label,
+                        reasoning.len()
+                    ));
+                }
+                return Err(format!("{} returned empty message content", endpoint.label));
+            }
+            Ok(choice.message.content)
         }
     }
 }
@@ -773,14 +823,32 @@ mod tests {
             detect_endpoint_kind("http://localhost:11434/api"),
             EndpointKind::OllamaNative
         );
+        assert_eq!(
+            detect_endpoint_kind("https://api.ollama.com"),
+            EndpointKind::OllamaNative
+        );
     }
 
     #[test]
-    fn test_check_base_url_warning_api_dot_ollama() {
+    fn test_api_dot_ollama_com_uses_native_api_chat() {
+        let target = completion_target("https://api.ollama.com");
+        assert_eq!(target.kind, EndpointKind::OllamaNative);
+        assert_eq!(target.url, "https://api.ollama.com/api/chat");
+    }
+
+    #[test]
+    fn test_ollama_native_num_predict_is_bounded() {
+        assert_eq!(ollama_native_num_predict(0), 1);
+        assert_eq!(ollama_native_num_predict(64), 64);
+        assert_eq!(ollama_native_num_predict(4096), 1024);
+    }
+
+    #[test]
+    fn test_check_base_url_warning_malformed_api_v1() {
         let warning =
-            check_base_url_warnings("https://api.ollama.com", EndpointKind::OpenAICompatible);
+            check_base_url_warnings("https://ollama.com/api/v1", EndpointKind::OllamaNative);
         assert!(warning.is_some());
-        assert!(warning.unwrap().contains("does not support"));
+        assert!(warning.unwrap().contains("Unsupported Ollama URL shape"));
     }
 
     #[test]
@@ -876,16 +944,66 @@ mod tests {
     }
 
     #[test]
-    fn test_api_dot_ollama_com_rejected() {
+    fn test_api_dot_ollama_com_native_endpoint_success() {
+        let server = MockServer::start();
+
+        let mock = server.mock(|when, then| {
+            when.method(httpmock::Method::POST)
+                .path("/api/chat")
+                .header("Authorization", "Bearer test-token")
+                .json_body_partial(r#"{"model":"test-model"}"#);
+            then.status(200)
+                .header("Content-Type", "application/json")
+                .json_body(serde_json::json!({
+                    "message": {
+                        "content": "api dot ollama native response"
+                    }
+                }));
+        });
+
+        let base = format!("{}/api", server.base_url());
         let config = LocalModelConfig {
             base_url: String::new(),
             generation_url: None,
-            ollama_cloud_url: Some("https://api.ollama.com".to_string()),
+            ollama_cloud_url: Some(base),
             ollama_cloud_api_key: Some("test-token".to_string()),
             ollama_cloud_model: Some("test-model".to_string()),
             ..test_config("http://127.0.0.1:1")
         };
 
+        let response = complete(
+            &config,
+            &test_messages(),
+            &CompletionOptions::default(),
+            None,
+        )
+        .unwrap();
+        assert_eq!(response, "api dot ollama native response");
+        assert_eq!(mock.hits(), 1);
+    }
+
+    #[test]
+    fn test_openai_compatible_empty_content_reasoning() {
+        let server = MockServer::start();
+
+        server.mock(|when, then| {
+            when.method(httpmock::Method::POST)
+                .path("/v1/chat/completions");
+            then.status(200)
+                .header("Content-Type", "application/json")
+                .json_body(serde_json::json!({
+                    "choices": [
+                        {
+                            "message": {
+                                "content": "",
+                                "reasoning": "internal chain"
+                            }
+                        }
+                    ]
+                }));
+        });
+
+        let config = test_config(&server.base_url());
         let result = complete(
             &config,
             &test_messages(),
@@ -895,8 +1013,8 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
-            err.contains("does not support"),
-            "expected base URL warning, got: {err}"
+            err.contains("reasoning only"),
+            "expected reasoning-only error, got: {err}"
         );
     }
 
