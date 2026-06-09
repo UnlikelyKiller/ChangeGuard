@@ -1,6 +1,6 @@
 # Track X5: Security Child Node Orphan Pruning
 
-**Status:** Planned  
+**Status:** Completed  
 **Milestone:** X — Command Surface Correctness  
 **Priority:** Medium
 

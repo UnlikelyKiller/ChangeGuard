@@ -951,8 +951,8 @@ impl<'a> LedgerDb<'a> {
                     l.verification_status, l.verification_basis, l.outcome_notes,
                     l.origin, l.trace_id, l.signature, l.public_key, l.risk, l.related_tickets
              FROM ledger_entries l
-             JOIN project_file_changes pfc ON l.tx_id = pfc.transaction_id
-             WHERE pfc.file_path = ?1 OR pfc.file_path LIKE ?2
+             JOIN token_provenance tp ON l.tx_id = tp.tx_id
+             WHERE tp.entity = ?1 OR tp.entity LIKE ?2
              ORDER BY l.committed_at DESC",
         )?;
 

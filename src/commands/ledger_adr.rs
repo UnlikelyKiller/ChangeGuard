@@ -126,18 +126,22 @@ fn execute_ledger_adr_list(storage: &StorageManager) -> Result<()> {
     let conn = storage.get_connection();
     let mut stmt = conn
         .prepare(
-            "SELECT id, entity, status, title, created_at FROM ledger_adrs ORDER BY created_at DESC",
+            "SELECT le.id, le.entity, COALESCE(am.status, 'proposed'), le.summary, le.committed_at
+             FROM ledger_entries le
+             LEFT JOIN adr_metadata am ON le.tx_id = am.adr_id
+             WHERE le.entry_type = 'ARCHITECTURE' OR le.is_breaking = 1
+             ORDER BY le.committed_at DESC",
         )
         .map_err(|e| miette::miette!("Failed to query ADRs: {}", e))?;
 
     let rows = stmt
         .query_map([], |row| {
-            let id: String = row.get(0)?;
+            let id: i64 = row.get(0)?;
             let entity: String = row.get(1)?;
             let status: String = row.get(2)?;
             let title: String = row.get(3)?;
             let created_at: String = row.get(4)?;
-            Ok((id, entity, status, title, created_at))
+            Ok((id.to_string(), entity, status, title, created_at))
         })
         .map_err(|e| miette::miette!("Failed to read ADRs: {}", e))?
         .collect::<std::result::Result<Vec<_>, _>>()

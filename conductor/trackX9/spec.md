@@ -1,6 +1,6 @@
 # Track X9: Empty-State Hints for `observability coverage`, `deploy impact`, and `tests`
 
-**Status:** Planned  
+**Status:** Completed  
 **Milestone:** X — Command Surface Correctness  
 **Priority:** Low
 

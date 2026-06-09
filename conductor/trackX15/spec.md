@@ -1,6 +1,6 @@
 # Track X15: `watch` Mode Stability and Exit Handling
 
-**Status:** Planned  
+**Status:** Completed  
 **Milestone:** X — Command Surface Correctness  
 **Priority:** Low
 

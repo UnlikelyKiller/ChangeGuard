@@ -1,6 +1,6 @@
 # Track X12: `hotspots explain` Filters Directory-Level Temporal Coupling Noise
 
-**Status:** Planned  
+**Status:** Completed  
 **Milestone:** X — Command Surface Correctness  
 **Priority:** Low
 

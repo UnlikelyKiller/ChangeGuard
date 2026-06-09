@@ -1,6 +1,6 @@
 # Track X7: `doctor` Shows Placeholder When Embedding Model Is Unconfigured
 
-**Status:** Planned  
+**Status:** Completed  
 **Milestone:** X — Command Surface Correctness  
 **Priority:** Low
 

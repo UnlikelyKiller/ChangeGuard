@@ -172,6 +172,16 @@ fn persist_hotspots_and_couplings(
     Ok(())
 }
 
+fn format_trend_ts(ts: &str) -> String {
+    chrono::DateTime::parse_from_rfc3339(ts)
+        .map(|dt| {
+            dt.with_timezone(&chrono::Utc)
+                .format("%Y-%m-%d %H:%M UTC")
+                .to_string()
+        })
+        .unwrap_or_else(|_| ts.to_string())
+}
+
 fn execute_hotspots_trend(
     storage: &StorageManager,
     entity: Option<String>,
@@ -224,7 +234,12 @@ fn execute_hotspots_trend(
             println!("  No trend data available. Run 'hotspots --snapshot' to start tracking.");
         } else {
             for (path, ts, score) in rows {
-                println!("  {} | {} | Score: {:.4}", ts, path, score);
+                println!(
+                    "  {} | {} | Score: {:.4}",
+                    format_trend_ts(&ts),
+                    path,
+                    score
+                );
             }
         }
     }

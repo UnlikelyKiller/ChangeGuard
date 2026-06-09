@@ -1,11 +1,11 @@
 # Track X5 Plan: Security Child Node Orphan Pruning
 
 ## Phase 1 — Red (Failing Tests)
-- [ ] 1. Write unit test: insert a `principal` node whose ID contains a deleted-policy filename, run the pruning logic, assert node is gone.
-- [ ] 2. Write unit test: insert a `principal` node whose ID matches a valid policy filename, run pruning, assert node is preserved.
+- [x] 1. Write unit test: insert a `principal` node whose ID contains a deleted-policy filename, run the pruning logic, assert node is gone.
+- [x] 2. Write unit test: insert a `principal` node whose ID matches a valid policy filename, run pruning, assert node is preserved.
 
 ## Phase 2 — Implementation
-- [ ] 3. In `src/index/graph_loader.rs` Section 9, extend the existing pruning block to cascade to child categories. After the `policy` node prune:
+- [x] 3. In `src/index/graph_loader.rs` Section 9, extend the existing pruning block to cascade to child categories. After the `policy` node prune:
   ```rust
   for child_category in &["principal", "action", "resource"] {
       if valid_cedar_filenames.is_empty() {
@@ -31,11 +31,11 @@
       }
   }
   ```
-- [ ] 4. Add `info!("Cedar child node cleanup: pruned principal/action/resource orphans")` log line.
+- [x] 4. Add `info!("Cedar child node cleanup: pruned principal/action/resource orphans")` log line.
 
 ## Phase 3 — Green + Cleanup
-- [ ] 5. Run `changeguard index --analyze-graph`, confirm `security boundaries` shows no orphaned entries.
-- [ ] 6. Run `cargo nextest run --lib --bins --workspace` — all pass.
-- [ ] 7. Run `cargo clippy --all-targets --all-features -- -D warnings` — clean.
-- [ ] 8. Run `cargo fmt --all -- --check` — clean.
-- [ ] 9. Update `conductor/conductor.md` status to Completed.
+- [x] 5. Run `changeguard index --analyze-graph`, confirm `security boundaries` shows no orphaned entries.
+- [x] 6. Run `cargo nextest run --lib --bins --workspace` — all pass.
+- [x] 7. Run `cargo clippy --all-targets --all-features -- -D warnings` — clean.
+- [x] 8. Run `cargo fmt --all -- --check` — clean.
+- [x] 9. Update `conductor/conductor.md` status to Completed.

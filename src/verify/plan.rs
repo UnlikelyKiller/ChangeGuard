@@ -51,7 +51,7 @@ pub fn resolve_default_test_command(prefer_nextest: Option<bool>) -> String {
         _ => crate::verify::engine::probe_nextest(),
     };
     if use_nextest {
-        "cargo nextest run --workspace".to_string()
+        "cargo nextest run --lib --bins --workspace".to_string()
     } else {
         "cargo test -j 1 -- --test-threads=1".to_string()
     }

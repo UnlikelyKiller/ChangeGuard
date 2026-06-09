@@ -1,6 +1,6 @@
 # Track X14: `impact` and `scan` Surface Actionable Risk Summaries
 
-**Status:** Planned  
+**Status:** Completed  
 **Milestone:** X — Command Surface Correctness  
 **Priority:** Low
 

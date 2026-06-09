@@ -1,6 +1,6 @@
 # Track X13: `security boundaries` Shows Auth/Authz Summary
 
-**Status:** Planned  
+**Status:** Completed  
 **Milestone:** X — Command Surface Correctness  
 **Priority:** Low
 

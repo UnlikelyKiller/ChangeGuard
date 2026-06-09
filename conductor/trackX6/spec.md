@@ -1,6 +1,6 @@
 # Track X6: `audit <entity>` Resolves File Paths to Ledger Entities
 
-**Status:** Planned  
+**Status:** Completed  
 **Milestone:** X — Command Surface Correctness  
 **Priority:** Medium
 

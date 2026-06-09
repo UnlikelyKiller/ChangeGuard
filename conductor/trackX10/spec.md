@@ -1,6 +1,6 @@
 # Track X10: `ledger gc` No-Args UX and `ledger adr list`
 
-**Status:** Planned  
+**Status:** Completed  
 **Milestone:** X — Command Surface Correctness  
 **Priority:** Low
 

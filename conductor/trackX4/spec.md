@@ -1,6 +1,6 @@
 # Track X4: `ledger graph` Writes Transaction→Entity Edges on Commit
 
-**Status:** Planned  
+**Status:** Completed  
 **Milestone:** X — Command Surface Correctness  
 **Priority:** High
 

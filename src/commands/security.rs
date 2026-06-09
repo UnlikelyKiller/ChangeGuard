@@ -156,6 +156,14 @@ fn execute_boundaries(json: bool, layout: &crate::state::layout::Layout) -> Resu
          relation = rel",
     )?;
 
+    // Build category counts
+    let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for row in &auth_res.rows {
+        if let Some(cozo::DataValue::Str(cat)) = row.get(2) {
+            *counts.entry(cat.to_string()).or_insert(0) += 1;
+        }
+    }
+
     if json {
         let mut auth_nodes = Vec::new();
         for row in auth_res.rows {
@@ -197,76 +205,100 @@ fn execute_boundaries(json: bool, layout: &crate::state::layout::Layout) -> Resu
         println!(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
-                "auth_nodes": auth_nodes,
-                "boundary_edges": boundary_edges,
+                "meta": { "counts": counts },
+                "boundaries": {
+                    "auth_nodes": auth_nodes,
+                    "boundary_edges": boundary_edges,
+                },
             }))
             .into_diagnostic()?
         );
     } else {
-        println!("{}", "Security Boundaries & Policies".bold().red());
-
-        // --- Auth nodes table ---
-        let auth_count = auth_res.rows.len();
-        println!(
-            "\n{} ({} total)",
-            "Authorization Nodes (policy/principal/action/resource):".bold(),
-            auth_count.to_string().bold(),
-        );
-        let mut auth_table = Table::new();
-        auth_table.set_header(vec!["Category", "Label", "ID"]);
-        for row in auth_res.rows {
-            if let (
-                Some(cozo::DataValue::Str(id)),
-                Some(cozo::DataValue::Str(label)),
-                Some(cozo::DataValue::Str(cat)),
-            ) = (row.first(), row.get(1), row.get(2))
-            {
-                auth_table.add_row(vec![cat.to_string(), truncate(label, 60), truncate(id, 80)]);
-            }
-        }
-        println!("{}", auth_table);
-
-        // --- Boundary links table ---
-        let boundary_count = boundary_res.rows.len();
-        println!(
-            "\n{} ({} total)",
-            "Cross-Surface Boundary Links (policy → protected entity):".bold(),
-            boundary_count.to_string().bold(),
-        );
-        if boundary_res.rows.is_empty() {
+        // --- Summary counts header ---
+        if auth_res.rows.is_empty() {
+            println!("{}", "No security boundary data found.".yellow());
             println!(
-                "{}",
-                "  No cross-surface links found. Run `changeguard index --incremental` to refresh."
-                    .dimmed()
+                "  Add Cedar policy files to 'policies/' and run {}.",
+                "changeguard index --analyze-graph".cyan().bold()
             );
         } else {
-            let mut boundary_table = Table::new();
-            boundary_table.set_header(vec!["Policy", "Relation", "Target", "Target Category"]);
-            for row in boundary_res.rows {
+            let summary = ["policy", "principal", "action", "resource"]
+                .iter()
+                .map(|k| format!("{} {}", counts.get(*k).copied().unwrap_or(0), k))
+                .collect::<Vec<_>>()
+                .join(" | ");
+            println!(
+                "{}",
+                format!("Security Boundaries  [{}]", summary).bold().green()
+            );
+
+            // --- Auth nodes table ---
+            let auth_count = auth_res.rows.len();
+            println!(
+                "\n{} ({} total)",
+                "Authorization Nodes (policy/principal/action/resource):".bold(),
+                auth_count.to_string().bold(),
+            );
+            let mut auth_table = Table::new();
+            auth_table.set_header(vec!["Category", "Label", "ID"]);
+            for row in auth_res.rows {
                 if let (
-                    Some(cozo::DataValue::Str(_pid)),
-                    Some(cozo::DataValue::Str(plabel)),
-                    Some(cozo::DataValue::Str(rel)),
-                    Some(cozo::DataValue::Str(_tid)),
-                    Some(cozo::DataValue::Str(tlabel)),
-                    Some(cozo::DataValue::Str(tcat)),
-                ) = (
-                    row.first(),
-                    row.get(1),
-                    row.get(2),
-                    row.get(3),
-                    row.get(4),
-                    row.get(5),
-                ) {
-                    boundary_table.add_row(vec![
-                        truncate(plabel, 50),
-                        rel.to_string(),
-                        truncate(tlabel, 50),
-                        tcat.to_string(),
+                    Some(cozo::DataValue::Str(id)),
+                    Some(cozo::DataValue::Str(label)),
+                    Some(cozo::DataValue::Str(cat)),
+                ) = (row.first(), row.get(1), row.get(2))
+                {
+                    auth_table.add_row(vec![
+                        cat.to_string(),
+                        truncate(label, 60),
+                        truncate(id, 80),
                     ]);
                 }
             }
-            println!("{}", boundary_table);
+            println!("{}", auth_table);
+
+            // --- Boundary links table ---
+            let boundary_count = boundary_res.rows.len();
+            println!(
+                "\n{} ({} total)",
+                "Cross-Surface Boundary Links (policy → protected entity):".bold(),
+                boundary_count.to_string().bold(),
+            );
+            if boundary_res.rows.is_empty() {
+                println!(
+                    "{}",
+                    "  No cross-surface links found. Run `changeguard index --incremental` to refresh."
+                        .dimmed()
+                );
+            } else {
+                let mut boundary_table = Table::new();
+                boundary_table.set_header(vec!["Policy", "Relation", "Target", "Target Category"]);
+                for row in boundary_res.rows {
+                    if let (
+                        Some(cozo::DataValue::Str(_pid)),
+                        Some(cozo::DataValue::Str(plabel)),
+                        Some(cozo::DataValue::Str(rel)),
+                        Some(cozo::DataValue::Str(_tid)),
+                        Some(cozo::DataValue::Str(tlabel)),
+                        Some(cozo::DataValue::Str(tcat)),
+                    ) = (
+                        row.first(),
+                        row.get(1),
+                        row.get(2),
+                        row.get(3),
+                        row.get(4),
+                        row.get(5),
+                    ) {
+                        boundary_table.add_row(vec![
+                            truncate(plabel, 50),
+                            rel.to_string(),
+                            truncate(tlabel, 50),
+                            tcat.to_string(),
+                        ]);
+                    }
+                }
+                println!("{}", boundary_table);
+            }
         }
     }
 

@@ -150,7 +150,7 @@ pub fn execute_watch(interval_ms: u64, json_output: bool, no_graph_sync: bool) -
     }
 
     if !json_output {
-        println!("{}", "Watch mode stopped.".yellow());
+        println!("{}", "Watch stopped.".yellow());
     }
     Ok(())
 }

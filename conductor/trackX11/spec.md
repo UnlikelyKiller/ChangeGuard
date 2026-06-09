@@ -1,6 +1,6 @@
 # Track X11: `verify` Uses `cargo nextest run` Instead of `cargo test`
 
-**Status:** Planned  
+**Status:** Completed  
 **Milestone:** X — Command Surface Correctness  
 **Priority:** Low
 

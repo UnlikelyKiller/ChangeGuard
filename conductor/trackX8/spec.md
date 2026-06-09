@@ -1,6 +1,6 @@
 # Track X8: `hotspots trend` Shows Human-Readable Timestamps
 
-**Status:** Planned  
+**Status:** Completed  
 **Milestone:** X — Command Surface Correctness  
 **Priority:** Low
 
