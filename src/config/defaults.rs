@@ -55,10 +55,13 @@ stale_threshold_days = 3
 # Use 127.0.0.1 — 'localhost' resolves to ::1 (IPv6) on Windows, which breaks IPv4-only servers
 base_url = "http://127.0.0.1:8081"
 embedding_url = "http://127.0.0.1:8083"
-# Optional fallback for OpenAI-compatible Ollama Cloud completions.
+# Optional fallback for Ollama Cloud completions.
 # Prefer OLLAMA_CLOUD_* environment variables or local .env for secrets.
-# ollama_cloud_url = "https://api.ollama.com"
+# Native:   ollama_cloud_url = "https://ollama.com/api"  (POST /api/chat)
+# OpenAI:   ollama_cloud_url = "https://ollama.com"      (POST /v1/chat/completions)
+# NOTE: https://api.ollama.com does NOT support /v1/chat/completions
 # ollama_cloud_model = "minimax-m3:cloud"
+# Backward-compatible alias: ollama_key = "..."  (same as ollama_cloud_api_key)
 
 [semantic]
 hnsw_rebuild_threshold = 500

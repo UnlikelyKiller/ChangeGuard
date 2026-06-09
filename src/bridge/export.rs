@@ -141,7 +141,7 @@ pub fn execute_export(args: ExportArgs) -> Result<()> {
             fs::create_dir_all(parent).into_diagnostic()?;
         }
         fs::write(&path, &output).into_diagnostic()?;
-        println!("Exported bridge snapshot to {}", path.cyan());
+        eprintln!("Exported bridge snapshot to {}", path.cyan());
     } else {
         println!("{}", output);
     }

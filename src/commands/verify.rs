@@ -5,9 +5,7 @@ use crate::state::storage::StorageManager;
 use crate::verify::engine::{VerificationContext, VerifyEngine};
 use crate::verify::plan::{VerificationStep, build_plan, build_plan_from_config};
 use crate::verify::predictor::OutcomePredictor;
-use crate::verify::suggestions::{
-    generate_health_suggestions, generate_suggestions, query_ledger_status,
-};
+use crate::verify::suggestions::{generate_suggestions, query_ledger_status};
 use crate::verify::timeouts::{DEFAULT_AUTO_TIMEOUT_SECS, manual_timeout};
 use miette::Result;
 use owo_colors::OwoColorize;
@@ -178,6 +176,11 @@ pub fn execute_verify(
         };
     }
 
+    // Health mode early exit — skip OutcomePredictor::predict and full plan building
+    if health {
+        return execute_verify_health(&layout, &config);
+    }
+
     // 3. Build Plan
     let (plan, steps) = match command_str {
         Some(ref cmd) => (
@@ -277,7 +280,7 @@ pub fn execute_verify(
         println!();
     }
 
-    // Dry Run early exit
+    // Dry Run early exit with compressed output
     if dry_run {
         // For manual commands, print the steps derived from the CLI arg
         if manual_requested {
@@ -289,53 +292,73 @@ pub fn execute_verify(
             );
             println!();
         }
+
+        // Group predicted impacts by source for compressed output
+        let verbose = std::env::var("VERBOSE_DRY_RUN").is_ok();
+        let predicted: Vec<&VerificationStep> = steps
+            .iter()
+            .filter(|s| s.description.starts_with("Predicted impact"))
+            .collect();
+        let other: Vec<&VerificationStep> = steps
+            .iter()
+            .filter(|s| !s.description.starts_with("Predicted impact"))
+            .collect();
+
+        // Print non-predicted steps (rules, config)
+        if !other.is_empty() {
+            println!("{}", "Verification Steps:".bold().cyan());
+            for step in &other {
+                println!("  • {} (timeout: {}s)", step.command, step.timeout_secs);
+            }
+        }
+
+        // Print compressed predicted impacts
+        if !predicted.is_empty() {
+            println!(
+                "\n{}",
+                "Predicted Impacts (grouped by source):".bold().cyan()
+            );
+            let mut groups: std::collections::BTreeMap<String, Vec<String>> =
+                std::collections::BTreeMap::new();
+            for step in &predicted {
+                // Extract group name from "Predicted impact (GroupName) on path"
+                let desc = &step.description;
+                if let Some(start) = desc.find('(')
+                    && let Some(end) = desc.find(')')
+                {
+                    let group = desc[start + 1..end].to_string();
+                    let path = desc[end + 5..].to_string(); // ") on " = 5 chars
+                    groups.entry(group).or_default().push(path);
+                }
+            }
+
+            for (source, paths) in &groups {
+                println!(
+                    "  {}",
+                    format!("Source: {} — {} items", source, paths.len()).bold()
+                );
+                let show = if verbose {
+                    paths.len()
+                } else {
+                    std::cmp::min(5, paths.len())
+                };
+                for path in paths.iter().take(show) {
+                    println!("    • {}", path);
+                }
+                if !verbose && paths.len() > 5 {
+                    println!(
+                        "    ... and {} more (set VERBOSE_DRY_RUN=1 for full list)",
+                        paths.len() - 5
+                    );
+                }
+            }
+        }
+
         println!(
-            "{}",
+            "\n{}",
             "Dry run mode: verification plan displayed above. No commands were executed.".yellow()
         );
         return Ok(());
-    }
-
-    // Health check validation path
-    if health {
-        println!("{}", "Verification Health Check".bold().green());
-        let mut all_ok = true;
-        for step in &steps {
-            let exe = extract_executable(&step.command);
-            let exists = check_executable_exists(exe);
-            if exists {
-                println!(
-                    "  [{}] Command '{}' is available.",
-                    "OK".green(),
-                    step.command
-                );
-            } else {
-                println!(
-                    "  [{}] Executable '{}' for command '{}' NOT found on PATH.",
-                    "FAILED".red(),
-                    exe,
-                    step.command
-                );
-                all_ok = false;
-            }
-        }
-
-        let ledger_status = query_ledger_status(&layout);
-        let suggestions = generate_health_suggestions(&ledger_status);
-        if !suggestions.is_empty() {
-            println!("\n{}", "Suggestions:".bold());
-            for sugg in suggestions {
-                println!("  - {}: {}", sugg.description, sugg.command);
-            }
-        }
-
-        if all_ok {
-            return Ok(());
-        } else {
-            return Err(miette::miette!(
-                "Verification health check failed: some executables are missing."
-            ));
-        }
     }
 
     // 4. Execute
@@ -389,6 +412,99 @@ pub fn execute_verify(
         Ok(())
     } else {
         Err(miette::miette!("Verification failed"))
+    }
+}
+
+/// Fast health check that only probes executable availability and basic ledger
+/// state, skipping OutcomePredictor::predict and full plan building entirely.
+/// Returns within a bounded time (<5s on normal machines).
+fn execute_verify_health(layout: &Layout, config: &crate::config::model::Config) -> Result<()> {
+    println!("{}", "Verification Health Check".bold().green());
+    eprintln!("Checking verification dependencies...");
+    let mut all_ok = true;
+
+    if let Some(config_plan) = build_plan_from_config(&config.verify) {
+        for step in &config_plan.steps {
+            let exe = extract_executable(&step.command);
+            eprintln!("  Checking {}...", exe);
+            let exists = check_executable_exists(exe);
+            if exists {
+                println!(
+                    "  [{}] Command '{}' is available.",
+                    "OK".green(),
+                    step.command
+                );
+            } else {
+                println!(
+                    "  [{}] Executable '{}' for command '{}' NOT found on PATH.",
+                    "FAILED".red(),
+                    exe,
+                    step.command
+                );
+                all_ok = false;
+            }
+        }
+    } else {
+        // Auto-detect common tools
+        let common_tools = ["cargo", "cargo-nextest", "python", "npm"];
+        for tool in &common_tools {
+            eprintln!("  Checking {}...", tool);
+            let exists = check_executable_exists(tool);
+            if exists {
+                println!("  [{}] {} is available.", "OK".green(), tool);
+            } else {
+                println!("  [{}] {} not found.", "-".dimmed(), tool);
+            }
+        }
+    }
+
+    // Check ledger health (bounded query)
+    eprintln!("  Checking ledger state...");
+    let ledger_status = query_ledger_status(layout);
+    if ledger_status.unaudited_count > 0 || ledger_status.has_stale_pending {
+        println!(
+            "  [{}] Ledger: {} unaudited, stale pending: {}",
+            "NOTE".yellow(),
+            ledger_status.unaudited_count,
+            ledger_status.has_stale_pending
+        );
+    } else if ledger_status.no_impact_report {
+        println!(
+            "  [{}] No impact report found. Run 'changeguard scan --impact' after making changes.",
+            "NOTE".yellow()
+        );
+    } else {
+        println!("  [{}] Ledger is clean.", "OK".green());
+    }
+
+    // Show runner selection info
+    let has_nextest = check_executable_exists("cargo-nextest");
+    let prefer_nextest = has_nextest && config.verify.prefer_nextest.unwrap_or(false);
+    println!(
+        "  [{}] Runner: {} (nextest {})",
+        "OK".green(),
+        if prefer_nextest {
+            "cargo nextest"
+        } else {
+            "cargo test"
+        },
+        if has_nextest {
+            "available"
+        } else {
+            "not available"
+        }
+    );
+
+    if all_ok {
+        println!(
+            "\n{}",
+            "All verification dependencies are available.".green()
+        );
+        Ok(())
+    } else {
+        Err(miette::miette!(
+            "Verification health check failed: some executables are missing."
+        ))
     }
 }
 

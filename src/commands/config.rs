@@ -93,8 +93,11 @@ pub fn execute_config_view(json: bool, section: Option<String>, key: Option<Stri
     let layout = Layout::new(current_dir.to_string_lossy().as_ref());
     let config = crate::config::load_config(&layout)?;
 
-    let val = serde_json::to_value(&config)
+    let mut val = serde_json::to_value(&config)
         .map_err(|e| miette::miette!("Failed to serialize config: {e}"))?;
+
+    // Redact secret fields (api_key, token, etc.) before any output
+    crate::config::redact::redact_config_value(&mut val);
 
     let filtered = if let Some(sec) = &section {
         let sec_key = val

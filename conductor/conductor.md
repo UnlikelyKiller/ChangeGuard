@@ -1650,10 +1650,10 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Definition of done: Startup banner appears; Ctrl+C exits 0; state dir changes ignored; tests pass.
 
 
-## Milestone Z: Command Audit Remediation & Ollama Cloud Hardening (Planned)
+## Milestone Z: Command Audit Remediation & Ollama Cloud Hardening (Completed)
 
 *   **Track Z1: Command Audit Remediation and Ollama Cloud Hardening**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackZ1/spec.md`
     *   Plan: `conductor/trackZ1/plan.md`
     *   Goal: Close all command-audit "Doesn't Work / Risks" and friction items found on 2026-06-09, with special focus on secret-safe config output, working Ollama Cloud fallback for `ask`, bounded verification health checks, structured-output consistency, and clearer UX for noisy or empty command surfaces.

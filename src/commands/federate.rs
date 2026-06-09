@@ -107,7 +107,9 @@ pub fn execute_federate_scan() -> Result<()> {
 
     let local_packet = storage
         .get_latest_packet()?
-        .ok_or_else(|| miette::miette!("No local index found. Run 'changeguard scan' first."))?;
+        .ok_or_else(|| miette::miette!(
+            "No local index found. Run 'changeguard index --incremental' or 'changeguard scan --impact' first, then run 'changeguard federate export' to make this repo discoverable."
+        ))?;
 
     println!("Scanning for sibling repositories...");
 

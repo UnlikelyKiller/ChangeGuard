@@ -38,6 +38,28 @@ struct CompletionResponse {
     choices: Vec<Choice>,
 }
 
+/// Ollama native `/api/chat` response (stream=false).
+#[derive(Debug, Deserialize)]
+struct OllamaChatResponse {
+    message: OllamaChatMessage,
+}
+
+#[derive(Debug, Deserialize)]
+struct OllamaChatMessage {
+    content: String,
+    #[serde(default)]
+    thinking: Option<String>,
+}
+
+/// Determines how the completion endpoint should be called.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EndpointKind {
+    /// POST /v1/chat/completions (OpenAI-compatible JSON body)
+    OpenAICompatible,
+    /// POST /api/chat (Ollama native JSON body with model/messages)
+    OllamaNative,
+}
+
 struct CompletionEndpoint<'a> {
     label: &'a str,
     base_url: &'a str,
@@ -205,6 +227,33 @@ fn ollama_cloud_endpoint(config: &LocalModelConfig) -> Option<CompletionEndpoint
     })
 }
 
+/// Detect whether a base URL should use Ollama native `/api/chat` or
+/// OpenAI-compatible `/v1/chat/completions`.
+fn detect_endpoint_kind(base_url: &str) -> EndpointKind {
+    let trimmed = base_url.trim_end_matches('/');
+    if trimmed.ends_with("/api") {
+        EndpointKind::OllamaNative
+    } else {
+        EndpointKind::OpenAICompatible
+    }
+}
+
+/// Validate the base URL shape and return a diagnostic warning if the
+/// URL is known to be problematic (e.g. `https://api.ollama.com` which
+/// does NOT support `/v1/chat/completions`).
+fn check_base_url_warnings(base_url: &str, kind: EndpointKind) -> Option<String> {
+    let trimmed = base_url.trim_end_matches('/').to_lowercase();
+    match kind {
+        EndpointKind::OpenAICompatible if trimmed == "https://api.ollama.com" => Some(
+            "WARNING: https://api.ollama.com does not support /v1/chat/completions. \
+                 Use https://ollama.com for OpenAI-compatible mode or https://ollama.com/api \
+                 for native Ollama mode."
+                .to_string(),
+        ),
+        _ => None,
+    }
+}
+
 /// U22: Walk the `ureq::Transport` error source chain looking for an
 /// `io::Error` of `ErrorKind::TimedOut`. ureq 2.12 normalizes both read
 /// timeouts and `WouldBlock` to `TimedOut` internally, but only the inner
@@ -227,19 +276,39 @@ fn complete_with_endpoint(
     messages: &[ChatMessage],
     options: &CompletionOptions,
 ) -> Result<String, String> {
-    let url = format!(
-        "{}/v1/chat/completions",
-        endpoint.base_url.trim_end_matches('/')
-    );
-    tracing::debug!("Using completion URL: {}", url);
+    let kind = detect_endpoint_kind(endpoint.base_url);
 
-    let body = serde_json::json!({
-        "model": endpoint.model,
-        "messages": messages,
-        "max_tokens": options.max_tokens,
-        "temperature": options.temperature,
-        "stream": false,
-    });
+    // Check for known problematic base URL shapes
+    if let Some(warning) = check_base_url_warnings(endpoint.base_url, kind) {
+        return Err(warning);
+    }
+
+    let (url, body) = match kind {
+        EndpointKind::OllamaNative => {
+            let base = endpoint.base_url.trim_end_matches('/');
+            let url = format!("{}/chat", base);
+            let body = serde_json::json!({
+                "model": endpoint.model,
+                "messages": messages,
+                "stream": false,
+            });
+            (url, body)
+        }
+        EndpointKind::OpenAICompatible => {
+            let base = endpoint.base_url.trim_end_matches('/');
+            let url = format!("{}/v1/chat/completions", base);
+            let body = serde_json::json!({
+                "model": endpoint.model,
+                "messages": messages,
+                "max_tokens": options.max_tokens,
+                "temperature": options.temperature,
+                "stream": false,
+            });
+            (url, body)
+        }
+    };
+
+    tracing::debug!("Using completion URL: {} (kind={:?})", url, kind);
 
     let agent = ureq::AgentBuilder::new()
         .timeout_read(Duration::from_secs(timeout_secs))
@@ -263,20 +332,20 @@ fn complete_with_endpoint(
                 continue;
             }
             Err(ureq::Error::Status(503, response)) => {
-                let body = response.into_string().unwrap_or_default();
+                let body_text = response.into_string().unwrap_or_default();
                 return Err(format!(
                     "{} returned 503: {}",
                     endpoint.label,
-                    body.chars().take(200).collect::<String>()
+                    body_text.chars().take(200).collect::<String>()
                 ));
             }
             Err(ureq::Error::Status(429, _)) => return Err("rate limited".to_string()),
             Err(ureq::Error::Status(code, response)) => {
-                let body = response.into_string().unwrap_or_default();
+                let body_text = response.into_string().unwrap_or_default();
                 return Err(format!(
                     "{} returned {code}: {}",
                     endpoint.label,
-                    body.chars().take(200).collect::<String>()
+                    body_text.chars().take(200).collect::<String>()
                 ));
             }
             Err(ureq::Error::Transport(inner)) => {
@@ -294,16 +363,37 @@ fn complete_with_endpoint(
         };
     };
 
-    let parsed: CompletionResponse = response
-        .into_json()
-        .map_err(|e| format!("Failed to parse completion response: {e}"))?;
-
-    parsed
-        .choices
-        .into_iter()
-        .next()
-        .map(|c| c.message.content)
-        .ok_or_else(|| "No completion choices returned".to_string())
+    match kind {
+        EndpointKind::OllamaNative => {
+            let parsed: OllamaChatResponse = response
+                .into_json()
+                .map_err(|e| format!("Failed to parse Ollama native response: {e}"))?;
+            if parsed.message.content.is_empty() {
+                if let Some(ref thinking) = parsed.message.thinking
+                    && !thinking.is_empty()
+                {
+                    return Err(format!(
+                        "{} returned empty content (reasoning only: {} chars)",
+                        endpoint.label,
+                        thinking.len()
+                    ));
+                }
+                return Err(format!("{} returned empty message content", endpoint.label));
+            }
+            Ok(parsed.message.content)
+        }
+        EndpointKind::OpenAICompatible => {
+            let parsed: CompletionResponse = response
+                .into_json()
+                .map_err(|e| format!("Failed to parse completion response: {e}"))?;
+            parsed
+                .choices
+                .into_iter()
+                .next()
+                .map(|c| c.message.content)
+                .ok_or_else(|| "No completion choices returned".to_string())
+        }
+    }
 }
 
 #[cfg(test)]
@@ -651,5 +741,177 @@ mod tests {
         .unwrap();
         assert_eq!(result, "cloud response");
         assert_eq!(mock.hits(), 1);
+    }
+
+    #[test]
+    fn test_detect_endpoint_kind_openai() {
+        assert_eq!(
+            detect_endpoint_kind("https://ollama.com"),
+            EndpointKind::OpenAICompatible
+        );
+        assert_eq!(
+            detect_endpoint_kind("https://ollama.com/"),
+            EndpointKind::OpenAICompatible
+        );
+        assert_eq!(
+            detect_endpoint_kind("http://localhost:11434/v1"),
+            EndpointKind::OpenAICompatible
+        );
+    }
+
+    #[test]
+    fn test_detect_endpoint_kind_native() {
+        assert_eq!(
+            detect_endpoint_kind("https://ollama.com/api"),
+            EndpointKind::OllamaNative
+        );
+        assert_eq!(
+            detect_endpoint_kind("https://ollama.com/api/"),
+            EndpointKind::OllamaNative
+        );
+        assert_eq!(
+            detect_endpoint_kind("http://localhost:11434/api"),
+            EndpointKind::OllamaNative
+        );
+    }
+
+    #[test]
+    fn test_check_base_url_warning_api_dot_ollama() {
+        let warning =
+            check_base_url_warnings("https://api.ollama.com", EndpointKind::OpenAICompatible);
+        assert!(warning.is_some());
+        assert!(warning.unwrap().contains("does not support"));
+    }
+
+    #[test]
+    fn test_check_base_url_no_warning_for_valid() {
+        assert!(
+            check_base_url_warnings("https://ollama.com", EndpointKind::OpenAICompatible).is_none()
+        );
+        assert!(
+            check_base_url_warnings("https://ollama.com/api", EndpointKind::OllamaNative).is_none()
+        );
+        assert!(
+            check_base_url_warnings("http://localhost:11434", EndpointKind::OpenAICompatible)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn test_ollama_native_endpoint_success() {
+        let server = MockServer::start();
+
+        server.mock(|when, then| {
+            when.method(httpmock::Method::POST)
+                .path("/api/chat")
+                .json_body_partial(r#"{"model":"test-model"}"#);
+            then.status(200)
+                .header("Content-Type", "application/json")
+                .json_body(serde_json::json!({
+                    "message": {
+                        "content": "Ollama native response"
+                    }
+                }));
+        });
+
+        // Use a base URL ending in /api to trigger native mode
+        let native_url = format!("{}/api", server.base_url().trim_end_matches('/'));
+        let config = LocalModelConfig {
+            base_url: String::new(),
+            generation_url: None,
+            ollama_cloud_url: Some(native_url),
+            ollama_cloud_api_key: Some("test-token".to_string()),
+            ollama_cloud_model: Some("test-model".to_string()),
+            ..test_config("http://127.0.0.1:1")
+        };
+
+        let result = complete(
+            &config,
+            &test_messages(),
+            &CompletionOptions::default(),
+            None,
+        )
+        .unwrap();
+        assert_eq!(result, "Ollama native response");
+    }
+
+    #[test]
+    fn test_ollama_native_empty_content_reasoning() {
+        let server = MockServer::start();
+
+        server.mock(|when, then| {
+            when.method(httpmock::Method::POST).path("/api/chat");
+            then.status(200)
+                .header("Content-Type", "application/json")
+                .json_body(serde_json::json!({
+                    "message": {
+                        "content": "",
+                        "thinking": "I am thinking deeply about this..."
+                    }
+                }));
+        });
+
+        let native_url = format!("{}/api", server.base_url().trim_end_matches('/'));
+        let config = LocalModelConfig {
+            base_url: String::new(),
+            generation_url: None,
+            ollama_cloud_url: Some(native_url),
+            ollama_cloud_api_key: Some("test-token".to_string()),
+            ollama_cloud_model: Some("test-model".to_string()),
+            ..test_config("http://127.0.0.1:1")
+        };
+
+        let result = complete(
+            &config,
+            &test_messages(),
+            &CompletionOptions::default(),
+            None,
+        );
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("reasoning only"),
+            "expected reasoning-only error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_api_dot_ollama_com_rejected() {
+        let config = LocalModelConfig {
+            base_url: String::new(),
+            generation_url: None,
+            ollama_cloud_url: Some("https://api.ollama.com".to_string()),
+            ollama_cloud_api_key: Some("test-token".to_string()),
+            ollama_cloud_model: Some("test-model".to_string()),
+            ..test_config("http://127.0.0.1:1")
+        };
+
+        let result = complete(
+            &config,
+            &test_messages(),
+            &CompletionOptions::default(),
+            None,
+        );
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("does not support"),
+            "expected base URL warning, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_ollama_key_alias_in_config() {
+        // Verify that 'ollama_key' serde alias works for LocalModelConfig
+        let toml_str = r#"
+        base_url = ""
+        ollama_key = "test-key-value"
+        ollama_cloud_model = "minimax-m3:cloud"
+        "#;
+        let config: LocalModelConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(
+            config.ollama_cloud_api_key.as_deref(),
+            Some("test-key-value")
+        );
     }
 }

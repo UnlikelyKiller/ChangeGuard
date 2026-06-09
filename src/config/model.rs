@@ -579,7 +579,8 @@ pub struct LocalModelConfig {
     pub generation_url: Option<String>,
     #[serde(default)]
     pub ollama_cloud_url: Option<String>,
-    #[serde(default)]
+    /// Backward-compatible alias: `ollama_key`, `ollama_cloud_api_key`.
+    #[serde(default, alias = "ollama_key")]
     pub ollama_cloud_api_key: Option<String>,
     #[serde(default)]
     pub ollama_cloud_model: Option<String>,
@@ -1161,8 +1162,10 @@ fn resolve_local_model_config_with(
     .filter(|s| !s.is_empty());
     resolved.ollama_cloud_url =
         resolve_optional_string(&config.ollama_cloud_url, "OLLAMA_CLOUD_URL");
+    // Try OLLAMA_CLOUD_API_KEY first, then OLLAMA_API_KEY as fallback
     resolved.ollama_cloud_api_key =
-        resolve_optional_string(&config.ollama_cloud_api_key, "OLLAMA_CLOUD_API_KEY");
+        resolve_optional_string(&config.ollama_cloud_api_key, "OLLAMA_CLOUD_API_KEY")
+            .or_else(|| resolve_optional_string(&config.ollama_cloud_api_key, "OLLAMA_API_KEY"));
     resolved.ollama_cloud_model =
         resolve_optional_string(&config.ollama_cloud_model, "OLLAMA_CLOUD_MODEL");
 

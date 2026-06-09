@@ -2,6 +2,7 @@ pub mod defaults;
 pub mod error;
 pub mod load;
 pub mod model;
+pub mod redact;
 pub mod validate;
 
 pub use error::ConfigError;

@@ -277,7 +277,8 @@ pub fn execute_ask(
                 adaptive_mode,
             );
 
-            // Show progress indicator before LLM call
+            // Show progress indicator before LLM call with backend selection
+            eprintln!("Using local/cloud model...");
             eprintln!("Contacting LLM...");
 
             match crate::local_model::client::complete(
@@ -293,11 +294,25 @@ pub fn execute_ask(
                 }
                 Err(e) => {
                     eprintln!("{}", e.to_string().red());
+                    let err_str = e.to_string().to_lowercase();
+                    if err_str.contains("401") {
+                        eprintln!(
+                            "{}",
+                            "Hint: Check your OLLAMA_CLOUD_API_KEY or ollama_key in config.toml"
+                                .yellow()
+                        );
+                    }
+                    if err_str.contains("api.ollama.com") {
+                        eprintln!("{}", "Hint: Use ollama_cloud_url = \"https://ollama.com/api\" (native) or \"https://ollama.com\" (OpenAI-compatible)".yellow());
+                    }
                     Err(miette::miette!("Local model failed: {e}"))
                 }
             }
         }
         Backend::Gemini => {
+            // Show progress indicator before LLM call
+            eprintln!("Using Gemini...");
+
             let budget_tokens = config.gemini.context_window;
             let char_limit = (budget_tokens as f64 * 0.8 * 4.0) as usize;
 
