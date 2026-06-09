@@ -941,6 +941,33 @@ impl<'a> LedgerDb<'a> {
         Ok(entries)
     }
 
+    pub fn find_transactions_by_file(
+        &self,
+        file_path: &str,
+    ) -> Result<Vec<LedgerEntry>, LedgerError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT l.id, l.tx_id, l.category, l.entry_type, l.entity, l.entity_normalized,
+                    l.change_type, l.summary, l.reason, l.is_breaking, l.committed_at,
+                    l.verification_status, l.verification_basis, l.outcome_notes,
+                    l.origin, l.trace_id, l.signature, l.public_key, l.risk, l.related_tickets
+             FROM ledger_entries l
+             JOIN project_file_changes pfc ON l.tx_id = pfc.transaction_id
+             WHERE pfc.file_path = ?1 OR pfc.file_path LIKE ?2
+             ORDER BY l.committed_at DESC",
+        )?;
+
+        let like_pattern = format!("%{}", file_path);
+        let rows = stmt.query_map(params![file_path, like_pattern], |row| {
+            self.map_ledger_entry(row)
+        })?;
+
+        let mut entries = Vec::new();
+        for entry in rows {
+            entries.push(entry?);
+        }
+        Ok(entries)
+    }
+
     pub fn get_transaction_velocity(&self, days: u64) -> Result<usize, LedgerError> {
         let count: i64 = self.conn.query_row(
             "SELECT COUNT(*) FROM ledger_entries WHERE committed_at >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?1)",

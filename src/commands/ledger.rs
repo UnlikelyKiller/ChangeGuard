@@ -358,6 +358,7 @@ pub fn execute_ledger_atomic(
     reason: &str,
 ) -> Result<()> {
     let category = Category::from_str(category, true).map_err(|e| miette::miette!("{}", e))?;
+    let category_str = category.to_string();
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
     let config = load_ledger_config(&layout)?;
@@ -392,7 +393,6 @@ pub fn execute_ledger_atomic(
     };
     drop(tx_mgr);
 
-    let category_str = category.to_string();
     write_ledger_graph_edges(
         &storage.cozo,
         &tx_id,
@@ -641,7 +641,25 @@ pub fn execute_ledger_register_validator(
     Ok(())
 }
 
-pub fn execute_ledger_gc(orphans: bool, ttl_days: u64, force: bool) -> Result<()> {
+pub fn execute_ledger_gc(stale: bool, orphans: bool, ttl_hours: u64, force: bool) -> Result<()> {
+    // No-args UX: show usage if neither mode was selected
+    if !stale && !orphans {
+        println!(
+            "{}",
+            "Usage: changeguard ledger gc --stale [--ttl-hours <N>] | --orphans [--force]".cyan()
+        );
+        println!();
+        println!(
+            "  {}  Remove PENDING transactions older than TTL (default: 72h)",
+            "--stale".bold()
+        );
+        println!(
+            "  {}  Remove transactions with no corresponding git commit",
+            "--orphans".bold()
+        );
+        return Ok(());
+    }
+
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
     let config = load_ledger_config(&layout)?;
@@ -649,9 +667,89 @@ pub fn execute_ledger_gc(orphans: bool, ttl_days: u64, force: bool) -> Result<()
     let mut tx_mgr =
         TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
 
+    if stale {
+        let stale_ids = {
+            let db = LedgerDb::new(tx_mgr.get_connection());
+            let ttl_days = ttl_hours.div_ceil(24);
+            db.get_stale_pending_transactions(ttl_days)
+                .map_err(|e| miette::miette!("Failed to scan for stale transactions: {}", e))?
+        };
+
+        if stale_ids.is_empty() {
+            println!("No stale PENDING transactions found.");
+            return Ok(());
+        }
+
+        println!(
+            "Found {} stale PENDING transaction(s) (older than {} hours).",
+            stale_ids.len(),
+            ttl_hours
+        );
+
+        if !force {
+            println!(
+                "{} This will mark them as ROLLED_BACK in the ledger history.",
+                "WARNING".yellow().bold()
+            );
+            if !crate::util::term::is_interactive() {
+                return Err(miette::miette!(
+                    "Use --force to run GC in non-interactive shells."
+                ));
+            }
+
+            print!("Proceed with cleanup? (y/N): ");
+            use std::io::Write;
+            std::io::stdout().flush().into_diagnostic()?;
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input).into_diagnostic()?;
+            if !input.trim().eq_ignore_ascii_case("y") {
+                println!("Aborted.");
+                return Ok(());
+            }
+        }
+
+        let mut count = 0;
+        let mut failures = 0;
+        for id in stale_ids {
+            if let Err(e) = tx_mgr.rollback_change(
+                id.clone(),
+                "Garbage collection of stale PENDING transaction".to_string(),
+            ) {
+                tracing::warn!("Failed to rollback tx {}: {}", id, e);
+                failures += 1;
+            } else {
+                count += 1;
+            }
+        }
+
+        if count > 0 {
+            println!(
+                "{} Successfully cleaned up {} stale transaction(s).",
+                "DONE".green().bold(),
+                count
+            );
+        }
+
+        if failures > 0 {
+            if count == 0 {
+                return Err(miette::miette!(
+                    "GC failed to clean up any of the {} stale transaction(s). Check logs.",
+                    failures
+                ));
+            } else {
+                println!(
+                    "{} Failed to clean up {} transaction(s). Check logs for details.",
+                    "WARN:".yellow().bold(),
+                    failures
+                );
+            }
+        }
+    }
+
     if orphans {
         let stale_ids = {
             let db = LedgerDb::new(tx_mgr.get_connection());
+            let ttl_days = ttl_hours.div_ceil(24);
             db.get_stale_pending_transactions(ttl_days)
                 .map_err(|e| miette::miette!("Failed to scan for orphans: {}", e))?
         };
@@ -662,9 +760,9 @@ pub fn execute_ledger_gc(orphans: bool, ttl_days: u64, force: bool) -> Result<()
         }
 
         println!(
-            "Found {} orphaned PENDING transaction(s) (older than {} days).",
+            "Found {} orphaned PENDING transaction(s) (older than {} hours).",
             stale_ids.len(),
-            ttl_days
+            ttl_hours
         );
 
         if !force {
@@ -672,9 +770,6 @@ pub fn execute_ledger_gc(orphans: bool, ttl_days: u64, force: bool) -> Result<()
                 "{} This will mark them as ROLLED_BACK in the ledger history.",
                 "WARNING".yellow().bold()
             );
-            // In autonomous mode/agent environments we might want a simple check or default to no
-            // but the SOP says "respect --force flag".
-            // For now, let's assume we need to prompt or just fail if not forced in non-interactive.
             if !crate::util::term::is_interactive() {
                 return Err(miette::miette!(
                     "Use --force to run GC in non-interactive shells."
@@ -728,13 +823,6 @@ pub fn execute_ledger_gc(orphans: bool, ttl_days: u64, force: bool) -> Result<()
                 );
             }
         }
-    } else {
-        if force {
-            return Err(miette::miette!(
-                "--force requires --orphans (or other GC mode)."
-            ));
-        }
-        println!("Please specify a GC mode (e.g. --orphans)");
     }
 
     Ok(())
@@ -827,6 +915,8 @@ pub fn execute_ledger_export_provenance(output: Option<String>) -> Result<()> {
     Ok(())
 }
 
+/// Write transaction-affects edges to the KG (CozoDB) so that
+/// `ledger graph <tx-id>` returns the entity neighborhood.
 fn write_ledger_graph_edges(
     cozo_opt: &Option<crate::state::storage_cozo::CozoStorage>,
     tx_id: &str,

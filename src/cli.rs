@@ -327,8 +327,9 @@ pub enum Commands {
     },
     /// Watch repository for changes and run incremental graph sync
     Watch {
-        /// Throttle interval in milliseconds for debouncing file events
-        #[arg(long, short, default_value_t = 1000)]
+        /// Throttle interval in milliseconds for debouncing file events.
+        /// Defaults to `watch.debounce_ms` from config when not specified.
+        #[arg(long, short, default_value_t = 0)]
         interval: u64,
         /// Output watch events as JSON
         #[arg(long, short)]
@@ -411,6 +412,8 @@ pub enum AdrSubcommands {
         #[arg(short, long)]
         message: Option<String>,
     },
+    /// List all ADRs in the ledger
+    List,
 }
 
 #[derive(Subcommand, Debug)]
@@ -733,12 +736,15 @@ pub enum LedgerCommands {
     },
     /// Garbage collect orphaned or stale ledger entries
     Gc {
-        /// Identify and remove orphaned PENDING transactions
+        /// Remove PENDING transactions older than TTL
+        #[arg(long)]
+        stale: bool,
+        /// Remove transactions with no corresponding git commit
         #[arg(long)]
         orphans: bool,
-        /// Time-to-live for PENDING transactions in days
-        #[arg(long, default_value_t = 7)]
-        ttl_days: u64,
+        /// Time-to-live for PENDING transactions in hours (used with --stale)
+        #[arg(long, default_value_t = 72)]
+        ttl_hours: u64,
         /// Force removal without confirmation
         #[arg(short, long)]
         force: bool,
@@ -1053,10 +1059,11 @@ pub fn run_with(cli: Cli) -> Result<()> {
                 json,
             ),
             LedgerCommands::Gc {
+                stale,
                 orphans,
-                ttl_days,
+                ttl_hours,
                 force,
-            } => crate::commands::ledger::execute_ledger_gc(orphans, ttl_days, force),
+            } => crate::commands::ledger::execute_ledger_gc(stale, orphans, ttl_hours, force),
         },
         Commands::Verify {
             command,

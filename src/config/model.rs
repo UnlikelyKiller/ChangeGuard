@@ -27,6 +27,10 @@ pub struct VerifyConfig {
     /// Weight of semantic prediction in score blending [0.0, 1.0]. 0.0 disables.
     #[serde(default = "default_semantic_weight")]
     pub semantic_weight: f64,
+    /// Prefer `cargo nextest run` over `cargo test` when nextest is installed.
+    /// None means true (auto-detect). Set to false to always use cargo test.
+    #[serde(default)]
+    pub prefer_nextest: Option<bool>,
 }
 
 fn default_semantic_weight() -> f64 {
@@ -43,6 +47,7 @@ impl Default for VerifyConfig {
             steps: Vec::new(),
             default_timeout_secs: default_verify_timeout(),
             semantic_weight: default_semantic_weight(),
+            prefer_nextest: None,
         }
     }
 }

@@ -41,48 +41,42 @@ pub fn execute_doctor() -> Result<()> {
     let mut model_config = config.local_model.clone();
     model_config.timeout_secs = 2;
 
-    report.embedding_model_status = match crate::embed::client::check_local_model(&model_config) {
-        Ok(dims) => format!(
-            "{} ({} dims) @ {}",
-            config.local_model.embedding_model,
-            dims.dimensions,
-            config
-                .local_model
-                .embedding_url
-                .as_deref()
-                .unwrap_or(&config.local_model.base_url)
-        ),
-        Err(e) => format!("unreachable ({})", e.yellow()),
-    };
-
-    report.completion_model_status =
-        match crate::local_model::client::ping_completions(&model_config) {
-            Ok(model) => format!(
-                "{} @ {}",
-                model,
+    if config.local_model.embedding_model.is_empty() {
+        report.embedding_model_status = "Not configured".yellow().to_string();
+    } else {
+        report.embedding_model_status = match crate::embed::client::check_local_model(&model_config)
+        {
+            Ok(dims) => format!(
+                "{} ({} dims) @ {}",
+                config.local_model.embedding_model,
+                dims.dimensions,
                 config
                     .local_model
-                    .generation_url
+                    .embedding_url
                     .as_deref()
                     .unwrap_or(&config.local_model.base_url)
             ),
-            Err(_) => {
-                if let (Some(cloud_url), Some(cloud_model)) = (
-                    config.local_model.ollama_cloud_url.as_deref(),
-                    config.local_model.ollama_cloud_model.as_deref(),
-                ) {
-                    format!(
-                        "local unreachable → cloud fallback: {} @ {}",
-                        cloud_model.cyan(),
-                        cloud_url
-                    )
-                } else {
-                    "unreachable (no cloud fallback configured)"
-                        .yellow()
-                        .to_string()
-                }
-            }
+            Err(e) => format!("unreachable ({})", e.yellow()),
         };
+    }
+
+    if config.local_model.generation_model.is_empty() {
+        report.completion_model_status = "Not configured".yellow().to_string();
+    } else {
+        report.completion_model_status =
+            match crate::local_model::client::ping_completions(&model_config) {
+                Ok(model) => format!(
+                    "{} @ {}",
+                    model,
+                    config
+                        .local_model
+                        .generation_url
+                        .as_deref()
+                        .unwrap_or(&config.local_model.base_url)
+                ),
+                Err(e) => format!("unreachable ({})", e.yellow()),
+            };
+    }
 
     // --- Graph Probe ---
     if let Some(cozo) = &storage.cozo {

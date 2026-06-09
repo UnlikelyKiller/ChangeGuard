@@ -49,6 +49,18 @@ pub fn execute_tests_for_entity(args: TestsForEntityArgs) -> Result<()> {
     );
     let res = cozo.run_script_with_params(query, params, cozo::ScriptMutability::Immutable)?;
 
+    if !args.json && res.rows.is_empty() {
+        println!(
+            "  {}",
+            format!("No test mappings found for '{}'.", args.entity).yellow()
+        );
+        println!(
+            "  Run {} to populate test mappings.",
+            "changeguard index".cyan().bold()
+        );
+        return Ok(());
+    }
+
     if args.json {
         let mut results = Vec::new();
         for row in res.rows {

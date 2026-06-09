@@ -608,7 +608,13 @@ pub fn build_native_graph(
             if path.extension().and_then(|e| e.to_str()) == Some("yml")
                 || path.extension().and_then(|e| e.to_str()) == Some("yaml")
             {
-                let content = std::fs::read_to_string(&path).unwrap_or_default();
+                let content = match std::fs::read_to_string(&path) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::warn!("Failed to read observability file {:?}: {}", path, e);
+                        continue;
+                    }
+                };
                 let abs_str = path.to_string_lossy().replace('\\', "/");
                 let root_prefix = format!(
                     "{}/",
@@ -871,153 +877,20 @@ pub fn build_native_graph(
     let mut policy_nodes = Vec::new();
     let mut policy_edges = Vec::new();
     let policy_dir = storage.root_path().join("policies");
-
-    // Collect valid cedar filenames from disk (non-test-fixture .cedar files).
-    // Used to prune stale policy nodes that were indexed in a previous run but
-    // whose source file has since been deleted or was a test fixture.
-    let valid_cedar_filenames: std::collections::HashSet<String> = std::fs::read_dir(&policy_dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|e| {
-            let p = e.path();
-            let stem = p
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("")
-                .to_string();
-            let is_test = stem == "test"
-                || stem.starts_with("test_")
-                || stem.starts_with("mock_")
-                || stem.ends_with("_test");
-            if p.extension().and_then(|e| e.to_str()) == Some("cedar") && !is_test {
-                p.file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|n| n.to_lowercase())
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    // Prune policy nodes in CozoDB whose source file is no longer on disk or is a test fixture.
-    if valid_cedar_filenames.is_empty() {
-        // No valid cedar files on disk — wipe all policy nodes from a previous run.
-        let _ = cozo.run_script("?[id] := *node{id, category: 'policy'} :rm node {id}");
-    } else if let Ok(res) = cozo.run_script("?[id] := *node{id, category: 'policy'}") {
-        let stale_ids: Vec<String> = res
-            .rows
-            .into_iter()
-            .filter_map(|row| {
-                if let Some(cozo::DataValue::Str(id)) = row.into_iter().next() {
-                    let id_lower = id.to_lowercase();
-                    let is_valid = valid_cedar_filenames
-                        .iter()
-                        .any(|fname| id_lower.contains(fname.as_str()));
-                    if !is_valid {
-                        Some(id.to_string())
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let _ = cozo.remove_nodes_by_id(&stale_ids);
-    }
-
-    // Section 9b -- cascade pruning to policy child nodes (principal / action / resource).
-    // A child node is orphaned if it has no incoming Authorizes edge from a currently-valid
-    // policy node (i.e. one whose id contains a valid cedar filename).
-    // @cg-tx: 495acfd7-5356-4041-8092-585eea54f348
-    const CHILD_CATEGORIES: &[&str] = &["principal", "action", "resource"];
-    if valid_cedar_filenames.is_empty() {
-        // No valid cedar files at all -- prune every child node unconditionally.
-        for cat in CHILD_CATEGORIES {
-            if let Err(e) = cozo.run_script(&format!(
-                "?[id] := *node{{id, category: '{cat}'}} :rm node {{id}}"
-            )) {
-                tracing::warn!(
-                    "Cedar child node cleanup (empty): failed to prune {cat} nodes: {e}"
-                );
-            }
-        }
-        tracing::info!(
-            "Cedar child node cleanup: pruned all principal/action/resource orphans (no valid policies)"
-        );
-    } else {
-        // Some policies remain -- only prune child nodes that have NO incoming Authorizes
-        // edge from a live policy node.  A policy node is live when its id contains a
-        // valid cedar filename (same heuristic used for the policy-prune block above).
-        for cat in CHILD_CATEGORIES {
-            let Ok(child_res) =
-                cozo.run_script(&format!("?[id] := *node{{id, category: '{cat}'}}"))
-            else {
-                continue;
-            };
-
-            let stale_child_ids: Vec<String> = child_res
-                .rows
-                .into_iter()
-                .filter_map(|row| {
-                    let Some(cozo::DataValue::Str(child_id)) = row.into_iter().next() else {
-                        return None;
-                    };
-                    // Escape single-quotes in the URN so the Datalog literal is valid.
-                    let escaped = child_id.replace('\'', "\\'");
-                    let check = format!(
-                        "?[src] := *edge{{source: src, target: '{escaped}', relation: 'authorizes'}}, \
-                         *node{{id: src, category: 'policy'}}"
-                    );
-                    let has_live_edge = cozo
-                        .run_script(&check)
-                        .map(|r| {
-                            // At least one edge source must be a live (valid-filename) policy node.
-                            r.rows.iter().any(|edge_row| {
-                                if let Some(cozo::DataValue::Str(src_id)) = edge_row.first() {
-                                    let src_lower = src_id.to_lowercase();
-                                    valid_cedar_filenames
-                                        .iter()
-                                        .any(|fname| src_lower.contains(fname.as_str()))
-                                } else {
-                                    false
-                                }
-                            })
-                        })
-                        .unwrap_or(false);
-
-                    if has_live_edge {
-                        None
-                    } else {
-                        Some(child_id.to_string())
-                    }
-                })
-                .collect();
-
-            let pruned = stale_child_ids.len();
-            if let Err(e) = cozo.remove_nodes_by_id(&stale_child_ids) {
-                tracing::warn!("Cedar child node cleanup: failed to prune {cat} orphans: {e}");
-            } else {
-                tracing::info!("Cedar child node cleanup: pruned {pruned} stale {cat} nodes");
-            }
-        }
-    }
-
     if policy_dir.exists()
-        && let Ok(entries) = std::fs::read_dir(&policy_dir)
+        && let Ok(entries) = std::fs::read_dir(policy_dir)
     {
         let cedar_importer = crate::policy::cedar::CedarImporter::new();
-
         for entry in entries.flatten() {
             let path = entry.path();
-            let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-            let is_test_fixture = stem == "test"
-                || stem.starts_with("test_")
-                || stem.starts_with("mock_")
-                || stem.ends_with("_test");
-            if path.extension().and_then(|e| e.to_str()) == Some("cedar") && !is_test_fixture {
-                let content = std::fs::read_to_string(&path).unwrap_or_default();
+            if path.extension().and_then(|e| e.to_str()) == Some("cedar") {
+                let content = match std::fs::read_to_string(&path) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::warn!("Failed to read policy file {:?}: {}", path, e);
+                        continue;
+                    }
+                };
                 let policies = cedar_importer.parse(&content);
                 for (i, policy) in policies.iter().enumerate() {
                     let urn = format!("urn:changeguard:policy:{}:{}", path.to_string_lossy(), i);
@@ -1110,8 +983,11 @@ pub fn build_native_graph(
 
                         // Cross-surface: if the resource name matches a known service,
                         // link the policy as protecting that service boundary.
+                        // Use exact suffix match on the URN resource name (e.g.
+                        // "MyService" in "urn:changeguard:resource:MyService") to avoid
+                        // false positives from substring matching.
                         for ds in &config.services.definitions {
-                            if r.contains(&ds.name) || ds.name.contains(r.as_str()) {
+                            if resource_matches_service(r, &ds.name) {
                                 let svc_urn =
                                     crate::platform::urn::build_urn(NodeKind::Service, &ds.name);
                                 policy_edges.push(GraphEdge {
@@ -1130,6 +1006,143 @@ pub fn build_native_graph(
     }
     cozo.insert_nodes(&policy_nodes)?;
     cozo.insert_edges(&policy_edges)?;
+
+    // --- 9b. Cascade pruning of Cedar child nodes (principal / action / resource).
+    // A child node is orphaned if it has no incoming Authorizes edge from a
+    // currently-valid policy node (one whose URN derives from a real .cedar file).
+    // Run this *before* cross-surface links so the graph is clean before further
+    // edge building.
+    const CHILD_CATEGORIES: [NodeKind; 3] =
+        [NodeKind::Principal, NodeKind::Action, NodeKind::Resource];
+
+    // Collect the file stems of policies that were actually loaded — a policy
+    // is "valid" if its URN contains a recognized cedar-filename component.
+    // URN format: urn:changeguard:policy:<full-path>:<idx>
+    // MUST strip prefix and use rfind(':') for the idx separator, because
+    // Windows drive letters (C:\...) contain colons that split(':') would break on.
+    const POLICY_URN_PREFIX: &str = "urn:changeguard:policy:";
+    let valid_cedar_stems: Vec<String> = {
+        let mut stems: Vec<String> = policy_nodes
+            .iter()
+            .filter(|n| n.category == NodeKind::Policy)
+            .filter_map(|n| {
+                let body = n.id.strip_prefix(POLICY_URN_PREFIX)?;
+                // The trailing ":<idx>" is the last colon component.
+                let last_colon = body.rfind(':')?;
+                let path_str = &body[..last_colon];
+                let path = std::path::Path::new(path_str);
+                path.file_stem()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.to_lowercase())
+            })
+            .collect();
+        stems.sort();
+        stems.dedup();
+        stems
+    };
+
+    // --- Prune stale policy nodes whose cedar file no longer exists on disk. ---
+    if valid_cedar_stems.is_empty() {
+        if let Err(e) = cozo.run_script("?[id] := *node{id, category: 'policy'} :rm node {id}") {
+            tracing::warn!("Cedar policy cleanup: failed to prune all policy nodes: {e}");
+        }
+    } else {
+        // Selective prune: remove policy nodes whose filename stem doesn't match.
+        if let Ok(pol_res) = cozo.run_script("?[id] := *node{id, category: 'policy'}") {
+            let stale_policy_ids: Vec<String> = pol_res
+                .rows
+                .iter()
+                .filter_map(|row| {
+                    let id = row.first()?.to_string();
+                    let id_lower = id.to_lowercase();
+                    let is_valid = valid_cedar_stems
+                        .iter()
+                        .any(|stem| id_lower.contains(stem.as_str()));
+                    if is_valid { None } else { Some(id) }
+                })
+                .collect();
+            if !stale_policy_ids.is_empty()
+                && let Err(e) = cozo.remove_nodes_by_id(&stale_policy_ids)
+            {
+                tracing::warn!("Cedar policy cleanup: failed to prune stale policy nodes: {e}");
+            }
+        }
+    }
+
+    if valid_cedar_stems.is_empty() {
+        // No valid cedar files at all — prune every child node unconditionally.
+        for cat in &CHILD_CATEGORIES {
+            let cat_str = cat.to_string();
+            if let Err(e) = cozo.run_script(&format!(
+                "?[id] := *node{{id, category: '{cat_str}'}} :rm node {{id}}"
+            )) {
+                tracing::warn!(
+                    "Cedar child node cleanup (empty): failed to prune {cat_str} nodes: {e}"
+                );
+            }
+        }
+        tracing::info!(
+            "Cedar child node cleanup: pruned all principal/action/resource orphans (no valid policies)"
+        );
+    } else {
+        // Some policies remain — only prune child nodes that have NO incoming
+        // Authorizes edge from a live policy node.
+        for cat in &CHILD_CATEGORIES {
+            let cat_str = cat.to_string();
+            let Ok(child_res) =
+                cozo.run_script(&format!("?[id] := *node{{id, category: '{cat_str}'}}"))
+            else {
+                continue;
+            };
+
+            let stale_ids: Vec<String> = child_res
+                .rows
+                .into_iter()
+                .filter_map(|row| {
+                    let child_id = match row.into_iter().next() {
+                        Some(cozo::DataValue::Str(s)) => s.to_string(),
+                        _ => return None,
+                    };
+                    // Escape single-quotes in the URN so the CozoDatalog literal is valid.
+                    let escaped = child_id.replace('\'', "\\'");
+                    let check = format!(
+                        "?[src] := *edge{{source: src, target: '{escaped}', relation: 'authorizes'}}, \
+                         *node{{id: src, category: 'policy'}}"
+                    );
+                    let has_live_edge = cozo
+                        .run_script(&check)
+                        .ok()
+                        .map(|r| {
+                            r.rows.iter().any(|edge_row| {
+                                match edge_row.first() {
+                                    Some(cozo::DataValue::Str(src_id)) => {
+                                        let src_lower = src_id.to_lowercase();
+                                        valid_cedar_stems
+                                            .iter()
+                                            .any(|stem| src_lower.contains(stem.as_str()))
+                                    }
+                                    _ => false,
+                                }
+                            })
+                        })
+                        .unwrap_or(false);
+
+                    if has_live_edge {
+                        None
+                    } else {
+                        Some(child_id)
+                    }
+                })
+                .collect();
+
+            let pruned = stale_ids.len();
+            if let Err(e) = cozo.remove_nodes_by_id(&stale_ids) {
+                tracing::warn!("Cedar child node cleanup: failed to prune {cat_str} orphans: {e}");
+            } else {
+                tracing::info!("Cedar child node cleanup: pruned {pruned} stale {cat_str} nodes");
+            }
+        }
+    }
 
     // --- Cross-surface security links: policies → endpoints, config keys, deploy manifests, ADRs ---
     // Run this as a second pass after all nodes are inserted.
@@ -1244,78 +1257,11 @@ pub fn build_native_graph(
         }
     }
 
-    // --- Section 10: Cargo.lock ingestion ---
-    #[derive(serde::Deserialize)]
-    struct CargoLockFile {
-        #[serde(default)]
-        package: Vec<CargoLockPackage>,
-    }
-    #[derive(serde::Deserialize)]
-    struct CargoLockPackage {
-        name: String,
-        version: String,
-        #[serde(default)]
-        dependencies: Option<Vec<String>>,
-    }
-
-    let mut pkg_nodes = Vec::new();
-    let mut pkg_edges = Vec::new();
-    let lock_path = storage.root_path().join("Cargo.lock");
-    if lock_path.exists() {
-        if let Ok(lock_str) = std::fs::read_to_string(&lock_path) {
-            if let Ok(lock_file) = toml::from_str::<CargoLockFile>(&lock_str) {
-                for pkg in &lock_file.package {
-                    let pkg_urn = format!("urn:changeguard:package:{}:{}", pkg.name, pkg.version);
-                    pkg_nodes.push(GraphNode {
-                        id: pkg_urn.clone(),
-                        label: pkg.name.clone(),
-                        category: NodeKind::Package,
-                        risk_score: 0.0,
-                        metadata: Some(json!({
-                            "version": pkg.version,
-                            "ecosystem": "rust/cargo",
-                            "manifest": "Cargo.lock"
-                        })),
-                    });
-
-                    if let Some(deps) = &pkg.dependencies {
-                        for dep_str in deps {
-                            let dep_name = dep_str.split_whitespace().next().unwrap_or(dep_str);
-                            if let Some(dep_pkg) =
-                                lock_file.package.iter().find(|p| p.name == dep_name)
-                            {
-                                let dep_urn = format!(
-                                    "urn:changeguard:package:{}:{}",
-                                    dep_pkg.name, dep_pkg.version
-                                );
-                                pkg_edges.push(GraphEdge {
-                                    source: pkg_urn.clone(),
-                                    target: dep_urn,
-                                    relation: EdgeKind::DependsOn,
-                                    confidence: 1.0,
-                                    provenance_id: provenance_id.to_string(),
-                                });
-                            }
-                        }
-                    }
-                }
-                tracing::info!("Cargo.lock: {} packages indexed", lock_file.package.len());
-            } else {
-                tracing::warn!("Failed to parse Cargo.lock");
-            }
-        }
-    } else {
-        tracing::warn!("No Cargo.lock found at {:?}", lock_path);
-    }
-
-    cozo.insert_nodes(&pkg_nodes)?;
-    cozo.insert_edges(&pkg_edges)?;
-
     cozo.insert_edges(&cross_edges)?;
 
     info!(
         "Native graph built: {} files, {} symbols, {} edges, {} endpoints, {} ADRs, {} services, \
-         {} models, {} config_keys, {} obs, {} policies, {} cross-surface edges, {} packages",
+         {} models, {} config_keys, {} obs, {} policies, {} cross-surface edges",
         files_indexed,
         symbols_indexed,
         edges_added
@@ -1323,8 +1269,7 @@ pub fn build_native_graph(
             + adr_edges.len()
             + obs_edges.len()
             + policy_edges.len()
-            + cross_edges.len()
-            + pkg_edges.len(),
+            + cross_edges.len(),
         endpoint_nodes.len(),
         adr_nodes.len(),
         service_nodes.len(),
@@ -1333,7 +1278,6 @@ pub fn build_native_graph(
         obs_nodes.len(),
         policy_nodes.len(),
         cross_edges.len(),
-        pkg_nodes.len()
     );
 
     Ok(GraphStats {
@@ -1345,8 +1289,7 @@ pub fn build_native_graph(
             + model_nodes.len()
             + config_nodes.len()
             + obs_nodes.len()
-            + policy_nodes.len()
-            + pkg_nodes.len(),
+            + policy_nodes.len(),
         edges_added: edges_added
             + endpoint_edges.len()
             + adr_edges.len()
@@ -1355,8 +1298,7 @@ pub fn build_native_graph(
             + config_edges.len()
             + obs_edges.len()
             + policy_edges.len()
-            + cross_edges.len()
-            + pkg_edges.len(),
+            + cross_edges.len(),
         files_indexed,
         symbols_indexed,
     })
@@ -1393,4 +1335,19 @@ pub fn run_community_louvain(cozo: &CozoStorage) -> Result<Vec<Community>> {
     }
 
     Ok(communities)
+}
+
+/// Check whether a Cedar resource name (e.g. a simple string like "MyService"
+/// or URN suffix) matches a service definition name.
+///
+/// Uses exact case-insensitive comparison on the final segment of the
+/// resource name after stripping any URN prefix, avoiding substring matches
+/// that produce false positives.
+fn resource_matches_service(resource: &str, service_name: &str) -> bool {
+    let r = resource
+        .trim()
+        .split(':')
+        .next_back()
+        .unwrap_or(resource.trim());
+    r.eq_ignore_ascii_case(service_name) || r.eq_ignore_ascii_case(&service_name.replace('-', "_"))
 }

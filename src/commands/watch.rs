@@ -36,10 +36,20 @@ pub fn execute_watch(interval_ms: u64, json_output: bool, no_graph_sync: bool) -
     .map_err(|e| miette::miette!("Failed to install Ctrl+C handler: {}", e))?;
 
     if !json_output {
-        println!("{}", "ChangeGuard Watch Mode Started".bold().green());
-        println!("Watching: {}", path.cyan());
-        println!("Press Ctrl+C to stop.\n");
+        println!(
+            "{} {}  {}",
+            "Watching:".bold().green(),
+            path,
+            "(press Ctrl+C to stop)".dimmed()
+        );
     }
+
+    // Use config debounce_ms when no CLI override is provided (interval_ms == 0)
+    let effective_interval = if interval_ms > 0 {
+        interval_ms
+    } else {
+        config.watch.debounce_ms
+    };
 
     let batch_path = layout.state_subdir().join("current-batch.json");
     let db_path = layout.state_subdir().join("ledger.db");
@@ -129,7 +139,7 @@ pub fn execute_watch(interval_ms: u64, json_output: bool, no_graph_sync: bool) -
 
     let _watcher = Watcher::new(
         vec![path],
-        Duration::from_millis(interval_ms),
+        Duration::from_millis(effective_interval),
         config.watch.ignore_patterns,
         callback,
     )

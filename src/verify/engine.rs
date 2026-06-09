@@ -52,6 +52,17 @@ impl VerificationContext {
     }
 }
 
+/// Check whether `cargo nextest` is available on PATH.
+pub fn probe_nextest() -> bool {
+    std::process::Command::new("cargo")
+        .args(["nextest", "--version"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 pub struct VerifyEngine;
 
 impl VerifyEngine {

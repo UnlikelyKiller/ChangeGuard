@@ -101,12 +101,47 @@ pub fn execute_ledger_audit(
             layout.root.clone().into(),
             config,
         );
-        audit_entity(&manager, &path, limit, offset, json)?;
+        let matched_file = if looks_like_file_path(&path) {
+            // Try to canonicalize the path for matching
+            let resolved = std::path::Path::new(&path);
+            dunce::canonicalize(resolved)
+                .ok()
+                .and_then(|p| p.to_str().map(|s| s.to_string()))
+                .or_else(|| Some(path.clone()))
+        } else {
+            None
+        };
+        audit_entity(
+            &manager,
+            &path,
+            matched_file.as_deref(),
+            limit,
+            offset,
+            json,
+        )?;
     } else {
         audit_global(&storage, include_unaudited, limit, offset, json)?;
     }
 
     Ok(())
+}
+
+fn looks_like_file_path(s: &str) -> bool {
+    // Contains a path separator (forward or backslash)
+    if s.contains('/') || s.contains('\\') {
+        return true;
+    }
+    // Has a file extension: a '.' followed by 1-8 alphanumeric chars at the end
+    if let Some(dot_pos) = s.rfind('.') {
+        let after_dot = &s[dot_pos + 1..];
+        if !after_dot.is_empty()
+            && after_dot.len() <= 8
+            && after_dot.chars().all(|c| c.is_alphanumeric())
+        {
+            return true;
+        }
+    }
+    false
 }
 
 fn gather_audit_data(
@@ -421,14 +456,36 @@ fn render_project_audit_human(
 fn audit_entity(
     manager: &TransactionManager,
     entity: &str,
+    resolved_file: Option<&str>,
     limit: usize,
     offset: usize,
     json: bool,
 ) -> Result<()> {
     let db = LedgerDb::new(manager.get_connection());
-    let entries = manager
+    let mut entries = manager
         .get_ledger_entries_paginated(entity, limit, offset)
         .map_err(|e| miette::miette!("{}", e))?;
+
+    let has_file_results = if let Some(file_path) = resolved_file {
+        let file_entries = db
+            .find_transactions_by_file(file_path)
+            .map_err(|e| miette::miette!("{}", e))?;
+        if !file_entries.is_empty() {
+            // Merge and dedup by tx_id, keeping entity-name results first
+            let mut seen: std::collections::HashSet<String> =
+                entries.iter().map(|e| e.tx_id.clone()).collect();
+            for fe in file_entries {
+                if seen.insert(fe.tx_id.clone()) {
+                    entries.push(fe);
+                }
+            }
+            true
+        } else {
+            false
+        }
+    } else {
+        false
+    };
 
     if json {
         let audit_entries = audit_entries_from_ledger_entries(&db, entries)?;
@@ -440,6 +497,12 @@ fn audit_entity(
     }
 
     println!("\nAudit History for {}:", entity.cyan());
+    if has_file_results {
+        println!(
+            "  {}",
+            format!("Showing transactions that touched file: {}", entity).dimmed()
+        );
+    }
 
     if entries.is_empty() {
         println!("  No committed entries found.");

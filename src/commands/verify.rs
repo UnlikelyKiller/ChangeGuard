@@ -190,7 +190,12 @@ pub fn execute_verify(
                 let rules = crate::policy::load::load_rules(&layout)?;
 
                 let mut plan = match &ctx.packet {
-                    Some(packet) => build_plan(packet, &rules, &prediction.files),
+                    Some(packet) => build_plan(
+                        packet,
+                        &rules,
+                        &prediction.files,
+                        config.verify.prefer_nextest,
+                    ),
                     None => VerificationPlan::default_manual(),
                 };
 
@@ -425,10 +430,11 @@ fn manual_step(command: String, timeout_secs: u64) -> VerificationStep {
 struct VerificationPlan;
 impl VerificationPlan {
     fn default_manual() -> crate::verify::plan::VerificationPlan {
+        let cmd = crate::verify::plan::resolve_default_test_command(None);
         crate::verify::plan::VerificationPlan {
             steps: vec![VerificationStep {
                 description: "Default fallback verification".to_string(),
-                command: "cargo test -j 1 -- --test-threads=1".to_string(),
+                command: cmd,
                 timeout_secs: DEFAULT_AUTO_TIMEOUT_SECS,
             }],
         }

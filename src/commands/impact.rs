@@ -130,6 +130,15 @@ pub fn execute_impact(
 
     storage.shutdown()?;
 
+    if packet.tree_clean && packet.changes.is_empty() {
+        println!(
+            "\n{} Working tree is clean — no staged or modified files detected.",
+            success_marker()
+        );
+        println!("  Run 'git add <files>' before scanning for impact.");
+        return Ok(());
+    }
+
     if summary {
         crate::output::human::print_impact_brief(&packet);
     } else {

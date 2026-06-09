@@ -320,7 +320,20 @@ pub fn print_dead_code_summary(findings: &[DeadCodeFinding], _threshold: f64) {
 }
 
 pub fn print_verify_plan(plan: &VerificationPlan) {
+    // Detect whether nextest is used from the first step's command
+    let runner = plan
+        .steps
+        .first()
+        .map(|s| {
+            if s.command.contains("nextest") {
+                "nextest"
+            } else {
+                "cargo test"
+            }
+        })
+        .unwrap_or("cargo test");
     println!("\n{}", "Verification Plan".bold().underline());
+    println!("  {} {}", "Runner:".dimmed(), runner);
     for step in &plan.steps {
         let desc = if step.description.is_empty() {
             &step.command

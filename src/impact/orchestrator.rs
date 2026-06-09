@@ -163,6 +163,7 @@ pub(crate) fn map_snapshot_to_packet(
     let mut packet = ImpactPacket {
         head_hash: snapshot.head_hash,
         branch_name: snapshot.branch_name,
+        tree_clean: snapshot.is_clean,
         ..ImpactPacket::with_clock(&SystemClock)
     };
 

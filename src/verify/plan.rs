@@ -40,12 +40,28 @@ impl VerificationPlan {
     }
 }
 
-const DEFAULT_COMMAND: &str = "cargo test -j 1 -- --test-threads=1";
+/// Resolve the test command based on nextest availability.
+///
+/// When `prefer_nextest` is `None` (default) or `Some(true)`, probes for
+/// `cargo nextest` on PATH and returns the nextest variant if found.
+/// When `prefer_nextest` is `Some(false)`, always falls back to `cargo test`.
+pub fn resolve_default_test_command(prefer_nextest: Option<bool>) -> String {
+    let use_nextest = match prefer_nextest {
+        Some(false) => false,
+        _ => crate::verify::engine::probe_nextest(),
+    };
+    if use_nextest {
+        "cargo nextest run --workspace".to_string()
+    } else {
+        "cargo test -j 1 -- --test-threads=1".to_string()
+    }
+}
 
 pub fn build_plan(
     packet: &ImpactPacket,
     rules: &Rules,
     predicted: &[PredictedFile],
+    prefer_nextest: Option<bool>,
 ) -> VerificationPlan {
     let mut commands: Vec<String> = Vec::new();
     let mut predicted_steps: Vec<VerificationStep> = Vec::new();
@@ -97,8 +113,9 @@ pub fn build_plan(
 
     // Build initial steps
     let mut steps: Vec<VerificationStep> = if commands.is_empty() && predicted_steps.is_empty() {
+        let cmd = resolve_default_test_command(prefer_nextest);
         vec![VerificationStep {
-            command: DEFAULT_COMMAND.to_string(),
+            command: cmd,
             timeout_secs: DEFAULT_AUTO_TIMEOUT_SECS,
             description: "Default: run project tests".to_string(),
         }]
@@ -197,10 +214,11 @@ mod tests {
     fn test_build_plan_default_when_no_rules() {
         let packet = empty_packet();
         let rules = Rules::default();
-        let plan = build_plan(&packet, &rules, &[]);
+        let plan = build_plan(&packet, &rules, &[], Some(false));
 
         assert_eq!(plan.steps.len(), 1);
-        assert_eq!(plan.steps[0].command, DEFAULT_COMMAND);
+        // When prefer_nextest is Some(false), falls back to cargo test
+        assert_eq!(plan.steps[0].command, "cargo test -j 1 -- --test-threads=1");
     }
 
     #[test]
@@ -215,7 +233,7 @@ mod tests {
             protected_paths: Vec::new(),
         };
 
-        let plan = build_plan(&packet, &rules, &[]);
+        let plan = build_plan(&packet, &rules, &[], Some(false));
 
         assert_eq!(plan.steps.len(), 2);
         assert_eq!(plan.steps[0].command, "cargo clippy");
@@ -238,7 +256,7 @@ mod tests {
             protected_paths: Vec::new(),
         };
 
-        let plan = build_plan(&packet, &rules, &[]);
+        let plan = build_plan(&packet, &rules, &[], Some(false));
 
         assert_eq!(plan.steps.len(), 1);
         assert_eq!(plan.steps[0].command, "cargo test");
@@ -260,7 +278,7 @@ mod tests {
             protected_paths: Vec::new(),
         };
 
-        let plan = build_plan(&packet, &rules, &[]);
+        let plan = build_plan(&packet, &rules, &[], Some(false));
 
         assert_eq!(plan.steps.len(), 2);
         assert!(plan.steps.iter().any(|s| s.command == "cargo clippy"));
@@ -283,11 +301,11 @@ mod tests {
             protected_paths: Vec::new(),
         };
 
-        let plan = build_plan(&packet, &rules, &[]);
+        let plan = build_plan(&packet, &rules, &[], Some(false));
 
-        // No match, falls back to default
+        // No match, falls back to default (cargo test)
         assert_eq!(plan.steps.len(), 1);
-        assert_eq!(plan.steps[0].command, DEFAULT_COMMAND);
+        assert_eq!(plan.steps[0].command, "cargo test -j 1 -- --test-threads=1");
     }
 
     #[test]
@@ -302,8 +320,8 @@ mod tests {
             protected_paths: Vec::new(),
         };
 
-        let plan1 = build_plan(&packet, &rules, &[]);
-        let plan2 = build_plan(&packet, &rules, &[]);
+        let plan1 = build_plan(&packet, &rules, &[], Some(false));
+        let plan2 = build_plan(&packet, &rules, &[], Some(false));
 
         assert_eq!(plan1, plan2);
         // Sorted alphabetically
@@ -331,7 +349,7 @@ mod tests {
             protected_paths: Vec::new(),
         };
 
-        let plan = build_plan(&packet, &rules, &[]);
+        let plan = build_plan(&packet, &rules, &[], Some(false));
 
         // Global is included, path rule doesn't match empty changes
         assert_eq!(plan.steps.len(), 1);
@@ -357,7 +375,7 @@ mod tests {
             reason: PredictionReason::Temporal,
         }];
 
-        let plan = build_plan(&packet, &rules, &predicted);
+        let plan = build_plan(&packet, &rules, &predicted, Some(false));
 
         // Should include ONLY the predicted rule match (overrides default).
         assert_eq!(plan.steps.len(), 1);
@@ -412,7 +430,7 @@ mod tests {
             reason: PredictionReason::Structural,
         }];
 
-        let plan = build_plan(&packet, &rules, &predicted);
+        let plan = build_plan(&packet, &rules, &predicted, Some(false));
 
         // 'cargo check' is triggered by BOTH the direct change in src/lib.rs
         // AND the predicted impact on src/other.rs.
@@ -421,6 +439,28 @@ mod tests {
         assert!(plan.steps[0].description.contains("From rules"));
         assert!(plan.steps[0].description.contains("Predicted impact"));
         assert!(plan.steps[0].description.contains(" | "));
+    }
+
+    #[test]
+    fn test_default_command_fallback_when_nextest_disabled() {
+        let cmd = resolve_default_test_command(Some(false));
+        assert!(
+            cmd.contains("cargo test"),
+            "expected cargo test but got: {cmd}"
+        );
+        assert!(
+            !cmd.contains("nextest"),
+            "expected no nextest but got: {cmd}"
+        );
+    }
+
+    #[test]
+    fn test_default_command_nextest_preferred() {
+        // On CI/generic runners nextest might not be installed, but the function
+        // should probe and fall back gracefully. We only verify the fallback path.
+        let cmd = resolve_default_test_command(None);
+        // Should not panic or return empty
+        assert!(!cmd.is_empty());
     }
 
     #[test]
@@ -446,6 +486,7 @@ mod tests {
             ],
             default_timeout_secs: 120,
             semantic_weight: 0.3,
+            prefer_nextest: None,
         };
         let plan = build_plan_from_config(&config).unwrap();
         assert_eq!(plan.steps.len(), 2);

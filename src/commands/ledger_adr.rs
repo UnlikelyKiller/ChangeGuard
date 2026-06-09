@@ -8,6 +8,7 @@ use crate::commands::helpers::{get_layout, load_ledger_config};
 use crate::ledger::adr::{generate_madr_content, slugify_summary};
 use crate::ledger::transaction::TransactionManager;
 use crate::ledger::types::AdrMetadataUpdate;
+use crate::output::table::build_table;
 use crate::state::storage::StorageManager;
 
 pub fn execute_ledger_adr(subcommand: AdrSubcommands) -> Result<()> {
@@ -76,6 +77,7 @@ pub fn execute_ledger_adr(subcommand: AdrSubcommands) -> Result<()> {
             );
             Ok(())
         }
+        AdrSubcommands::List => execute_ledger_adr_list(&storage),
     }
 }
 
@@ -117,5 +119,45 @@ fn execute_export(
     }
 
     println!("Successfully exported {} ADR(s) to {}", count, out_dir);
+    Ok(())
+}
+
+fn execute_ledger_adr_list(storage: &StorageManager) -> Result<()> {
+    let conn = storage.get_connection();
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, entity, status, title, created_at FROM ledger_adrs ORDER BY created_at DESC",
+        )
+        .map_err(|e| miette::miette!("Failed to query ADRs: {}", e))?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            let id: String = row.get(0)?;
+            let entity: String = row.get(1)?;
+            let status: String = row.get(2)?;
+            let title: String = row.get(3)?;
+            let created_at: String = row.get(4)?;
+            Ok((id, entity, status, title, created_at))
+        })
+        .map_err(|e| miette::miette!("Failed to read ADRs: {}", e))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| miette::miette!("Failed to collect ADRs: {}", e))?;
+
+    if rows.is_empty() {
+        println!("{}", "No ADRs found.".yellow());
+        return Ok(());
+    }
+
+    let mut table = build_table(vec!["ID", "Entity", "Status", "Title", "Created"]);
+    for (id, entity, status, title, created_at) in &rows {
+        table.add_row(vec![
+            id.yellow().to_string(),
+            entity.cyan().to_string(),
+            status.to_string(),
+            title.to_string(),
+            created_at.dimmed().to_string(),
+        ]);
+    }
+    println!("{}", table);
     Ok(())
 }

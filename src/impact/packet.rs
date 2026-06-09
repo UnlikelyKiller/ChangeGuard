@@ -644,6 +644,8 @@ pub struct ImpactPacket {
     pub timestamp_utc: String, // ISO 8601 string
     pub head_hash: Option<String>,
     pub branch_name: Option<String>,
+    #[serde(default)]
+    pub tree_clean: bool,
     pub risk_level: RiskLevel,
     pub risk_reasons: Vec<String>,
     pub changes: Vec<ChangedFile>,
@@ -821,6 +823,7 @@ impl Default for ImpactPacket {
             timestamp_utc: Utc::now().to_rfc3339(),
             head_hash: None,
             branch_name: None,
+            tree_clean: false,
             risk_level: RiskLevel::Medium,
             risk_reasons: Vec::new(),
             changes: Vec::new(),
@@ -956,6 +959,8 @@ impl ImpactPacket {
     }
 
     /// Finalize the risk level based on the accumulated weight.
+    /// Reconciles overall risk so it does not exceed the highest individual item risk
+    /// unless escalated due to change volume.
     pub fn finalize_risk_level(&mut self, total_weight: u32, has_prior_risk_signal: bool) {
         let rule_level = if total_weight > 50 {
             RiskLevel::High
@@ -967,6 +972,22 @@ impl ImpactPacket {
 
         if !has_prior_risk_signal || rule_level > self.risk_level {
             self.risk_level = rule_level;
+        }
+
+        // Reconcile: if risk is HIGH but there are very few changed files (≤3),
+        // note the escalation so it does not appear to contradict the item-level view.
+        if self.risk_level == RiskLevel::High && self.changes.len() <= 3 {
+            let n = self.changes.len();
+            let note = format!("(escalated due to {n} changed file(s))");
+            if !self.risk_reasons.iter().any(|r| r.contains(&note)) {
+                self.risk_reasons.push(note);
+            }
+        }
+
+        // For clean tree or no changes, risk should be NONE-equivalent.
+        if self.changes.is_empty() && self.risk_reasons.is_empty() {
+            self.risk_level = RiskLevel::Low;
+            self.risk_reasons.push("No changes detected".to_string());
         }
 
         if self.risk_reasons.is_empty() {

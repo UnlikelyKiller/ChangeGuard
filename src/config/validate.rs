@@ -259,6 +259,7 @@ mod tests {
                 steps: vec![],
                 default_timeout_secs: 300,
                 semantic_weight: 0.3,
+                prefer_nextest: None,
             },
             ..Default::default()
         };
@@ -276,6 +277,7 @@ mod tests {
                 }],
                 default_timeout_secs: 300,
                 semantic_weight: 0.3,
+                prefer_nextest: None,
             },
             ..Default::default()
         };
@@ -296,6 +298,7 @@ mod tests {
                 }],
                 default_timeout_secs: 300,
                 semantic_weight: 0.3,
+                prefer_nextest: None,
             },
             ..Default::default()
         };
@@ -316,6 +319,7 @@ mod tests {
                 }],
                 default_timeout_secs: 0,
                 semantic_weight: 0.3,
+                prefer_nextest: None,
             },
             ..Default::default()
         };

@@ -73,6 +73,14 @@ pub fn execute_deploy(args: DeployArgs) -> Result<()> {
                 all_rows
             };
 
+            if !json && rows.is_empty() {
+                println!(
+                    "  {}",
+                    "No deployment impact detected for current changes.".yellow()
+                );
+                return Ok(());
+            }
+
             if json {
                 let mut results = Vec::new();
                 for (path, mtype, risk, service, owner) in &rows {

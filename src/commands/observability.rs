@@ -75,6 +75,15 @@ pub fn execute_observability(args: ObservabilityArgs) -> Result<()> {
                 }
             }
 
+            if !json && final_rows.is_empty() {
+                println!("  {}", "No observability coverage data found.".yellow());
+                println!(
+                    "  Run {} to populate.",
+                    "changeguard index --analyze-graph".cyan().bold()
+                );
+                return Ok(());
+            }
+
             if json {
                 let mut results = Vec::new();
                 for (svc, sc, mc) in &final_rows {
