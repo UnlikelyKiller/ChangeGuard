@@ -78,7 +78,7 @@ pub fn execute_scan(
                 println!("{}", json_output);
             }
         } else {
-            crate::commands::impact::execute_impact(false, summary, false, false)?;
+            crate::commands::impact::execute_impact(false, summary, false, false, false, None)?;
         }
     }
 

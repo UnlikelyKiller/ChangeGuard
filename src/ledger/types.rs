@@ -13,6 +13,7 @@ pub enum Category {
     Bugfix,
     Refactor,
     Infra,
+    Security,
     Tooling,
     Docs,
     Chore,
@@ -26,6 +27,7 @@ impl std::fmt::Display for Category {
             Category::Bugfix => "BUGFIX",
             Category::Refactor => "REFACTOR",
             Category::Infra => "INFRA",
+            Category::Security => "SECURITY",
             Category::Tooling => "TOOLING",
             Category::Docs => "DOCS",
             Category::Chore => "CHORE",
@@ -35,12 +37,13 @@ impl std::fmt::Display for Category {
 }
 
 impl Category {
-    const ALL: [Category; 8] = [
+    const ALL: [Category; 9] = [
         Category::Architecture,
         Category::Feature,
         Category::Bugfix,
         Category::Refactor,
         Category::Infra,
+        Category::Security,
         Category::Tooling,
         Category::Docs,
         Category::Chore,
@@ -95,6 +98,7 @@ fn category_aliases(category: Category) -> &'static [&'static str] {
         Category::Tooling => &["tooling", "tool", "dev", "devex"],
         Category::Docs => &["docs", "doc", "documentation"],
         Category::Chore => &["chore", "maintenance", "maint"],
+        Category::Security => &["security", "sec", "auth", "authz"],
     }
 }
 

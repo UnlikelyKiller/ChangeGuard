@@ -175,7 +175,7 @@ fn ledger_status_verify_signatures_rejects_corrupted_signature() {
         )
         .unwrap();
 
-    let err = execute_ledger_status(None, true, true, true).unwrap_err();
+    let err = execute_ledger_status(None, true, true, true, false).unwrap_err();
 
     assert!(format!("{err}").contains("Ledger signature verification failed"));
 }

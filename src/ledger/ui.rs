@@ -24,6 +24,7 @@ pub fn get_category_icon(category: &Category) -> String {
         Category::Bugfix => "󰀦".red().to_string(),
         Category::Refactor => "󰛄".blue().to_string(),
         Category::Infra => "󱇙".cyan().to_string(),
+        Category::Security => "󰒓".yellow().to_string(),
         Category::Tooling => "󰒓".yellow().to_string(),
         Category::Docs => "󰛄".magenta().to_string(),
         Category::Chore => "󱐋".dimmed().to_string(),

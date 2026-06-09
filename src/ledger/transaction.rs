@@ -145,7 +145,11 @@ impl<'a> TransactionManager<'a> {
         if !force && self.config.ledger.verify_to_commit {
             let requires_verification = matches!(
                 tx.category,
-                Category::Architecture | Category::Feature | Category::Bugfix | Category::Infra
+                Category::Architecture
+                    | Category::Feature
+                    | Category::Bugfix
+                    | Category::Infra
+                    | Category::Security
             );
             if requires_verification && req.verification_status.is_none() {
                 return Err(LedgerError::VerificationRequired(format!(

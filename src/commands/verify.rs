@@ -28,11 +28,11 @@ pub fn verify_ledger_signatures(layout: &Layout) -> Result<()> {
         .map_err(|e| miette::miette!("Failed to read ledger entries: {}", e))?;
 
     if entries.is_empty() {
-        println!("Ledger is empty. No signatures to verify.");
+        eprintln!("Ledger is empty. No signatures to verify.");
         return Ok(());
     }
 
-    println!(
+    eprintln!(
         "Verifying signatures for {} ledger entries (require_signing={})...",
         entries.len(),
         signing_required
@@ -55,7 +55,7 @@ pub fn verify_ledger_signatures(layout: &Layout) -> Result<()> {
                     pub_key,
                 );
                 if valid {
-                    println!(
+                    eprintln!(
                         "  [{}] TX {} signed by {}",
                         "VALID".green(),
                         &entry.tx_id[..8],
@@ -63,7 +63,7 @@ pub fn verify_ledger_signatures(layout: &Layout) -> Result<()> {
                     );
                     valid_count += 1;
                 } else {
-                    println!(
+                    eprintln!(
                         "  [{}] TX {} signature verification FAILED!",
                         "INVALID".red(),
                         &entry.tx_id[..8]
@@ -74,7 +74,7 @@ pub fn verify_ledger_signatures(layout: &Layout) -> Result<()> {
             }
             _ => {
                 if signing_required {
-                    println!(
+                    eprintln!(
                         "  [{}] TX {} has no signature — treating as verification failure.",
                         "UNSIGNED".yellow(),
                         &entry.tx_id[..8]
@@ -82,7 +82,7 @@ pub fn verify_ledger_signatures(layout: &Layout) -> Result<()> {
                     invalid_count += 1;
                     all_valid = false;
                 } else {
-                    println!(
+                    eprintln!(
                         "  [{}] TX {} has no signature (signing not required, skipping).",
                         "SKIP".yellow(),
                         &entry.tx_id[..8]
@@ -93,7 +93,7 @@ pub fn verify_ledger_signatures(layout: &Layout) -> Result<()> {
         }
     }
 
-    println!(
+    eprintln!(
         "\nSignature verification summary: {} valid, {} invalid, {} skipped.",
         valid_count.green(),
         if invalid_count > 0 {
@@ -105,7 +105,7 @@ pub fn verify_ledger_signatures(layout: &Layout) -> Result<()> {
     );
 
     if all_valid {
-        println!(
+        eprintln!(
             "{}",
             "All signature validations passed successfully!"
                 .green()
@@ -180,7 +180,10 @@ pub fn execute_verify(
 
     // 3. Build Plan
     let (plan, steps) = match command_str {
-        Some(cmd) => (None, vec![manual_step(cmd, manual_timeout(timeout_secs))]),
+        Some(ref cmd) => (
+            None,
+            vec![manual_step(cmd.clone(), manual_timeout(timeout_secs))],
+        ),
         None => {
             if let Some(config_plan) = build_plan_from_config(&config.verify) {
                 print_verify_plan(&config_plan);
@@ -276,6 +279,16 @@ pub fn execute_verify(
 
     // Dry Run early exit
     if dry_run {
+        // For manual commands, print the steps derived from the CLI arg
+        if manual_requested {
+            println!("{}", "Verification Plan".bold().green());
+            println!(
+                "  • {} (timeout: {}s)",
+                command_str.as_deref().unwrap_or(""),
+                timeout_secs
+            );
+            println!();
+        }
         println!(
             "{}",
             "Dry run mode: verification plan displayed above. No commands were executed.".yellow()
@@ -330,6 +343,14 @@ pub fn execute_verify(
     // This prevents deadlock/lock contention when cargo test runs child ChangeGuard commands.
     if let Some(storage) = ctx.storage.take() {
         let _ = storage.shutdown();
+    }
+
+    // Show progress indicator before verification execution
+    if !ctx.no_predict {
+        let num_steps = steps.len();
+        if num_steps > 0 {
+            eprintln!("Running {} verification step(s)...", num_steps);
+        }
     }
 
     let mut report = VerifyEngine::execute(&mut ctx, plan, &steps, manual_requested)?;

@@ -35,6 +35,7 @@ pub use orchestrator::{
 };
 pub use orchestrator::{IndexStats, IndexStatus, ProjectIndexer, ServiceIndexStats};
 pub use staleness::{
-    StalenessWarning, check_index_staleness, print_staleness_warning, warn_if_stale,
+    StalenessWarning, check_index_staleness, is_non_interactive, print_staleness_warning,
+    warn_if_stale,
 };
 pub use types::{ProjectFile, ProjectSymbol, symbol_to_project_symbol};

@@ -527,7 +527,7 @@ pub fn parse_category_from_message(msg: &str) -> Category {
     } else if msg_lower.starts_with("revert") {
         Category::Bugfix
     } else if msg_lower.starts_with("security") {
-        Category::Feature
+        Category::Security
     } else if msg_lower.starts_with("breaking") {
         Category::Architecture
     } else {
@@ -541,7 +541,11 @@ pub fn parse_category_from_message(msg: &str) -> Category {
 
 pub fn risk_from_category(cat: Category) -> &'static str {
     match cat {
-        Category::Architecture | Category::Feature | Category::Bugfix | Category::Infra => "HIGH",
+        Category::Architecture
+        | Category::Feature
+        | Category::Bugfix
+        | Category::Infra
+        | Category::Security => "HIGH",
         Category::Refactor | Category::Tooling => "MEDIUM",
         Category::Docs | Category::Chore => "TRIVIAL",
     }

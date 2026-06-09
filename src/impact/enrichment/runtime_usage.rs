@@ -20,6 +20,11 @@ impl EnrichmentProvider for RuntimeUsageProvider {
                 .as_ref()
                 .map(|u| u.env_vars.len())
                 .unwrap_or(0);
+            let current_env_var_names: Vec<String> = change
+                .runtime_usage
+                .as_ref()
+                .map(|u| u.env_vars.clone())
+                .unwrap_or_default();
             let current_config_keys = change
                 .runtime_usage
                 .as_ref()
@@ -34,17 +39,26 @@ impl EnrichmentProvider for RuntimeUsageProvider {
                 .output();
 
             let mut previous_env_vars = 0;
+            let mut previous_env_var_names: Vec<String> = Vec::new();
             let mut previous_config_keys = 0;
 
             if let Some(output) = output.ok().filter(|o| o.status.success()) {
                 let prev_content = String::from_utf8_lossy(&output.stdout);
                 if let Some(prev_usage) = extract_runtime_usage(&change.path, &prev_content) {
                     previous_env_vars = prev_usage.env_vars.len();
+                    previous_env_var_names = prev_usage.env_vars;
                     previous_config_keys = prev_usage.config_keys.len();
                 }
             }
 
-            if current_env_vars != previous_env_vars || current_config_keys != previous_config_keys
+            let identity_changed = {
+                let same_len = current_env_var_names.len() == previous_env_var_names.len();
+                !same_len || current_env_var_names != previous_env_var_names
+            };
+
+            if current_env_vars != previous_env_vars
+                || current_config_keys != previous_config_keys
+                || identity_changed
             {
                 deltas.push(RuntimeUsageDelta {
                     file_path: change.path.to_string_lossy().to_string(),
@@ -52,6 +66,8 @@ impl EnrichmentProvider for RuntimeUsageProvider {
                     env_vars_current_count: current_env_vars,
                     config_keys_previous_count: previous_config_keys,
                     config_keys_current_count: current_config_keys,
+                    env_vars_previous: previous_env_var_names,
+                    env_vars_current: current_env_var_names,
                 });
             }
         }

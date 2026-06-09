@@ -1,7 +1,7 @@
 use comfy_table::modifiers::UTF8_ROUND_CORNERS;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::{Cell, Color, Table};
-use miette::Result;
+use miette::{IntoDiagnostic, Result};
 use owo_colors::OwoColorize;
 
 use crate::commands::helpers::{get_layout, load_ledger_config};
@@ -17,6 +17,7 @@ pub fn execute_ledger_search(
     breaking: bool,
     limit: usize,
     offset: usize,
+    json: bool,
 ) -> Result<()> {
     let layout = get_layout()?;
     let db_path = layout.state_subdir().join("ledger.db");
@@ -45,6 +46,14 @@ pub fn execute_ledger_search(
             offset,
         )
         .map_err(|e| miette::miette!("{}", e))?;
+
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&results).into_diagnostic()?
+        );
+        return Ok(());
+    }
 
     if results.is_empty() {
         println!("No ledger entries found matching '{}'.", query.yellow());

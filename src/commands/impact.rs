@@ -69,6 +69,8 @@ pub fn execute_impact(
     summary: bool,
     _telemetry_coverage: bool,
     dead_code: bool,
+    json: bool,
+    out: Option<std::path::PathBuf>,
 ) -> Result<()> {
     let current_dir = env::current_dir()
         .map_err(|e| miette::miette!("Failed to get current directory: {}", e))?;
@@ -129,6 +131,29 @@ pub fn execute_impact(
     write_impact_report(&layout, &packet)?;
 
     storage.shutdown()?;
+
+    // Handle --json and --out: serialize to stdout or file
+    if json || out.is_some() {
+        let json_output = serde_json::to_string_pretty(&packet)
+            .map_err(|e| miette::miette!("Failed to serialize impact report: {}", e))?;
+
+        if let Some(path) = out {
+            std::fs::write(&path, &json_output).map_err(|e| {
+                miette::miette!(
+                    "Failed to write impact report to '{}': {}",
+                    path.display(),
+                    e
+                )
+            })?;
+            eprintln!(
+                "Wrote impact report to {}",
+                path.display().to_string().cyan()
+            );
+        } else {
+            println!("{}", json_output);
+        }
+        return Ok(());
+    }
 
     if packet.tree_clean && packet.changes.is_empty() {
         println!(

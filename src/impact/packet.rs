@@ -349,7 +349,7 @@ pub struct CoverageDelta {
     pub message: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeUsageDelta {
     pub file_path: String,
@@ -357,6 +357,12 @@ pub struct RuntimeUsageDelta {
     pub env_vars_current_count: usize,
     pub config_keys_previous_count: usize,
     pub config_keys_current_count: usize,
+    /// The actual env var names from the previous version (for identity-aware comparison).
+    #[serde(default)]
+    pub env_vars_previous: Vec<String>,
+    /// The actual env var names from the current version (for identity-aware comparison).
+    #[serde(default)]
+    pub env_vars_current: Vec<String>,
 }
 
 impl Eq for RuntimeUsageDelta {}

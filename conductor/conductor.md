@@ -1505,38 +1505,38 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Definition of done: Security graph output is useful without exposing secrets, Cedar principal/action/resource edges are queryable, auth/authz changes affect endpoint/service impact, protected path and process-policy changes name review requirements, and full verification plus reinstall passes.
 
 
-## Milestone Y: CLI Reliability & UX Hardening (In Progress)
+## Milestone Y: CLI Reliability & UX Hardening (Completed)
 
 *   **Track Y1: Integration Test Coverage for Untested Command Surfaces**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackY1/spec.md`
     *   Plan: `conductor/trackY1/plan.md`
     *   Goal: Add CLI dispatch-level integration tests for 11 untested command surfaces (`config`, `endpoints`, `data-models`, `observability`, `security`, `services`, `dead-code`, `viz`, `update`, `federate`, `audit`) to prevent silent regressions.
-    *   Definition of done: Each surface has ≥1 smoke test validating the full pipeline from CLI args through to output; `cargo nextest run --test integration` passes; total integration test count increases by ≥11.
+    *   Definition of done: Each surface has ≥1 smoke test validating the full pipeline from CLI args through to output; `cargo nextest run --test integration` passes; 224 integration tests pass (13 new tests over 211 baseline).
 
 *   **Track Y2: Standardize JSON Output Contract**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackY2/spec.md`
     *   Plan: `conductor/trackY2/plan.md`
     *   Goal: Establish and enforce a project-wide JSON output contract: `--json` → stdout, `--out <file>` → file, human-readable text → stderr. Audit and fix every command surface for compliance.
     *   Definition of done: All commands with `--json` output valid JSON to stdout; all commands with `--out` write to the specified file path; human text goes to stderr; `changeguard X --json | jq` works reliably across all surfaces.
 
 *   **Track Y3: Consolidate `scan --impact` vs Standalone `impact`**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackY3/spec.md`
     *   Plan: `conductor/trackY3/plan.md`
     *   Goal: Eliminate the confusing overlap by adding `--json` and `--out` to standalone `changeguard impact`, merging internal code paths, and documenting the canonical usage.
     *   Definition of done: `changeguard impact --json` writes to stdout; `changeguard impact --out path` writes to file; internal code paths deduplicated; test coverage verifies both flags; no behavior change for `scan --impact`.
 
 *   **Track Y4: Progress Feedback for Blocking Operations**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackY4/spec.md`
     *   Plan: `conductor/trackY4/plan.md`
     *   Goal: Add spinner or status-line feedback to `changeguard ask` (15s LLM timeout), `changeguard verify` (long-running commands), `changeguard index --semantic` (local model inference), and the stale-index non-interactive guard, so users see progress during blocking operations.
     *   Definition of done: Spinner message appears before each blocking call in human mode; JSON/script modes suppress spinner; `CHANGEGUARD_NON_INTERACTIVE` env-var skips interactive prompts; tests pass.
 
 *   **Track Y5: CLI UX Consistency — Category Enum, Dry-Run Plan, Env-Var Identity**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackY5/spec.md`
     *   Plan: `conductor/trackY5/plan.md`
     *   Goal: Fix three medium-friction UX issues: (1) `ledger start --category` accepts free-string → change to `Category` enum matching `ledger atomic`; (2) `verify --dry-run` prints the verification plan instead of silent success; (3) risk analysis tracks env-var identity (not just cardinality) to catch same-cardinality replacements.
@@ -1648,6 +1648,16 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Plan: `conductor/trackX15/plan.md`
     *   Goal: Print repo path + Ctrl+C hint immediately on `watch` start; exit with code 0 and "Watch stopped." on Ctrl+C; ignore `.changeguard/state/` events.
     *   Definition of done: Startup banner appears; Ctrl+C exits 0; state dir changes ignored; tests pass.
+
+
+## Milestone Z: Command Audit Remediation & Ollama Cloud Hardening (Planned)
+
+*   **Track Z1: Command Audit Remediation and Ollama Cloud Hardening**
+    *   Status: Planned
+    *   Spec: `conductor/trackZ1/spec.md`
+    *   Plan: `conductor/trackZ1/plan.md`
+    *   Goal: Close all command-audit "Doesn't Work / Risks" and friction items found on 2026-06-09, with special focus on secret-safe config output, working Ollama Cloud fallback for `ask`, bounded verification health checks, structured-output consistency, and clearer UX for noisy or empty command surfaces.
+    *   Definition of done: `config view --json` never emits secret values; `ask --backend local` succeeds with valid Ollama Cloud config and reports clear actionable errors for invalid credentials; `verify --health` is bounded and informative; dry-run, JSON, bridge, empty-state, and federation UX issues have tests; official Ollama API behavior is captured in regression coverage; full verification plus reinstall passes.
 
 
 ## Workflow

@@ -36,8 +36,31 @@ impl ImpactProvider for EnvironmentImpactProvider {
         for delta in &packet.runtime_usage_delta {
             if delta.env_vars_current_count > delta.env_vars_previous_count {
                 reasons.push(format!(
-                    "Environment variable references changed in {}",
-                    delta.file_path
+                    "New environment variable references in {} ({} -> {})",
+                    delta.file_path, delta.env_vars_previous_count, delta.env_vars_current_count
+                ));
+                total_weight += 20;
+            }
+            if delta.env_vars_current_count == delta.env_vars_previous_count
+                && delta.env_vars_current_count > 0
+                && !delta.env_vars_previous.is_empty()
+                && delta.env_vars_previous != delta.env_vars_current
+            {
+                let added: Vec<&str> = delta
+                    .env_vars_current
+                    .iter()
+                    .filter(|v| !delta.env_vars_previous.contains(v))
+                    .map(|s| s.as_str())
+                    .collect();
+                let removed: Vec<&str> = delta
+                    .env_vars_previous
+                    .iter()
+                    .filter(|v| !delta.env_vars_current.contains(v))
+                    .map(|s| s.as_str())
+                    .collect();
+                reasons.push(format!(
+                    "Environment variable identities changed in {} (added: {:?}, removed: {:?})",
+                    delta.file_path, added, removed
                 ));
                 total_weight += 20;
             }

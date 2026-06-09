@@ -1,4 +1,5 @@
 use changeguard::cli::{Cli, Commands, LedgerCommands};
+use changeguard::ledger::types::Category;
 use clap::Parser;
 
 // ---------------------------------------------------------------------------
@@ -70,13 +71,13 @@ fn test_start_success_with_all_args() {
         panic!("expected Start");
     };
     assert_eq!(entity, "src/main.rs");
-    assert_eq!(category, "BUGFIX");
+    assert_eq!(category, Category::Bugfix);
     assert_eq!(message, "fix crash");
 }
 
 #[test]
-fn test_start_accepts_invalid_category_for_runtime_correction() {
-    let cli = parse_ok(&[
+fn test_start_rejects_invalid_category() {
+    let err = parse_err(&[
         "changeguard",
         "ledger",
         "start",
@@ -86,13 +87,10 @@ fn test_start_accepts_invalid_category_for_runtime_correction() {
         "--message",
         "update docs",
     ]);
-    let Commands::Ledger { command, .. } = cli.command else {
-        panic!("expected Ledger");
-    };
-    let LedgerCommands::Start { category, .. } = command else {
-        panic!("expected Start");
-    };
-    assert_eq!(category, "doc");
+    assert!(
+        err.contains("doc") && (err.contains("invalid") || err.contains("error")),
+        "Expected invalid category error, got: {err}"
+    );
 }
 
 #[test]

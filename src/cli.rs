@@ -58,6 +58,12 @@ pub enum Commands {
         /// Run dead-code analysis on affected files
         #[arg(long)]
         dead_code: bool,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+        /// Write output to file
+        #[arg(short, long)]
+        out: Option<PathBuf>,
     },
     /// Index the project for search and discovery
     Index {
@@ -568,9 +574,9 @@ pub enum LedgerCommands {
     Start {
         /// Entity path to track
         entity: String,
-        /// Category of change (FEATURE, BUGFIX, ARCHITECTURE, etc.)
+        /// Category of change (ARCHITECTURE, FEATURE, BUGFIX, REFACTOR, INFRA, SECURITY, DOCS, CHORE, TOOLING)
         #[arg(short, long)]
-        category: String,
+        category: Category,
         /// Intent message for the change
         #[arg(short, long)]
         message: String,
@@ -637,6 +643,9 @@ pub enum LedgerCommands {
         /// Perform signature verification and exit with 1 if signatures are invalid
         #[arg(long = "verify-signatures")]
         verify_signatures: bool,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Register a new tech stack rule or commit validator
     Register {
@@ -679,6 +688,9 @@ pub enum LedgerCommands {
         /// Offset for pagination
         #[arg(long, default_value_t = 0)]
         offset: usize,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Reconcile detected drift with a transaction or pattern
     Reconcile {
@@ -838,7 +850,16 @@ pub fn run_with(cli: Cli) -> Result<()> {
             summary,
             telemetry,
             dead_code,
-        } => crate::commands::impact::execute_impact(all_parents, summary, telemetry, dead_code),
+            json,
+            out,
+        } => crate::commands::impact::execute_impact(
+            all_parents,
+            summary,
+            telemetry,
+            dead_code,
+            json,
+            out,
+        ),
         Commands::Index {
             incremental,
             full,
@@ -978,11 +999,13 @@ pub fn run_with(cli: Cli) -> Result<()> {
                 compact,
                 exit_code,
                 verify_signatures,
+                json,
             } => crate::commands::ledger::execute_ledger_status(
                 entity,
                 compact,
                 exit_code,
                 verify_signatures,
+                json,
             ),
             LedgerCommands::Register { command } => match command {
                 RegisterCommands::Rule {
@@ -1022,8 +1045,9 @@ pub fn run_with(cli: Cli) -> Result<()> {
                 breaking,
                 limit,
                 offset,
+                json,
             } => crate::commands::ledger_search::execute_ledger_search(
-                query, category, days, breaking, limit, offset,
+                query, category, days, breaking, limit, offset, json,
             ),
             LedgerCommands::Reconcile {
                 tx_id,

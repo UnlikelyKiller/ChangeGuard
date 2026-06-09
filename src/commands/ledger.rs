@@ -7,6 +7,7 @@ use chrono::{DateTime, Utc};
 use clap::ValueEnum;
 use miette::{IntoDiagnostic, Result};
 use owo_colors::OwoColorize;
+use serde::Serialize;
 
 pub fn execute_ledger_start(entity: String, category: &str, message: &str) -> Result<()> {
     let category = resolve_start_category(category)?;
@@ -411,6 +412,7 @@ pub fn execute_ledger_status(
     compact: bool,
     exit_code: bool,
     verify_signatures: bool,
+    json: bool,
 ) -> Result<()> {
     let layout = get_layout()?;
 
@@ -423,6 +425,42 @@ pub fn execute_ledger_status(
     let stale_threshold = config.ledger.stale_threshold_hours as i64;
     let tx_mgr = TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
     let clock = SystemClock;
+
+    if json {
+        let pending = tx_mgr
+            .get_all_pending()
+            .map_err(|e| miette::miette!("{}", e))?;
+        let unaudited = tx_mgr
+            .get_all_unaudited()
+            .map_err(|e| miette::miette!("{}", e))?;
+        let pending_tx_ids: Vec<String> = pending.iter().map(|t| t.tx_id.clone()).collect();
+
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct StatusJson {
+            pending_count: usize,
+            unaudited_count: usize,
+            pending_tx_ids: Vec<String>,
+            unaudited_file_count: usize,
+        }
+
+        let status = StatusJson {
+            pending_count: pending.len(),
+            unaudited_count: unaudited.len(),
+            pending_tx_ids,
+            unaudited_file_count: unaudited.iter().map(|u| u.drift_count as usize).sum(),
+        };
+
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&status).into_diagnostic()?
+        );
+
+        if exit_code && (status.pending_count > 0 || status.unaudited_count > 0) {
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
 
     if let Some(entity) = entity_filter {
         println!("Ledger Status for {}:", entity.cyan());

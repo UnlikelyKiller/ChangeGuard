@@ -156,6 +156,14 @@ pub fn print_staleness_warning(warning: &StalenessWarning) {
     );
 }
 
+/// Check whether the CHANGEGUARD_NON_INTERACTIVE env var is set.
+/// When non-empty, interactive prompts (e.g. inquire confirmations) should be skipped.
+pub fn is_non_interactive() -> bool {
+    std::env::var("CHANGEGUARD_NON_INTERACTIVE")
+        .ok()
+        .is_some_and(|v| !v.is_empty())
+}
+
 /// Run `check_index_staleness` and print the warning banner when stale.
 /// Returns `true` if a warning was printed.
 pub fn warn_if_stale(storage: &StorageManager, threshold_days: u64) -> bool {

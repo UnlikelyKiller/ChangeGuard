@@ -43,8 +43,13 @@ pub fn execute_ask(
 
     // --- Staleness check ---
     let threshold = config.index.stale_threshold_days;
+    let non_interactive = crate::index::staleness::is_non_interactive();
     let storage = if auto_index {
         crate::index::staleness::try_auto_index(storage, threshold)?
+    } else if non_interactive {
+        // Non-interactive mode: skip auto-index prompt, just warn
+        warn_if_stale(&storage, threshold);
+        storage
     } else {
         let is_stale = warn_if_stale(&storage, threshold);
         if is_stale && crate::util::term::is_interactive() {
@@ -271,6 +276,9 @@ pub fn execute_ask(
                 max_tokens,
                 adaptive_mode,
             );
+
+            // Show progress indicator before LLM call
+            eprintln!("Contacting LLM...");
 
             match crate::local_model::client::complete(
                 &config.local_model,

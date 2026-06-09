@@ -254,6 +254,7 @@ fn test_runtime_delta_env_count_change_triggers_risk_reason() {
         env_vars_current_count: 3,
         config_keys_previous_count: 0,
         config_keys_current_count: 0,
+        ..Default::default()
     });
 
     let rules = Rules::default();
@@ -268,7 +269,7 @@ fn test_runtime_delta_env_count_change_triggers_risk_reason() {
         packet
             .risk_reasons
             .iter()
-            .any(|r| r.contains("Environment variable references changed")),
+            .any(|r| r.contains("New environment variable references")),
         "Expected env-var delta reason, got: {:?}",
         packet.risk_reasons
     );
@@ -283,6 +284,7 @@ fn test_runtime_delta_config_count_change_triggers_risk_reason() {
         env_vars_current_count: 0,
         config_keys_previous_count: 2,
         config_keys_current_count: 4,
+        ..Default::default()
     });
 
     let rules = Rules::default();
@@ -304,18 +306,18 @@ fn test_runtime_delta_config_count_change_triggers_risk_reason() {
 }
 
 #[test]
-fn test_runtime_delta_same_cardinality_not_flagged() {
-    // Known limitation: the delta model tracks counts, not identities.
-    // Replacing DATABASE_URL→REDIS_URL (1→1) produces no signal.
-    // This test documents the behaviour so any future identity-aware fix
-    // will know to update it.
+fn test_runtime_delta_same_cardinality_identity_change_detected() {
+    // Y5: The delta model now tracks identity, not just counts.
+    // Replacing DATABASE_URL→REDIS_URL (1→1) now produces a signal.
     let mut packet = ImpactPacket::default();
     packet.runtime_usage_delta.push(RuntimeUsageDelta {
         file_path: "src/db.rs".to_string(),
         env_vars_previous_count: 1,
-        env_vars_current_count: 1, // same count, different var — invisible to current model
+        env_vars_current_count: 1, // same count but different variable
         config_keys_previous_count: 0,
         config_keys_current_count: 0,
+        env_vars_previous: vec!["DATABASE_URL".to_string()],
+        env_vars_current: vec!["REDIS_URL".to_string()],
     });
 
     let rules = Rules::default();
@@ -327,11 +329,12 @@ fn test_runtime_delta_same_cardinality_not_flagged() {
     .unwrap();
 
     assert!(
-        !packet
+        packet
             .risk_reasons
             .iter()
-            .any(|r| r.contains("Environment variable references changed")),
-        "Same-cardinality replacement is a known blind spot — not flagged"
+            .any(|r| r.contains("Environment variable identities changed")),
+        "Expected identity-aware env-var delta reason, got: {:?}",
+        packet.risk_reasons
     );
 }
 

@@ -55,7 +55,7 @@ fn test_category_inference_covers_all_prefixes() {
     );
     assert_eq!(
         parse_category_from_message("security: fix vulnerability"),
-        Category::Feature
+        Category::Security
     );
     assert_eq!(
         parse_category_from_message("breaking: major change"),

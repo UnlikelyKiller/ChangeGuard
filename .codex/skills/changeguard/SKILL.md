@@ -1,6 +1,6 @@
 ---
 name: changeguard
-description: Use this skill when working in a repository initialized with `.changeguard/` and the task involves code edits, reviews, impact/risk analysis, verification planning, drift handling, ledger provenance, or deciding what tests to run. Before meaningful edits, run ChangeGuard scan/impact; after edits, run verification and report unresolved drift or ledger state.
+description: Use this skill when making code edits, reviews, impact/risk analysis, verification planning, drift handling, ledger provenance, or deciding what tests to run. Before meaningful edits, run ChangeGuard scan/impact; after edits, run verification and report unresolved drift or ledger state.
 ---
 
 # ChangeGuard
@@ -14,7 +14,7 @@ Use ChangeGuard as the local safety layer and engineering intelligence engine fo
 - **Route Extraction**: Detects HTTP routes from Axum, Express, and other frameworks. Stores `method`, `path_pattern`, `handler_name`, `framework`, and confidence score.
 - **Call Graph**: Tracks function call relationships (`Direct`, `MethodCall`, `TraitDispatch`, `Dynamic`, `External`) so you can answer "what calls this function?" and "what does this function depend on?".
 - **Knowledge Graph**: Durable, billion-edge relational and vector storage (CozoDB-redux/Sled) with native code-aware tokenization (Tree-Sitter). Stores symbols in `project_symbol` table.
-- **AI-Brains Bridge**: Exposes its Knowledge Graph to AI-Brains via `bridge export --graph-query` IPC. AI-Brains nightly pipeline queries symbol data through this bridge (T70).
+- **AI-Brains Bridge**: Exports hotspots, ledger entries, and MADR data to AI-Brains via `changeguard bridge export --hotspots --ledger [--madr] [--stdout]`. AI-Brains nightly pipeline ingests this output as code symbols into recall (T70). Inbound recall uses `changeguard bridge query "<text>"` (IPC with CLI fallback).
 - **Impact Analysis**: Deep "blast radius" analysis across 20+ specialized providers (Infra, Contracts, Observability, Temporal).
 - **Cryptographic Provenance**: Mathematical proof of intent via Ed25519 signing of every ledger entry. Offline verification via `verify --signatures`.
 - **Intent Capture TUI**: Interactive terminal UI for auditing and refining LLM-drafted intent payloads during the git commit process.
@@ -23,6 +23,17 @@ Use ChangeGuard as the local safety layer and engineering intelligence engine fo
 - **Documentation Generation**: Export Knowledge Graph data to Markdown/Mermaid passive documentation (`index --export-docs`).
 - **Dead Code Detection**: Confidence-based dead code detection blending graph reachability, git activity, and test history (`dead-code` command).
 - **Live Visualization**: WebSocket-based Arc Diagram for real-time Knowledge Graph updates (`viz-server`, `viz-server --stop`).
+- **Endpoints**: Indexed endpoint graph with auth, schemas, consumers, and owner links. `changeguard endpoints --json` / `--changed` for direct review.
+- **Services Diff**: Declared service map with queue/topic/RPC edges and PR-style boundary diff. `changeguard services diff`.
+- **Data Models**: Durable data model, table, migration, and compatibility-class relations with impact rules for destructive changes. `changeguard data-models impact --changed`.
+- **Config Schema & Diff**: Explicit env var schema metadata (required/secret/owner/provider) and change diff. `changeguard config schema` / `changeguard config diff`.
+- **Dependency & Advisory Graph**: Cargo/npm/Python lockfile ingestion with cargo-audit/osv advisory matching. Impact rules for vulnerable dependency introduction.
+- **Test Mapping**: Durable test nodes linked to endpoints, symbols, services, and data models. `changeguard verify explain --entity <path>` for entity-scoped test explanation.
+- **Observability Graph**: SLO, metric, alert, and signal nodes from OpenSLO YAML. Source-file-backed diff matching. `changeguard observability diff` / `observability coverage`.
+- **Hotspot Trends**: Persistent hotspot and temporal coupling snapshots with trend deltas. `changeguard hotspots trend` / `hotspots explain`.
+- **Ledger Graph**: Per-transaction entity neighborhood view linking ledger entries to symbols, endpoints, services, ADRs, config keys, and deploy surfaces. `changeguard ledger graph <tx-id>`.
+- **Ledger Validator Lifecycle**: Full validator lifecycle with `ledger validator list`, `disable`, `enable`, `remove`, `doctor`, and hook-repair rollback for sidecar/pending mismatches.
+- **Security Boundaries**: Cedar policy parsing with cross-surface links (policy→endpoint/service/config_key/deploy_surface/ADR). `changeguard security boundaries` / `security impact --changed`.
 
 ## Philosophy: CLI-First Intelligence
 
@@ -105,8 +116,8 @@ These queries work because ChangeGuard indexes:
 
 Symbols ingested by the bridge become AI-Brains memories (T70) and are returned
 by `ai-brains recall "<topic>"` alongside session memories. To verify the
-bridge is alive end-to-end, run `ai-brains safety sync --dry-run` and confirm
-hotspots are listed.
+bridge is alive end-to-end, run `ai-brains preflight --summary` and confirm
+hotspots and decisions are listed.
 
 ## Audit Smoke Tests
 
