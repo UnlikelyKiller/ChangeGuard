@@ -309,7 +309,7 @@ pub fn build_native_graph(
     let mut adr_nodes = Vec::new();
     let mut adr_edges = Vec::new();
 
-    for (adr_id, status, owner, supersedes, _affected, summary) in &adr_rows {
+    for (adr_id, status, owner, supersedes, affected, summary) in &adr_rows {
         let urn = format!("urn:changeguard:adr:{}", adr_id);
         adr_nodes.push(GraphNode {
             id: urn.clone(),
@@ -338,6 +338,32 @@ pub fn build_native_graph(
                 provenance_id: provenance_id.to_string(),
             });
         }
+
+        // Link ADR to each affected entity declared in its metadata.
+        if let Some(affected_json) = affected
+            && let Ok(entities) = serde_json::from_str::<Vec<String>>(affected_json)
+        {
+            for entity in entities {
+                // Entities may be file paths, service names, symbol names, etc.
+                // Emit as a generic Governs edge; the target URN may not yet exist
+                // in the graph but will resolve once those nodes are added.
+                let entity_urn = if entity.starts_with("urn:") {
+                    entity.clone()
+                } else if entity.contains('/') || entity.ends_with(".rs") || entity.ends_with(".ts")
+                {
+                    crate::platform::urn::build_urn(NodeKind::File, &entity)
+                } else {
+                    crate::platform::urn::build_urn(NodeKind::Symbol, &entity)
+                };
+                adr_edges.push(GraphEdge {
+                    source: urn.clone(),
+                    target: entity_urn,
+                    relation: EdgeKind::Governs,
+                    confidence: 0.9,
+                    provenance_id: provenance_id.to_string(),
+                });
+            }
+        }
     }
 
     cozo.insert_nodes(&adr_nodes)?;
@@ -353,7 +379,11 @@ pub fn build_native_graph(
             label: format!("Service: {}", ds.name),
             category: NodeKind::Service,
             risk_score: 0.0,
-            metadata: Some(json!({"root": ds.root, "schema_version": "v1"})),
+            metadata: Some(json!({
+                "root": ds.root,
+                "runtime_name": ds.runtime_name,
+                "schema_version": "v1"
+            })),
         });
         for owner in &ds.owners {
             let owner_urn = crate::platform::urn::build_urn(NodeKind::Role, owner);
@@ -372,17 +402,80 @@ pub fn build_native_graph(
                 provenance_id: provenance_id.to_string(),
             });
         }
+
+        // Async topology edges: queues, topics, RPC endpoints
+        for queue in &ds.queues {
+            let q_urn = crate::platform::urn::build_urn(NodeKind::ObservabilitySignal, queue);
+            service_nodes.push(GraphNode {
+                id: q_urn.clone(),
+                label: format!("Queue: {}", queue),
+                category: NodeKind::ObservabilitySignal,
+                risk_score: 0.0,
+                metadata: Some(json!({"kind": "queue", "name": queue, "schema_version": "v1"})),
+            });
+            service_edges.push(GraphEdge {
+                source: urn.clone(),
+                target: q_urn,
+                relation: EdgeKind::DependsOn,
+                confidence: 1.0,
+                provenance_id: provenance_id.to_string(),
+            });
+        }
+        for topic in &ds.topics {
+            let t_urn = crate::platform::urn::build_urn(NodeKind::ObservabilitySignal, topic);
+            service_nodes.push(GraphNode {
+                id: t_urn.clone(),
+                label: format!("Topic: {}", topic),
+                category: NodeKind::ObservabilitySignal,
+                risk_score: 0.0,
+                metadata: Some(json!({"kind": "topic", "name": topic, "schema_version": "v1"})),
+            });
+            service_edges.push(GraphEdge {
+                source: urn.clone(),
+                target: t_urn,
+                relation: EdgeKind::DependsOn,
+                confidence: 1.0,
+                provenance_id: provenance_id.to_string(),
+            });
+        }
+        for rpc in &ds.rpc_endpoints {
+            let r_urn = crate::platform::urn::build_urn(NodeKind::Endpoint, rpc);
+            service_nodes.push(GraphNode {
+                id: r_urn.clone(),
+                label: format!("RPC: {}", rpc),
+                category: NodeKind::Endpoint,
+                risk_score: 0.0,
+                metadata: Some(json!({"kind": "rpc", "name": rpc, "schema_version": "v1"})),
+            });
+            service_edges.push(GraphEdge {
+                source: urn.clone(),
+                target: r_urn,
+                relation: EdgeKind::Calls,
+                confidence: 1.0,
+                provenance_id: provenance_id.to_string(),
+            });
+        }
     }
     cozo.insert_nodes(&service_nodes)?;
     cozo.insert_edges(&service_edges)?;
 
-    // --- 7. Read Data Models ---
+    // --- 7. Read Data Models and link to owning services ---
     let mut model_stmt = conn
-        .prepare("SELECT model_name, language, model_kind, fields FROM data_models")
+        .prepare(
+            "SELECT dm.model_name, dm.language, dm.model_kind, dm.fields, pf.file_path \
+             FROM data_models dm \
+             JOIN project_files pf ON dm.model_file_id = pf.id",
+        )
         .into_diagnostic()?;
-    let model_rows: Vec<(String, String, String, Option<String>)> = model_stmt
+    let model_rows: Vec<(String, String, String, Option<String>, String)> = model_stmt
         .query_map([], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
         })
         .into_diagnostic()?
         .collect::<Result<Vec<_>, _>>()
@@ -390,10 +483,11 @@ pub fn build_native_graph(
     drop(model_stmt);
 
     let mut model_nodes = Vec::new();
-    for (name, lang, kind, fields) in &model_rows {
+    let mut model_edges = Vec::new();
+    for (name, lang, kind, fields, file_path) in &model_rows {
         let urn = crate::platform::urn::build_urn(NodeKind::DataModel, name);
         model_nodes.push(GraphNode {
-            id: urn,
+            id: urn.clone(),
             label: format!("Model: {}", name),
             category: NodeKind::DataModel,
             risk_score: 0.0,
@@ -401,8 +495,106 @@ pub fn build_native_graph(
                 json!({"language": lang, "kind": kind, "fields": fields, "schema_version": "v1"}),
             ),
         });
+
+        // Link data model to its source file
+        let file_urn = crate::platform::urn::build_urn(NodeKind::File, file_path);
+        model_edges.push(GraphEdge {
+            source: urn.clone(),
+            target: file_urn,
+            relation: EdgeKind::DependsOn,
+            confidence: 1.0,
+            provenance_id: provenance_id.to_string(),
+        });
+
+        // Link data model to owning service (by root path prefix)
+        for ds in &config.services.definitions {
+            let root_norm = ds.root.replace('\\', "/");
+            let file_norm = file_path.replace('\\', "/");
+            if file_norm.starts_with(&root_norm) {
+                let svc_urn = crate::platform::urn::build_urn(NodeKind::Service, &ds.name);
+                model_edges.push(GraphEdge {
+                    source: svc_urn,
+                    target: urn.clone(),
+                    relation: EdgeKind::Owns,
+                    confidence: 0.9,
+                    provenance_id: provenance_id.to_string(),
+                });
+                break;
+            }
+        }
     }
     cozo.insert_nodes(&model_nodes)?;
+    cozo.insert_edges(&model_edges)?;
+
+    // --- 7b. Read env_declarations → ConfigKey nodes linked to services ---
+    let mut env_stmt = conn
+        .prepare(
+            "SELECT ed.var_name, ed.source_kind, ed.is_secret, ed.owner, pf.file_path \
+             FROM env_declarations ed \
+             JOIN project_files pf ON ed.source_file_id = pf.id",
+        )
+        .into_diagnostic()?;
+    let env_rows: Vec<(String, String, i32, Option<String>, String)> = env_stmt
+        .query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        })
+        .into_diagnostic()?
+        .collect::<Result<Vec<_>, _>>()
+        .into_diagnostic()?;
+    drop(env_stmt);
+
+    let mut config_nodes = Vec::new();
+    let mut config_edges = Vec::new();
+    for (var_name, source_kind, is_secret, owner, file_path) in &env_rows {
+        let urn = crate::platform::urn::build_urn(NodeKind::ConfigKey, var_name);
+        config_nodes.push(GraphNode {
+            id: urn.clone(),
+            label: format!("Config: {}", var_name),
+            category: NodeKind::ConfigKey,
+            risk_score: 0.0,
+            metadata: Some(json!({
+                "source_kind": source_kind,
+                "is_secret": is_secret == &1,
+                "owner": owner,
+                "schema_version": "v1"
+            })),
+        });
+
+        // Link to source file
+        let file_urn = crate::platform::urn::build_urn(NodeKind::File, file_path);
+        config_edges.push(GraphEdge {
+            source: urn.clone(),
+            target: file_urn,
+            relation: EdgeKind::DependsOn,
+            confidence: 1.0,
+            provenance_id: provenance_id.to_string(),
+        });
+
+        // Link to owning service by root path prefix
+        for ds in &config.services.definitions {
+            let root_norm = ds.root.replace('\\', "/");
+            let file_norm = file_path.replace('\\', "/");
+            if file_norm.starts_with(&root_norm) {
+                let svc_urn = crate::platform::urn::build_urn(NodeKind::Service, &ds.name);
+                config_edges.push(GraphEdge {
+                    source: svc_urn,
+                    target: urn.clone(),
+                    relation: EdgeKind::Configures,
+                    confidence: 0.9,
+                    provenance_id: provenance_id.to_string(),
+                });
+                break;
+            }
+        }
+    }
+    cozo.insert_nodes(&config_nodes)?;
+    cozo.insert_edges(&config_edges)?;
 
     // --- 8. Read OpenSLO YAMLs ---
     let mut obs_nodes = Vec::new();
@@ -417,8 +609,29 @@ pub fn build_native_graph(
                 || path.extension().and_then(|e| e.to_str()) == Some("yaml")
             {
                 let content = std::fs::read_to_string(&path).unwrap_or_default();
+                let abs_str = path.to_string_lossy().replace('\\', "/");
+                let root_prefix = format!(
+                    "{}/",
+                    storage
+                        .root_path()
+                        .as_str()
+                        .replace('\\', "/")
+                        .trim_end_matches('/')
+                );
+                let source_file = abs_str
+                    .strip_prefix(&root_prefix)
+                    .unwrap_or(&abs_str)
+                    .to_string();
                 if let Ok(entities) = crate::observability::openslo::parse_openslo(&content) {
-                    for entity in entities {
+                    for mut entity in entities {
+                        // Inject source_file into metadata so observability diff can match
+                        // changed files against the node's origin file.
+                        if let serde_json::Value::Object(ref mut m) = entity.metadata {
+                            m.insert(
+                                "source_file".to_string(),
+                                serde_json::Value::String(source_file.clone()),
+                            );
+                        }
                         match entity.kind.as_str() {
                             "Service" => {
                                 obs_nodes.push(GraphNode {
@@ -643,6 +856,17 @@ pub fn build_native_graph(
     cozo.insert_nodes(&obs_nodes)?;
     cozo.insert_edges(&obs_edges)?;
 
+    // --- 8b. Collect deploy manifest file paths for cross-surface policy links ---
+    let mut dm_stmt = conn
+        .prepare("SELECT file_path FROM deploy_manifests")
+        .into_diagnostic()?;
+    let deploy_manifests: Vec<String> = dm_stmt
+        .query_map([], |row| row.get(0))
+        .into_diagnostic()?
+        .collect::<Result<Vec<_>, _>>()
+        .into_diagnostic()?;
+    drop(dm_stmt);
+
     // --- 9. Read Cedar Policies ---
     let mut policy_nodes = Vec::new();
     let mut policy_edges = Vec::new();
@@ -739,11 +963,27 @@ pub fn build_native_graph(
                         });
                         policy_edges.push(GraphEdge {
                             source: urn.clone(),
-                            target: r_urn,
+                            target: r_urn.clone(),
                             relation: EdgeKind::Authorizes,
                             confidence: 1.0,
                             provenance_id: provenance_id.to_string(),
                         });
+
+                        // Cross-surface: if the resource name matches a known service,
+                        // link the policy as protecting that service boundary.
+                        for ds in &config.services.definitions {
+                            if r.contains(&ds.name) || ds.name.contains(r.as_str()) {
+                                let svc_urn =
+                                    crate::platform::urn::build_urn(NodeKind::Service, &ds.name);
+                                policy_edges.push(GraphEdge {
+                                    source: urn.clone(),
+                                    target: svc_urn,
+                                    relation: EdgeKind::ProtectedBy,
+                                    confidence: 0.8,
+                                    provenance_id: provenance_id.to_string(),
+                                });
+                            }
+                        }
                     }
                 }
             }
@@ -752,17 +992,140 @@ pub fn build_native_graph(
     cozo.insert_nodes(&policy_nodes)?;
     cozo.insert_edges(&policy_edges)?;
 
+    // --- Cross-surface security links: policies → endpoints, config keys, deploy manifests, ADRs ---
+    // Run this as a second pass after all nodes are inserted.
+    let mut cross_edges = Vec::new();
+
+    // Policy → endpoint: link policy nodes to endpoint nodes where the policy raw
+    // text references the endpoint's path pattern.
+    for (method, path, _, _, _, _, _) in route_rows.iter() {
+        let endpoint_id = format!("urn:changeguard:endpoint:{}:{}", method, path);
+        for p_node in policy_nodes
+            .iter()
+            .filter(|n| n.category == NodeKind::Policy)
+        {
+            let has_path_ref = p_node
+                .metadata
+                .as_ref()
+                .and_then(|m| m.get("raw"))
+                .and_then(|r| r.as_str())
+                .map(|raw| raw.contains(path.as_str()))
+                .unwrap_or(false);
+            if has_path_ref {
+                cross_edges.push(GraphEdge {
+                    source: p_node.id.clone(),
+                    target: endpoint_id.clone(),
+                    relation: EdgeKind::ProtectedBy,
+                    confidence: 0.7,
+                    provenance_id: provenance_id.to_string(),
+                });
+            }
+        }
+    }
+
+    // Policy → config key: link policies to config keys referenced in conditions
+    for cfg_node in config_nodes.iter() {
+        if cfg_node.category == NodeKind::ConfigKey {
+            let var_name = cfg_node.label.trim_start_matches("Config: ");
+            for p_node in policy_nodes
+                .iter()
+                .filter(|n| n.category == NodeKind::Policy)
+            {
+                let references_var = p_node
+                    .metadata
+                    .as_ref()
+                    .and_then(|m| m.get("conditions"))
+                    .and_then(|c| c.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .any(|c| c.as_str().map(|s| s.contains(var_name)).unwrap_or(false))
+                    })
+                    .unwrap_or(false);
+                if references_var {
+                    cross_edges.push(GraphEdge {
+                        source: p_node.id.clone(),
+                        target: cfg_node.id.clone(),
+                        relation: EdgeKind::Configures,
+                        confidence: 0.75,
+                        provenance_id: provenance_id.to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    // Policy → ADR: each policy governs ADRs that have matching category metadata
+    for adr_node in adr_nodes.iter() {
+        for p_node in policy_nodes
+            .iter()
+            .filter(|n| n.category == NodeKind::Policy)
+        {
+            // Link policies to ADRs whose summary (label) references security/authz topics.
+            // ADR `status` is lifecycle metadata (accepted/proposed), not scope — use label.
+            let label_lc = adr_node.label.to_lowercase();
+            let adr_is_security = label_lc.contains("security")
+                || label_lc.contains("auth")
+                || label_lc.contains("policy")
+                || label_lc.contains("access");
+            if adr_is_security {
+                cross_edges.push(GraphEdge {
+                    source: p_node.id.clone(),
+                    target: adr_node.id.clone(),
+                    relation: EdgeKind::Governs,
+                    confidence: 0.6,
+                    provenance_id: provenance_id.to_string(),
+                });
+            }
+        }
+    }
+
+    // Policy → deploy manifests: policies protect deployment surfaces
+    for dm_row in deploy_manifests.iter() {
+        let dm_urn = crate::platform::urn::build_urn(NodeKind::DeploySurface, dm_row);
+        for p_node in policy_nodes
+            .iter()
+            .filter(|n| n.category == NodeKind::Policy)
+        {
+            let refs_manifest = p_node
+                .metadata
+                .as_ref()
+                .and_then(|m| m.get("raw"))
+                .and_then(|r| r.as_str())
+                .map(|raw| raw.contains(dm_row.as_str()))
+                .unwrap_or(false);
+            if refs_manifest {
+                cross_edges.push(GraphEdge {
+                    source: p_node.id.clone(),
+                    target: dm_urn.clone(),
+                    relation: EdgeKind::ProtectedBy,
+                    confidence: 0.7,
+                    provenance_id: provenance_id.to_string(),
+                });
+            }
+        }
+    }
+
+    cozo.insert_edges(&cross_edges)?;
+
     info!(
-        "Native graph built: {} files, {} symbols, {} edges, {} endpoints, {} ADRs, {} services, {} models, {} obs, {} policies",
+        "Native graph built: {} files, {} symbols, {} edges, {} endpoints, {} ADRs, {} services, \
+         {} models, {} config_keys, {} obs, {} policies, {} cross-surface edges",
         files_indexed,
         symbols_indexed,
-        edges_added + endpoint_edges.len() + adr_edges.len() + obs_edges.len() + policy_edges.len(),
+        edges_added
+            + endpoint_edges.len()
+            + adr_edges.len()
+            + obs_edges.len()
+            + policy_edges.len()
+            + cross_edges.len(),
         endpoint_nodes.len(),
         adr_nodes.len(),
         service_nodes.len(),
         model_nodes.len(),
+        config_nodes.len(),
         obs_nodes.len(),
-        policy_nodes.len()
+        policy_nodes.len(),
+        cross_edges.len(),
     );
 
     Ok(GraphStats {
@@ -772,14 +1135,18 @@ pub fn build_native_graph(
             + adr_nodes.len()
             + service_nodes.len()
             + model_nodes.len()
+            + config_nodes.len()
             + obs_nodes.len()
             + policy_nodes.len(),
         edges_added: edges_added
             + endpoint_edges.len()
             + adr_edges.len()
             + service_edges.len()
+            + model_edges.len()
+            + config_edges.len()
             + obs_edges.len()
-            + policy_edges.len(),
+            + policy_edges.len()
+            + cross_edges.len(),
         files_indexed,
         symbols_indexed,
     })
