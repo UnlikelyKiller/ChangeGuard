@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-pub mod python;
-pub mod rust;
-pub mod typescript;
+mod python;
+mod rust;
+mod typescript;
 
 pub use python::detect_python_entrypoints;
 pub use rust::detect_rust_entrypoints;
