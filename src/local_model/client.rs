@@ -1,84 +1,23 @@
-use crate::config::model::{GeminiConfig, LocalModelConfig};
-use serde::{Deserialize, Serialize};
+mod cloud;
+mod gemini;
+mod ollama;
+mod openai;
+mod types;
+mod util;
+
+pub use cloud::has_ollama_cloud_fallback;
+pub use gemini::gemini_complete;
+pub use types::{ChatMessage, CompletionOptions, EndpointKind, EndpointTarget};
+pub use util::{
+    check_base_url_warnings, completion_target, detect_endpoint_kind, transport_is_timeout,
+};
+
+use crate::config::model::LocalModelConfig;
 use std::time::Duration;
 
-#[derive(Debug, Clone, Serialize)]
-pub struct ChatMessage {
-    pub role: String,
-    pub content: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct CompletionOptions {
-    pub max_tokens: usize,
-    pub temperature: f32,
-}
-
-impl Default for CompletionOptions {
-    fn default() -> Self {
-        Self {
-            max_tokens: 4096,
-            temperature: 0.7,
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-struct ChoiceMessage {
-    #[serde(default)]
-    content: String,
-    #[serde(default)]
-    reasoning: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Choice {
-    message: ChoiceMessage,
-}
-
-#[derive(Debug, Deserialize)]
-struct CompletionResponse {
-    choices: Vec<Choice>,
-}
-
-/// Ollama native `/api/chat` response (stream=false).
-#[derive(Debug, Deserialize)]
-struct OllamaChatResponse {
-    message: OllamaChatMessage,
-}
-
-#[derive(Debug, Deserialize)]
-struct OllamaChatMessage {
-    content: String,
-    #[serde(default)]
-    thinking: Option<String>,
-}
-
-/// Determines how the completion endpoint should be called.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum EndpointKind {
-    /// POST /v1/chat/completions (OpenAI-compatible JSON body)
-    OpenAICompatible,
-    /// POST /api/chat (Ollama native JSON body with model/messages)
-    OllamaNative,
-}
-
-#[derive(Debug, Clone)]
-struct EndpointTarget {
-    kind: EndpointKind,
-    url: String,
-}
-
-struct CompletionEndpoint<'a> {
-    label: &'a str,
-    base_url: &'a str,
-    model: &'a str,
-    authorization: Option<String>,
-}
-
-fn ollama_native_num_predict(max_tokens: usize) -> usize {
-    max_tokens.clamp(1, 1024)
-}
+use cloud::ollama_cloud_endpoint;
+use ollama::ollama_native_num_predict;
+use types::CompletionEndpoint;
 
 pub fn ping_completions(config: &LocalModelConfig) -> Result<String, String> {
     if config.base_url.is_empty() && config.generation_url.is_none() {
@@ -210,100 +149,6 @@ pub fn complete(
     ))
 }
 
-pub fn has_ollama_cloud_fallback(config: &LocalModelConfig) -> bool {
-    config
-        .ollama_cloud_url
-        .as_deref()
-        .is_some_and(|url| !url.trim().is_empty())
-        && config
-            .ollama_cloud_api_key
-            .as_deref()
-            .is_some_and(|key| !key.trim().is_empty())
-        && config
-            .ollama_cloud_model
-            .as_deref()
-            .is_some_and(|model| !model.trim().is_empty())
-}
-
-fn ollama_cloud_endpoint(config: &LocalModelConfig) -> Option<CompletionEndpoint<'_>> {
-    let base_url = config.ollama_cloud_url.as_deref()?.trim();
-    let api_key = config.ollama_cloud_api_key.as_deref()?.trim();
-    let model = config.ollama_cloud_model.as_deref()?.trim();
-    if base_url.is_empty() || api_key.is_empty() || model.is_empty() {
-        return None;
-    }
-    Some(CompletionEndpoint {
-        label: "Ollama Cloud fallback",
-        base_url,
-        model,
-        authorization: Some(format!("Bearer {api_key}")),
-    })
-}
-
-/// Detect whether a base URL should use Ollama native chat or
-/// OpenAI-compatible chat completions.
-fn detect_endpoint_kind(base_url: &str) -> EndpointKind {
-    let trimmed = base_url.trim_end_matches('/');
-    if trimmed.ends_with("/api") || trimmed == "https://api.ollama.com" {
-        EndpointKind::OllamaNative
-    } else {
-        EndpointKind::OpenAICompatible
-    }
-}
-
-fn completion_target(base_url: &str) -> EndpointTarget {
-    let base = base_url.trim_end_matches('/');
-    match detect_endpoint_kind(base_url) {
-        EndpointKind::OllamaNative => {
-            let url = if base == "https://api.ollama.com" {
-                "https://api.ollama.com/api/chat".to_string()
-            } else {
-                format!("{}/chat", base)
-            };
-            EndpointTarget {
-                kind: EndpointKind::OllamaNative,
-                url,
-            }
-        }
-        EndpointKind::OpenAICompatible => EndpointTarget {
-            kind: EndpointKind::OpenAICompatible,
-            url: format!("{}/v1/chat/completions", base),
-        },
-    }
-}
-
-/// Validate the base URL shape and return a diagnostic warning if it is
-/// malformed enough that endpoint selection would be ambiguous.
-fn check_base_url_warnings(base_url: &str, _kind: EndpointKind) -> Option<String> {
-    let trimmed = base_url.trim_end_matches('/');
-    let lower = trimmed.to_lowercase();
-    if lower.ends_with("/api/v1") {
-        Some(
-            "Unsupported Ollama URL shape. Use https://ollama.com/api for native Ollama \
-             mode or https://ollama.com for OpenAI-compatible mode."
-                .to_string(),
-        )
-    } else {
-        None
-    }
-}
-
-/// U22: Walk the `ureq::Transport` error source chain looking for an
-/// `io::Error` of `ErrorKind::TimedOut`. ureq 2.12 normalizes both read
-/// timeouts and `WouldBlock` to `TimedOut` internally, but only the inner
-/// `io::Error` carries the kind — the outer `Transport::Display` string is
-/// the OS-level error message, not "timeout".
-fn transport_is_timeout(err: &ureq::Transport) -> bool {
-    let mut source: Option<&(dyn std::error::Error + 'static)> = Some(err);
-    while let Some(e) = source {
-        if let Some(io_err) = e.downcast_ref::<std::io::Error>() {
-            return io_err.kind() == std::io::ErrorKind::TimedOut;
-        }
-        source = e.source();
-    }
-    false
-}
-
 fn complete_with_endpoint(
     endpoint: &CompletionEndpoint<'_>,
     timeout_secs: u64,
@@ -403,7 +248,7 @@ fn complete_with_endpoint(
 
     match target.kind {
         EndpointKind::OllamaNative => {
-            let parsed: OllamaChatResponse = response
+            let parsed: ollama::OllamaChatResponse = response
                 .into_json()
                 .map_err(|e| format!("Failed to parse Ollama native response: {e}"))?;
             if parsed.message.content.is_empty() {
@@ -421,7 +266,7 @@ fn complete_with_endpoint(
             Ok(parsed.message.content)
         }
         EndpointKind::OpenAICompatible => {
-            let parsed: CompletionResponse = response
+            let parsed: openai::CompletionResponse = response
                 .into_json()
                 .map_err(|e| format!("Failed to parse completion response: {e}"))?;
             let choice = parsed
@@ -444,141 +289,6 @@ fn complete_with_endpoint(
             Ok(choice.message.content)
         }
     }
-}
-
-const GEMINI_API_BASE: &str = "https://generativelanguage.googleapis.com/v1beta/models";
-const GEMINI_FAST_MODEL: &str = "gemini-3.1-flash-lite-001";
-
-/// Lightweight Gemini completion that returns the response text.
-/// Used by the semantic extractor's `--fast` mode to bypass the local model.
-pub fn gemini_complete(
-    config: &GeminiConfig,
-    messages: &[ChatMessage],
-    options: &CompletionOptions,
-) -> Result<String, String> {
-    let api_key = config
-        .api_key
-        .as_deref()
-        .filter(|k| !k.is_empty())
-        .or_else(|| {
-            std::env::var("GEMINI_API_KEY")
-                .ok()
-                .filter(|k| !k.is_empty())
-                .map(|s| {
-                    // Leak the String into a &'static str for the lifetime.
-                    Box::leak(s.into_boxed_str()) as &str
-                })
-        })
-        .ok_or_else(|| {
-            "Gemini API key not configured. Set gemini.api_key in config.toml or GEMINI_API_KEY env var.".to_string()
-        })?;
-
-    let model = config
-        .fast_model
-        .as_deref()
-        .filter(|m| !m.is_empty())
-        .or_else(|| config.model.as_deref().filter(|m| !m.is_empty()))
-        .unwrap_or(GEMINI_FAST_MODEL);
-
-    let url = format!("{GEMINI_API_BASE}/{model}:generateContent");
-
-    // Build Gemini request body from messages
-    let system_parts: Vec<serde_json::Value> = messages
-        .iter()
-        .filter(|m| m.role == "system")
-        .map(|m| serde_json::json!({ "text": m.content }))
-        .collect();
-
-    let contents: Vec<serde_json::Value> = messages
-        .iter()
-        .filter(|m| m.role != "system")
-        .map(|m| {
-            serde_json::json!({
-                "role": m.role,
-                "parts": [{ "text": m.content }]
-            })
-        })
-        .collect();
-
-    let mut body = serde_json::json!({
-        "contents": contents,
-        "generationConfig": {
-            "maxOutputTokens": options.max_tokens,
-            "temperature": options.temperature,
-        }
-    });
-
-    if let Some(system) = system_parts.first() {
-        body["system_instruction"] = serde_json::json!({ "parts": [system] });
-    }
-
-    let timeout = config.timeout_secs.unwrap_or(120).max(300);
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(5))
-        .timeout_read(Duration::from_secs(timeout))
-        .timeout_write(Duration::from_secs(30))
-        .build();
-
-    let mut last_error = String::new();
-    let mut delay = 2u64;
-
-    for attempt in 0..3 {
-        if attempt > 0 {
-            std::thread::sleep(Duration::from_secs(delay));
-            delay = delay.saturating_mul(2).min(30);
-        }
-
-        match agent
-            .post(&url)
-            .set("x-goog-api-key", api_key)
-            .send_json(&body)
-        {
-            Ok(response) => {
-                let value: serde_json::Value = response
-                    .into_json()
-                    .map_err(|e| format!("Failed to parse Gemini response: {e}"))?;
-
-                if let Some(error) = value.get("error") {
-                    let code = error.get("code").and_then(|c| c.as_u64()).unwrap_or(0);
-                    let msg = error
-                        .get("message")
-                        .and_then(|m| m.as_str())
-                        .unwrap_or("Unknown Gemini error");
-                    return Err(format!("Gemini API error {code}: {msg}"));
-                }
-
-                return value["candidates"][0]["content"]["parts"][0]["text"]
-                    .as_str()
-                    .map(|s| s.to_string())
-                    .ok_or_else(|| format!("No text in Gemini response: {value}"));
-            }
-            Err(ureq::Error::Status(503, _)) => {
-                last_error = "Gemini 503 (model overloaded)".to_string();
-                continue;
-            }
-            Err(ureq::Error::Status(429, response)) => {
-                let msg = response.into_string().unwrap_or_default();
-                return Err(format!(
-                    "Gemini API quota exhausted (429). Check your API key limits.\n{}",
-                    msg.chars().take(200).collect::<String>()
-                ));
-            }
-            Err(ureq::Error::Status(code, response)) => {
-                let msg = response.into_string().unwrap_or_default();
-                return Err(format!(
-                    "Gemini API error {code}: {}",
-                    msg.chars().take(200).collect::<String>()
-                ));
-            }
-            Err(ureq::Error::Transport(e)) => {
-                last_error = format!("Gemini HTTP error: {e}");
-            }
-        }
-    }
-
-    Err(format!(
-        "Gemini request failed after 3 retries: {last_error}"
-    ))
 }
 
 #[cfg(test)]
@@ -969,13 +679,6 @@ mod tests {
         let target = completion_target("https://api.ollama.com");
         assert_eq!(target.kind, EndpointKind::OllamaNative);
         assert_eq!(target.url, "https://api.ollama.com/api/chat");
-    }
-
-    #[test]
-    fn test_ollama_native_num_predict_is_bounded() {
-        assert_eq!(ollama_native_num_predict(0), 1);
-        assert_eq!(ollama_native_num_predict(64), 64);
-        assert_eq!(ollama_native_num_predict(4096), 1024);
     }
 
     #[test]
