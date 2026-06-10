@@ -20,6 +20,7 @@ pub mod observability;
 pub mod orchestrator;
 pub mod references;
 pub mod routes;
+pub mod rows;
 pub mod runtime_usage;
 pub mod staleness;
 pub mod storage;
