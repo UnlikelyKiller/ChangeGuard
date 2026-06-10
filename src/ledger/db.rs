@@ -1,8 +1,17 @@
 use crate::ledger::enforcement::*;
 use crate::ledger::error::LedgerError;
-use crate::ledger::provenance::{ProvenanceAction, TokenProvenance};
+use crate::ledger::provenance::TokenProvenance;
 use crate::ledger::types::*;
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::Connection;
+
+mod adr;
+mod drift;
+mod enforcement;
+mod federation;
+mod maintenance;
+mod provenance;
+mod search;
+mod transactions;
 
 pub struct LedgerDb<'a> {
     conn: &'a Connection,
@@ -14,108 +23,29 @@ impl<'a> LedgerDb<'a> {
     }
 
     pub fn insert_transaction(&self, tx: &Transaction) -> Result<(), LedgerError> {
-        self.conn.execute(
-            "INSERT INTO transactions (
-                tx_id, operation_id, status, category, entity, entity_normalized,
-                planned_action, session_id, source, started_at, resolved_at, issue_ref,
-                detected_at, drift_count, first_seen_at, last_seen_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
-            params![
-                tx.tx_id,
-                tx.operation_id,
-                tx.status,
-                serde_json::to_string(&tx.category)
-                    .map_err(|e| LedgerError::Config(e.to_string()))?
-                    .trim_matches('"'),
-                tx.entity,
-                tx.entity_normalized,
-                tx.planned_action,
-                tx.session_id,
-                tx.source,
-                tx.started_at,
-                tx.resolved_at,
-                tx.issue_ref,
-                tx.detected_at,
-                tx.drift_count,
-                tx.first_seen_at,
-                tx.last_seen_at,
-            ],
-        )?;
-        Ok(())
+        transactions::insert_transaction(self.conn, tx)
     }
 
     pub fn get_transaction(&self, tx_id: &str) -> Result<Option<Transaction>, LedgerError> {
-        self.conn
-            .query_row(
-                "SELECT tx_id, operation_id, status, category, entity, entity_normalized,
-                    planned_action, session_id, source, started_at, resolved_at, issue_ref,
-                    detected_at, drift_count, first_seen_at, last_seen_at
-             FROM transactions WHERE tx_id = ?1",
-                [tx_id],
-                |row| self.map_transaction(row),
-            )
-            .optional()
-            .map_err(LedgerError::from)
+        transactions::get_transaction(self.conn, tx_id)
     }
 
     pub fn get_pending_by_entity(
         &self,
         entity_normalized: &str,
     ) -> Result<Option<Transaction>, LedgerError> {
-        self.conn
-            .query_row(
-                "SELECT tx_id, operation_id, status, category, entity, entity_normalized,
-                    planned_action, session_id, source, started_at, resolved_at, issue_ref,
-                    detected_at, drift_count, first_seen_at, last_seen_at
-             FROM transactions WHERE entity_normalized = ?1 AND status = 'PENDING'",
-                [entity_normalized],
-                |row| self.map_transaction(row),
-            )
-            .optional()
-            .map_err(LedgerError::from)
+        transactions::get_pending_by_entity(self.conn, entity_normalized)
     }
 
     pub fn get_unaudited_by_entity(
         &self,
         entity_normalized: &str,
     ) -> Result<Option<Transaction>, LedgerError> {
-        self.conn
-            .query_row(
-                "SELECT tx_id, operation_id, status, category, entity, entity_normalized,
-                    planned_action, session_id, source, started_at, resolved_at, issue_ref,
-                    detected_at, drift_count, first_seen_at, last_seen_at
-             FROM transactions WHERE entity_normalized = ?1 AND status = 'UNAUDITED'",
-                [entity_normalized],
-                |row| self.map_transaction(row),
-            )
-            .optional()
-            .map_err(LedgerError::from)
+        drift::get_unaudited_by_entity(self.conn, entity_normalized)
     }
 
     pub fn upsert_unaudited_transaction(&self, tx: &Transaction) -> Result<(), LedgerError> {
-        self.conn.execute(
-            "INSERT INTO transactions (
-                tx_id, status, category, entity, entity_normalized, session_id, source, 
-                started_at, detected_at, drift_count, first_seen_at, last_seen_at
-            ) VALUES (?1, 'UNAUDITED', ?2, ?3, ?4, ?5, 'WATCHER', ?6, ?7, 1, ?8, ?9)
-            ON CONFLICT(entity_normalized) WHERE status = 'UNAUDITED' DO UPDATE SET
-                drift_count = drift_count + 1,
-                last_seen_at = EXCLUDED.last_seen_at",
-            params![
-                tx.tx_id,
-                serde_json::to_string(&tx.category)
-                    .map_err(|e| LedgerError::Config(e.to_string()))?
-                    .trim_matches('"'),
-                tx.entity,
-                tx.entity_normalized,
-                tx.session_id,
-                tx.started_at,
-                tx.detected_at,
-                tx.first_seen_at,
-                tx.last_seen_at,
-            ],
-        )?;
-        Ok(())
+        drift::upsert_unaudited_transaction(self.conn, tx)
     }
 
     pub fn update_transaction_status(
@@ -124,34 +54,18 @@ impl<'a> LedgerDb<'a> {
         status: &str,
         resolved_at: Option<&str>,
     ) -> Result<usize, LedgerError> {
-        let count = self.conn.execute(
-            "UPDATE transactions SET status = ?1, resolved_at = ?2 WHERE tx_id = ?3 AND status = 'PENDING'",
-            params![status, resolved_at, tx_id],
-        )?;
-        Ok(count)
+        transactions::update_transaction_status(self.conn, tx_id, status, resolved_at)
     }
 
     pub fn get_stale_pending_transactions(
         &self,
         ttl_days: u64,
     ) -> Result<Vec<String>, LedgerError> {
-        let threshold = (chrono::Utc::now() - chrono::Duration::days(ttl_days as i64)).to_rfc3339();
-        let mut stmt = self.conn.prepare(
-            "SELECT tx_id FROM transactions WHERE status = 'PENDING' AND started_at < ?1",
-        )?;
-        let ids = stmt
-            .query_map([threshold], |row| row.get(0))?
-            .collect::<rusqlite::Result<Vec<String>>>()?;
-        Ok(ids)
+        maintenance::get_stale_pending_transactions(self.conn, ttl_days)
     }
 
     pub fn delete_stale_pending_transactions(&self, ttl_days: u64) -> Result<usize, LedgerError> {
-        let threshold = (chrono::Utc::now() - chrono::Duration::days(ttl_days as i64)).to_rfc3339();
-        let count = self.conn.execute(
-            "DELETE FROM transactions WHERE status = 'PENDING' AND started_at < ?1",
-            params![threshold],
-        )?;
-        Ok(count)
+        maintenance::delete_stale_pending_transactions(self.conn, ttl_days)
     }
 
     pub fn update_transaction_status_bulk(
@@ -161,118 +75,21 @@ impl<'a> LedgerDb<'a> {
         expected_status: &str,
         resolved_at: Option<&str>,
     ) -> Result<usize, LedgerError> {
-        if tx_ids.is_empty() {
-            return Ok(0);
-        }
-        let placeholders: Vec<String> = tx_ids.iter().map(|_| "?".to_string()).collect();
-        let sql = format!(
-            "UPDATE transactions SET status = ?1, resolved_at = ?2 WHERE status = ?3 AND tx_id IN ({})",
-            placeholders.join(",")
-        );
-        let mut params: Vec<&dyn rusqlite::ToSql> = vec![&status, &resolved_at, &expected_status];
-        for id in tx_ids {
-            params.push(id);
-        }
-        let count = self
-            .conn
-            .execute(&sql, rusqlite::params_from_iter(params))?;
-        Ok(count)
-    }
-
-    fn map_transaction(&self, row: &rusqlite::Row) -> rusqlite::Result<Transaction> {
-        let cat_str: String = row.get(3)?;
-        let category: Category = serde_json::from_str(&format!("\"{}\"", cat_str))
-            .map_err(|_| rusqlite::Error::InvalidQuery)?;
-
-        Ok(Transaction {
-            tx_id: row.get(0)?,
-            operation_id: row.get(1)?,
-            status: row.get(2)?,
-            category,
-            entity: row.get(4)?,
-            entity_normalized: row.get(5)?,
-            planned_action: row.get(6)?,
-            session_id: row.get(7)?,
-            source: row.get(8)?,
-            started_at: row.get(9)?,
-            resolved_at: row.get(10)?,
-            issue_ref: row.get(11)?,
-            detected_at: row.get(12)?,
-            drift_count: row.get(13)?,
-            first_seen_at: row.get(14)?,
-            last_seen_at: row.get(15)?,
-        })
+        transactions::update_transaction_status_bulk(
+            self.conn,
+            tx_ids,
+            status,
+            expected_status,
+            resolved_at,
+        )
     }
 
     pub fn insert_ledger_entry(&self, entry: &LedgerEntry) -> Result<(), LedgerError> {
-        self.conn.execute(
-            "INSERT INTO ledger_entries (
-                tx_id, category, entry_type, entity, entity_normalized,
-                change_type, summary, reason, is_breaking, committed_at,
-                verification_status, verification_basis, outcome_notes,
-                origin, trace_id, signature, public_key, risk, related_tickets
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
-            params![
-                entry.tx_id,
-                serde_json::to_string(&entry.category)
-                    .map_err(|e| LedgerError::Config(e.to_string()))?
-                    .trim_matches('"'),
-                serde_json::to_string(&entry.entry_type)
-                    .map_err(|e| LedgerError::Config(e.to_string()))?
-                    .trim_matches('"'),
-                entry.entity,
-                entry.entity_normalized,
-                serde_json::to_string(&entry.change_type)
-                    .map_err(|e| LedgerError::Config(e.to_string()))?
-                    .trim_matches('"'),
-                entry.summary,
-                entry.reason,
-                entry.is_breaking as i32,
-                entry.committed_at,
-                entry
-                    .verification_status
-                    .map(|s| {
-                        serde_json::to_string(&s)
-                            .map(|json| json.trim_matches('"').to_string())
-                            .map_err(|e| LedgerError::Config(e.to_string()))
-                    })
-                    .transpose()?,
-                entry
-                    .verification_basis
-                    .map(|b| {
-                        serde_json::to_string(&b)
-                            .map(|json| json.trim_matches('"').to_string())
-                            .map_err(|e| LedgerError::Config(e.to_string()))
-                    })
-                    .transpose()?,
-                entry.outcome_notes,
-                entry.origin,
-                entry.trace_id,
-                entry.signature,
-                entry.public_key,
-                entry.risk,
-                entry.related_tickets,
-            ],
-        )?;
-        Ok(())
+        transactions::insert_ledger_entry(self.conn, entry)
     }
 
     pub fn get_ledger_entries_for_tx(&self, tx_id: &str) -> Result<Vec<LedgerEntry>, LedgerError> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, tx_id, category, entry_type, entity, entity_normalized,
-                    change_type, summary, reason, is_breaking, committed_at,
-                    verification_status, verification_basis, outcome_notes,
-                    origin, trace_id, signature, public_key, risk, related_tickets
-             FROM ledger_entries WHERE tx_id = ?1",
-        )?;
-
-        let rows = stmt.query_map([tx_id], |row| self.map_ledger_entry(row))?;
-
-        let mut entries = Vec::new();
-        for entry in rows {
-            entries.push(entry?);
-        }
-        Ok(entries)
+        transactions::get_ledger_entries_for_tx(self.conn, tx_id)
     }
 
     pub fn get_ledger_entries_by_entity(
@@ -288,26 +105,12 @@ impl<'a> LedgerDb<'a> {
         limit: usize,
         offset: usize,
     ) -> Result<Vec<LedgerEntry>, LedgerError> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, tx_id, category, entry_type, entity, entity_normalized,
-                    change_type, summary, reason, is_breaking, committed_at,
-                    verification_status, verification_basis, outcome_notes,
-                    origin, trace_id, signature, public_key, risk, related_tickets
-             FROM ledger_entries WHERE entity_normalized = ?1
-             ORDER BY committed_at DESC
-             LIMIT ?2 OFFSET ?3",
-        )?;
-
-        let rows = stmt.query_map(
-            params![entity_normalized, limit as i64, offset as i64],
-            |row| self.map_ledger_entry(row),
-        )?;
-
-        let mut entries = Vec::new();
-        for entry in rows {
-            entries.push(entry?);
-        }
-        Ok(entries)
+        transactions::get_ledger_entries_by_entity_paginated(
+            self.conn,
+            entity_normalized,
+            limit,
+            offset,
+        )
     }
 
     pub fn get_recent_ledger_entries_paginated(
@@ -315,25 +118,7 @@ impl<'a> LedgerDb<'a> {
         limit: usize,
         offset: usize,
     ) -> Result<Vec<LedgerEntry>, LedgerError> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, tx_id, category, entry_type, entity, entity_normalized,
-                    change_type, summary, reason, is_breaking, committed_at,
-                    verification_status, verification_basis, outcome_notes,
-                    origin, trace_id, signature, public_key, risk, related_tickets
-             FROM ledger_entries
-             ORDER BY committed_at DESC
-             LIMIT ?1 OFFSET ?2",
-        )?;
-
-        let rows = stmt.query_map(params![limit as i64, offset as i64], |row| {
-            self.map_ledger_entry(row)
-        })?;
-
-        let mut entries = Vec::new();
-        for entry in rows {
-            entries.push(entry?);
-        }
-        Ok(entries)
+        maintenance::get_recent_ledger_entries_paginated(self.conn, limit, offset)
     }
 
     pub fn get_federated_entries_by_entity(
@@ -342,55 +127,16 @@ impl<'a> LedgerDb<'a> {
         sibling_name: &str,
         days: u64,
     ) -> Result<Vec<LedgerEntry>, LedgerError> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, tx_id, category, entry_type, entity, entity_normalized,
-                    change_type, summary, reason, is_breaking, committed_at,
-                    verification_status, verification_basis, outcome_notes,
-                    origin, trace_id, signature, public_key, risk, related_tickets
-             FROM ledger_entries 
-             WHERE entity_normalized = ?1 
-               AND origin = 'SIBLING' 
-               AND trace_id = ?2
-               AND committed_at >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?3)
-             ORDER BY committed_at DESC",
-        )?;
-
-        let delta = format!("-{} days", days);
-        let rows = stmt.query_map([entity_normalized, sibling_name, &delta], |row| {
-            self.map_ledger_entry(row)
-        })?;
-
-        let mut entries = Vec::new();
-        for entry in rows {
-            entries.push(entry?);
-        }
-        Ok(entries)
+        federation::get_federated_entries_by_entity(
+            self.conn,
+            entity_normalized,
+            sibling_name,
+            days,
+        )
     }
 
     pub fn get_adr_entries(&self, days: Option<u64>) -> Result<Vec<LedgerEntry>, LedgerError> {
-        let mut sql = "SELECT id, tx_id, category, entry_type, entity, entity_normalized,
-                    change_type, summary, reason, is_breaking, committed_at,
-                    verification_status, verification_basis, outcome_notes,
-                    origin, trace_id, signature, public_key, risk, related_tickets
-             FROM ledger_entries WHERE (entry_type = 'ARCHITECTURE' OR is_breaking = 1)"
-            .to_string();
-
-        if let Some(d) = days {
-            sql.push_str(&format!(
-                " AND committed_at >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-{} days')",
-                d
-            ));
-        }
-        sql.push_str(" ORDER BY committed_at DESC");
-
-        let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map([], |row| self.map_ledger_entry(row))?;
-
-        let mut entries = Vec::new();
-        for entry in rows {
-            entries.push(entry?);
-        }
-        Ok(entries)
+        adr::get_adr_entries(self.conn, days)
     }
 
     pub fn search_ledger(
@@ -402,632 +148,143 @@ impl<'a> LedgerDb<'a> {
         limit: Option<usize>,
         offset: usize,
     ) -> Result<Vec<LedgerEntry>, LedgerError> {
-        let mut sql =
-            "SELECT l.id, l.tx_id, l.category, l.entry_type, l.entity, l.entity_normalized,
-                    l.change_type, l.summary, l.reason, l.is_breaking, l.committed_at,
-                    l.verification_status, l.verification_basis, l.outcome_notes,
-                    l.origin, l.trace_id, l.signature, l.public_key, l.risk, l.related_tickets
-             FROM ledger_entries l
-             JOIN ledger_fts f ON f.rowid = l.id
-             WHERE ledger_fts MATCH ?1"
-                .to_string();
-
-        let mut param_idx = 2u32;
-        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(query.to_string())];
-
-        if let Some(cat) = category {
-            sql.push_str(&format!(" AND l.category = ?{param_idx}"));
-            params.push(Box::new(cat.to_string()));
-            param_idx += 1;
-        }
-
-        if let Some(d) = days {
-            sql.push_str(&format!(
-                " AND l.committed_at >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?{param_idx})"
-            ));
-            params.push(Box::new(format!("-{d} days")));
-            param_idx += 1;
-        }
-
-        if breaking_only {
-            sql.push_str(" AND l.is_breaking = 1");
-        }
-
-        sql.push_str(" ORDER BY f.rank, l.committed_at DESC");
-
-        if let Some(lim) = limit {
-            sql.push_str(&format!(" LIMIT ?{param_idx} OFFSET ?{}", param_idx + 1));
-            params.push(Box::new(lim as i64));
-            params.push(Box::new(offset as i64));
-        }
-
-        let mut stmt = self.conn.prepare(&sql).map_err(|e| {
-            if let rusqlite::Error::SqliteFailure(_err, Some(msg)) = &e
-                && msg.contains("syntax error")
-            {
-                return LedgerError::Validation(format!("Invalid search query: {}", msg));
-            }
-            LedgerError::from(e)
-        })?;
-
-        let rows = stmt.query_map(rusqlite::params_from_iter(params), |row| {
-            self.map_ledger_entry(row)
-        })?;
-
-        let mut entries = Vec::new();
-        for entry in rows {
-            match entry {
-                Ok(e) => entries.push(e),
-                Err(e) => {
-                    if let rusqlite::Error::SqliteFailure(_err, Some(msg)) = &e
-                        && msg.contains("syntax error")
-                    {
-                        return Err(LedgerError::Validation(format!(
-                            "Invalid search query syntax: {}",
-                            msg
-                        )));
-                    }
-                    return Err(LedgerError::from(e));
-                }
-            }
-        }
-        Ok(entries)
-    }
-
-    fn map_ledger_entry(&self, row: &rusqlite::Row) -> rusqlite::Result<LedgerEntry> {
-        let cat_str: String = row.get(2)?;
-        let category: Category = serde_json::from_str(&format!("\"{}\"", cat_str))
-            .map_err(|_| rusqlite::Error::InvalidQuery)?;
-        let et_str: String = row.get(3)?;
-        let entry_type: EntryType = serde_json::from_str(&format!("\"{}\"", et_str))
-            .map_err(|_| rusqlite::Error::InvalidQuery)?;
-        let ct_str: String = row.get(6)?;
-        let change_type: ChangeType = serde_json::from_str(&format!("\"{}\"", ct_str))
-            .map_err(|_| rusqlite::Error::InvalidQuery)?;
-
-        let vs_str: Option<String> = row.get(11)?;
-        let verification_status = match vs_str {
-            Some(s) => Some(
-                serde_json::from_str(&format!("\"{}\"", s))
-                    .map_err(|_| rusqlite::Error::InvalidQuery)?,
-            ),
-            None => None,
-        };
-        let vb_str: Option<String> = row.get(12)?;
-        let verification_basis = match vb_str {
-            Some(s) => Some(
-                serde_json::from_str(&format!("\"{}\"", s))
-                    .map_err(|_| rusqlite::Error::InvalidQuery)?,
-            ),
-            None => None,
-        };
-
-        Ok(LedgerEntry {
-            id: row.get(0)?,
-            tx_id: row.get(1)?,
+        search::search_ledger(
+            self.conn,
+            query,
             category,
-            entry_type,
-            entity: row.get(4)?,
-            entity_normalized: row.get(5)?,
-            change_type,
-            summary: row.get(7)?,
-            reason: row.get(8)?,
-            is_breaking: row.get::<_, i32>(9)? != 0,
-            committed_at: row.get(10)?,
-            verification_status,
-            verification_basis,
-            outcome_notes: row.get(13)?,
-            origin: row.get(14)?,
-            trace_id: row.get(15)?,
-            signature: row.get(16)?,
-            public_key: row.get(17)?,
-            risk: row.get(18)?,
-            related_tickets: row.get(19)?,
-        })
+            days,
+            breaking_only,
+            limit,
+            offset,
+        )
     }
 
     pub fn get_all_pending(&self) -> Result<Vec<Transaction>, LedgerError> {
-        let mut stmt = self.conn.prepare(
-            "SELECT tx_id, operation_id, status, category, entity, entity_normalized,
-                    planned_action, session_id, source, started_at, resolved_at, issue_ref,
-                    detected_at, drift_count, first_seen_at, last_seen_at
-             FROM transactions WHERE status = 'PENDING' ORDER BY started_at DESC",
-        )?;
-
-        let rows = stmt.query_map([], |row| self.map_transaction(row))?;
-        let mut entries = Vec::new();
-        for entry in rows {
-            entries.push(entry?);
-        }
-        Ok(entries)
+        transactions::get_all_pending(self.conn)
     }
 
     pub fn get_all_unaudited(&self) -> Result<Vec<Transaction>, LedgerError> {
-        let mut stmt = self.conn.prepare(
-            "SELECT tx_id, operation_id, status, category, entity, entity_normalized,
-                    planned_action, session_id, source, started_at, resolved_at, issue_ref,
-                    detected_at, drift_count, first_seen_at, last_seen_at
-             FROM transactions WHERE status = 'UNAUDITED' ORDER BY last_seen_at DESC",
-        )?;
-
-        let rows = stmt.query_map([], |row| self.map_transaction(row))?;
-        let mut entries = Vec::new();
-        for entry in rows {
-            entries.push(entry?);
-        }
-        Ok(entries)
+        drift::get_all_unaudited(self.conn)
     }
 
     pub fn get_unaudited_by_pattern(&self, pattern: &str) -> Result<Vec<Transaction>, LedgerError> {
-        let sql_pattern = pattern.replace('*', "%");
-        let mut stmt = self.conn.prepare(
-            "SELECT tx_id, operation_id, status, category, entity, entity_normalized,
-                    planned_action, session_id, source, started_at, resolved_at, issue_ref,
-                    detected_at, drift_count, first_seen_at, last_seen_at
-             FROM transactions WHERE status = 'UNAUDITED' AND entity_normalized LIKE ?1",
-        )?;
-
-        let rows = stmt.query_map([sql_pattern], |row| self.map_transaction(row))?;
-        let mut entries = Vec::new();
-        for entry in rows {
-            entries.push(entry?);
-        }
-        Ok(entries)
+        drift::get_unaudited_by_pattern(self.conn, pattern)
     }
 
     pub fn resolve_tx_id_fuzzy(&self, prefix: &str) -> Result<Vec<String>, LedgerError> {
-        let sql_prefix = format!("{}%", prefix.replace('_', "\\_").replace('%', "\\%"));
-        let mut stmt = self
-            .conn
-            .prepare("SELECT tx_id FROM transactions WHERE tx_id LIKE ?1 ESCAPE '\\'")?;
-
-        let rows = stmt.query_map([sql_prefix], |row| row.get(0))?;
-        let mut matches = Vec::new();
-        for m in rows {
-            matches.push(m?);
-        }
-        Ok(matches)
+        transactions::resolve_tx_id_fuzzy(self.conn, prefix)
     }
 
     pub fn insert_tech_stack_rule(&self, rule: &TechStackRule) -> Result<(), LedgerError> {
-        self.conn.execute(
-            "INSERT INTO tech_stack (
-                category, name, version_constraint, rules, locked, status, entity_type, registered_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-            ON CONFLICT(category) DO UPDATE SET
-                name = EXCLUDED.name,
-                version_constraint = EXCLUDED.version_constraint,
-                rules = EXCLUDED.rules,
-                locked = EXCLUDED.locked,
-                status = EXCLUDED.status,
-                entity_type = EXCLUDED.entity_type,
-                registered_at = EXCLUDED.registered_at",
-            params![
-                rule.category,
-                rule.name,
-                rule.version_constraint,
-                serde_json::to_string(&rule.rules)
-                    .map_err(|e| LedgerError::Config(e.to_string()))?,
-                rule.locked as i32,
-                rule.status,
-                rule.entity_type,
-                rule.registered_at,
-            ],
-        )?;
-        Ok(())
+        enforcement::insert_tech_stack_rule(self.conn, rule)
     }
 
     pub fn get_tech_stack_rules(
         &self,
         category: Option<&str>,
     ) -> Result<Vec<TechStackRule>, LedgerError> {
-        let mut sql = "SELECT category, name, version_constraint, rules, locked, status, entity_type, registered_at
-             FROM tech_stack".to_string();
-
-        let rules = if let Some(cat) = category {
-            sql.push_str(" WHERE category = ?1");
-            sql.push_str(" ORDER BY category ASC");
-            let mut stmt = self.conn.prepare(&sql)?;
-            let rows = stmt.query_map([cat], |row| self.map_tech_stack_rule(row))?;
-            rows.collect::<Result<Vec<_>, _>>()?
-        } else {
-            sql.push_str(" ORDER BY category ASC");
-            let mut stmt = self.conn.prepare(&sql)?;
-            let rows = stmt.query_map([], |row| self.map_tech_stack_rule(row))?;
-            rows.collect::<Result<Vec<_>, _>>()?
-        };
-
-        Ok(rules)
-    }
-
-    fn map_tech_stack_rule(&self, row: &rusqlite::Row) -> rusqlite::Result<TechStackRule> {
-        let rules_json: String = row.get(3)?;
-        let rules: Vec<String> =
-            serde_json::from_str(&rules_json).map_err(|_| rusqlite::Error::InvalidQuery)?;
-        Ok(TechStackRule {
-            category: row.get(0)?,
-            name: row.get(1)?,
-            version_constraint: row.get(2)?,
-            rules,
-            locked: row.get::<_, i32>(4)? != 0,
-            status: row.get(5)?,
-            entity_type: row.get(6)?,
-            registered_at: row.get(7)?,
-        })
+        enforcement::get_tech_stack_rules(self.conn, category)
     }
 
     pub fn get_tech_stack_rule(
         &self,
         category: &str,
     ) -> Result<Option<TechStackRule>, LedgerError> {
-        let mut stmt = self.conn.prepare(
-            "SELECT category, name, version_constraint, rules, locked, status, entity_type, registered_at
-             FROM tech_stack WHERE category = ?1",
-        )?;
-
-        stmt.query_row([category], |row| self.map_tech_stack_rule(row))
-            .optional()
-            .map_err(LedgerError::from)
+        enforcement::get_tech_stack_rule(self.conn, category)
     }
 
     pub fn insert_commit_validator(&self, validator: &CommitValidator) -> Result<(), LedgerError> {
-        self.conn.execute(
-            "INSERT INTO commit_validators (
-                category, name, description, executable, args, timeout_ms, glob, validation_level, enabled
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-            ON CONFLICT(name, category) DO UPDATE SET
-                executable = EXCLUDED.executable,
-                args = EXCLUDED.args,
-                timeout_ms = EXCLUDED.timeout_ms,
-                enabled = EXCLUDED.enabled",
-            params![
-                validator.category,
-                validator.name,
-                validator.description,
-                validator.executable,
-                serde_json::to_string(&validator.args)
-                    .map_err(|e| LedgerError::Config(e.to_string()))?,
-                validator.timeout_ms,
-                validator.glob,
-                serde_json::to_string(&validator.validation_level)
-                    .map_err(|e| LedgerError::Config(e.to_string()))?
-                    .trim_matches('"'),
-                validator.enabled as i32,
-            ],
-        )?;
-        Ok(())
+        enforcement::insert_commit_validator(self.conn, validator)
     }
 
     pub fn set_validator_enabled(&self, name: &str, enabled: bool) -> Result<(), LedgerError> {
-        self.conn.execute(
-            "UPDATE commit_validators SET enabled = ?1 WHERE name = ?2",
-            rusqlite::params![enabled as i32, name],
-        )?;
-        Ok(())
+        enforcement::set_validator_enabled(self.conn, name, enabled)
     }
 
     pub fn remove_validator(&self, name: &str) -> Result<(), LedgerError> {
-        self.conn
-            .execute("DELETE FROM commit_validators WHERE name = ?1", [name])?;
-        Ok(())
+        enforcement::remove_validator(self.conn, name)
     }
 
     pub fn get_commit_validators(
         &self,
         category: Option<&str>,
     ) -> Result<Vec<CommitValidator>, LedgerError> {
-        let mut sql = "SELECT id, category, name, description, executable, args, timeout_ms, glob, validation_level, enabled
-             FROM commit_validators".to_string();
-
-        let validators = if let Some(cat) = category {
-            sql.push_str(" WHERE (category = ?1 OR category = 'ALL')");
-            sql.push_str(" ORDER BY category ASC");
-            let mut stmt = self.conn.prepare(&sql)?;
-            let rows = stmt.query_map([cat], |row| self.map_commit_validator(row))?;
-            rows.collect::<Result<Vec<_>, _>>()?
-        } else {
-            sql.push_str(" ORDER BY category ASC");
-            let mut stmt = self.conn.prepare(&sql)?;
-            let rows = stmt.query_map([], |row| self.map_commit_validator(row))?;
-            rows.collect::<Result<Vec<_>, _>>()?
-        };
-
-        Ok(validators)
-    }
-
-    fn map_commit_validator(&self, row: &rusqlite::Row) -> rusqlite::Result<CommitValidator> {
-        let args_json: String = row.get(5)?;
-        let args: Vec<String> =
-            serde_json::from_str(&args_json).map_err(|_| rusqlite::Error::InvalidQuery)?;
-        let vl_str: String = row.get(8)?;
-        let validation_level: ValidationLevel = serde_json::from_str(&format!("\"{}\"", vl_str))
-            .map_err(|_| rusqlite::Error::InvalidQuery)?;
-        Ok(CommitValidator {
-            id: Some(row.get(0)?),
-            category: row.get(1)?,
-            name: row.get(2)?,
-            description: row.get(3)?,
-            executable: row.get(4)?,
-            args,
-            timeout_ms: row.get(6)?,
-            glob: row.get(7)?,
-            validation_level,
-            enabled: row.get::<_, i32>(9)? != 0,
-        })
+        enforcement::get_commit_validators(self.conn, category)
     }
 
     pub fn insert_category_mapping(
         &self,
         mapping: &CategoryStackMapping,
     ) -> Result<(), LedgerError> {
-        self.conn.execute(
-            "INSERT INTO category_stack_mappings (
-                ledger_category, stack_category, glob, description
-            ) VALUES (?1, ?2, ?3, ?4)",
-            params![
-                mapping.ledger_category,
-                mapping.stack_category,
-                mapping.glob,
-                mapping.description,
-            ],
-        )?;
-        Ok(())
+        enforcement::insert_category_mapping(self.conn, mapping)
     }
 
     pub fn get_category_mappings(
         &self,
         category: Option<&str>,
     ) -> Result<Vec<CategoryStackMapping>, LedgerError> {
-        let mut sql = "SELECT id, ledger_category, stack_category, glob, description
-             FROM category_stack_mappings"
-            .to_string();
-
-        let mappings = if let Some(cat) = category {
-            sql.push_str(" WHERE ledger_category = ?1 OR stack_category = ?1");
-            sql.push_str(" ORDER BY ledger_category ASC");
-            let mut stmt = self.conn.prepare(&sql)?;
-            let rows = stmt.query_map([cat], |row| {
-                Ok(CategoryStackMapping {
-                    id: Some(row.get(0)?),
-                    ledger_category: row.get(1)?,
-                    stack_category: row.get(2)?,
-                    glob: row.get(3)?,
-                    description: row.get(4)?,
-                })
-            })?;
-            rows.collect::<Result<Vec<_>, _>>()?
-        } else {
-            sql.push_str(" ORDER BY ledger_category ASC");
-            let mut stmt = self.conn.prepare(&sql)?;
-            let rows = stmt.query_map([], |row| {
-                Ok(CategoryStackMapping {
-                    id: Some(row.get(0)?),
-                    ledger_category: row.get(1)?,
-                    stack_category: row.get(2)?,
-                    glob: row.get(3)?,
-                    description: row.get(4)?,
-                })
-            })?;
-            rows.collect::<Result<Vec<_>, _>>()?
-        };
-
-        Ok(mappings)
+        enforcement::get_category_mappings(self.conn, category)
     }
 
     pub fn insert_watcher_pattern(&self, pattern: &WatcherPattern) -> Result<(), LedgerError> {
-        self.conn.execute(
-            "INSERT INTO watcher_patterns (
-                glob, category, source, description
-            ) VALUES (?1, ?2, ?3, ?4)",
-            params![
-                pattern.glob,
-                pattern.category,
-                pattern.source,
-                pattern.description,
-            ],
-        )?;
-        Ok(())
+        enforcement::insert_watcher_pattern(self.conn, pattern)
     }
 
     pub fn get_watcher_patterns(&self) -> Result<Vec<WatcherPattern>, LedgerError> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, glob, category, source, description
-             FROM watcher_patterns ORDER BY glob ASC",
-        )?;
-
-        let rows = stmt.query_map([], |row| {
-            Ok(WatcherPattern {
-                id: Some(row.get(0)?),
-                glob: row.get(1)?,
-                category: row.get(2)?,
-                source: row.get(3)?,
-                description: row.get(4)?,
-            })
-        })?;
-
-        let mut patterns = Vec::new();
-        for p in rows {
-            patterns.push(p?);
-        }
-        Ok(patterns)
+        enforcement::get_watcher_patterns(self.conn)
     }
 
     pub fn insert_token_provenance(&self, prov: &TokenProvenance) -> Result<(), LedgerError> {
-        self.conn.execute(
-            "INSERT INTO token_provenance (
-                tx_id, entity, entity_normalized, symbol_name, symbol_type, action
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                prov.tx_id,
-                prov.entity,
-                prov.entity_normalized,
-                prov.symbol_name,
-                prov.symbol_type,
-                prov.action.to_string(),
-            ],
-        )?;
-        Ok(())
+        provenance::insert_token_provenance(self.conn, prov)
     }
 
     pub fn get_token_provenance_for_tx(
         &self,
         tx_id: &str,
     ) -> Result<Vec<TokenProvenance>, LedgerError> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, tx_id, entity, entity_normalized, symbol_name, symbol_type, action
-             FROM token_provenance WHERE tx_id = ?1",
-        )?;
-
-        let rows = stmt.query_map([tx_id], |row| self.map_token_provenance(row))?;
-
-        let mut entries = Vec::new();
-        for entry in rows {
-            entries.push(entry?);
-        }
-        Ok(entries)
+        provenance::get_token_provenance_for_tx(self.conn, tx_id)
     }
 
     pub fn get_token_provenance_by_entity(
         &self,
         entity_normalized: &str,
     ) -> Result<Vec<TokenProvenance>, LedgerError> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, tx_id, entity, entity_normalized, symbol_name, symbol_type, action
-             FROM token_provenance WHERE entity_normalized = ?1
-             ORDER BY id DESC",
-        )?;
-
-        let rows = stmt.query_map([entity_normalized], |row| self.map_token_provenance(row))?;
-
-        let mut entries = Vec::new();
-        for entry in rows {
-            entries.push(entry?);
-        }
-        Ok(entries)
-    }
-
-    fn map_token_provenance(&self, row: &rusqlite::Row) -> rusqlite::Result<TokenProvenance> {
-        use std::str::FromStr;
-        let action_str: String = row.get(6)?;
-        let action =
-            ProvenanceAction::from_str(&action_str).map_err(|_| rusqlite::Error::InvalidQuery)?;
-
-        Ok(TokenProvenance {
-            id: Some(row.get(0)?),
-            tx_id: row.get(1)?,
-            entity: row.get(2)?,
-            entity_normalized: row.get(3)?,
-            symbol_name: row.get(4)?,
-            symbol_type: row.get(5)?,
-            action,
-        })
+        provenance::get_token_provenance_by_entity(self.conn, entity_normalized)
     }
 
     pub fn get_all_committed_ledger_entries(&self) -> Result<Vec<LedgerEntry>, LedgerError> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, tx_id, category, entry_type, entity, entity_normalized,
-                    change_type, summary, reason, is_breaking, committed_at,
-                    verification_status, verification_basis, outcome_notes,
-                    origin, trace_id, signature, public_key, risk, related_tickets
-             FROM ledger_entries ORDER BY committed_at ASC",
-        )?;
-
-        let rows = stmt.query_map([], |row| self.map_ledger_entry(row))?;
-
-        let mut entries = Vec::new();
-        for entry in rows {
-            entries.push(entry?);
-        }
-        Ok(entries)
+        transactions::get_all_committed_ledger_entries(self.conn)
     }
 
     pub fn find_transactions_by_file(
         &self,
         file_path: &str,
     ) -> Result<Vec<LedgerEntry>, LedgerError> {
-        let mut stmt = self.conn.prepare(
-            "SELECT DISTINCT l.id, l.tx_id, l.category, l.entry_type, l.entity, l.entity_normalized,
-                    l.change_type, l.summary, l.reason, l.is_breaking, l.committed_at,
-                    l.verification_status, l.verification_basis, l.outcome_notes,
-                    l.origin, l.trace_id, l.signature, l.public_key, l.risk, l.related_tickets
-             FROM ledger_entries l
-             JOIN token_provenance tp ON l.tx_id = tp.tx_id
-             WHERE tp.entity = ?1 OR tp.entity LIKE ?2
-             ORDER BY l.committed_at DESC",
-        )?;
-
-        let like_pattern = format!("%{}", file_path);
-        let rows = stmt.query_map(params![file_path, like_pattern], |row| {
-            self.map_ledger_entry(row)
-        })?;
-
-        let mut entries = Vec::new();
-        for entry in rows {
-            entries.push(entry?);
-        }
-        Ok(entries)
+        provenance::find_transactions_by_file(self.conn, file_path)
     }
 
     pub fn get_transaction_velocity(&self, days: u64) -> Result<usize, LedgerError> {
-        let count: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM ledger_entries WHERE committed_at >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?1)",
-            [format!("-{} days", days)],
-            |row| row.get(0),
-        )?;
-        Ok(count as usize)
+        maintenance::get_transaction_velocity(self.conn, days)
     }
 
     pub fn get_top_churned_entities(
         &self,
         limit: usize,
     ) -> Result<Vec<(String, usize)>, LedgerError> {
-        let mut stmt = self.conn.prepare(
-            "SELECT entity, COUNT(*) as churn FROM ledger_entries GROUP BY entity ORDER BY churn DESC LIMIT ?1"
-        )?;
-        let rows = stmt.query_map([limit as i64], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
-        })?;
-        let mut results = Vec::new();
-        for res in rows {
-            results.push(res?);
-        }
-        Ok(results)
+        maintenance::get_top_churned_entities(self.conn, limit)
     }
 
     pub fn get_oldest_adr(&self) -> Result<Option<LedgerEntry>, LedgerError> {
-        self.conn
-            .query_row(
-                "SELECT id, tx_id, category, entry_type, entity, entity_normalized,
-                    change_type, summary, reason, is_breaking, committed_at,
-                    verification_status, verification_basis, outcome_notes,
-                    origin, trace_id
-             FROM ledger_entries 
-             WHERE category = 'ARCHITECTURE' 
-             ORDER BY committed_at ASC LIMIT 1",
-                [],
-                |row| self.map_ledger_entry(row),
-            )
-            .optional()
-            .map_err(LedgerError::from)
+        adr::get_oldest_adr(self.conn)
     }
 
     pub fn register_forbidden_term(
         &self,
         term: &str,
         category: &str,
-        _reason: &str,
+        reason: &str,
     ) -> Result<(), LedgerError> {
-        let rule = TechStackRule {
-            category: category.to_string(),
-            name: term.to_string(),
-            version_constraint: Some("*".to_string()),
-            rules: vec![format!("NO {}", term)],
-            locked: true,
-            status: "FORBIDDEN".to_string(),
-            entity_type: "TERM".to_string(),
-            registered_at: chrono::Utc::now().to_rfc3339(),
-        };
-        self.insert_tech_stack_rule(&rule)
+        enforcement::register_forbidden_term(self.conn, term, category, reason)
     }
 
     pub fn register_validator(
@@ -1037,19 +294,7 @@ impl<'a> LedgerDb<'a> {
         category: &str,
         timeout_secs: u64,
     ) -> Result<(), LedgerError> {
-        let validator = CommitValidator {
-            id: None,
-            category: category.to_string(),
-            name: name.to_string(),
-            description: Some(format!("Manual validator: {}", name)),
-            executable: command.to_string(),
-            args: vec![],
-            timeout_ms: (timeout_secs * 1000) as i32,
-            glob: Some("*".to_string()),
-            validation_level: ValidationLevel::Error,
-            enabled: true,
-        };
-        self.insert_commit_validator(&validator)
+        enforcement::register_validator(self.conn, name, command, category, timeout_secs)
     }
 
     pub fn update_adr_metadata(
@@ -1057,105 +302,11 @@ impl<'a> LedgerDb<'a> {
         adr_id: &str,
         update: AdrMetadataUpdate,
     ) -> Result<(), LedgerError> {
-        let now = chrono::Utc::now().to_rfc3339();
-
-        let existing = self.get_adr_metadata(adr_id)?;
-        let mut metadata = existing.unwrap_or_else(|| AdrMetadata {
-            adr_id: adr_id.to_string(),
-            ..Default::default()
-        });
-
-        if let Some(s) = update.status {
-            metadata.status = s;
-        }
-        if let Some(o) = update.owner {
-            metadata.owner = Some(o);
-        }
-        if let Some(r) = update.reviewers {
-            metadata.reviewers = Some(r);
-        }
-        if let Some(s) = update.supersedes {
-            metadata.supersedes = Some(s);
-        }
-        if let Some(sb) = update.superseded_by {
-            metadata.superseded_by = Some(sb);
-        }
-        if let Some(ae) = update.affected_entities {
-            metadata.affected_entities = Some(ae);
-        }
-        if let Some(ds) = update.decision_scope {
-            metadata.decision_scope = Some(ds);
-        }
-        if let Some(ra) = update.reviewed_at {
-            metadata.reviewed_at = Some(ra);
-        }
-        if let Some(rid) = update.review_interval_days {
-            metadata.review_interval_days = Some(rid);
-        }
-
-        self.conn.execute(
-            "INSERT INTO adr_metadata (
-                adr_id, status, owner, reviewers, supersedes, superseded_by,
-                affected_entities, decision_scope, reviewed_at, review_interval_days, last_updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
-            ON CONFLICT(adr_id) DO UPDATE SET
-                status = EXCLUDED.status,
-                owner = EXCLUDED.owner,
-                reviewers = EXCLUDED.reviewers,
-                supersedes = EXCLUDED.supersedes,
-                superseded_by = EXCLUDED.superseded_by,
-                affected_entities = EXCLUDED.affected_entities,
-                decision_scope = EXCLUDED.decision_scope,
-                reviewed_at = EXCLUDED.reviewed_at,
-                review_interval_days = EXCLUDED.review_interval_days,
-                last_updated_at = EXCLUDED.last_updated_at",
-            params![
-                metadata.adr_id,
-                serde_json::to_string(&metadata.status)
-                    .map_err(|e| LedgerError::Config(e.to_string()))?
-                    .trim_matches('"'),
-                metadata.owner,
-                metadata.reviewers,
-                metadata.supersedes,
-                metadata.superseded_by,
-                metadata.affected_entities,
-                metadata.decision_scope,
-                metadata.reviewed_at,
-                metadata.review_interval_days,
-                now,
-            ],
-        )?;
-        Ok(())
+        adr::update_adr_metadata(self.conn, adr_id, update)
     }
 
     pub fn get_adr_metadata(&self, adr_id: &str) -> Result<Option<AdrMetadata>, LedgerError> {
-        self.conn
-            .query_row(
-                "SELECT adr_id, status, owner, reviewers, supersedes, superseded_by,
-                        affected_entities, decision_scope, reviewed_at, review_interval_days
-                 FROM adr_metadata WHERE adr_id = ?1",
-                [adr_id],
-                |row| {
-                    let status_str: String = row.get(1)?;
-                    let status: AdrStatus = serde_json::from_str(&format!("\"{}\"", status_str))
-                        .map_err(|_| rusqlite::Error::InvalidQuery)?;
-
-                    Ok(AdrMetadata {
-                        adr_id: row.get(0)?,
-                        status,
-                        owner: row.get(2)?,
-                        reviewers: row.get(3)?,
-                        supersedes: row.get(4)?,
-                        superseded_by: row.get(5)?,
-                        affected_entities: row.get(6)?,
-                        decision_scope: row.get(7)?,
-                        reviewed_at: row.get(8)?,
-                        review_interval_days: row.get(9)?,
-                    })
-                },
-            )
-            .optional()
-            .map_err(LedgerError::from)
+        adr::get_adr_metadata(self.conn, adr_id)
     }
 
     pub fn link_adr_supersedes(
@@ -1163,23 +314,59 @@ impl<'a> LedgerDb<'a> {
         adr_id: &str,
         supersedes_id: &str,
     ) -> Result<(), LedgerError> {
-        self.update_adr_metadata(
-            adr_id,
-            AdrMetadataUpdate {
-                supersedes: Some(supersedes_id.to_string()),
-                ..Default::default()
-            },
-        )?;
-
-        self.update_adr_metadata(
-            supersedes_id,
-            AdrMetadataUpdate {
-                status: Some(AdrStatus::Superseded),
-                superseded_by: Some(adr_id.to_string()),
-                ..Default::default()
-            },
-        )?;
-
-        Ok(())
+        adr::link_adr_supersedes(self.conn, adr_id, supersedes_id)
     }
+}
+
+/// Shared ledger-entry row mapper used by domain modules.
+pub(crate) fn map_ledger_entry(row: &rusqlite::Row) -> rusqlite::Result<LedgerEntry> {
+    let cat_str: String = row.get(2)?;
+    let category: Category = serde_json::from_str(&format!("\"{}\"", cat_str))
+        .map_err(|_| rusqlite::Error::InvalidQuery)?;
+    let et_str: String = row.get(3)?;
+    let entry_type: EntryType = serde_json::from_str(&format!("\"{}\"", et_str))
+        .map_err(|_| rusqlite::Error::InvalidQuery)?;
+    let ct_str: String = row.get(6)?;
+    let change_type: ChangeType = serde_json::from_str(&format!("\"{}\"", ct_str))
+        .map_err(|_| rusqlite::Error::InvalidQuery)?;
+
+    let vs_str: Option<String> = row.get(11)?;
+    let verification_status = match vs_str {
+        Some(s) => Some(
+            serde_json::from_str(&format!("\"{}\"", s))
+                .map_err(|_| rusqlite::Error::InvalidQuery)?,
+        ),
+        None => None,
+    };
+    let vb_str: Option<String> = row.get(12)?;
+    let verification_basis = match vb_str {
+        Some(s) => Some(
+            serde_json::from_str(&format!("\"{}\"", s))
+                .map_err(|_| rusqlite::Error::InvalidQuery)?,
+        ),
+        None => None,
+    };
+
+    Ok(LedgerEntry {
+        id: row.get(0)?,
+        tx_id: row.get(1)?,
+        category,
+        entry_type,
+        entity: row.get(4)?,
+        entity_normalized: row.get(5)?,
+        change_type,
+        summary: row.get(7)?,
+        reason: row.get(8)?,
+        is_breaking: row.get::<_, i32>(9)? != 0,
+        committed_at: row.get(10)?,
+        verification_status,
+        verification_basis,
+        outcome_notes: row.get(13)?,
+        origin: row.get(14)?,
+        trace_id: row.get(15)?,
+        signature: row.get(16)?,
+        public_key: row.get(17)?,
+        risk: row.get(18)?,
+        related_tickets: row.get(19)?,
+    })
 }
