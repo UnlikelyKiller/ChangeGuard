@@ -576,7 +576,9 @@ pub fn gemini_complete(
         }
     }
 
-    Err(format!("Gemini request failed after 3 retries: {last_error}"))
+    Err(format!(
+        "Gemini request failed after 3 retries: {last_error}"
+    ))
 }
 
 #[cfg(test)]

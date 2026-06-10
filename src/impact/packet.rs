@@ -1,1100 +1,1536 @@
-use crate::contracts::AffectedContract;
-use crate::index::env_schema::EnvVarDep;
-use crate::index::references::ImportExport;
-use crate::index::runtime_usage::RuntimeUsage;
-use crate::index::symbols::Symbol;
-use crate::observability::signal::ObservabilitySignal;
-use crate::util::clock::Clock;
-use chrono::Utc;
-use serde::{Deserialize, Deserializer, Serialize};
-use std::path::PathBuf;
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct DataModel {
-    pub model_name: String,
-    pub model_kind: String,
-    pub confidence: f64,
-    pub evidence: Option<String>,
-}
-
-impl Eq for DataModel {}
-
-impl PartialOrd for DataModel {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for DataModel {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.model_name
-            .cmp(&other.model_name)
-            .then_with(|| self.model_kind.cmp(&other.model_kind))
-            .then_with(|| {
-                self.confidence
-                    .partial_cmp(&other.confidence)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiRoute {
-    pub method: String,
-    pub path_pattern: String,
-    pub handler_symbol_name: Option<String>,
-    pub framework: String,
-    pub route_source: String,
-    pub mount_prefix: Option<String>,
-    pub is_dynamic: bool,
-    pub route_confidence: f64,
-    pub evidence: String,
-    #[serde(default)]
-    pub auth_requirements: Option<Vec<String>>,
-    #[serde(default)]
-    pub schema_refs: Option<Vec<String>>,
-    #[serde(default)]
-    pub owning_service: Option<String>,
-    #[serde(default)]
-    pub consumers: Option<Vec<String>>,
-}
-
-impl Eq for ApiRoute {}
-
-impl PartialOrd for ApiRoute {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for ApiRoute {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.method
-            .cmp(&other.method)
-            .then_with(|| self.path_pattern.cmp(&other.path_pattern))
-            .then_with(|| self.framework.cmp(&other.framework))
-            .then_with(|| {
-                self.route_confidence
-                    .partial_cmp(&other.route_confidence)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-#[serde(rename_all = "camelCase")]
-pub enum StalenessTier {
-    Warning,
-    Critical,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-#[serde(rename_all = "camelCase")]
-pub enum RiskLevel {
-    Low,
-    Medium,
-    High,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default)]
-#[serde(rename_all = "camelCase")]
-pub enum AnalysisStatus {
-    #[default]
-    NotRun,
-    Ok,
-    Unsupported,
-    ReadFailed,
-    ExtractionFailed,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct FileAnalysisStatus {
-    pub symbols: AnalysisStatus,
-    pub imports: AnalysisStatus,
-    pub runtime_usage: AnalysisStatus,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct CIGate {
-    pub platform: String,
-    pub job_name: String,
-    pub trigger: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workflow_name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub environment: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub artifacts: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub release_gates: Vec<String>,
-}
-
-impl Eq for CIGate {}
-
-impl PartialOrd for CIGate {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for CIGate {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.platform
-            .cmp(&other.platform)
-            .then_with(|| self.job_name.cmp(&other.job_name))
-            .then_with(|| self.workflow_name.cmp(&other.workflow_name))
-            .then_with(|| self.trigger.cmp(&other.trigger))
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct ChangedFile {
-    pub path: PathBuf,
-    pub status: String, // e.g., "Added", "Modified", "Deleted", "Renamed"
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub old_path: Option<PathBuf>,
-    pub is_staged: bool,
-    pub symbols: Option<Vec<Symbol>>,
-    pub imports: Option<ImportExport>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub runtime_usage: Option<RuntimeUsage>,
-    #[serde(default)]
-    pub analysis_status: FileAnalysisStatus,
-    #[serde(default)]
-    pub analysis_warnings: Vec<String>,
-    #[serde(default)]
-    pub api_routes: Vec<ApiRoute>,
-    #[serde(default)]
-    pub data_models: Vec<DataModel>,
-    #[serde(default)]
-    pub ci_gates: Vec<CIGate>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-#[serde(rename_all = "camelCase")]
-pub struct VerificationResult {
-    pub name: String,
-    pub command: String,
-    pub exit_code: i32,
-    pub stdout: String,
-    pub stderr: String,
-    pub duration_ms: u64,
-    pub truncated: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct TemporalCoupling {
-    pub file_a: PathBuf,
-    pub file_b: PathBuf,
-    pub score: f32,
-}
-
-impl Eq for TemporalCoupling {}
-
-impl PartialOrd for TemporalCoupling {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for TemporalCoupling {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.file_a
-            .cmp(&other.file_a)
-            .then_with(|| self.file_b.cmp(&other.file_b))
-            .then_with(|| {
-                self.score
-                    .partial_cmp(&other.score)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct StructuralCoupling {
-    pub caller_symbol_name: String,
-    pub callee_symbol_name: String,
-    pub caller_file_path: PathBuf,
-}
-
-impl Eq for StructuralCoupling {}
-
-impl PartialOrd for StructuralCoupling {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for StructuralCoupling {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.caller_symbol_name
-            .cmp(&other.caller_symbol_name)
-            .then_with(|| self.callee_symbol_name.cmp(&other.callee_symbol_name))
-            .then_with(|| self.caller_file_path.cmp(&other.caller_file_path))
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct CentralityRisk {
-    pub symbol_name: String,
-    pub entrypoints_reachable: usize,
-}
-
-impl Eq for CentralityRisk {}
-
-impl PartialOrd for CentralityRisk {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for CentralityRisk {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.symbol_name
-            .cmp(&other.symbol_name)
-            .then_with(|| self.entrypoints_reachable.cmp(&other.entrypoints_reachable))
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RelevantDecision {
-    pub file_path: PathBuf,
-    pub heading: Option<String>,
-    pub excerpt: String,
-    pub similarity: f32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rerank_score: Option<f32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub staleness_days: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub staleness_tier: Option<StalenessTier>,
-}
-
-impl PartialEq for RelevantDecision {
-    fn eq(&self, other: &Self) -> bool {
-        self.similarity == other.similarity && self.file_path == other.file_path
-    }
-}
-
-impl Eq for RelevantDecision {}
-
-impl PartialOrd for RelevantDecision {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for RelevantDecision {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        other
-            .similarity
-            .partial_cmp(&self.similarity)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| self.file_path.cmp(&other.file_path))
-    }
-}
-
-fn deserialize_score<'de, D: Deserializer<'de>>(d: D) -> Result<f32, D::Error> {
-    Ok(Option::<f32>::deserialize(d)?.unwrap_or(0.0))
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Hotspot {
-    pub path: PathBuf,
-    #[serde(deserialize_with = "deserialize_score")]
-    pub score: f32,
-    #[serde(default)]
-    pub display_score: f32,
-    pub complexity: i32,
-    pub frequency: f64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub centrality: Option<usize>,
-}
-
-impl Eq for Hotspot {}
-
-impl PartialOrd for Hotspot {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Hotspot {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.path.cmp(&other.path).then_with(|| {
-            self.score
-                .partial_cmp(&other.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct CoverageDelta {
-    pub file_path: String,
-    pub pattern_kind: String,
-    pub previous_count: usize,
-    pub current_count: usize,
-    pub message: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeUsageDelta {
-    pub file_path: String,
-    pub env_vars_previous_count: usize,
-    pub env_vars_current_count: usize,
-    pub config_keys_previous_count: usize,
-    pub config_keys_current_count: usize,
-    /// The actual env var names from the previous version (for identity-aware comparison).
-    #[serde(default)]
-    pub env_vars_previous: Vec<String>,
-    /// The actual env var names from the current version (for identity-aware comparison).
-    #[serde(default)]
-    pub env_vars_current: Vec<String>,
-}
-
-impl Eq for RuntimeUsageDelta {}
-
-impl PartialOrd for RuntimeUsageDelta {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for RuntimeUsageDelta {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.file_path.cmp(&other.file_path)
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct CoveringTest {
-    pub test_file: String,
-    pub test_symbol: String,
-    pub confidence: f64,
-    pub mapping_kind: String,
-}
-
-impl Eq for CoveringTest {}
-
-impl PartialOrd for CoveringTest {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for CoveringTest {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.test_file
-            .cmp(&other.test_file)
-            .then_with(|| self.test_symbol.cmp(&other.test_symbol))
-            .then_with(|| {
-                self.confidence
-                    .partial_cmp(&other.confidence)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .then_with(|| self.mapping_kind.cmp(&other.mapping_kind))
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct TestCoverage {
-    pub changed_symbol: String,
-    pub changed_file: String,
-    pub covering_tests: Vec<CoveringTest>,
-}
-
-impl Eq for TestCoverage {}
-
-impl PartialOrd for TestCoverage {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for TestCoverage {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.changed_symbol
-            .cmp(&other.changed_symbol)
-            .then_with(|| self.changed_file.cmp(&other.changed_file))
-    }
-}
-
-impl Eq for CoverageDelta {}
-
-impl PartialOrd for CoverageDelta {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for CoverageDelta {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.file_path
-            .cmp(&other.file_path)
-            .then_with(|| self.pattern_kind.cmp(&other.pattern_kind))
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-#[serde(rename_all = "camelCase")]
-pub struct CallChainNode {
-    pub symbol: String,
-    pub file_path: PathBuf,
-    pub is_data_model: bool,
-    pub is_external: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-#[serde(rename_all = "camelCase")]
-pub struct CallChain {
-    pub nodes: Vec<CallChainNode>,
-    pub has_cycle: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-pub enum TraceConfigType {
-    OpenTelemetryCollector,
-    JaegerAgent,
-    DataDogAgent,
-    GrafanaAgent,
-    GrafanaTempo,
-    Unknown,
-}
-
-impl TraceConfigType {
-    pub fn from_path(path: &std::path::Path) -> Self {
-        let path_str = path.to_string_lossy().to_lowercase();
-        if path_str.contains("otel") {
-            Self::OpenTelemetryCollector
-        } else if path_str.contains("jaeger") {
-            Self::JaegerAgent
-        } else if path_str.contains("datadog") {
-            Self::DataDogAgent
-        } else if path_str.contains("grafana-agent") {
-            Self::GrafanaAgent
-        } else if path_str.contains("tempo") {
-            Self::GrafanaTempo
-        } else {
-            Self::Unknown
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-#[serde(rename_all = "camelCase")]
-pub struct TraceConfigChange {
-    pub file: PathBuf,
-    pub config_type: TraceConfigType,
-    pub risk_weight: u8,
-    pub is_deleted: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-#[serde(rename_all = "camelCase")]
-pub struct TraceEnvVarChange {
-    pub var_name: String,
-    pub pattern: String,
-    pub risk_weight: u8,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq, PartialOrd, Ord)]
-#[serde(rename_all = "camelCase")]
-pub struct SdkDependencyDelta {
-    pub added: Vec<SdkDependency>,
-    pub removed: Vec<SdkDependency>,
-    pub modified: Vec<SdkDependency>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-#[serde(rename_all = "camelCase")]
-pub struct SdkDependency {
-    pub sdk_name: String,
-    pub file_path: PathBuf,
-    pub import_statement: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ManifestType {
-    Dockerfile,
-    DockerCompose,
-    Kubernetes,
-    Terraform,
-    Helm,
-    CiWorkflow,
-    Unknown,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DeployManifestChange {
-    pub file: PathBuf,
-    pub manifest_type: ManifestType,
-    pub risk_tier: u8,
-    pub coupled_files: Vec<String>,
-    pub high_blast_resources: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub service_name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub owner: Option<String>,
-}
-
-impl PartialEq for DeployManifestChange {
-    fn eq(&self, other: &Self) -> bool {
-        self.file == other.file
-            && self.manifest_type == other.manifest_type
-            && self.risk_tier == other.risk_tier
-            && self.coupled_files == other.coupled_files
-            && self.high_blast_resources == other.high_blast_resources
-            && self.service_name == other.service_name
-            && self.owner == other.owner
-    }
-}
-
-impl Eq for DeployManifestChange {}
-
-impl PartialOrd for DeployManifestChange {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for DeployManifestChange {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        other
-            .risk_tier
-            .cmp(&self.risk_tier)
-            .then_with(|| self.file.cmp(&other.file))
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq, PartialOrd, Ord)]
-#[serde(rename_all = "camelCase")]
-pub struct CiConfigChange {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub known_ci_files: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub unknown_ci_files: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub pre_commit_files: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub generated_ci_files: Vec<String>,
-    #[serde(default)]
-    pub source_changed: bool,
-    #[serde(default)]
-    pub deploy_changed: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct DataFlowMatch {
-    pub chain_label: String,
-    pub changed_nodes: Vec<String>,
-    pub total_nodes: usize,
-    pub change_pct: f64,
-    pub risk: RiskLevel,
-}
-
-impl Eq for DataFlowMatch {}
-
-impl PartialOrd for DataFlowMatch {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for DataFlowMatch {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        other
-            .change_pct
-            .partial_cmp(&self.change_pct)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| self.chain_label.cmp(&other.chain_label))
-    }
-}
-
-#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct RiskImpact {
-    pub weight: u32,
-    pub reasons: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct CIPrediction {
-    pub job_name: String,
-    pub platform: String,
-    pub failure_probability: f32,
-    pub explanation: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct ImpactPacket {
-    pub schema_version: String,
-    pub timestamp_utc: String, // ISO 8601 string
-    pub head_hash: Option<String>,
-    pub branch_name: Option<String>,
-    #[serde(default)]
-    pub tree_clean: bool,
-    pub risk_level: RiskLevel,
-    pub risk_reasons: Vec<String>,
-    pub changes: Vec<ChangedFile>,
-    pub temporal_couplings: Vec<TemporalCoupling>,
-    pub structural_couplings: Vec<StructuralCoupling>,
-    pub centrality_risks: Vec<CentralityRisk>,
-    #[serde(default)]
-    pub logging_coverage_delta: Vec<CoverageDelta>,
-    #[serde(default)]
-    pub error_handling_delta: Vec<CoverageDelta>,
-    #[serde(default)]
-    pub telemetry_coverage_delta: Vec<CoverageDelta>,
-    #[serde(default)]
-    pub infrastructure_dirs: Vec<String>,
-    #[serde(default)]
-    pub env_var_deps: Vec<EnvVarDep>,
-    #[serde(default)]
-    pub test_coverage: Vec<TestCoverage>,
-    #[serde(default)]
-    pub runtime_usage_delta: Vec<RuntimeUsageDelta>,
-    pub hotspots: Vec<Hotspot>,
-    pub verification_results: Vec<VerificationResult>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub relevant_decisions: Vec<RelevantDecision>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub observability: Vec<ObservabilitySignal>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub affected_contracts: Vec<AffectedContract>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub ai_insights: Vec<AiInsight>,
-    #[serde(default)]
-    pub data_flow_matches: Vec<DataFlowMatch>,
-    #[serde(default)]
-    pub service_map_delta: Option<ServiceMapDelta>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub trace_config_drift: Vec<TraceConfigChange>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub trace_env_vars: Vec<TraceEnvVarChange>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sdk_dependencies_delta: Option<SdkDependencyDelta>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub deploy_manifest_changes: Vec<DeployManifestChange>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ci_config_change: Option<CiConfigChange>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub ci_predictions: Vec<CIPrediction>,
-    #[serde(default)]
-    pub knowledge_graph: Vec<KGImpact>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub analysis_warnings: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub dead_code_findings: Vec<DeadCodeFinding>,
-}
-
-impl ImpactPacket {
-    pub fn is_empty(&self) -> bool {
-        self.changes.is_empty()
-            && self.temporal_couplings.is_empty()
-            && self.structural_couplings.is_empty()
-            && self.centrality_risks.is_empty()
-            && self.logging_coverage_delta.is_empty()
-            && self.error_handling_delta.is_empty()
-            && self.telemetry_coverage_delta.is_empty()
-            && self.infrastructure_dirs.is_empty()
-            && self.env_var_deps.is_empty()
-            && self.test_coverage.is_empty()
-            && self.runtime_usage_delta.is_empty()
-            && self.hotspots.is_empty()
-            && self.verification_results.is_empty()
-            && self.relevant_decisions.is_empty()
-            && self.observability.is_empty()
-            && self.affected_contracts.is_empty()
-            && self.ai_insights.is_empty()
-            && self.data_flow_matches.is_empty()
-            && self.service_map_delta.is_none()
-            && self.trace_config_drift.is_empty()
-            && self.trace_env_vars.is_empty()
-            && self.sdk_dependencies_delta.is_none()
-            && self.deploy_manifest_changes.is_empty()
-            && self.ci_config_change.is_none()
-            && self.ci_predictions.is_empty()
-            && self.knowledge_graph.is_empty()
-            && self.analysis_warnings.is_empty()
-            && self.dead_code_findings.is_empty()
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-#[serde(rename_all = "camelCase")]
-pub enum ConfidenceFactor {
-    UnreachableFromEntrypoints,
-    GitInactive { days_since_last_commit: u32 },
-    NoTestCoverage,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct DeadCodeFinding {
-    pub symbol_name: String,
-    pub file_path: PathBuf,
-    pub confidence: f64,
-    pub factors: Vec<ConfidenceFactor>,
-    pub recommendation: String,
-}
-
-impl Eq for DeadCodeFinding {}
-
-impl PartialOrd for DeadCodeFinding {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for DeadCodeFinding {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        other
-            .confidence
-            .partial_cmp(&self.confidence)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| self.file_path.cmp(&other.file_path))
-            .then_with(|| self.symbol_name.cmp(&other.symbol_name))
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct AiInsight {
-    pub memory_id: String,
-    pub relevance: f64,
-    pub content: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-#[serde(rename_all = "camelCase")]
-pub struct KGImpact {
-    pub source_node: String,
-    pub source_category: String,
-    pub impacted_node: String,
-    pub impacted_category: String,
-    pub relation: String,
-    pub path_length: usize,
-    pub reason: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
-pub struct ServiceMapDelta {
-    pub services: Vec<Service>,
-    pub affected_services: Vec<String>,
-    pub cross_service_edges: Vec<(String, String, usize)>, // (caller_service, callee_service, count)
-    pub total_services: usize,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Service {
-    pub name: String,
-    pub directory: PathBuf,
-    pub routes: Vec<String>,      // paths
-    pub data_models: Vec<String>, // names
-    #[serde(default)]
-    pub owners: Vec<String>,
-    #[serde(default)]
-    pub runtime_name: Option<String>,
-    #[serde(default)]
-    pub queues: Vec<String>,
-    #[serde(default)]
-    pub topics: Vec<String>,
-    #[serde(default)]
-    pub rpc_endpoints: Vec<String>,
-}
-
-impl Default for ImpactPacket {
-    fn default() -> Self {
-        Self {
-            schema_version: "v1".to_string(),
-            timestamp_utc: Utc::now().to_rfc3339(),
-            head_hash: None,
-            branch_name: None,
-            tree_clean: false,
-            risk_level: RiskLevel::Medium,
-            risk_reasons: Vec::new(),
-            changes: Vec::new(),
-            temporal_couplings: Vec::new(),
-            structural_couplings: Vec::new(),
-            centrality_risks: Vec::new(),
-            logging_coverage_delta: Vec::new(),
-            error_handling_delta: Vec::new(),
-            telemetry_coverage_delta: Vec::new(),
-            infrastructure_dirs: Vec::new(),
-            env_var_deps: Vec::new(),
-            test_coverage: Vec::new(),
-            runtime_usage_delta: Vec::new(),
-            hotspots: Vec::new(),
-            verification_results: Vec::new(),
-            relevant_decisions: Vec::new(),
-            observability: Vec::new(),
-            affected_contracts: Vec::new(),
-            ai_insights: Vec::new(),
-            service_map_delta: None,
-            data_flow_matches: Vec::new(),
-            trace_config_drift: Vec::new(),
-            trace_env_vars: Vec::new(),
-            sdk_dependencies_delta: None,
-            deploy_manifest_changes: Vec::new(),
-            ci_config_change: None,
-            ci_predictions: Vec::new(),
-            knowledge_graph: Vec::new(),
-            analysis_warnings: Vec::new(),
-            dead_code_findings: Vec::new(),
-        }
-    }
-}
-
-impl ImpactPacket {
-    pub fn with_clock(clock: &dyn Clock) -> Self {
-        Self {
-            timestamp_utc: clock.now().to_rfc3339(),
-            ..Self::default()
-        }
+mod changed_file;
+pub use self::changed_file::*;
+
+mod coverage;
+pub use self::coverage::*;
+
+mod intelligence;
+pub use self::intelligence::*;
+
+mod risk;
+pub use self::risk::*;
+
+mod serialization;
+
+mod surfaces;
+pub use self::surfaces::*;
+
+mod verification;
+pub use self::verification::*;
+
+mod metadata;
+pub use self::metadata::*;
+
+#[cfg(test)]
+mod schema_golden_tests {
+    use super::*;
+    use crate::contracts::AffectedContract;
+    use crate::index::env_schema::EnvVarDep;
+    use crate::index::references::ImportExport;
+    use crate::index::runtime_usage::RuntimeUsage;
+    use crate::index::symbols::Symbol;
+    use crate::observability::signal::{ObservabilitySignal, SignalSeverity};
+    use std::path::PathBuf;
+
+    /// Assert that a JSON object has exactly the expected keys (no more, no less).
+    fn assert_exact_keys(value: &serde_json::Value, expected: &[&str]) {
+        let obj = value.as_object().expect("value must be an object");
+        let mut actual: Vec<&str> = obj.keys().map(|s| s.as_str()).collect();
+        let mut expected: Vec<&str> = expected.to_vec();
+        actual.sort_unstable();
+        expected.sort_unstable();
+        assert_eq!(
+            actual, expected,
+            "object keys do not match expected set for {value}"
+        );
     }
 
-    /// Finalizes the packet by sorting all internal collections deterministically.
-    pub fn finalize(&mut self) {
-        self.risk_reasons.sort_unstable();
-
-        for file in &mut self.changes {
-            if let Some(ref mut symbols) = file.symbols {
-                symbols.sort_unstable();
-            }
-            if let Some(ref mut imports) = file.imports {
-                imports.imported_from.sort_unstable();
-                imports.exported_symbols.sort_unstable();
-            }
-            if let Some(ref mut runtime_usage) = file.runtime_usage {
-                runtime_usage.env_vars.sort_unstable();
-                runtime_usage.config_keys.sort_unstable();
-            }
-            file.analysis_warnings.sort_unstable();
-            file.analysis_warnings.dedup();
-        }
-        self.changes.sort_unstable();
-        self.temporal_couplings.sort_unstable();
-        self.structural_couplings.sort_unstable();
-        self.centrality_risks.sort_unstable();
-        self.logging_coverage_delta.sort_unstable();
-        self.error_handling_delta.sort_unstable();
-        self.telemetry_coverage_delta.sort_unstable();
-        self.infrastructure_dirs.sort_unstable();
-        self.env_var_deps.sort_unstable();
-        self.env_var_deps.dedup();
-        self.test_coverage.sort_unstable();
-        self.runtime_usage_delta.sort_unstable();
-        self.hotspots.sort_unstable_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.path.cmp(&b.path))
-        });
-        self.verification_results.sort_unstable();
-        self.relevant_decisions.sort_unstable_by(|a, b| {
-            b.similarity
-                .partial_cmp(&a.similarity)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.file_path.cmp(&b.file_path))
-        });
-        // Sort observability by severity descending
-        self.observability.sort_unstable();
-        // Sort affected_contracts by similarity descending, path ascending for ties
-        self.affected_contracts.sort_unstable();
-        self.data_flow_matches.sort_unstable();
-        self.trace_config_drift.sort_unstable();
-        self.trace_env_vars.sort_unstable();
-        if let Some(ref mut sdk) = self.sdk_dependencies_delta {
-            sdk.added.sort_unstable();
-            sdk.removed.sort_unstable();
-            sdk.modified.sort_unstable();
-        }
-        self.deploy_manifest_changes.sort_unstable();
-        self.ci_predictions.sort_unstable_by(|a, b| {
-            b.failure_probability
-                .partial_cmp(&a.failure_probability)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.job_name.cmp(&b.job_name))
-        });
-        self.dead_code_findings.sort_unstable();
-    }
-
-    /// Escalate risk_level by one tier for observability/contract signals.
-    /// High → Low→Medium or Medium→High; Elevated → Low→Medium only.
-    pub fn escalate_risk(&mut self, elevation: crate::observability::signal::RiskElevation) {
-        use crate::observability::signal::RiskElevation;
-        match elevation {
-            RiskElevation::High => {
-                self.risk_level = match self.risk_level {
-                    RiskLevel::Low => RiskLevel::Medium,
-                    _ => RiskLevel::High,
-                };
-            }
-            RiskElevation::Elevated => {
-                if self.risk_level == RiskLevel::Low {
-                    self.risk_level = RiskLevel::Medium;
+    /// Assert that object keys at the given indentation level appear in the exact
+    /// expected order in a pretty-printed JSON string. This verifies emitted
+    /// serialization order without relying on parsed map ordering.
+    #[allow(clippy::collapsible_if)]
+    fn assert_field_order(json: &str, indent: usize, expected: &[&str]) {
+        let prefix = " ".repeat(indent);
+        let next_prefix = " ".repeat(indent + 1);
+        let mut actual: Vec<&str> = Vec::new();
+        for line in json.lines() {
+            if line.starts_with(&prefix) && !line.starts_with(&next_prefix) {
+                let rest = &line[indent..];
+                if let Some(stripped) = rest.strip_prefix('"') {
+                    if let Some(end) = stripped.find('"') {
+                        actual.push(&stripped[..end]);
+                    }
                 }
             }
-            RiskElevation::None => {}
         }
+        let expected: Vec<&str> = expected.to_vec();
+        assert_eq!(actual, expected, "field order mismatch at indent {indent}");
     }
 
-    /// Apply a modular risk impact to the packet.
-    pub fn apply_risk_impact(&mut self, impact: RiskImpact, total_weight: &mut u32) {
-        *total_weight += impact.weight;
-        self.risk_reasons.extend(impact.reasons);
-    }
-
-    /// Finalize the risk level based on the accumulated weight.
-    /// Reconciles overall risk so it does not exceed the highest individual item risk
-    /// unless escalated due to change volume.
-    pub fn finalize_risk_level(&mut self, total_weight: u32, has_prior_risk_signal: bool) {
-        let rule_level = if total_weight > 50 {
-            RiskLevel::High
-        } else if total_weight > 20 {
-            RiskLevel::Medium
-        } else {
-            RiskLevel::Low
+    /// Constructs a fully-populated ImpactPacket to verify schema-stability.
+    /// This test must pass before and after any refactoring.
+    #[test]
+    fn test_schema_stability_golden() {
+        let packet = ImpactPacket {
+            schema_version: "v1".to_string(),
+            timestamp_utc: "2023-10-27T10:00:00Z".to_string(),
+            head_hash: Some("abc123".to_string()),
+            branch_name: Some("main".to_string()),
+            tree_clean: false,
+            risk_level: RiskLevel::High,
+            risk_reasons: vec!["reason-a".to_string()],
+            changes: vec![ChangedFile {
+                path: PathBuf::from("src/main.rs"),
+                status: "Modified".to_string(),
+                old_path: Some(PathBuf::from("src/old.rs")),
+                is_staged: true,
+                symbols: Some(vec![Symbol {
+                    name: "foo".into(),
+                    kind: crate::index::symbols::SymbolKind::Function,
+                    is_public: true,
+                    cognitive_complexity: None,
+                    cyclomatic_complexity: None,
+                    line_start: None,
+                    line_end: None,
+                    qualified_name: None,
+                    byte_start: None,
+                    byte_end: None,
+                    entrypoint_kind: None,
+                    metadata: std::collections::BTreeMap::new(),
+                }]),
+                imports: Some(ImportExport {
+                    imported_from: vec!["dep".to_string()],
+                    exported_symbols: vec!["bar".to_string()],
+                }),
+                runtime_usage: Some(RuntimeUsage {
+                    env_vars: vec!["FOO".to_string()],
+                    config_keys: vec!["key".to_string()],
+                }),
+                analysis_status: FileAnalysisStatus {
+                    symbols: AnalysisStatus::Ok,
+                    imports: AnalysisStatus::Ok,
+                    runtime_usage: AnalysisStatus::Ok,
+                },
+                analysis_warnings: vec!["warn".to_string()],
+                api_routes: vec![ApiRoute {
+                    method: "GET".to_string(),
+                    path_pattern: "/api".to_string(),
+                    handler_symbol_name: Some("handler".to_string()),
+                    framework: "axum".to_string(),
+                    route_source: "file".to_string(),
+                    mount_prefix: None,
+                    is_dynamic: false,
+                    route_confidence: 1.0,
+                    evidence: "ev".to_string(),
+                    auth_requirements: None,
+                    schema_refs: None,
+                    owning_service: None,
+                    consumers: None,
+                }],
+                data_models: vec![DataModel {
+                    model_name: "User".to_string(),
+                    model_kind: "struct".to_string(),
+                    confidence: 0.9,
+                    evidence: Some("e".to_string()),
+                }],
+                ci_gates: vec![CIGate {
+                    platform: "github".to_string(),
+                    job_name: "ci".to_string(),
+                    trigger: Some("push".to_string()),
+                    workflow_name: None,
+                    environment: None,
+                    artifacts: Vec::new(),
+                    release_gates: Vec::new(),
+                }],
+            }],
+            temporal_couplings: vec![TemporalCoupling {
+                file_a: PathBuf::from("a.rs"),
+                file_b: PathBuf::from("b.rs"),
+                score: 0.8,
+            }],
+            structural_couplings: vec![StructuralCoupling {
+                caller_symbol_name: "x".to_string(),
+                callee_symbol_name: "y".to_string(),
+                caller_file_path: PathBuf::from("x.rs"),
+            }],
+            centrality_risks: vec![CentralityRisk {
+                symbol_name: "main".to_string(),
+                entrypoints_reachable: 3,
+            }],
+            logging_coverage_delta: vec![CoverageDelta {
+                file_path: "a.rs".to_string(),
+                pattern_kind: "log".to_string(),
+                previous_count: 1,
+                current_count: 2,
+                message: "m".to_string(),
+            }],
+            error_handling_delta: vec![],
+            telemetry_coverage_delta: vec![],
+            infrastructure_dirs: vec!["infra".to_string()],
+            env_var_deps: vec![EnvVarDep {
+                var_name: "VAR".to_string(),
+                declared: true,
+                evidence: "ev".to_string(),
+            }],
+            test_coverage: vec![TestCoverage {
+                changed_symbol: "s".to_string(),
+                changed_file: "f.rs".to_string(),
+                covering_tests: vec![CoveringTest {
+                    test_file: "t.rs".to_string(),
+                    test_symbol: "test".to_string(),
+                    confidence: 0.8,
+                    mapping_kind: "direct".to_string(),
+                }],
+            }],
+            runtime_usage_delta: vec![RuntimeUsageDelta {
+                file_path: "f.rs".to_string(),
+                env_vars_previous_count: 0,
+                env_vars_current_count: 1,
+                config_keys_previous_count: 0,
+                config_keys_current_count: 1,
+                env_vars_previous: Vec::new(),
+                env_vars_current: vec!["VAR".to_string()],
+            }],
+            hotspots: vec![Hotspot {
+                path: PathBuf::from("h.rs"),
+                score: 0.9,
+                display_score: 0.9,
+                complexity: 5,
+                frequency: 1.0,
+                centrality: Some(2),
+            }],
+            verification_results: vec![VerificationResult {
+                name: "fmt".to_string(),
+                command: "cargo fmt".to_string(),
+                exit_code: 0,
+                stdout: "ok".to_string(),
+                stderr: "".to_string(),
+                duration_ms: 100,
+                truncated: false,
+            }],
+            relevant_decisions: vec![RelevantDecision {
+                file_path: PathBuf::from("d.md"),
+                heading: Some("h".to_string()),
+                excerpt: "e".to_string(),
+                similarity: 0.7,
+                rerank_score: None,
+                staleness_days: None,
+                staleness_tier: None,
+            }],
+            observability: vec![ObservabilitySignal::new(
+                "error_rate",
+                "svc",
+                0.15,
+                SignalSeverity::Critical,
+                "Error rate 15%",
+                "prometheus",
+            )],
+            affected_contracts: vec![AffectedContract {
+                endpoint_id: "api/openapi.json::GET::/pets".to_string(),
+                path: "/pets".to_string(),
+                method: "GET".to_string(),
+                summary: "List all pets".to_string(),
+                similarity: 0.85,
+                spec_file: "api/openapi.json".to_string(),
+            }],
+            ai_insights: vec![AiInsight {
+                memory_id: "mid".to_string(),
+                relevance: 0.5,
+                content: "c".to_string(),
+            }],
+            service_map_delta: Some(ServiceMapDelta {
+                services: vec![Service {
+                    name: "svc".to_string(),
+                    directory: PathBuf::from("svc"),
+                    routes: vec!["/r".to_string()],
+                    data_models: vec!["M".to_string()],
+                    owners: Vec::new(),
+                    runtime_name: None,
+                    queues: Vec::new(),
+                    topics: Vec::new(),
+                    rpc_endpoints: Vec::new(),
+                }],
+                affected_services: vec!["svc".to_string()],
+                cross_service_edges: Vec::new(),
+                total_services: 1,
+            }),
+            data_flow_matches: vec![DataFlowMatch {
+                chain_label: "l".to_string(),
+                changed_nodes: vec!["n".to_string()],
+                total_nodes: 2,
+                change_pct: 0.5,
+                risk: RiskLevel::Medium,
+            }],
+            trace_config_drift: vec![TraceConfigChange {
+                file: PathBuf::from("otel.yml"),
+                config_type: TraceConfigType::OpenTelemetryCollector,
+                risk_weight: 1,
+                is_deleted: false,
+            }],
+            trace_env_vars: vec![TraceEnvVarChange {
+                var_name: "TRACE".to_string(),
+                pattern: "p".to_string(),
+                risk_weight: 1,
+            }],
+            sdk_dependencies_delta: Some(SdkDependencyDelta {
+                added: vec![SdkDependency {
+                    sdk_name: "sdk".to_string(),
+                    file_path: PathBuf::from("f.rs"),
+                    import_statement: "use sdk;".to_string(),
+                }],
+                removed: Vec::new(),
+                modified: Vec::new(),
+            }),
+            deploy_manifest_changes: vec![DeployManifestChange {
+                file: PathBuf::from("Dockerfile"),
+                manifest_type: ManifestType::Dockerfile,
+                risk_tier: 2,
+                coupled_files: Vec::new(),
+                high_blast_resources: Vec::new(),
+                service_name: None,
+                owner: None,
+            }],
+            ci_config_change: Some(CiConfigChange {
+                known_ci_files: vec![".github/ci.yml".to_string()],
+                unknown_ci_files: Vec::new(),
+                pre_commit_files: Vec::new(),
+                generated_ci_files: Vec::new(),
+                source_changed: true,
+                deploy_changed: false,
+            }),
+            ci_predictions: vec![CIPrediction {
+                job_name: "ci".to_string(),
+                platform: "gh".to_string(),
+                failure_probability: 0.1,
+                explanation: None,
+            }],
+            knowledge_graph: vec![KGImpact {
+                source_node: "s".to_string(),
+                source_category: "cat".to_string(),
+                impacted_node: "i".to_string(),
+                impacted_category: "cat".to_string(),
+                relation: "r".to_string(),
+                path_length: 1,
+                reason: "r".to_string(),
+            }],
+            analysis_warnings: vec!["w".to_string()],
+            dead_code_findings: vec![DeadCodeFinding {
+                symbol_name: "unused".to_string(),
+                file_path: PathBuf::from("u.rs"),
+                confidence: 0.8,
+                factors: vec![ConfidenceFactor::NoTestCoverage],
+                recommendation: "del".to_string(),
+            }],
         };
 
-        if !has_prior_risk_signal || rule_level > self.risk_level {
-            self.risk_level = rule_level;
-        }
+        let json = serde_json::to_string_pretty(&packet).unwrap();
 
-        // Reconcile: if risk is HIGH but there are very few changed files (≤3),
-        // note the escalation so it does not appear to contradict the item-level view.
-        if self.risk_level == RiskLevel::High && self.changes.len() <= 3 {
-            let n = self.changes.len();
-            let note = format!("(escalated due to {n} changed file(s))");
-            if !self.risk_reasons.iter().any(|r| r.contains(&note)) {
-                self.risk_reasons.push(note);
-            }
-        }
+        // Key field presence assertions to ensure schema stability
+        assert!(
+            json.contains(r#""schemaVersion": "v1""#),
+            "schemaVersion missing"
+        );
+        assert!(
+            json.contains(r#""timestampUtc": "2023-10-27T10:00:00Z""#),
+            "timestampUtc missing"
+        );
+        assert!(json.contains(r#""headHash": "abc123""#), "headHash missing");
+        assert!(
+            json.contains(r#""branchName": "main""#),
+            "branchName missing"
+        );
+        assert!(json.contains(r#""treeClean": false"#), "treeClean missing");
+        assert!(json.contains(r#""riskLevel": "high""#), "riskLevel missing");
+        assert!(json.contains(r#""riskReasons""#), "riskReasons missing");
+        assert!(json.contains(r#""changes""#), "changes missing");
+        assert!(json.contains(r#""path": "src/main.rs""#), "path missing");
+        assert!(json.contains(r#""status": "Modified""#), "status missing");
+        assert!(
+            json.contains(r#""oldPath": "src/old.rs""#),
+            "oldPath missing"
+        );
+        assert!(json.contains(r#""isStaged": true"#), "isStaged missing");
+        assert!(json.contains(r#""symbols""#), "symbols missing");
+        assert!(json.contains(r#""imports""#), "imports missing");
+        assert!(json.contains(r#""runtimeUsage""#), "runtimeUsage missing");
+        assert!(
+            json.contains(r#""analysisStatus""#),
+            "analysisStatus missing"
+        );
+        assert!(
+            json.contains(r#""analysisWarnings""#),
+            "analysisWarnings missing"
+        );
+        assert!(json.contains(r#""apiRoutes""#), "apiRoutes missing");
+        assert!(json.contains(r#""dataModels""#), "dataModels missing");
+        assert!(json.contains(r#""ciGates""#), "ciGates missing");
+        assert!(
+            json.contains(r#""temporalCouplings""#),
+            "temporalCouplings missing"
+        );
+        assert!(
+            json.contains(r#""structuralCouplings""#),
+            "structuralCouplings missing"
+        );
+        assert!(
+            json.contains(r#""centralityRisks""#),
+            "centralityRisks missing"
+        );
+        assert!(
+            json.contains(r#""loggingCoverageDelta""#),
+            "loggingCoverageDelta missing"
+        );
+        assert!(
+            json.contains(r#""infrastructureDirs""#),
+            "infrastructureDirs missing"
+        );
+        assert!(json.contains(r#""envVarDeps""#), "envVarDeps missing");
+        assert!(json.contains(r#""testCoverage""#), "testCoverage missing");
+        assert!(
+            json.contains(r#""runtimeUsageDelta""#),
+            "runtimeUsageDelta missing"
+        );
+        assert!(json.contains(r#""hotspots""#), "hotspots missing");
+        assert!(
+            json.contains(r#""verificationResults""#),
+            "verificationResults missing"
+        );
+        assert!(
+            json.contains(r#""relevantDecisions""#),
+            "relevantDecisions missing"
+        );
+        assert!(json.contains(r#""aiInsights""#), "aiInsights missing");
+        assert!(
+            json.contains(r#""serviceMapDelta""#),
+            "serviceMapDelta missing"
+        );
+        assert!(
+            json.contains(r#""dataFlowMatches""#),
+            "dataFlowMatches missing"
+        );
+        assert!(
+            json.contains(r#""traceConfigDrift""#),
+            "traceConfigDrift missing"
+        );
+        assert!(json.contains(r#""traceEnvVars""#), "traceEnvVars missing");
+        assert!(
+            json.contains(r#""sdkDependenciesDelta""#),
+            "sdkDependenciesDelta missing"
+        );
+        assert!(
+            json.contains(r#""deployManifestChanges""#),
+            "deployManifestChanges missing"
+        );
+        assert!(
+            json.contains(r#""ciConfigChange""#),
+            "ciConfigChange missing"
+        );
+        assert!(json.contains(r#""ciPredictions""#), "ciPredictions missing");
+        assert!(
+            json.contains(r#""knowledgeGraph""#),
+            "knowledgeGraph missing"
+        );
+        assert!(
+            json.contains(r#""deadCodeFindings""#),
+            "deadCodeFindings missing"
+        );
 
-        // For clean tree or no changes, risk should be NONE-equivalent.
-        if self.changes.is_empty() && self.risk_reasons.is_empty() {
-            self.risk_level = RiskLevel::Low;
-            self.risk_reasons.push("No changes detected".to_string());
-        }
+        // Round-trip verification
+        let parsed: ImpactPacket = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.schema_version, "v1");
+        assert_eq!(parsed.changes.len(), 1);
+        assert_eq!(parsed.changes[0].path, PathBuf::from("src/main.rs"));
+        assert_eq!(parsed.risk_level, RiskLevel::High);
+        assert_eq!(parsed.temporal_couplings.len(), 1);
+        assert_eq!(parsed.hotspots.len(), 1);
 
-        if self.risk_reasons.is_empty() {
-            self.risk_reasons
-                .push("Minimal changes detected".to_string());
-        }
+        // Exact shape verification via serde_json::Value
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        // Top-level exact key set (35 keys — no more, no less)
+        assert_exact_keys(
+            &value,
+            &[
+                "schemaVersion",
+                "timestampUtc",
+                "headHash",
+                "branchName",
+                "treeClean",
+                "riskLevel",
+                "riskReasons",
+                "changes",
+                "temporalCouplings",
+                "structuralCouplings",
+                "centralityRisks",
+                "loggingCoverageDelta",
+                "errorHandlingDelta",
+                "telemetryCoverageDelta",
+                "infrastructureDirs",
+                "envVarDeps",
+                "testCoverage",
+                "runtimeUsageDelta",
+                "hotspots",
+                "verificationResults",
+                "relevantDecisions",
+                "observability",
+                "affectedContracts",
+                "aiInsights",
+                "serviceMapDelta",
+                "dataFlowMatches",
+                "traceConfigDrift",
+                "traceEnvVars",
+                "sdkDependenciesDelta",
+                "deployManifestChanges",
+                "ciConfigChange",
+                "ciPredictions",
+                "knowledgeGraph",
+                "analysisWarnings",
+                "deadCodeFindings",
+            ],
+        );
+
+        // Exact scalar values at top level
+        assert_eq!(value["schemaVersion"], "v1");
+        assert_eq!(value["timestampUtc"], "2023-10-27T10:00:00Z");
+        assert_eq!(value["headHash"], "abc123");
+        assert_eq!(value["branchName"], "main");
+        assert_eq!(value["treeClean"], false);
+        assert_eq!(value["riskLevel"], "high");
+        assert_eq!(value["riskReasons"].as_array().unwrap().len(), 1);
+        assert_eq!(value["riskReasons"][0], "reason-a");
+
+        // changes[0] exact key set
+        let changes = value["changes"].as_array().expect("changes array");
+        assert_eq!(changes.len(), 1);
+        let change0 = &changes[0];
+        assert_exact_keys(
+            change0,
+            &[
+                "path",
+                "status",
+                "oldPath",
+                "isStaged",
+                "symbols",
+                "imports",
+                "runtimeUsage",
+                "analysisStatus",
+                "analysisWarnings",
+                "apiRoutes",
+                "dataModels",
+                "ciGates",
+            ],
+        );
+        assert_eq!(change0["path"], "src/main.rs");
+        assert_eq!(change0["status"], "Modified");
+        assert_eq!(change0["oldPath"], "src/old.rs");
+        assert_eq!(change0["isStaged"], true);
+
+        // symbols[0] inside changes[0]
+        let symbols = change0["symbols"].as_array().unwrap();
+        assert_eq!(symbols.len(), 1);
+        assert_exact_keys(
+            &symbols[0],
+            &[
+                "name",
+                "kind",
+                "isPublic",
+                "cognitiveComplexity",
+                "cyclomaticComplexity",
+                "lineStart",
+                "lineEnd",
+                "qualifiedName",
+                "byteStart",
+                "byteEnd",
+                "entrypointKind",
+                "metadata",
+            ],
+        );
+        assert_eq!(symbols[0]["name"], "foo");
+        assert_eq!(symbols[0]["kind"], "function");
+
+        // imports inside changes[0]
+        assert_exact_keys(&change0["imports"], &["importedFrom", "exportedSymbols"]);
+        assert_eq!(change0["imports"]["importedFrom"][0], "dep");
+
+        // runtimeUsage inside changes[0]
+        assert_exact_keys(&change0["runtimeUsage"], &["envVars", "configKeys"]);
+        assert_eq!(change0["runtimeUsage"]["envVars"][0], "FOO");
+
+        // analysisStatus inside changes[0]
+        assert_exact_keys(
+            &change0["analysisStatus"],
+            &["symbols", "imports", "runtimeUsage"],
+        );
+        assert_eq!(change0["analysisStatus"]["symbols"], "ok");
+
+        // apiRoutes[0] inside changes[0]
+        let api_routes = change0["apiRoutes"].as_array().unwrap();
+        assert_eq!(api_routes.len(), 1);
+        assert_exact_keys(
+            &api_routes[0],
+            &[
+                "method",
+                "pathPattern",
+                "handlerSymbolName",
+                "framework",
+                "routeSource",
+                "mountPrefix",
+                "isDynamic",
+                "routeConfidence",
+                "evidence",
+                "authRequirements",
+                "schemaRefs",
+                "owningService",
+                "consumers",
+            ],
+        );
+
+        // dataModels[0] inside changes[0]
+        let data_models = change0["dataModels"].as_array().unwrap();
+        assert_eq!(data_models.len(), 1);
+        assert_exact_keys(
+            &data_models[0],
+            &["modelName", "modelKind", "confidence", "evidence"],
+        );
+
+        // ciGates[0] inside changes[0]
+        let ci_gates = change0["ciGates"].as_array().unwrap();
+        assert_eq!(ci_gates.len(), 1);
+        assert_exact_keys(&ci_gates[0], &["platform", "jobName", "trigger"]);
+
+        // temporalCouplings[0]
+        let tc = value["temporalCouplings"].as_array().unwrap();
+        assert_eq!(tc.len(), 1);
+        assert_exact_keys(&tc[0], &["fileA", "fileB", "score"]);
+
+        // structuralCouplings[0]
+        let sc = value["structuralCouplings"].as_array().unwrap();
+        assert_eq!(sc.len(), 1);
+        assert_exact_keys(
+            &sc[0],
+            &["callerSymbolName", "calleeSymbolName", "callerFilePath"],
+        );
+
+        // centralityRisks[0]
+        let cr = value["centralityRisks"].as_array().unwrap();
+        assert_eq!(cr.len(), 1);
+        assert_exact_keys(&cr[0], &["symbolName", "entrypointsReachable"]);
+
+        // loggingCoverageDelta[0]
+        let lcd = value["loggingCoverageDelta"].as_array().unwrap();
+        assert_eq!(lcd.len(), 1);
+        assert_exact_keys(
+            &lcd[0],
+            &[
+                "filePath",
+                "patternKind",
+                "previousCount",
+                "currentCount",
+                "message",
+            ],
+        );
+
+        // testCoverage[0]
+        let test_cov = value["testCoverage"].as_array().unwrap();
+        assert_eq!(test_cov.len(), 1);
+        assert_exact_keys(
+            &test_cov[0],
+            &["changedSymbol", "changedFile", "coveringTests"],
+        );
+        let covering_tests = test_cov[0]["coveringTests"].as_array().unwrap();
+        assert_eq!(covering_tests.len(), 1);
+        assert_exact_keys(
+            &covering_tests[0],
+            &["testFile", "testSymbol", "confidence", "mappingKind"],
+        );
+
+        // runtimeUsageDelta[0]
+        let rud = value["runtimeUsageDelta"].as_array().unwrap();
+        assert_eq!(rud.len(), 1);
+        assert_exact_keys(
+            &rud[0],
+            &[
+                "filePath",
+                "envVarsPreviousCount",
+                "envVarsCurrentCount",
+                "configKeysPreviousCount",
+                "configKeysCurrentCount",
+                "envVarsPrevious",
+                "envVarsCurrent",
+            ],
+        );
+
+        // hotspots[0]
+        let hs = value["hotspots"].as_array().unwrap();
+        assert_eq!(hs.len(), 1);
+        assert_exact_keys(
+            &hs[0],
+            &[
+                "path",
+                "score",
+                "displayScore",
+                "complexity",
+                "frequency",
+                "centrality",
+            ],
+        );
+
+        // verificationResults[0]
+        let vr = value["verificationResults"].as_array().unwrap();
+        assert_eq!(vr.len(), 1);
+        assert_exact_keys(
+            &vr[0],
+            &[
+                "name",
+                "command",
+                "exitCode",
+                "stdout",
+                "stderr",
+                "durationMs",
+                "truncated",
+            ],
+        );
+
+        // relevantDecisions[0]
+        let rd = value["relevantDecisions"].as_array().unwrap();
+        assert_eq!(rd.len(), 1);
+        assert_exact_keys(&rd[0], &["filePath", "heading", "excerpt", "similarity"]);
+
+        // observability[0]
+        let obs = value["observability"].as_array().unwrap();
+        assert_eq!(obs.len(), 1);
+        assert_exact_keys(
+            &obs[0],
+            &[
+                "signal_type",
+                "signal_label",
+                "value",
+                "severity",
+                "excerpt",
+                "source",
+            ],
+        );
+
+        // affectedContracts[0]
+        let ac = value["affectedContracts"].as_array().unwrap();
+        assert_eq!(ac.len(), 1);
+        assert_exact_keys(
+            &ac[0],
+            &[
+                "endpoint_id",
+                "path",
+                "method",
+                "summary",
+                "similarity",
+                "spec_file",
+            ],
+        );
+
+        // aiInsights[0]
+        let ai = value["aiInsights"].as_array().unwrap();
+        assert_eq!(ai.len(), 1);
+        assert_exact_keys(&ai[0], &["memoryId", "relevance", "content"]);
+
+        // serviceMapDelta
+        let smd = &value["serviceMapDelta"];
+        assert_exact_keys(
+            smd,
+            &[
+                "services",
+                "affected_services",
+                "cross_service_edges",
+                "total_services",
+            ],
+        );
+        let services = smd["services"].as_array().unwrap();
+        assert_eq!(services.len(), 1);
+        assert_exact_keys(
+            &services[0],
+            &[
+                "name",
+                "directory",
+                "routes",
+                "data_models",
+                "owners",
+                "runtime_name",
+                "queues",
+                "topics",
+                "rpc_endpoints",
+            ],
+        );
+
+        // dataFlowMatches[0]
+        let dfm = value["dataFlowMatches"].as_array().unwrap();
+        assert_eq!(dfm.len(), 1);
+        assert_exact_keys(
+            &dfm[0],
+            &[
+                "chainLabel",
+                "changedNodes",
+                "totalNodes",
+                "changePct",
+                "risk",
+            ],
+        );
+
+        // traceConfigDrift[0]
+        let tcd = value["traceConfigDrift"].as_array().unwrap();
+        assert_eq!(tcd.len(), 1);
+        assert_exact_keys(&tcd[0], &["file", "configType", "riskWeight", "isDeleted"]);
+
+        // traceEnvVars[0]
+        let tev = value["traceEnvVars"].as_array().unwrap();
+        assert_eq!(tev.len(), 1);
+        assert_exact_keys(&tev[0], &["varName", "pattern", "riskWeight"]);
+
+        // sdkDependenciesDelta
+        let sdd = &value["sdkDependenciesDelta"];
+        assert_exact_keys(sdd, &["added", "removed", "modified"]);
+        let sdk_added = sdd["added"].as_array().unwrap();
+        assert_eq!(sdk_added.len(), 1);
+        assert_exact_keys(&sdk_added[0], &["sdkName", "filePath", "importStatement"]);
+
+        // deployManifestChanges[0]
+        let dmc = value["deployManifestChanges"].as_array().unwrap();
+        assert_eq!(dmc.len(), 1);
+        assert_exact_keys(
+            &dmc[0],
+            &[
+                "file",
+                "manifestType",
+                "riskTier",
+                "coupledFiles",
+                "highBlastResources",
+            ],
+        );
+
+        // ciConfigChange
+        let ccc = &value["ciConfigChange"];
+        assert_exact_keys(ccc, &["knownCiFiles", "sourceChanged", "deployChanged"]);
+
+        // ciPredictions[0]
+        let cp = value["ciPredictions"].as_array().unwrap();
+        assert_eq!(cp.len(), 1);
+        assert_exact_keys(
+            &cp[0],
+            &["jobName", "platform", "failureProbability", "explanation"],
+        );
+
+        // knowledgeGraph[0]
+        let kg = value["knowledgeGraph"].as_array().unwrap();
+        assert_eq!(kg.len(), 1);
+        assert_exact_keys(
+            &kg[0],
+            &[
+                "sourceNode",
+                "sourceCategory",
+                "impactedNode",
+                "impactedCategory",
+                "relation",
+                "pathLength",
+                "reason",
+            ],
+        );
+
+        // deadCodeFindings[0]
+        let dcf = value["deadCodeFindings"].as_array().unwrap();
+        assert_eq!(dcf.len(), 1);
+        assert_exact_keys(
+            &dcf[0],
+            &[
+                "symbolName",
+                "filePath",
+                "confidence",
+                "factors",
+                "recommendation",
+            ],
+        );
+
+        // envVarDeps[0]
+        let evd = value["envVarDeps"].as_array().unwrap();
+        assert_eq!(evd.len(), 1);
+        assert_exact_keys(&evd[0], &["varName", "declared", "evidence"]);
+
+        // Exact field order in raw JSON for top-level object (indent = 2)
+        assert_field_order(
+            &json,
+            2,
+            &[
+                "schemaVersion",
+                "timestampUtc",
+                "headHash",
+                "branchName",
+                "treeClean",
+                "riskLevel",
+                "riskReasons",
+                "changes",
+                "temporalCouplings",
+                "structuralCouplings",
+                "centralityRisks",
+                "loggingCoverageDelta",
+                "errorHandlingDelta",
+                "telemetryCoverageDelta",
+                "infrastructureDirs",
+                "envVarDeps",
+                "testCoverage",
+                "runtimeUsageDelta",
+                "hotspots",
+                "verificationResults",
+                "relevantDecisions",
+                "observability",
+                "affectedContracts",
+                "aiInsights",
+                "dataFlowMatches",
+                "serviceMapDelta",
+                "traceConfigDrift",
+                "traceEnvVars",
+                "sdkDependenciesDelta",
+                "deployManifestChanges",
+                "ciConfigChange",
+                "ciPredictions",
+                "knowledgeGraph",
+                "analysisWarnings",
+                "deadCodeFindings",
+            ],
+        );
+
+        // Exact field order for changes[0] via isolated serialization
+        let change0_json = serde_json::to_string_pretty(&packet.changes[0]).unwrap();
+        assert_field_order(
+            &change0_json,
+            2,
+            &[
+                "path",
+                "status",
+                "oldPath",
+                "isStaged",
+                "symbols",
+                "imports",
+                "runtimeUsage",
+                "analysisStatus",
+                "analysisWarnings",
+                "apiRoutes",
+                "dataModels",
+                "ciGates",
+            ],
+        );
     }
 
-    /// Truncates the packet to fit within a target character limit.
-    /// Priority:
-    /// 1. Strip verification stdout/stderr
-    /// 2. Strip symbol/import/runtime data for unchanged files (if any were included)
-    /// 3. Strip temporal couplings
-    /// 4. Strip hotspots
-    pub fn truncate_for_context(&mut self, target_chars: usize) -> bool {
-        let current_json = serde_json::to_string(self).unwrap_or_default();
-        if current_json.len() <= target_chars {
-            return false;
-        }
+    /// Verify that a default/empty packet omits fields governed by skip_serializing_if
+    /// and preserves fields that lack the attribute.
+    #[test]
+    fn test_schema_stability_golden_omitted_empty_behavior() {
+        let packet = ImpactPacket::default();
+        let json = serde_json::to_string_pretty(&packet).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
 
-        // Phase 1: Clear verification output
-        for res in &mut self.verification_results {
-            if !res.stdout.is_empty() || !res.stderr.is_empty() {
-                res.stdout = "[TRUNCATED]".to_string();
-                res.stderr = "[TRUNCATED]".to_string();
-                res.truncated = true;
-            }
-        }
+        // Fields with skip_serializing_if on empty collections/options must be absent
+        assert!(
+            !json.contains("relevantDecisions"),
+            "relevantDecisions should be omitted when empty"
+        );
+        assert!(
+            !json.contains("observability"),
+            "observability should be omitted when empty"
+        );
+        assert!(
+            !json.contains("affectedContracts"),
+            "affectedContracts should be omitted when empty"
+        );
+        assert!(
+            !json.contains("aiInsights"),
+            "aiInsights should be omitted when empty"
+        );
+        assert!(
+            !json.contains("traceConfigDrift"),
+            "traceConfigDrift should be omitted when empty"
+        );
+        assert!(
+            !json.contains("traceEnvVars"),
+            "traceEnvVars should be omitted when empty"
+        );
+        assert!(
+            !json.contains("deployManifestChanges"),
+            "deployManifestChanges should be omitted when empty"
+        );
+        assert!(
+            !json.contains("ciPredictions"),
+            "ciPredictions should be omitted when empty"
+        );
+        assert!(
+            !json.contains("analysisWarnings"),
+            "analysisWarnings should be omitted when empty"
+        );
+        assert!(
+            !json.contains("deadCodeFindings"),
+            "deadCodeFindings should be omitted when empty"
+        );
+        assert!(
+            !json.contains("sdkDependenciesDelta"),
+            "sdkDependenciesDelta should be omitted when None"
+        );
+        assert!(
+            !json.contains("ciConfigChange"),
+            "ciConfigChange should be omitted when None"
+        );
 
-        let current_json = serde_json::to_string(self).unwrap_or_default();
-        if current_json.len() <= target_chars {
-            return true;
-        }
+        // Fields without skip_serializing_if serialize even when empty/null
+        assert!(
+            value.get("headHash").unwrap().is_null(),
+            "headHash must be null when None"
+        );
+        assert!(
+            value.get("branchName").unwrap().is_null(),
+            "branchName must be null when None"
+        );
+        assert!(
+            value.get("serviceMapDelta").unwrap().is_null(),
+            "serviceMapDelta must be null when None"
+        );
+        assert!(
+            value.get("loggingCoverageDelta").unwrap().is_array(),
+            "loggingCoverageDelta must be present as array"
+        );
+        assert!(
+            value.get("errorHandlingDelta").unwrap().is_array(),
+            "errorHandlingDelta must be present as array"
+        );
+        assert!(
+            value.get("telemetryCoverageDelta").unwrap().is_array(),
+            "telemetryCoverageDelta must be present as array"
+        );
+        assert!(
+            value.get("infrastructureDirs").unwrap().is_array(),
+            "infrastructureDirs must be present as array"
+        );
+        assert!(
+            value.get("envVarDeps").unwrap().is_array(),
+            "envVarDeps must be present as array"
+        );
+        assert!(
+            value.get("testCoverage").unwrap().is_array(),
+            "testCoverage must be present as array"
+        );
+        assert!(
+            value.get("runtimeUsageDelta").unwrap().is_array(),
+            "runtimeUsageDelta must be present as array"
+        );
+        assert!(
+            value.get("dataFlowMatches").unwrap().is_array(),
+            "dataFlowMatches must be present as array"
+        );
+        assert!(
+            value.get("knowledgeGraph").unwrap().is_array(),
+            "knowledgeGraph must be present as array"
+        );
+    }
 
-        // Phase 2: Strip detailed analysis for non-staged files
-        for change in &mut self.changes {
-            if !change.is_staged {
-                change.symbols = None;
-                change.imports = None;
-                change.runtime_usage = None;
-            }
-        }
+    /// Verify that missing #[serde(default)] fields fall back to defaults on deserialization.
+    #[test]
+    fn test_schema_stability_golden_default_fallback_semantics() {
+        let minimal = r#"{
+            "schemaVersion": "v1",
+            "timestampUtc": "2023-10-27T10:00:00Z",
+            "riskLevel": "low",
+            "riskReasons": [],
+            "changes": [],
+            "temporalCouplings": [],
+            "structuralCouplings": [],
+            "centralityRisks": [],
+            "hotspots": [],
+            "verificationResults": []
+        }"#;
 
-        let current_json = serde_json::to_string(self).unwrap_or_default();
-        if current_json.len() <= target_chars {
-            return true;
-        }
+        let parsed: ImpactPacket = serde_json::from_str(minimal).unwrap();
+        assert_eq!(parsed.schema_version, "v1");
+        assert_eq!(parsed.timestamp_utc, "2023-10-27T10:00:00Z");
+        assert_eq!(parsed.risk_level, RiskLevel::Low);
+        assert!(!parsed.tree_clean, "tree_clean defaults to false");
+        assert!(
+            parsed.logging_coverage_delta.is_empty(),
+            "logging_coverage_delta defaults to empty"
+        );
+        assert!(
+            parsed.error_handling_delta.is_empty(),
+            "error_handling_delta defaults to empty"
+        );
+        assert!(
+            parsed.telemetry_coverage_delta.is_empty(),
+            "telemetry_coverage_delta defaults to empty"
+        );
+        assert!(
+            parsed.infrastructure_dirs.is_empty(),
+            "infrastructure_dirs defaults to empty"
+        );
+        assert!(
+            parsed.env_var_deps.is_empty(),
+            "env_var_deps defaults to empty"
+        );
+        assert!(
+            parsed.test_coverage.is_empty(),
+            "test_coverage defaults to empty"
+        );
+        assert!(
+            parsed.runtime_usage_delta.is_empty(),
+            "runtime_usage_delta defaults to empty"
+        );
+        assert!(
+            parsed.data_flow_matches.is_empty(),
+            "data_flow_matches defaults to empty"
+        );
+        assert!(
+            parsed.knowledge_graph.is_empty(),
+            "knowledge_graph defaults to empty"
+        );
+        assert!(
+            parsed.relevant_decisions.is_empty(),
+            "relevant_decisions defaults to empty"
+        );
+        assert!(
+            parsed.observability.is_empty(),
+            "observability defaults to empty"
+        );
+        assert!(
+            parsed.affected_contracts.is_empty(),
+            "affected_contracts defaults to empty"
+        );
+        assert!(
+            parsed.ai_insights.is_empty(),
+            "ai_insights defaults to empty"
+        );
+        assert!(
+            parsed.trace_config_drift.is_empty(),
+            "trace_config_drift defaults to empty"
+        );
+        assert!(
+            parsed.trace_env_vars.is_empty(),
+            "trace_env_vars defaults to empty"
+        );
+        assert!(
+            parsed.deploy_manifest_changes.is_empty(),
+            "deploy_manifest_changes defaults to empty"
+        );
+        assert!(
+            parsed.ci_predictions.is_empty(),
+            "ci_predictions defaults to empty"
+        );
+        assert!(
+            parsed.analysis_warnings.is_empty(),
+            "analysis_warnings defaults to empty"
+        );
+        assert!(
+            parsed.dead_code_findings.is_empty(),
+            "dead_code_findings defaults to empty"
+        );
+        assert!(
+            parsed.sdk_dependencies_delta.is_none(),
+            "sdk_dependencies_delta defaults to None"
+        );
+        assert!(
+            parsed.ci_config_change.is_none(),
+            "ci_config_change defaults to None"
+        );
+        assert!(
+            parsed.service_map_delta.is_none(),
+            "service_map_delta defaults to None"
+        );
+        assert!(parsed.head_hash.is_none(), "head_hash defaults to None");
+        assert!(parsed.branch_name.is_none(), "branch_name defaults to None");
+    }
 
-        // Phase 3: Strip temporal and structural couplings
-        self.temporal_couplings.clear();
-        self.structural_couplings.clear();
-        self.centrality_risks.clear();
-        self.logging_coverage_delta.clear();
-        self.error_handling_delta.clear();
-        self.telemetry_coverage_delta.clear();
-        self.infrastructure_dirs.clear();
-        self.env_var_deps.clear();
-        self.test_coverage.clear();
-        self.runtime_usage_delta.clear();
-        self.relevant_decisions.clear();
-        // CRITICAL: Clear observability signals which can contain unbounded log excerpts
-        self.observability.clear();
-        self.affected_contracts.clear();
-        self.ai_insights.clear();
-        self.data_flow_matches.clear();
-        self.trace_config_drift.clear();
-        self.trace_env_vars.clear();
-        self.sdk_dependencies_delta = None;
-        self.deploy_manifest_changes.clear();
-        self.ci_config_change = None;
-        self.ci_predictions.clear();
-        self.service_map_delta = None;
-        self.dead_code_findings.clear();
+    // --- Nested struct field-order & serde-contract coverage ---
 
-        let current_json = serde_json::to_string(self).unwrap_or_default();
-        if current_json.len() <= target_chars {
-            return true;
-        }
+    #[test]
+    fn test_nested_api_route_field_order() {
+        let route = ApiRoute {
+            method: "GET".into(),
+            path_pattern: "/".into(),
+            handler_symbol_name: None,
+            framework: "axum".into(),
+            route_source: "src/main.rs".into(),
+            mount_prefix: None,
+            is_dynamic: false,
+            route_confidence: 1.0,
+            evidence: "regex".into(),
+            auth_requirements: None,
+            schema_refs: None,
+            owning_service: None,
+            consumers: None,
+        };
+        let json = serde_json::to_string_pretty(&route).unwrap();
+        assert_field_order(
+            &json,
+            2,
+            &[
+                "method",
+                "pathPattern",
+                "handlerSymbolName",
+                "framework",
+                "routeSource",
+                "mountPrefix",
+                "isDynamic",
+                "routeConfidence",
+                "evidence",
+                "authRequirements",
+                "schemaRefs",
+                "owningService",
+                "consumers",
+            ],
+        );
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_exact_keys(
+            &v,
+            &[
+                "method",
+                "pathPattern",
+                "handlerSymbolName",
+                "framework",
+                "routeSource",
+                "mountPrefix",
+                "isDynamic",
+                "routeConfidence",
+                "evidence",
+                "authRequirements",
+                "schemaRefs",
+                "owningService",
+                "consumers",
+            ],
+        );
+    }
 
-        // Phase 4: Strip hotspots
-        self.hotspots.clear();
+    #[test]
+    fn test_nested_ci_gate_field_order_and_omission() {
+        let gate = CIGate {
+            platform: "github".into(),
+            job_name: "test".into(),
+            trigger: None,
+            workflow_name: None,
+            environment: None,
+            artifacts: vec![],
+            release_gates: vec![],
+        };
+        let json = serde_json::to_string_pretty(&gate).unwrap();
+        assert_field_order(&json, 2, &["platform", "jobName", "trigger"]);
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_exact_keys(&v, &["platform", "jobName", "trigger"]);
 
-        let current_json = serde_json::to_string(self).unwrap_or_default();
-        if current_json.len() <= target_chars {
-            return true;
-        }
+        // Default fallback for omitted Vec fields
+        let minimal = r#"{"platform":"github","jobName":"test","trigger":null}"#;
+        let parsed: CIGate = serde_json::from_str(minimal).unwrap();
+        assert!(parsed.artifacts.is_empty());
+        assert!(parsed.release_gates.is_empty());
+    }
 
-        // Phase 5: Last resort - keep only file paths in changes
-        for change in &mut self.changes {
-            change.symbols = None;
-            change.imports = None;
-            change.runtime_usage = None;
-        }
+    #[test]
+    fn test_nested_ci_config_change_field_order_and_default() {
+        let change = CiConfigChange {
+            known_ci_files: vec!["a.yml".into()],
+            unknown_ci_files: vec!["b.yml".into()],
+            pre_commit_files: vec!["c.yml".into()],
+            generated_ci_files: vec!["d.yml".into()],
+            source_changed: true,
+            deploy_changed: true,
+        };
+        let json = serde_json::to_string_pretty(&change).unwrap();
+        assert_field_order(
+            &json,
+            2,
+            &[
+                "knownCiFiles",
+                "unknownCiFiles",
+                "preCommitFiles",
+                "generatedCiFiles",
+                "sourceChanged",
+                "deployChanged",
+            ],
+        );
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_exact_keys(
+            &v,
+            &[
+                "knownCiFiles",
+                "unknownCiFiles",
+                "preCommitFiles",
+                "generatedCiFiles",
+                "sourceChanged",
+                "deployChanged",
+            ],
+        );
 
-        true
+        // Default fallback
+        let minimal = r#"{"sourceChanged":true}"#;
+        let parsed: CiConfigChange = serde_json::from_str(minimal).unwrap();
+        assert!(parsed.source_changed);
+        assert!(!parsed.deploy_changed);
+        assert!(parsed.known_ci_files.is_empty());
+        assert!(parsed.unknown_ci_files.is_empty());
+        assert!(parsed.pre_commit_files.is_empty());
+        assert!(parsed.generated_ci_files.is_empty());
+    }
+
+    #[test]
+    fn test_nested_hotspot_field_order_and_default() {
+        let h = Hotspot {
+            path: PathBuf::from("src/main.rs"),
+            score: 0.75,
+            display_score: 0.75,
+            complexity: 5,
+            frequency: 1.0,
+            centrality: Some(3),
+        };
+        let json = serde_json::to_string_pretty(&h).unwrap();
+        assert_field_order(
+            &json,
+            2,
+            &[
+                "path",
+                "score",
+                "displayScore",
+                "complexity",
+                "frequency",
+                "centrality",
+            ],
+        );
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_exact_keys(
+            &v,
+            &[
+                "path",
+                "score",
+                "displayScore",
+                "complexity",
+                "frequency",
+                "centrality",
+            ],
+        );
+
+        // Omission when centrality is None
+        let h2 = Hotspot {
+            path: PathBuf::from("src/main.rs"),
+            score: 0.75,
+            display_score: 0.75,
+            complexity: 5,
+            frequency: 1.0,
+            centrality: None,
+        };
+        let json2 = serde_json::to_string(&h2).unwrap();
+        let v2: serde_json::Value = serde_json::from_str(&json2).unwrap();
+        assert_exact_keys(
+            &v2,
+            &["path", "score", "displayScore", "complexity", "frequency"],
+        );
+
+        // Default fallback for display_score and centrality
+        let minimal = r#"{"path":"src/main.rs","score":0.75,"complexity":5,"frequency":1.0}"#;
+        let parsed: Hotspot = serde_json::from_str(minimal).unwrap();
+        assert_eq!(parsed.display_score, 0.0);
+        assert_eq!(parsed.centrality, None);
+
+        // Custom deserializer: null score defaults to 0.0
+        let null_score = r#"{"path":"src/main.rs","score":null,"complexity":5,"frequency":1.0}"#;
+        let parsed2: Hotspot = serde_json::from_str(null_score).unwrap();
+        assert_eq!(parsed2.score, 0.0);
+
+        // Custom deserializer: integer score accepted
+        let int_score = r#"{"path":"src/main.rs","score":5,"complexity":5,"frequency":1.0}"#;
+        let parsed3: Hotspot = serde_json::from_str(int_score).unwrap();
+        assert_eq!(parsed3.score, 5.0);
+    }
+
+    #[test]
+    fn test_nested_relevant_decision_field_order_and_omission() {
+        let rd = RelevantDecision {
+            file_path: PathBuf::from("a.rs"),
+            heading: Some("h".into()),
+            excerpt: "e".into(),
+            similarity: 0.5,
+            rerank_score: Some(0.2),
+            staleness_days: Some(1),
+            staleness_tier: Some(StalenessTier::Warning),
+        };
+        let json = serde_json::to_string_pretty(&rd).unwrap();
+        assert_field_order(
+            &json,
+            2,
+            &[
+                "filePath",
+                "heading",
+                "excerpt",
+                "similarity",
+                "rerankScore",
+                "stalenessDays",
+                "stalenessTier",
+            ],
+        );
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_exact_keys(
+            &v,
+            &[
+                "filePath",
+                "heading",
+                "excerpt",
+                "similarity",
+                "rerankScore",
+                "stalenessDays",
+                "stalenessTier",
+            ],
+        );
+
+        // Omission when optional fields are None
+        let rd2 = RelevantDecision {
+            file_path: PathBuf::from("a.rs"),
+            heading: None,
+            excerpt: "e".into(),
+            similarity: 0.5,
+            rerank_score: None,
+            staleness_days: None,
+            staleness_tier: None,
+        };
+        let json2 = serde_json::to_string(&rd2).unwrap();
+        let v2: serde_json::Value = serde_json::from_str(&json2).unwrap();
+        assert_exact_keys(&v2, &["filePath", "heading", "excerpt", "similarity"]);
+    }
+
+    #[test]
+    fn test_nested_deploy_manifest_change_field_order_and_default() {
+        let dmc = DeployManifestChange {
+            file: PathBuf::from("Dockerfile"),
+            manifest_type: ManifestType::Dockerfile,
+            risk_tier: 2,
+            coupled_files: vec!["a.rs".into()],
+            high_blast_resources: vec!["cpu".into()],
+            service_name: Some("svc".into()),
+            owner: Some("team".into()),
+        };
+        let json = serde_json::to_string_pretty(&dmc).unwrap();
+        assert_field_order(
+            &json,
+            2,
+            &[
+                "file",
+                "manifestType",
+                "riskTier",
+                "coupledFiles",
+                "highBlastResources",
+                "serviceName",
+                "owner",
+            ],
+        );
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_exact_keys(
+            &v,
+            &[
+                "file",
+                "manifestType",
+                "riskTier",
+                "coupledFiles",
+                "highBlastResources",
+                "serviceName",
+                "owner",
+            ],
+        );
+
+        // Omission when service_name/owner are None
+        let dmc2 = DeployManifestChange {
+            file: PathBuf::from("Dockerfile"),
+            manifest_type: ManifestType::Dockerfile,
+            risk_tier: 2,
+            coupled_files: vec![],
+            high_blast_resources: vec![],
+            service_name: None,
+            owner: None,
+        };
+        let json2 = serde_json::to_string(&dmc2).unwrap();
+        let v2: serde_json::Value = serde_json::from_str(&json2).unwrap();
+        assert_exact_keys(
+            &v2,
+            &[
+                "file",
+                "manifestType",
+                "riskTier",
+                "coupledFiles",
+                "highBlastResources",
+            ],
+        );
+
+        // Default fallback for service_name and owner
+        let minimal = r#"{"file":"Dockerfile","manifestType":"Dockerfile","riskTier":2,"coupledFiles":[],"highBlastResources":[]}"#;
+        let parsed: DeployManifestChange = serde_json::from_str(minimal).unwrap();
+        assert_eq!(parsed.service_name, None);
+        assert_eq!(parsed.owner, None);
+    }
+
+    #[test]
+    fn test_nested_changed_file_default_fallback() {
+        let minimal = r#"{"path":"src/main.rs","status":"Modified","isStaged":true}"#;
+        let parsed: ChangedFile = serde_json::from_str(minimal).unwrap();
+        assert_eq!(parsed.path, PathBuf::from("src/main.rs"));
+        assert_eq!(parsed.status, "Modified");
+        assert!(parsed.is_staged);
+        assert_eq!(parsed.old_path, None);
+        assert_eq!(parsed.runtime_usage, None);
+        assert_eq!(parsed.analysis_status, FileAnalysisStatus::default());
+        assert!(parsed.analysis_warnings.is_empty());
+        assert!(parsed.api_routes.is_empty());
+        assert!(parsed.data_models.is_empty());
+        assert!(parsed.ci_gates.is_empty());
+
+        // Omission test
+        let cf = ChangedFile {
+            path: PathBuf::from("a.rs"),
+            status: "Added".into(),
+            old_path: None,
+            is_staged: true,
+            symbols: None,
+            imports: None,
+            runtime_usage: None,
+            analysis_status: FileAnalysisStatus::default(),
+            analysis_warnings: vec![],
+            api_routes: vec![],
+            data_models: vec![],
+            ci_gates: vec![],
+        };
+        let json = serde_json::to_string(&cf).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_exact_keys(
+            &v,
+            &[
+                "path",
+                "status",
+                "isStaged",
+                "symbols",
+                "imports",
+                "analysisStatus",
+                "analysisWarnings",
+                "apiRoutes",
+                "dataModels",
+                "ciGates",
+            ],
+        );
+    }
+
+    #[test]
+    fn test_nested_service_default_fallback() {
+        let minimal = r#"{"name":"svc","directory":"src/svc","routes":[],"data_models":[]}"#;
+        let parsed: Service = serde_json::from_str(minimal).unwrap();
+        assert_eq!(parsed.name, "svc");
+        assert_eq!(parsed.directory, PathBuf::from("src/svc"));
+        assert!(parsed.routes.is_empty());
+        assert!(parsed.data_models.is_empty());
+        assert!(parsed.owners.is_empty());
+        assert_eq!(parsed.runtime_name, None);
+        assert!(parsed.queues.is_empty());
+        assert!(parsed.topics.is_empty());
+        assert!(parsed.rpc_endpoints.is_empty());
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contracts::AffectedContract;
+    use crate::index::symbols::Symbol;
+    use std::path::PathBuf;
 
     #[test]
     fn test_packet_serialization() {
@@ -1729,21 +2165,6 @@ mod tests {
     }
 
     #[test]
-    fn test_data_flow_match_serialization_roundtrip() {
-        let original = DataFlowMatch {
-            chain_label: "A -> B -> C".to_string(),
-            changed_nodes: vec!["A".to_string(), "C".to_string()],
-            total_nodes: 3,
-            change_pct: 0.67,
-            risk: RiskLevel::High,
-        };
-
-        let json = serde_json::to_string(&original).unwrap();
-        let deserialized: DataFlowMatch = serde_json::from_str(&json).unwrap();
-        assert_eq!(original, deserialized);
-    }
-
-    #[test]
     fn test_finalize_sorts_data_flow_matches() {
         let mut packet = ImpactPacket {
             data_flow_matches: vec![
@@ -1809,22 +2230,6 @@ mod tests {
         let truncated = packet.truncate_for_context(100);
         assert!(truncated);
         assert!(packet.data_flow_matches.is_empty());
-    }
-
-    #[test]
-    fn test_deploy_manifest_change_serialization_roundtrip() {
-        let original = DeployManifestChange {
-            file: PathBuf::from("Dockerfile"),
-            manifest_type: ManifestType::Dockerfile,
-            risk_tier: 2,
-            coupled_files: vec!["src/".to_string()],
-            high_blast_resources: vec![],
-            service_name: None,
-            owner: None,
-        };
-        let json = serde_json::to_string(&original).unwrap();
-        let parsed: DeployManifestChange = serde_json::from_str(&json).unwrap();
-        assert_eq!(original, parsed);
     }
 
     #[test]
@@ -2060,5 +2465,239 @@ mod tests {
         let truncated = packet.truncate_for_context(100);
         assert!(truncated);
         assert!(packet.dead_code_findings.is_empty());
+    }
+}
+
+/// Compatibility smoke-test: verify the public facade re-exports every domain type.
+#[cfg(test)]
+mod facade_compat_tests {
+    use crate::impact::packet::*;
+
+    #[test]
+    fn test_public_facade_imports_work() {
+        // Core packet metadata
+        let _ = ImpactPacket::default();
+
+        // Changed file domain
+        let _ = ChangedFile::default();
+        let _ = AnalysisStatus::Ok;
+        let _ = FileAnalysisStatus::default();
+
+        // Coverage domain
+        let _ = CoverageDelta {
+            file_path: "a.rs".to_string(),
+            pattern_kind: "log".to_string(),
+            previous_count: 0,
+            current_count: 1,
+            message: "m".to_string(),
+        };
+        let _ = CoveringTest {
+            test_file: "t.rs".to_string(),
+            test_symbol: "test".to_string(),
+            confidence: 0.8,
+            mapping_kind: "direct".to_string(),
+        };
+        let _ = TestCoverage {
+            changed_symbol: "s".to_string(),
+            changed_file: "f.rs".to_string(),
+            covering_tests: vec![],
+        };
+        let _ = CallChainNode {
+            symbol: "s".to_string(),
+            file_path: std::path::PathBuf::from("f.rs"),
+            is_data_model: false,
+            is_external: false,
+        };
+        let _ = CallChain {
+            nodes: vec![],
+            has_cycle: false,
+        };
+        let _ = RuntimeUsageDelta {
+            file_path: "f.rs".to_string(),
+            env_vars_previous_count: 0,
+            env_vars_current_count: 1,
+            config_keys_previous_count: 0,
+            config_keys_current_count: 1,
+            env_vars_previous: vec![],
+            env_vars_current: vec!["VAR".to_string()],
+        };
+        let _ = TraceConfigType::OpenTelemetryCollector;
+        let _ = TraceConfigChange {
+            file: std::path::PathBuf::from("otel.yml"),
+            config_type: TraceConfigType::JaegerAgent,
+            risk_weight: 1,
+            is_deleted: false,
+        };
+        let _ = TraceEnvVarChange {
+            var_name: "TRACE".to_string(),
+            pattern: "p".to_string(),
+            risk_weight: 1,
+        };
+        let _ = SdkDependencyDelta {
+            added: vec![SdkDependency {
+                sdk_name: "sdk".to_string(),
+                file_path: std::path::PathBuf::from("f.rs"),
+                import_statement: "use sdk;".to_string(),
+            }],
+            removed: vec![],
+            modified: vec![],
+        };
+        let _ = ManifestType::Dockerfile;
+        let _ = DataFlowMatch {
+            chain_label: "l".to_string(),
+            changed_nodes: vec![],
+            total_nodes: 2,
+            change_pct: 0.5,
+            risk: RiskLevel::Medium,
+        };
+        let _ = DeployManifestChange {
+            file: std::path::PathBuf::from("Dockerfile"),
+            manifest_type: ManifestType::Dockerfile,
+            risk_tier: 1,
+            coupled_files: vec![],
+            high_blast_resources: vec![],
+            service_name: None,
+            owner: None,
+        };
+
+        // Intelligence domain
+        let _ = RelevantDecision {
+            file_path: std::path::PathBuf::from("d.md"),
+            heading: None,
+            excerpt: "e".to_string(),
+            similarity: 0.5,
+            rerank_score: None,
+            staleness_days: None,
+            staleness_tier: None,
+        };
+        let _ = Hotspot {
+            path: std::path::PathBuf::from("h.rs"),
+            score: 0.5,
+            display_score: 0.5,
+            complexity: 1,
+            frequency: 1.0,
+            centrality: None,
+        };
+        let _ = StalenessTier::Warning;
+        let _ = AiInsight {
+            memory_id: "mid".to_string(),
+            relevance: 0.5,
+            content: "c".to_string(),
+        };
+        let _ = KGImpact {
+            source_node: "s".to_string(),
+            source_category: "cat".to_string(),
+            impacted_node: "i".to_string(),
+            impacted_category: "cat".to_string(),
+            relation: "r".to_string(),
+            path_length: 1,
+            reason: "r".to_string(),
+        };
+        let _ = ConfidenceFactor::NoTestCoverage;
+        let _ = ConfidenceFactor::GitInactive {
+            days_since_last_commit: 30,
+        };
+        let _ = DeadCodeFinding {
+            symbol_name: "unused".to_string(),
+            file_path: std::path::PathBuf::from("u.rs"),
+            confidence: 0.8,
+            factors: vec![ConfidenceFactor::NoTestCoverage],
+            recommendation: "del".to_string(),
+        };
+
+        // Risk domain
+        let _ = RiskLevel::Low;
+        let _ = TemporalCoupling {
+            file_a: std::path::PathBuf::from("a.rs"),
+            file_b: std::path::PathBuf::from("b.rs"),
+            score: 0.5,
+        };
+        let _ = StructuralCoupling {
+            caller_symbol_name: "x".to_string(),
+            callee_symbol_name: "y".to_string(),
+            caller_file_path: std::path::PathBuf::from("x.rs"),
+        };
+        let _ = CentralityRisk {
+            symbol_name: "main".to_string(),
+            entrypoints_reachable: 1,
+        };
+        let _ = RiskImpact {
+            weight: 1,
+            reasons: vec!["r".to_string()],
+        };
+
+        // Surfaces domain
+        let _ = DataModel {
+            model_name: "M".to_string(),
+            model_kind: "struct".to_string(),
+            confidence: 0.9,
+            evidence: None,
+        };
+        let _ = ApiRoute {
+            method: "GET".to_string(),
+            path_pattern: "/api".to_string(),
+            handler_symbol_name: None,
+            framework: "axum".to_string(),
+            route_source: "file".to_string(),
+            mount_prefix: None,
+            is_dynamic: false,
+            route_confidence: 1.0,
+            evidence: "e".to_string(),
+            auth_requirements: None,
+            schema_refs: None,
+            owning_service: None,
+            consumers: None,
+        };
+        let _ = ServiceMapDelta {
+            services: vec![],
+            affected_services: vec![],
+            cross_service_edges: vec![],
+            total_services: 0,
+        };
+        let _ = Service {
+            name: "s".to_string(),
+            directory: std::path::PathBuf::from("svc"),
+            routes: vec![],
+            data_models: vec![],
+            owners: vec![],
+            runtime_name: None,
+            queues: vec![],
+            topics: vec![],
+            rpc_endpoints: vec![],
+        };
+
+        // Verification domain
+        let _ = VerificationResult {
+            name: "fmt".to_string(),
+            command: "cargo fmt".to_string(),
+            exit_code: 0,
+            stdout: "".to_string(),
+            stderr: "".to_string(),
+            duration_ms: 0,
+            truncated: false,
+        };
+        let _ = CiConfigChange {
+            known_ci_files: vec![],
+            unknown_ci_files: vec![],
+            pre_commit_files: vec![],
+            generated_ci_files: vec![],
+            source_changed: false,
+            deploy_changed: false,
+        };
+        let _ = CIPrediction {
+            job_name: "ci".to_string(),
+            platform: "gh".to_string(),
+            failure_probability: 0.0,
+            explanation: None,
+        };
+        let _ = CIGate {
+            platform: "github".to_string(),
+            job_name: "ci".to_string(),
+            trigger: None,
+            workflow_name: None,
+            environment: None,
+            artifacts: vec![],
+            release_gates: vec![],
+        };
     }
 }

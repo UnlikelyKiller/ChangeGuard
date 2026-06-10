@@ -1,0 +1,11 @@
+error[E0603]: module `serialization` is private
+ --> tests/compile_fail/private_helper_leak.rs:1:34
+  |
+1 | use changeguard::impact::packet::serialization::deserialize_score;
+  |                                  ^^^^^^^^^^^^^ private module
+  |
+note: the module `serialization` is defined here
+ --> src/impact/packet.rs
+  |
+  | mod serialization;
+  | ^^^^^^^^^^^^^^^^^

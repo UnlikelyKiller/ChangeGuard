@@ -4,8 +4,8 @@ use crate::state::storage_cozo::CozoStorage;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
 use std::fs;
+use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
 /// When set, the full prompt and raw LLM response are dumped to this directory
@@ -199,9 +199,13 @@ impl SemanticExtractor {
             let start = std::time::Instant::now();
             info!(
                 "Semantic extraction [{}/{}]: processing {} ({} bytes)...",
-                i + 1, n, file_label, byte_len,
+                i + 1,
+                n,
+                file_label,
+                byte_len,
             );
-            let result = self.extract_from_file(path, content, local_model_config, gemini_config)?;
+            let result =
+                self.extract_from_file(path, content, local_model_config, gemini_config)?;
             let elapsed = start.elapsed();
             total_input_tokens += result.input_tokens;
             total_output_tokens += result.output_tokens;
@@ -211,7 +215,12 @@ impl SemanticExtractor {
             all_edges.extend(result.edges);
             info!(
                 "Semantic extraction [{}/{}]: completed {} in {:.1}s ({} nodes, {} edges from this file)",
-                i + 1, n, file_label, elapsed.as_secs_f64(), node_count, edge_count,
+                i + 1,
+                n,
+                file_label,
+                elapsed.as_secs_f64(),
+                node_count,
+                edge_count,
             );
         }
 
@@ -321,7 +330,11 @@ impl SemanticExtractor {
             // Debug dump: write the full prompt before sending
             if let Some(ref dir) = debug_dir {
                 let stem = path.file_stem().unwrap_or_default();
-                let dump_path = PathBuf::from(dir).join(format!("{}_attempt{}_prompt.txt", stem.to_string_lossy(), attempt));
+                let dump_path = PathBuf::from(dir).join(format!(
+                    "{}_attempt{}_prompt.txt",
+                    stem.to_string_lossy(),
+                    attempt
+                ));
                 let _ = fs::write(&dump_path, prompt.as_str());
                 info!(target: "semantic_debug", "Wrote prompt to {}", dump_path.display());
             }
@@ -341,7 +354,12 @@ impl SemanticExtractor {
                 );
                 gemini_complete(gemini_config, &messages, &options)
             } else {
-                complete(local_model_config, &messages, &options, Some(effective_timeout))
+                complete(
+                    local_model_config,
+                    &messages,
+                    &options,
+                    Some(effective_timeout),
+                )
             };
 
             match llm_result {
@@ -349,7 +367,11 @@ impl SemanticExtractor {
                     // Debug dump: write the raw LLM response
                     if let Some(ref dir) = debug_dir {
                         let stem = path.file_stem().unwrap_or_default();
-                        let dump_path = PathBuf::from(dir).join(format!("{}_attempt{}_response.txt", stem.to_string_lossy(), attempt));
+                        let dump_path = PathBuf::from(dir).join(format!(
+                            "{}_attempt{}_response.txt",
+                            stem.to_string_lossy(),
+                            attempt
+                        ));
                         let _ = fs::write(&dump_path, &response);
                         info!(target: "semantic_debug", "Wrote response to {}", dump_path.display());
                     }
@@ -360,9 +382,15 @@ impl SemanticExtractor {
                     // markdown-wrapped valid JSON is not falsely flagged.
                     let cleaned = response.trim();
                     let cleaned = if cleaned.starts_with("```json") {
-                        cleaned.trim_start_matches("```json").trim_end_matches("```").trim()
+                        cleaned
+                            .trim_start_matches("```json")
+                            .trim_end_matches("```")
+                            .trim()
                     } else if cleaned.starts_with("```") {
-                        cleaned.trim_start_matches("```").trim_end_matches("```").trim()
+                        cleaned
+                            .trim_start_matches("```")
+                            .trim_end_matches("```")
+                            .trim()
                     } else {
                         cleaned
                     };
