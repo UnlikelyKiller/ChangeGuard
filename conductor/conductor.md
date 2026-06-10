@@ -1660,7 +1660,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Definition of done: `config view --json` never emits secret values; `ask --backend local` succeeds with valid Ollama Cloud config and reports clear actionable errors for invalid credentials; `verify --health` is bounded and informative; dry-run, JSON, bridge, empty-state, and federation UX issues have tests; official Ollama API behavior is captured in regression coverage; full verification plus reinstall passes.
 
 
-## Milestone GF: God-File Decomposition and Boundary Hardening (Wave 1 GF1–GF8 Completed; Wave 2 GF9–GF14 Planning)
+## Milestone GF: God-File Decomposition and Boundary Hardening (Completed)
 
 Execution guidance (added 2026-06-09 review): run these tracks **serially**, one branch at a time — every track moves large files, so parallel tracks guarantee merge churn. Hard ordering: GF3 → GF6 → GF7. GF1, GF2, GF4, GF5, GF8 are independent of each other, but GF1 and GF8 both touch `DeadCodeFinding`/`ConfidenceFactor` in `src/impact/packet.rs`, so whichever runs second must rebase on the first. Every track is a `REFACTOR`-category ledger transaction: `ledger start` in Phase 0, `ledger commit` at finalization.
 
@@ -1728,7 +1728,7 @@ Execution guidance (added 2026-06-09 review): run these tracks **serially**, one
     *   Definition of done: Dead-code confidence scores remain deterministic; existing tests remain green and gain focused provider coverage; no new false-positive deletion recommendations are introduced; full verification plus reinstall passes.
 
 *   **Track GF9: Python AST Parser Extraction**
-    *   Status: Planning
+    *   Status: Completed
     *   Dependencies: none (GF9 establishes the pattern GF10 follows)
     *   Spec: `conductor/trackGF9/spec.md`
     *   Plan: `conductor/trackGF9/plan.md`
@@ -1736,7 +1736,7 @@ Execution guidance (added 2026-06-09 review): run these tracks **serially**, one
     *   Definition of done: `python.rs` is a ≤30-line facade; all extraction concerns in dedicated modules; all public import paths unchanged; full verification plus reinstall passes.
 
 *   **Track GF10: TypeScript AST Parser Extraction**
-    *   Status: Planning
+    *   Status: Completed
     *   Dependencies: GF9 (pattern established there first)
     *   Spec: `conductor/trackGF10/spec.md`
     *   Plan: `conductor/trackGF10/plan.md`
@@ -1744,7 +1744,7 @@ Execution guidance (added 2026-06-09 review): run these tracks **serially**, one
     *   Definition of done: `typescript.rs` is a ≤30-line facade; all extraction concerns in dedicated modules; all public import paths unchanged; full verification plus reinstall passes.
 
 *   **Track GF11: CI Gates Platform Split**
-    *   Status: Planning
+    *   Status: Completed
     *   Dependencies: none
     *   Spec: `conductor/trackGF11/spec.md`
     *   Plan: `conductor/trackGF11/plan.md`
@@ -1752,7 +1752,7 @@ Execution guidance (added 2026-06-09 review): run these tracks **serially**, one
     *   Definition of done: `ci_gates.rs` contains no platform-specific parsing; each CI platform has its own module with parser logic and a golden test; all public symbols unchanged; full verification plus reinstall passes.
 
 *   **Track GF12: Local Model Client Split**
-    *   Status: Planning
+    *   Status: Completed
     *   Dependencies: none
     *   Spec: `conductor/trackGF12/spec.md`
     *   Plan: `conductor/trackGF12/plan.md`
@@ -1760,7 +1760,7 @@ Execution guidance (added 2026-06-09 review): run these tracks **serially**, one
     *   Definition of done: `client.rs` holds only public API, dispatch, and re-exports; each endpoint protocol in its own child module; all six public symbols importable at existing paths; full verification plus reinstall passes.
 
 *   **Track GF13: Entrypoint Language Detector Split**
-    *   Status: Planning
+    *   Status: Completed
     *   Dependencies: GF9, GF10 (structural symmetry — implement those first)
     *   Spec: `conductor/trackGF13/spec.md`
     *   Plan: `conductor/trackGF13/plan.md`
@@ -1768,7 +1768,7 @@ Execution guidance (added 2026-06-09 review): run these tracks **serially**, one
     *   Definition of done: Each language detector in its own module with co-located tests; `entrypoint.rs` holds shared types and re-exports only; all existing import paths unchanged; full verification plus reinstall passes.
 
 *   **Track GF14: Ledger Command Group Split**
-    *   Status: Planning
+    *   Status: Completed
     *   Dependencies: none
     *   Spec: `conductor/trackGF14/spec.md`
     *   Plan: `conductor/trackGF14/plan.md`
