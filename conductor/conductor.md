@@ -1660,7 +1660,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Definition of done: `config view --json` never emits secret values; `ask --backend local` succeeds with valid Ollama Cloud config and reports clear actionable errors for invalid credentials; `verify --health` is bounded and informative; dry-run, JSON, bridge, empty-state, and federation UX issues have tests; official Ollama API behavior is captured in regression coverage; full verification plus reinstall passes.
 
 
-## Milestone GF: God-File Decomposition and Boundary Hardening (Completed)
+## Milestone GF: God-File Decomposition and Boundary Hardening (Wave 1 GF1–GF8 Completed; Wave 2 GF9–GF14 Planning)
 
 Execution guidance (added 2026-06-09 review): run these tracks **serially**, one branch at a time — every track moves large files, so parallel tracks guarantee merge churn. Hard ordering: GF3 → GF6 → GF7. GF1, GF2, GF4, GF5, GF8 are independent of each other, but GF1 and GF8 both touch `DeadCodeFinding`/`ConfidenceFactor` in `src/impact/packet.rs`, so whichever runs second must rebase on the first. Every track is a `REFACTOR`-category ledger transaction: `ledger start` in Phase 0, `ledger commit` at finalization.
 
@@ -1726,6 +1726,54 @@ Execution guidance (added 2026-06-09 review): run these tracks **serially**, one
     *   Plan: `conductor/trackGF8/plan.md`
     *   Goal: Continue the RE2 provider-pattern direction in `src/impact/analysis/dead_code.rs` by splitting evidence collection, confidence scoring, filtering, and report rendering into focused modules.
     *   Definition of done: Dead-code confidence scores remain deterministic; existing tests remain green and gain focused provider coverage; no new false-positive deletion recommendations are introduced; full verification plus reinstall passes.
+
+*   **Track GF9: Python AST Parser Extraction**
+    *   Status: Planning
+    *   Dependencies: none (GF9 establishes the pattern GF10 follows)
+    *   Spec: `conductor/trackGF9/spec.md`
+    *   Plan: `conductor/trackGF9/plan.md`
+    *   Goal: Split `src/index/languages/python.rs` (1,471 lines, ~1,007 production) into focused extraction modules by concern — `symbols.rs`, `routes.rs`, `calls.rs`, `models.rs`, `observability.rs`, `common.rs` — in a `python/` directory with `python.rs` retained as the facade (GF8 `dead_code.rs` pattern). Mirrors the RE5 Rust decomposition module names.
+    *   Definition of done: `python.rs` is a ≤30-line facade; all extraction concerns in dedicated modules; all public import paths unchanged; full verification plus reinstall passes.
+
+*   **Track GF10: TypeScript AST Parser Extraction**
+    *   Status: Planning
+    *   Dependencies: GF9 (pattern established there first)
+    *   Spec: `conductor/trackGF10/spec.md`
+    *   Plan: `conductor/trackGF10/plan.md`
+    *   Goal: Split `src/index/languages/typescript.rs` (1,362 lines, ~945 production) into the same extraction-concern module shape as GF9 — `symbols.rs`, `routes.rs`, `calls.rs`, `models.rs`, `observability.rs`, `common.rs` — in a `typescript/` directory with `typescript.rs` retained as the facade.
+    *   Definition of done: `typescript.rs` is a ≤30-line facade; all extraction concerns in dedicated modules; all public import paths unchanged; full verification plus reinstall passes.
+
+*   **Track GF11: CI Gates Platform Split**
+    *   Status: Planning
+    *   Dependencies: none
+    *   Spec: `conductor/trackGF11/spec.md`
+    *   Plan: `conductor/trackGF11/plan.md`
+    *   Goal: Split `src/index/ci_gates.rs` (1,045 lines, ~984 production) into per-platform parser modules — `github_actions.rs`, `gitlab_ci.rs`, `circleci.rs`, `makefile.rs` — in a `ci_gates/` directory with `ci_gates.rs` retained as the facade holding shared infrastructure (`CIGateExtractor`, `ParsedCIGate`, `CIGateStats`, path helpers) and dispatch. Per-platform characterization golden tests are written BEFORE any move (GF1 precedent).
+    *   Definition of done: `ci_gates.rs` contains no platform-specific parsing; each CI platform has its own module with parser logic and a golden test; all public symbols unchanged; full verification plus reinstall passes.
+
+*   **Track GF12: Local Model Client Split**
+    *   Status: Planning
+    *   Dependencies: none
+    *   Spec: `conductor/trackGF12/spec.md`
+    *   Plan: `conductor/trackGF12/plan.md`
+    *   Goal: Split `src/local_model/client.rs` (1,170 lines, ~583 production) by endpoint provider into a `client/` child directory (GF4 `db.rs` pattern): `types.rs`, `ollama.rs`, `openai.rs`, `gemini.rs`, `cloud.rs`, `util.rs`. `client.rs` remains the facade carrying the verified public API: `complete`, `gemini_complete`, `ping_completions`, `has_ollama_cloud_fallback`, `ChatMessage`, `CompletionOptions`.
+    *   Definition of done: `client.rs` holds only public API, dispatch, and re-exports; each endpoint protocol in its own child module; all six public symbols importable at existing paths; full verification plus reinstall passes.
+
+*   **Track GF13: Entrypoint Language Detector Split**
+    *   Status: Planning
+    *   Dependencies: GF9, GF10 (structural symmetry — implement those first)
+    *   Spec: `conductor/trackGF13/spec.md`
+    *   Plan: `conductor/trackGF13/plan.md`
+    *   Goal: Split `src/index/entrypoint.rs` (1,045 lines, ~798 production) into per-language detector modules — `rust.rs`, `typescript.rs`, `python.rs` — in an `entrypoint/` directory with `entrypoint.rs` retained as the facade holding shared types (`EntrypointKind`, `EntrypointStats`, `SymbolClassification`) and re-exports. Completes language-layer symmetry with RE5 and GF9/GF10.
+    *   Definition of done: Each language detector in its own module with co-located tests; `entrypoint.rs` holds shared types and re-exports only; all existing import paths unchanged; full verification plus reinstall passes.
+
+*   **Track GF14: Ledger Command Group Split**
+    *   Status: Planning
+    *   Dependencies: none
+    *   Spec: `conductor/trackGF14/spec.md`
+    *   Plan: `conductor/trackGF14/plan.md`
+    *   Goal: Split `src/commands/ledger.rs` (1,006 lines, zero tests) into command-group modules — `lifecycle.rs` (start/commit/rollback/atomic/resume), `maintenance.rs` (gc/hook_repair/reconcile/adopt), `registration.rs` (register_rule/register_validator), `reporting.rs` (status/export_provenance) — in a `ledger/` directory with `ledger.rs` retained as the facade. Pure helpers gain unit tests; handlers rely on the existing integration suite (they are cwd-dependent and not unit-testable).
+    *   Definition of done: `ledger.rs` is a pure facade; 13 handlers split across 4 groups; pure-helper unit tests added; all import paths unchanged; full verification plus reinstall passes.
 
 
 ## Workflow
