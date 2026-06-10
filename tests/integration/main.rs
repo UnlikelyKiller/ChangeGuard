@@ -18,6 +18,7 @@ mod cli_dead_code;
 mod cli_doctor;
 mod cli_federate;
 mod cli_impact;
+mod cli_index;
 mod cli_init;
 mod cli_reset;
 mod cli_scan;

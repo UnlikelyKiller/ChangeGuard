@@ -44,6 +44,57 @@ fn get_layout() -> Result<Layout> {
     Ok(Layout::new(root))
 }
 
+// ── Shared helpers for semantic modes ─────────────────────────────────────────
+
+/// Resolve parse and embed concurrency from CLI override, semantic config,
+/// and local-model defaults. Used by both semantic index and dry-run.
+fn resolve_semantic_concurrency(
+    concurrency_override: Option<usize>,
+    config: &crate::config::model::Config,
+) -> crate::semantic::concurrency::ResolvedConcurrency {
+    use crate::semantic::concurrency::{ResolveOptions, resolve_split_semantic_concurrency};
+    let available_parallelism = std::thread::available_parallelism()
+        .ok()
+        .map(|n| std::num::NonZeroUsize::new(n.get()).expect("available_parallelism is non-zero"));
+    let resolve_opts = ResolveOptions {
+        available_parallelism,
+        ..Default::default()
+    };
+    resolve_split_semantic_concurrency(
+        concurrency_override,
+        &config.semantic,
+        config.local_model.concurrency,
+        resolve_opts,
+    )
+}
+
+/// Walk the repository for candidate semantic-index files.
+fn walk_repo_for_semantic_files(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+    fn walk_dir(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if matches!(name, ".git" | ".changeguard" | "target" | "node_modules") {
+                    continue;
+                }
+                walk_dir(&path, out);
+            } else {
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                if matches!(ext, "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go") {
+                    out.push(path);
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk_dir(root, &mut out);
+    out
+}
+
 #[derive(Default)]
 pub struct IndexArgs {
     pub incremental: bool,
@@ -65,6 +116,23 @@ pub struct IndexArgs {
     pub fast: bool,
 }
 
+/// Mode-combination matrix for `changeguard index`.
+///
+/// Precedence (early-return order) is critical and must be preserved:
+/// 1. `--semantic-dry-run`  → preempts everything (returns immediately).
+/// 2. `--scip <PATH>`       → early-returns next.
+/// 3. `--semantic` (without `--analyze-graph`) → early-returns.
+///    `--semantic --analyze-graph` falls through to the main path,
+///    where semantic enrichment is applied inside graph analysis.
+/// 4. `--docs` (without `--analyze-graph`) → early-returns.
+///    `--docs --analyze-graph` runs docs indexing then continues into
+///    the main path so graph analysis also executes.
+/// 5. Main path:
+///    - `--check` → health report then return.
+///    - `--incremental` / default full → full indexing pipeline.
+///    - `--analyze-graph` inside main path → centrality + KG build.
+///    - `--contracts` inside main path → contract indexing.
+///    - `--export-docs` inside main path → doc export (only when not check).
 pub fn execute_index(args: IndexArgs) -> Result<()> {
     let layout = get_layout()?;
     let config = load_config(&layout).unwrap_or_else(|err| {
@@ -72,6 +140,7 @@ pub fn execute_index(args: IndexArgs) -> Result<()> {
         crate::config::model::Config::default()
     });
 
+    // ── Mode 1: semantic dry-run (highest precedence) ──────────────────────
     if let Some(dry_run_opt) = args.semantic_dry_run {
         return execute_semantic_dry_run(&layout, &config, args.concurrency, dry_run_opt);
     }
@@ -80,10 +149,12 @@ pub fn execute_index(args: IndexArgs) -> Result<()> {
     let storage = StorageManager::init(db_path.as_std_path())?;
     let repo_path = layout.root.clone();
 
+    // ── Mode 2: SCIP ingestion ─────────────────────────────────────────────
     if let Some(scip_path) = args.scip {
         return execute_scip_index(&layout, storage, scip_path);
     }
 
+    // ── Mode 3: standalone semantic indexing ─────────────────────────────
     if args.semantic && !args.analyze_graph {
         return execute_semantic_index(
             &layout,
@@ -94,6 +165,7 @@ pub fn execute_index(args: IndexArgs) -> Result<()> {
         );
     }
 
+    // ── Mode 4: docs (standalone or combined with graph) ───────────────────
     if args.docs {
         if !args.analyze_graph {
             return execute_docs_index(&layout, &storage);
@@ -109,53 +181,25 @@ pub fn execute_index(args: IndexArgs) -> Result<()> {
 
     let mut indexer = ProjectIndexer::new(storage, repo_path, config.clone());
 
+    // ── Mode 5: main indexing pipeline (check / incremental / full / graph / export) ─
+    execute_main_mode(&mut indexer, &args, &layout, &config, contracts_db_path)
+}
+
+/// Main indexing pipeline: check, incremental/full index, all extraction phases,
+/// contracts, search index rebuild, output formatting, and doc export.
+fn execute_main_mode(
+    indexer: &mut ProjectIndexer,
+    args: &IndexArgs,
+    layout: &Layout,
+    config: &crate::config::model::Config,
+    contracts_db_path: Option<Utf8PathBuf>,
+) -> Result<()> {
+    // ── Sub-mode: check ────────────────────────────────────────────────────
     if args.check {
-        let status = indexer.check_status()?;
-        let discovered = indexer.discover_files()?;
-        let is_missing = status.total_files == 0 && !discovered.is_empty();
-
-        if args.json {
-            let output = serde_json::to_string_pretty(&status).into_diagnostic()?;
-            println!("{}", output);
-        } else {
-            if is_missing {
-                eprintln!("Error: Index is missing or empty. Run 'changeguard index' to build it.");
-            } else if status.stale_files > 0 {
-                if args.strict {
-                    eprintln!(
-                        "Error: Index is stale ({} files) and --strict is enabled.",
-                        status.stale_files
-                    );
-                } else {
-                    println!(
-                        "Warning: Index is stale ({} files). Run 'changeguard index --incremental' to update.",
-                        status.stale_files
-                    );
-                }
-            } else {
-                println!("Index is up to date.");
-            }
-
-            println!("Index Status:");
-            println!("  Files indexed:   {}", status.total_files);
-            println!("  Symbols indexed: {}", status.total_symbols);
-            println!("  Stale files:     {}", status.stale_files);
-            if let Some(last) = &status.last_indexed_at {
-                println!("  Last indexed:    {}", last);
-            } else {
-                println!("  Last indexed:     never");
-            }
-        }
-
-        if is_missing {
-            std::process::exit(1);
-        }
-        if status.stale_files > 0 && args.strict {
-            std::process::exit(1);
-        }
-        return Ok(());
+        return execute_check_mode(indexer, args);
     }
 
+    // ── Sub-mode: incremental or full index ──────────────────────────────
     let stats = if args.incremental {
         indexer.incremental_index()?
     } else {
@@ -223,13 +267,12 @@ pub fn execute_index(args: IndexArgs) -> Result<()> {
 
     let contracts_summary: Option<crate::contracts::index::ContractsIndexSummary> =
         if let Some(ref db_path) = contracts_db_path {
-            Some(execute_contracts_index(&layout, db_path.as_std_path())?)
+            Some(execute_contracts_index(layout, db_path.as_std_path())?)
         } else {
             None
         };
 
     // Update Tantivy search index (full-text search)
-    // This ensures 'changeguard index' builds everything.
     let index_path = layout.search_index_dir();
     {
         let engine = crate::search::TantivySearchEngine::open_or_create(index_path.as_std_path())?;
@@ -242,266 +285,402 @@ pub fn execute_index(args: IndexArgs) -> Result<()> {
     let engine = crate::search::TantivySearchEngine::open_or_create(index_path.as_std_path())?;
     engine.verify_index_integrity(index_path.as_std_path())?;
 
+    // ── Output formatting ──────────────────────────────────────────────────
     if args.json {
-        let mut output = serde_json::to_value(&stats).into_diagnostic()?;
-        let doc_obj = serde_json::to_value(&doc_stats).into_diagnostic()?;
-        let topo_obj = serde_json::to_value(&topo_stats).into_diagnostic()?;
-        let ep_obj = serde_json::to_value(&ep_stats).into_diagnostic()?;
-        let service_obj = serde_json::to_value(&service_stats).into_diagnostic()?;
-        if let (Some(map), Some(doc)) = (output.as_object_mut(), doc_obj.as_object()) {
-            for (k, v) in doc {
-                map.insert(format!("doc_{}", k), v.clone());
-            }
-        }
-        if let (Some(map), Some(topo)) = (output.as_object_mut(), topo_obj.as_object()) {
-            for (k, v) in topo {
-                map.insert(format!("topo_{}", k), v.clone());
-            }
-        }
-        if let (Some(map), Some(ep)) = (output.as_object_mut(), ep_obj.as_object()) {
-            for (k, v) in ep {
-                map.insert(format!("ep_{}", k), v.clone());
-            }
-        }
-        if let (Some(map), Some(svc)) = (output.as_object_mut(), service_obj.as_object()) {
-            for (k, v) in svc {
-                map.insert(format!("service_{}", k), v.clone());
-            }
-        }
-        let cg_obj = serde_json::to_value(&cg_stats).into_diagnostic()?;
-        if let (Some(map), Some(cg)) = (output.as_object_mut(), cg_obj.as_object()) {
-            for (k, v) in cg {
-                map.insert(format!("cg_{}", k), v.clone());
-            }
-        }
-        let route_obj = serde_json::to_value(&route_stats).into_diagnostic()?;
-        if let (Some(map), Some(route)) = (output.as_object_mut(), route_obj.as_object()) {
-            for (k, v) in route {
-                map.insert(format!("route_{}", k), v.clone());
-            }
-        }
-        let dm_obj = serde_json::to_value(&dm_stats).into_diagnostic()?;
-        if let (Some(map), Some(dm)) = (output.as_object_mut(), dm_obj.as_object()) {
-            for (k, v) in dm {
-                map.insert(format!("dm_{}", k), v.clone());
-            }
-        }
-        let obs_obj = serde_json::to_value(&obs_stats).into_diagnostic()?;
-        if let (Some(map), Some(obs)) = (output.as_object_mut(), obs_obj.as_object()) {
-            for (k, v) in obs {
-                map.insert(format!("obs_{}", k), v.clone());
-            }
-        }
-        let tm_obj = serde_json::to_value(&tm_stats).into_diagnostic()?;
-        if let (Some(map), Some(tm)) = (output.as_object_mut(), tm_obj.as_object()) {
-            for (k, v) in tm {
-                map.insert(format!("tm_{}", k), v.clone());
-            }
-        }
-        let ci_obj = serde_json::to_value(&ci_stats).into_diagnostic()?;
-        if let (Some(map), Some(ci)) = (output.as_object_mut(), ci_obj.as_object()) {
-            for (k, v) in ci {
-                map.insert(format!("ci_{}", k), v.clone());
-            }
-        }
-        let env_obj = serde_json::to_value(&env_stats).into_diagnostic()?;
-        if let (Some(map), Some(env)) = (output.as_object_mut(), env_obj.as_object()) {
-            for (k, v) in env {
-                map.insert(format!("env_{}", k), v.clone());
-            }
-        }
-        if args.analyze_graph {
-            let cent_obj = serde_json::to_value(&cent_stats).into_diagnostic()?;
-            if let (Some(map), Some(cent)) = (output.as_object_mut(), cent_obj.as_object()) {
-                for (k, v) in cent {
-                    map.insert(format!("cent_{}", k), v.clone());
-                }
-            }
-        }
-        if let Some(ref cs) = contracts_summary {
-            let cs_obj = serde_json::to_value(cs).into_diagnostic()?;
-            if let (Some(map), Some(cs)) = (output.as_object_mut(), cs_obj.as_object()) {
-                for (k, v) in cs {
-                    map.insert(format!("contracts_{}", k), v.clone());
-                }
-            }
-        }
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&output).into_diagnostic()?
-        );
+        print_json_output(
+            &stats,
+            &doc_stats,
+            &topo_stats,
+            &ep_stats,
+            &service_stats,
+            &cg_stats,
+            &route_stats,
+            &dm_stats,
+            &obs_stats,
+            &tm_stats,
+            &ci_stats,
+            &env_stats,
+            &cent_stats,
+            &contracts_summary,
+            args.analyze_graph,
+        )?;
     } else {
-        println!("Indexing complete:");
-        println!("  Files indexed:   {}", stats.files_indexed);
-        println!("  Symbols indexed: {}", stats.symbols_indexed);
-        if stats.parse_failures > 0 {
-            println!("  Parse failures:  {}", stats.parse_failures);
-        }
-        if stats.skipped_binary > 0 {
-            println!("  Skipped binary:  {}", stats.skipped_binary);
-        }
-        if stats.skipped_unsupported > 0 {
-            println!("  Skipped unsupported: {}", stats.skipped_unsupported);
-        }
-        println!("  Duration:        {}ms", stats.duration_ms);
-        println!();
-        println!("Documentation:");
-        println!("  Docs indexed:    {}", doc_stats.docs_indexed);
-        if doc_stats.parse_failures > 0 {
-            println!("  Doc parse failures: {}", doc_stats.parse_failures);
-        }
-        if doc_stats.missing_readme {
-            println!("  README:          not found");
-        } else {
-            println!("  README:          found");
-        }
-        println!();
-        println!("Topology:");
-        println!(
-            "  Directories classified: {}",
-            topo_stats.directories_classified
+        print_human_output(
+            &stats,
+            &doc_stats,
+            &topo_stats,
+            &ep_stats,
+            &service_stats,
+            &cg_stats,
+            &route_stats,
+            &dm_stats,
+            &obs_stats,
+            &tm_stats,
+            &ci_stats,
+            &env_stats,
+            &cent_stats,
+            &contracts_summary,
+            args.analyze_graph,
         );
-        if topo_stats.unclassified > 0 {
-            println!("  Unclassified:    {}", topo_stats.unclassified);
-        }
-        let role_order = [
-            crate::index::topology::DirectoryRole::Source,
-            crate::index::topology::DirectoryRole::Test,
-            crate::index::topology::DirectoryRole::Config,
-            crate::index::topology::DirectoryRole::Infrastructure,
-            crate::index::topology::DirectoryRole::Documentation,
-            crate::index::topology::DirectoryRole::Generated,
-            crate::index::topology::DirectoryRole::Vendor,
-            crate::index::topology::DirectoryRole::BuildArtifact,
-        ];
-        for role in &role_order {
-            if let Some(count) = topo_stats.role_counts.get(role) {
-                println!("  {}: {}", role.as_str(), count);
-            }
-        }
-        println!();
-        println!("Entrypoints:");
-        println!("  Entrypoints:   {}", ep_stats.entrypoints);
-        println!("  Handlers:      {}", ep_stats.handlers);
-        println!("  Public APIs:   {}", ep_stats.public_apis);
-        println!("  Tests:         {}", ep_stats.tests);
-        println!("  Internal:     {}", ep_stats.internal);
-        println!();
-        println!("Call Graph:");
-        println!("  Edges:          {}", cg_stats.total_edges);
-        println!("  Resolved:       {}", cg_stats.resolved_edges);
-        println!("  Unresolved:     {}", cg_stats.unresolved_edges);
-        println!("  Ambiguous:      {}", cg_stats.ambiguous_edges);
-        println!("  Files processed: {}", cg_stats.files_processed);
-        println!();
-        println!("API Routes:");
-        println!("  Total routes:   {}", route_stats.total_routes);
-        if !route_stats.frameworks_detected.is_empty() {
-            println!(
-                "  Frameworks:    {}",
-                route_stats.frameworks_detected.join(", ")
-            );
-        }
-        println!("  Files processed: {}", route_stats.files_processed);
-        println!();
-        println!("Data Models:");
-        println!("  Total models:   {}", dm_stats.total_models);
-        println!("  Files processed: {}", dm_stats.files_processed);
-        println!();
-        println!("Observability:");
-        println!("  Total patterns: {}", obs_stats.total_patterns);
-        println!(
-            "  Error handling patterns: {}",
-            obs_stats.error_handling_patterns
-        );
-        println!("  Telemetry patterns: {}", obs_stats.telemetry_patterns);
-        println!("  Files processed: {}", obs_stats.files_processed);
-        println!();
-        println!("Test Mapping:");
-        println!("  Total mappings: {}", tm_stats.total_mappings);
-        println!("  Import mappings: {}", tm_stats.import_mappings);
-        println!(
-            "  Naming convention mappings: {}",
-            tm_stats.naming_convention_mappings
-        );
-        println!("  Files processed: {}", tm_stats.files_processed);
-        println!();
-        println!("CI/CD Gates:");
-        println!("  Total gates: {}", ci_stats.total_gates);
-        println!("  GitHub Actions: {}", ci_stats.github_actions_gates);
-        println!("  GitLab CI: {}", ci_stats.gitlab_ci_gates);
-        println!("  CircleCI: {}", ci_stats.circleci_gates);
-        println!("  Makefile: {}", ci_stats.makefile_gates);
-        println!("  Files processed: {}", ci_stats.files_processed);
-        println!();
-        println!("Env Schema:");
-        println!("  Total declarations: {}", env_stats.total_declarations);
-        println!("  Total references: {}", env_stats.total_references);
-        println!("  Dotenv declarations: {}", env_stats.dotenv_declarations);
-        println!("  Config declarations: {}", env_stats.config_declarations);
-        println!("  Files processed: {}", env_stats.files_processed);
-        if args.analyze_graph {
-            println!();
-            println!("Centrality:");
-            println!("  Entry points:   {}", cent_stats.entry_points_count);
-            println!("  Symbols computed: {}", cent_stats.symbols_computed);
-            println!("  Max reachable:  {}", cent_stats.max_reachable);
-        }
-
-        if let Some(ref cs) = contracts_summary {
-            println!();
-            println!("Contracts:");
-            println!("  Specs parsed:     {}", cs.specs_parsed);
-            println!("  New endpoints:    {}", cs.endpoints_new);
-            println!("  Skipped:          {}", cs.endpoints_skipped);
-            println!("  Deleted:          {}", cs.endpoints_deleted);
-        }
-
-        println!();
-        println!("Services:");
-        println!("  Services inferred: {}", service_stats.services_inferred);
-        println!("  Files assigned:    {}", service_stats.files_assigned);
     }
 
+    // ── Sub-mode: export-docs ────────────────────────────────────────────
     if args.export_docs && !args.check {
-        if let Some(cozo) = indexer.cozo() {
-            match cozo.node_count() {
-                Ok(0) => {
-                    println!("Warning: Knowledge Graph is empty, skipping doc export.");
-                }
-                Ok(_) => {
-                    let docs_dir = layout.docs_dir();
-                    layout.ensure_dir(&docs_dir)?;
-                    let registry = crate::docs::generator::DocRegistry::default_registry();
-                    let doc_result = if let Some(ref dt) = args.doc_type {
-                        let types: Vec<String> =
-                            dt.split(',').map(|s| s.trim().to_string()).collect();
-                        registry.run_filtered(&types, cozo, &docs_dir)
-                    } else {
-                        registry.run_all(cozo, &docs_dir)
-                    };
-                    match doc_result {
-                        Ok(paths) => {
-                            for path in &paths {
-                                println!("Doc: {}", path);
-                            }
-                        }
-                        Err(e) => {
-                            warn!("Doc generation failed: {:#}", e);
-                        }
-                    }
-                }
-                Err(e) => {
-                    warn!("Failed to query node count: {:#}", e);
-                    println!("Warning: Knowledge Graph unavailable, skipping doc export.");
-                }
-            }
-        } else {
-            println!("Warning: Knowledge Graph unavailable, skipping doc export.");
-        }
+        execute_export_docs_mode(indexer, layout, args.doc_type.as_deref())?;
     }
 
     Ok(())
+}
+
+/// Check mode: report index health and staleness, exiting on missing or strict-stale.
+fn execute_check_mode(indexer: &mut ProjectIndexer, args: &IndexArgs) -> Result<()> {
+    let status = indexer.check_status()?;
+    let discovered = indexer.discover_files()?;
+    let is_missing = status.total_files == 0 && !discovered.is_empty();
+
+    if args.json {
+        let output = serde_json::to_string_pretty(&status).into_diagnostic()?;
+        println!("{}", output);
+    } else {
+        if is_missing {
+            eprintln!("Error: Index is missing or empty. Run 'changeguard index' to build it.");
+        } else if status.stale_files > 0 {
+            if args.strict {
+                eprintln!(
+                    "Error: Index is stale ({} files) and --strict is enabled.",
+                    status.stale_files
+                );
+            } else {
+                println!(
+                    "Warning: Index is stale ({} files). Run 'changeguard index --incremental' to update.",
+                    status.stale_files
+                );
+            }
+        } else {
+            println!("Index is up to date.");
+        }
+
+        println!("Index Status:");
+        println!("  Files indexed:   {}", status.total_files);
+        println!("  Symbols indexed: {}", status.total_symbols);
+        println!("  Stale files:     {}", status.stale_files);
+        if let Some(last) = &status.last_indexed_at {
+            println!("  Last indexed:    {}", last);
+        } else {
+            println!("  Last indexed:     never");
+        }
+    }
+
+    if is_missing {
+        std::process::exit(1);
+    }
+    if status.stale_files > 0 && args.strict {
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
+/// Export-docs mode: write knowledge-graph data to passive documentation.
+fn execute_export_docs_mode(
+    indexer: &mut ProjectIndexer,
+    layout: &Layout,
+    doc_type_filter: Option<&str>,
+) -> Result<()> {
+    if let Some(cozo) = indexer.cozo() {
+        match cozo.node_count() {
+            Ok(0) => {
+                println!("Warning: Knowledge Graph is empty, skipping doc export.");
+            }
+            Ok(_) => {
+                let docs_dir = layout.docs_dir();
+                layout.ensure_dir(&docs_dir)?;
+                let registry = crate::docs::generator::DocRegistry::default_registry();
+                let doc_result = if let Some(dt) = doc_type_filter {
+                    let types: Vec<String> = dt.split(',').map(|s| s.trim().to_string()).collect();
+                    registry.run_filtered(&types, cozo, &docs_dir)
+                } else {
+                    registry.run_all(cozo, &docs_dir)
+                };
+                match doc_result {
+                    Ok(paths) => {
+                        for path in &paths {
+                            println!("Doc: {}", path);
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Doc generation failed: {:#}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                warn!("Failed to query node count: {:#}", e);
+                println!("Warning: Knowledge Graph unavailable, skipping doc export.");
+            }
+        }
+    } else {
+        println!("Warning: Knowledge Graph unavailable, skipping doc export.");
+    }
+    Ok(())
+}
+
+// ── Output formatting helpers ───────────────────────────────────────────────
+
+#[allow(clippy::too_many_arguments)]
+fn print_json_output(
+    stats: &crate::index::orchestrator::IndexStats,
+    doc_stats: &crate::index::docs::DocIndexStats,
+    topo_stats: &crate::index::topology::TopologyIndexStats,
+    ep_stats: &crate::index::entrypoint::EntrypointStats,
+    service_stats: &ServiceIndexStats,
+    cg_stats: &crate::index::call_graph::CallGraphStats,
+    route_stats: &crate::index::routes::RouteStats,
+    dm_stats: &crate::index::data_models::DataModelStats,
+    obs_stats: &crate::index::observability::ObservabilityStats,
+    tm_stats: &crate::index::test_mapping::TestMappingStats,
+    ci_stats: &crate::index::ci_gates::CIGateStats,
+    env_stats: &crate::index::env_schema::EnvSchemaStats,
+    cent_stats: &crate::index::centrality::CentralityStats,
+    contracts_summary: &Option<crate::contracts::index::ContractsIndexSummary>,
+    analyze_graph: bool,
+) -> Result<()> {
+    let mut output = serde_json::to_value(stats).into_diagnostic()?;
+    let doc_obj = serde_json::to_value(doc_stats).into_diagnostic()?;
+    let topo_obj = serde_json::to_value(topo_stats).into_diagnostic()?;
+    let ep_obj = serde_json::to_value(ep_stats).into_diagnostic()?;
+    let service_obj = serde_json::to_value(service_stats).into_diagnostic()?;
+    if let (Some(map), Some(doc)) = (output.as_object_mut(), doc_obj.as_object()) {
+        for (k, v) in doc {
+            map.insert(format!("doc_{}", k), v.clone());
+        }
+    }
+    if let (Some(map), Some(topo)) = (output.as_object_mut(), topo_obj.as_object()) {
+        for (k, v) in topo {
+            map.insert(format!("topo_{}", k), v.clone());
+        }
+    }
+    if let (Some(map), Some(ep)) = (output.as_object_mut(), ep_obj.as_object()) {
+        for (k, v) in ep {
+            map.insert(format!("ep_{}", k), v.clone());
+        }
+    }
+    if let (Some(map), Some(svc)) = (output.as_object_mut(), service_obj.as_object()) {
+        for (k, v) in svc {
+            map.insert(format!("service_{}", k), v.clone());
+        }
+    }
+    let cg_obj = serde_json::to_value(cg_stats).into_diagnostic()?;
+    if let (Some(map), Some(cg)) = (output.as_object_mut(), cg_obj.as_object()) {
+        for (k, v) in cg {
+            map.insert(format!("cg_{}", k), v.clone());
+        }
+    }
+    let route_obj = serde_json::to_value(route_stats).into_diagnostic()?;
+    if let (Some(map), Some(route)) = (output.as_object_mut(), route_obj.as_object()) {
+        for (k, v) in route {
+            map.insert(format!("route_{}", k), v.clone());
+        }
+    }
+    let dm_obj = serde_json::to_value(dm_stats).into_diagnostic()?;
+    if let (Some(map), Some(dm)) = (output.as_object_mut(), dm_obj.as_object()) {
+        for (k, v) in dm {
+            map.insert(format!("dm_{}", k), v.clone());
+        }
+    }
+    let obs_obj = serde_json::to_value(obs_stats).into_diagnostic()?;
+    if let (Some(map), Some(obs)) = (output.as_object_mut(), obs_obj.as_object()) {
+        for (k, v) in obs {
+            map.insert(format!("obs_{}", k), v.clone());
+        }
+    }
+    let tm_obj = serde_json::to_value(tm_stats).into_diagnostic()?;
+    if let (Some(map), Some(tm)) = (output.as_object_mut(), tm_obj.as_object()) {
+        for (k, v) in tm {
+            map.insert(format!("tm_{}", k), v.clone());
+        }
+    }
+    let ci_obj = serde_json::to_value(ci_stats).into_diagnostic()?;
+    if let (Some(map), Some(ci)) = (output.as_object_mut(), ci_obj.as_object()) {
+        for (k, v) in ci {
+            map.insert(format!("ci_{}", k), v.clone());
+        }
+    }
+    let env_obj = serde_json::to_value(env_stats).into_diagnostic()?;
+    if let (Some(map), Some(env)) = (output.as_object_mut(), env_obj.as_object()) {
+        for (k, v) in env {
+            map.insert(format!("env_{}", k), v.clone());
+        }
+    }
+    if analyze_graph {
+        let cent_obj = serde_json::to_value(cent_stats).into_diagnostic()?;
+        if let (Some(map), Some(cent)) = (output.as_object_mut(), cent_obj.as_object()) {
+            for (k, v) in cent {
+                map.insert(format!("cent_{}", k), v.clone());
+            }
+        }
+    }
+    if let Some(cs) = contracts_summary {
+        let cs_obj = serde_json::to_value(cs).into_diagnostic()?;
+        if let (Some(map), Some(cs)) = (output.as_object_mut(), cs_obj.as_object()) {
+            for (k, v) in cs {
+                map.insert(format!("contracts_{}", k), v.clone());
+            }
+        }
+    }
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&output).into_diagnostic()?
+    );
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn print_human_output(
+    stats: &crate::index::orchestrator::IndexStats,
+    doc_stats: &crate::index::docs::DocIndexStats,
+    topo_stats: &crate::index::topology::TopologyIndexStats,
+    ep_stats: &crate::index::entrypoint::EntrypointStats,
+    service_stats: &ServiceIndexStats,
+    cg_stats: &crate::index::call_graph::CallGraphStats,
+    route_stats: &crate::index::routes::RouteStats,
+    dm_stats: &crate::index::data_models::DataModelStats,
+    obs_stats: &crate::index::observability::ObservabilityStats,
+    tm_stats: &crate::index::test_mapping::TestMappingStats,
+    ci_stats: &crate::index::ci_gates::CIGateStats,
+    env_stats: &crate::index::env_schema::EnvSchemaStats,
+    cent_stats: &crate::index::centrality::CentralityStats,
+    contracts_summary: &Option<crate::contracts::index::ContractsIndexSummary>,
+    analyze_graph: bool,
+) {
+    println!("Indexing complete:");
+    println!("  Files indexed:   {}", stats.files_indexed);
+    println!("  Symbols indexed: {}", stats.symbols_indexed);
+    if stats.parse_failures > 0 {
+        println!("  Parse failures:  {}", stats.parse_failures);
+    }
+    if stats.skipped_binary > 0 {
+        println!("  Skipped binary:  {}", stats.skipped_binary);
+    }
+    if stats.skipped_unsupported > 0 {
+        println!("  Skipped unsupported: {}", stats.skipped_unsupported);
+    }
+    println!("  Duration:        {}ms", stats.duration_ms);
+    println!();
+    println!("Documentation:");
+    println!("  Docs indexed:    {}", doc_stats.docs_indexed);
+    if doc_stats.parse_failures > 0 {
+        println!("  Doc parse failures: {}", doc_stats.parse_failures);
+    }
+    if doc_stats.missing_readme {
+        println!("  README:          not found");
+    } else {
+        println!("  README:          found");
+    }
+    println!();
+    println!("Topology:");
+    println!(
+        "  Directories classified: {}",
+        topo_stats.directories_classified
+    );
+    if topo_stats.unclassified > 0 {
+        println!("  Unclassified:    {}", topo_stats.unclassified);
+    }
+    let role_order = [
+        crate::index::topology::DirectoryRole::Source,
+        crate::index::topology::DirectoryRole::Test,
+        crate::index::topology::DirectoryRole::Config,
+        crate::index::topology::DirectoryRole::Infrastructure,
+        crate::index::topology::DirectoryRole::Documentation,
+        crate::index::topology::DirectoryRole::Generated,
+        crate::index::topology::DirectoryRole::Vendor,
+        crate::index::topology::DirectoryRole::BuildArtifact,
+    ];
+    for role in &role_order {
+        if let Some(count) = topo_stats.role_counts.get(role) {
+            println!("  {}: {}", role.as_str(), count);
+        }
+    }
+    println!();
+    println!("Entrypoints:");
+    println!("  Entrypoints:   {}", ep_stats.entrypoints);
+    println!("  Handlers:      {}", ep_stats.handlers);
+    println!("  Public APIs:   {}", ep_stats.public_apis);
+    println!("  Tests:         {}", ep_stats.tests);
+    println!("  Internal:     {}", ep_stats.internal);
+    println!();
+    println!("Call Graph:");
+    println!("  Edges:          {}", cg_stats.total_edges);
+    println!("  Resolved:       {}", cg_stats.resolved_edges);
+    println!("  Unresolved:     {}", cg_stats.unresolved_edges);
+    println!("  Ambiguous:      {}", cg_stats.ambiguous_edges);
+    println!("  Files processed: {}", cg_stats.files_processed);
+    println!();
+    println!("API Routes:");
+    println!("  Total routes:   {}", route_stats.total_routes);
+    if !route_stats.frameworks_detected.is_empty() {
+        println!(
+            "  Frameworks:    {}",
+            route_stats.frameworks_detected.join(", ")
+        );
+    }
+    println!("  Files processed: {}", route_stats.files_processed);
+    println!();
+    println!("Data Models:");
+    println!("  Total models:   {}", dm_stats.total_models);
+    println!("  Files processed: {}", dm_stats.files_processed);
+    println!();
+    println!("Observability:");
+    println!("  Total patterns: {}", obs_stats.total_patterns);
+    println!(
+        "  Error handling patterns: {}",
+        obs_stats.error_handling_patterns
+    );
+    println!("  Telemetry patterns: {}", obs_stats.telemetry_patterns);
+    println!("  Files processed: {}", obs_stats.files_processed);
+    println!();
+    println!("Test Mapping:");
+    println!("  Total mappings: {}", tm_stats.total_mappings);
+    println!("  Import mappings: {}", tm_stats.import_mappings);
+    println!(
+        "  Naming convention mappings: {}",
+        tm_stats.naming_convention_mappings
+    );
+    println!("  Files processed: {}", tm_stats.files_processed);
+    println!();
+    println!("CI/CD Gates:");
+    println!("  Total gates: {}", ci_stats.total_gates);
+    println!("  GitHub Actions: {}", ci_stats.github_actions_gates);
+    println!("  GitLab CI: {}", ci_stats.gitlab_ci_gates);
+    println!("  CircleCI: {}", ci_stats.circleci_gates);
+    println!("  Makefile: {}", ci_stats.makefile_gates);
+    println!("  Files processed: {}", ci_stats.files_processed);
+    println!();
+    println!("Env Schema:");
+    println!("  Total declarations: {}", env_stats.total_declarations);
+    println!("  Total references: {}", env_stats.total_references);
+    println!("  Dotenv declarations: {}", env_stats.dotenv_declarations);
+    println!("  Config declarations: {}", env_stats.config_declarations);
+    println!("  Files processed: {}", env_stats.files_processed);
+    if analyze_graph {
+        println!();
+        println!("Centrality:");
+        println!("  Entry points:   {}", cent_stats.entry_points_count);
+        println!("  Symbols computed: {}", cent_stats.symbols_computed);
+        println!("  Max reachable:  {}", cent_stats.max_reachable);
+    }
+
+    if let Some(cs) = contracts_summary {
+        println!();
+        println!("Contracts:");
+        println!("  Specs parsed:     {}", cs.specs_parsed);
+        println!("  New endpoints:    {}", cs.endpoints_new);
+        println!("  Skipped:          {}", cs.endpoints_skipped);
+        println!("  Deleted:          {}", cs.endpoints_deleted);
+    }
+
+    println!();
+    println!("Services:");
+    println!("  Services inferred: {}", service_stats.services_inferred);
+    println!("  Files assigned:    {}", service_stats.files_assigned);
 }
 
 fn execute_docs_index(layout: &Layout, storage: &StorageManager) -> Result<()> {
@@ -556,20 +735,7 @@ fn execute_semantic_index(
     // HP3: ensure the semantic file-hash tracking schema exists
     semantic.ensure_file_hash_schema()?;
 
-    // Resolve concurrency early so lifecycle info is printed/logged before any potential early exit
-    let available_parallelism = std::thread::available_parallelism()
-        .ok()
-        .map(|n| std::num::NonZeroUsize::new(n.get()).expect("available_parallelism is non-zero"));
-    let resolve_opts = crate::semantic::concurrency::ResolveOptions {
-        available_parallelism,
-        ..Default::default()
-    };
-    let resolved = crate::semantic::concurrency::resolve_split_semantic_concurrency(
-        concurrency_override,
-        &config.semantic,
-        config.local_model.concurrency,
-        resolve_opts,
-    );
+    let resolved = resolve_semantic_concurrency(concurrency_override, config);
     let parse_threads = resolved.parse_threads.get();
     let embed_cap = resolved.embed_threads.get();
 
@@ -583,30 +749,7 @@ fn execute_semantic_index(
 
     // ── Phase 1: Collect candidate files ───────────────────────────────────
     let repo_root = layout.root.as_std_path();
-    let mut candidate_paths: Vec<std::path::PathBuf> = Vec::new();
-
-    fn walk_dir(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            return;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                if matches!(name, ".git" | ".changeguard" | "target" | "node_modules") {
-                    continue;
-                }
-                walk_dir(&path, out);
-            } else {
-                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                if matches!(ext, "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go") {
-                    out.push(path);
-                }
-            }
-        }
-    }
-
-    walk_dir(repo_root, &mut candidate_paths);
+    let candidate_paths = walk_repo_for_semantic_files(repo_root);
 
     // HP3: On incremental runs filter to only files whose hash has changed.
     let files_to_process: Vec<std::path::PathBuf> = if incremental {
@@ -663,19 +806,12 @@ fn execute_semantic_index(
         .build()
         .map_err(|e| miette::miette!("Failed to build Rayon thread pool: {}", e))?;
 
-    // Cap concurrent embed calls by adjusting batch count. Embeds are
-    // already parallelized into `chunk_batches` of size
-    // SEMANTIC_EMBEDDING_BATCH_SIZE; we further constrain how many of
-    // those batches can run in parallel via a small global semaphore so
-    // the embed phase never holds more than `embed_cap` HTTP calls in
-    // flight regardless of rayon pool size.
     let embed_semaphore =
         std::sync::Arc::new(crate::semantic::concurrency::EmbedSemaphore::new(embed_cap));
 
     // ── Phase 3: Parallel parse + embed with progress bar (HP2 + HP4) ──────
     let total = files_to_process.len();
 
-    // Parse files in parallel
     let pb_parse = ProgressBar::new(total as u64);
     pb_parse.set_style(
         ProgressStyle::with_template(
@@ -754,9 +890,6 @@ fn execute_semantic_index(
             chunk_batches
                 .into_par_iter()
                 .map(|batch| {
-                    // Throttle concurrent embed calls so we never exceed
-                    // the configured cap (U13/U14: prevents ONNX server
-                    // crash under heavy indexing load).
                     let _permit = embed_sem_ref.acquire();
                     let texts: Vec<String> = batch.iter().map(|c| c.to_embedding_text()).collect();
                     let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
@@ -785,7 +918,6 @@ fn execute_semantic_index(
     }
 
     // ── Phase 4: Batch ingest into CozoDB (single-threaded for safety) ─────
-    // 1. Remove stale snippet rows for successfully processed files
     if !successful_files.is_empty() {
         info!("Pruning stale semantic database rows...");
         for (path, _) in &successful_files {
@@ -800,7 +932,6 @@ fn execute_semantic_index(
         }
     }
 
-    // 2. Ingest the new snippets
     if !flat_chunks.is_empty() {
         let spinner = ProgressBar::new_spinner();
         spinner.set_style(
@@ -819,7 +950,7 @@ fn execute_semantic_index(
         spinner.finish_and_clear();
     }
 
-    // 3. Record new hashes only for successfully processed files
+    // Record new hashes only for successfully processed files
     for (path, hash) in successful_files {
         if let Err(e) = semantic.record_file_hash(&path, &hash) {
             warn!("Failed to record file hash for {}: {}", path.display(), e);
@@ -874,14 +1005,11 @@ fn execute_scip_index(
         let file_id = match get_file_id_by_path(&tx, &relative_path) {
             Ok(id) => id,
             Err(_) => {
-                // If file not in project_files, we might want to skip or add it.
-                // For SCIP, we expect the file to be discovered by ProjectIndexer first.
                 files_skipped += 1;
                 continue;
             }
         };
 
-        // Create a map of symbol name -> SymbolInformation for easy lookup
         let symbol_info_map: std::collections::HashMap<_, _> = scip_index
             .index
             .external_symbols
@@ -956,20 +1084,16 @@ pub fn execute_index_check(
     let storage_res = StorageManager::open_read_only(&layout.root);
     let mut warning = match storage_res {
         Ok(ref storage) => crate::index::staleness::check_index_staleness(storage, threshold),
-        Err(_) => {
-            // Storage missing = index missing (definitely stale)
-            Some(crate::index::staleness::StalenessWarning {
-                days_since_indexed: 999,
-                stale_files: 0,
-                unindexed_files: 0,
-                sample_paths: vec![],
-                last_indexed_at: None,
-                is_missing: true,
-            })
-        }
+        Err(_) => Some(crate::index::staleness::StalenessWarning {
+            days_since_indexed: 999,
+            stale_files: 0,
+            unindexed_files: 0,
+            sample_paths: vec![],
+            last_indexed_at: None,
+            is_missing: true,
+        }),
     };
 
-    // Check for unindexed files if we haven't already marked it as missing
     if let Ok(repo) = crate::git::repo::open_repo(path)
         && let Ok(files) = crate::git::status::get_repo_status(&repo)
     {
@@ -1014,7 +1138,6 @@ pub fn execute_index_check(
         }
 
         if warning.is_missing {
-            // If missing, only fail if there are actually files to index
             if warning.unindexed_files > 0 {
                 std::process::exit(1);
             }
@@ -1080,7 +1203,6 @@ fn execute_semantic_dry_run(
     concurrency_override: Option<usize>,
     output_path: Option<std::path::PathBuf>,
 ) -> Result<()> {
-    use crate::semantic::concurrency::{ResolveOptions, resolve_split_semantic_concurrency};
     use comfy_table::Table;
 
     let cozo_path = layout.state_subdir().join("ledger.cozo");
@@ -1090,47 +1212,10 @@ fn execute_semantic_dry_run(
         None
     };
 
-    // Resolve concurrency
-    let available_parallelism = std::thread::available_parallelism()
-        .ok()
-        .map(|n| std::num::NonZeroUsize::new(n.get()).unwrap());
-    let resolve_opts = ResolveOptions {
-        available_parallelism,
-        ..Default::default()
-    };
-    let resolved = resolve_split_semantic_concurrency(
-        concurrency_override,
-        &config.semantic,
-        config.local_model.concurrency,
-        resolve_opts,
-    );
+    let resolved = resolve_semantic_concurrency(concurrency_override, config);
 
-    // Collect candidate files (read-only walk)
-    let repo_root = layout.root.as_std_path();
-    let mut candidate_paths = Vec::new();
-    fn walk_dir(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            return;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                if matches!(name, ".git" | ".changeguard" | "target" | "node_modules") {
-                    continue;
-                }
-                walk_dir(&path, out);
-            } else {
-                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                if matches!(ext, "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go") {
-                    out.push(path);
-                }
-            }
-        }
-    }
-    walk_dir(repo_root, &mut candidate_paths);
+    let candidate_paths = walk_repo_for_semantic_files(layout.root.as_std_path());
 
-    // Estimate chunk count (lines / 30)
     let mut total_lines = 0;
     for path in &candidate_paths {
         if let Ok(content) = std::fs::read_to_string(path) {
