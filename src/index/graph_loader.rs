@@ -20,6 +20,54 @@ pub struct Community {
     pub size: usize,
 }
 
+/// Counters for each graph-load phase, used to assert idempotence in tests.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct PhaseCounters {
+    pub files: usize,
+    pub symbols: usize,
+    pub call_edges: usize,
+    pub routes_nodes: usize,
+    pub routes_edges: usize,
+    pub dependencies_nodes: usize,
+    pub dependencies_edges: usize,
+    pub deployments_nodes: usize,
+    pub deployments_edges: usize,
+    pub environment_model_nodes: usize,
+    pub environment_config_nodes: usize,
+    pub environment_edges: usize,
+    pub observability_nodes: usize,
+    pub observability_edges: usize,
+    pub security_nodes: usize,
+    pub security_edges: usize,
+    pub cross_surface_edges: usize,
+}
+
+#[allow(clippy::type_complexity)]
+type RouteRow = (
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+/// Internal context shared across graph load phases.
+struct GraphLoadContext<'a> {
+    storage: &'a StorageManager,
+    cozo: &'a CozoStorage,
+    provenance_id: &'a str,
+    config: &'a crate::config::model::Config,
+    counters: PhaseCounters,
+    // Intermediate data for cross-phase linking (security cross-surface pass).
+    route_rows: Vec<RouteRow>,
+    adr_nodes: Vec<GraphNode>,
+    config_nodes: Vec<GraphNode>,
+    policy_nodes: Vec<GraphNode>,
+    deploy_manifests: Vec<String>,
+}
+
 /// Build a native graph in CozoDB by reading from SQLite tables.
 pub fn build_native_graph(
     storage: &StorageManager,
@@ -27,9 +75,78 @@ pub fn build_native_graph(
     provenance_id: &str,
     config: &crate::config::model::Config,
 ) -> Result<GraphStats> {
-    let conn = storage.get_connection();
+    let mut ctx = GraphLoadContext {
+        storage,
+        cozo,
+        provenance_id,
+        config,
+        counters: PhaseCounters::default(),
+        route_rows: Vec::new(),
+        adr_nodes: Vec::new(),
+        config_nodes: Vec::new(),
+        policy_nodes: Vec::new(),
+        deploy_manifests: Vec::new(),
+    };
 
-    // --- 1. Read project_files → file nodes ---
+    let files_indexed = phase_files(&mut ctx)?;
+    let symbols_indexed = phase_symbols(&mut ctx)?;
+    phase_call_edges(&mut ctx)?;
+    phase_routes(&mut ctx)?;
+    phase_dependencies(&mut ctx)?;
+    phase_deployments(&mut ctx)?;
+    phase_environment(&mut ctx)?;
+    phase_observability(&mut ctx)?;
+    phase_security(&mut ctx)?;
+
+    info!(
+        "Native graph built: {} files, {} symbols, {} edges, {} endpoints, {} ADRs, {} deploy nodes, \
+         {} models, {} config_keys, {} obs, {} security nodes, {} cross-surface edges",
+        files_indexed,
+        symbols_indexed,
+        ctx.counters.call_edges
+            + ctx.counters.routes_edges
+            + ctx.counters.dependencies_edges
+            + ctx.counters.deployments_edges
+            + ctx.counters.environment_edges
+            + ctx.counters.observability_edges
+            + ctx.counters.security_edges,
+        ctx.counters.routes_nodes,
+        ctx.counters.dependencies_nodes, // ADR count carried here
+        ctx.counters.deployments_nodes,  // includes services + owners/queues/topics/rpc
+        ctx.counters.environment_model_nodes,
+        ctx.counters.environment_config_nodes,
+        ctx.counters.observability_nodes,
+        ctx.counters.security_nodes, // includes policies + principals/actions/resources
+        ctx.counters.cross_surface_edges,
+    );
+
+    Ok(GraphStats {
+        nodes_added: files_indexed
+            + symbols_indexed
+            + ctx.counters.routes_nodes
+            + ctx.counters.dependencies_nodes
+            + ctx.counters.deployments_nodes
+            + ctx.counters.environment_model_nodes
+            + ctx.counters.environment_config_nodes
+            + ctx.counters.observability_nodes
+            + ctx.counters.security_nodes,
+        edges_added: ctx.counters.call_edges
+            + ctx.counters.routes_edges
+            + ctx.counters.dependencies_edges
+            + ctx.counters.deployments_edges
+            + ctx.counters.environment_edges
+            + ctx.counters.observability_edges
+            + ctx.counters.security_edges,
+        files_indexed,
+        symbols_indexed,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Phase 1 — File nodes
+// ---------------------------------------------------------------------------
+fn phase_files(ctx: &mut GraphLoadContext) -> Result<usize> {
+    let conn = ctx.storage.get_connection();
     let mut file_stmt = conn
         .prepare("SELECT file_path, language FROM project_files WHERE parse_status != 'DELETED'")
         .into_diagnostic()?;
@@ -58,7 +175,16 @@ pub fn build_native_graph(
         files_indexed += 1;
     }
 
-    // --- 2. Read project_symbols → symbol nodes ---
+    ctx.cozo.insert_nodes(&node_batch)?;
+    ctx.counters.files = files_indexed;
+    Ok(files_indexed)
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2 — Symbol nodes
+// ---------------------------------------------------------------------------
+fn phase_symbols(ctx: &mut GraphLoadContext) -> Result<usize> {
+    let conn = ctx.storage.get_connection();
     let mut sym_stmt = conn
         .prepare("SELECT qualified_name, symbol_name, symbol_kind FROM project_symbols")
         .into_diagnostic()?;
@@ -76,6 +202,7 @@ pub fn build_native_graph(
         .into_diagnostic()?;
     drop(sym_stmt);
 
+    let mut node_batch = Vec::new();
     let mut symbols_indexed = 0usize;
     for (qualified_name, symbol_name, symbol_kind) in &sym_rows {
         let metadata = json!({ "kind": symbol_kind, "schema_version": "v1" });
@@ -90,9 +217,16 @@ pub fn build_native_graph(
         symbols_indexed += 1;
     }
 
-    cozo.insert_nodes(&node_batch)?;
+    ctx.cozo.insert_nodes(&node_batch)?;
+    ctx.counters.symbols = symbols_indexed;
+    Ok(symbols_indexed)
+}
 
-    // --- 3. Read structural_edges → edge relations ---
+// ---------------------------------------------------------------------------
+// Phase 3 — Call edges (structural_edges)
+// ---------------------------------------------------------------------------
+fn phase_call_edges(ctx: &mut GraphLoadContext) -> Result<()> {
+    let conn = ctx.storage.get_connection();
     let mut edge_stmt = conn
         .prepare(
             "SELECT \
@@ -133,14 +267,21 @@ pub fn build_native_graph(
             target: target_id,
             relation: EdgeKind::Calls,
             confidence: 1.0,
-            provenance_id: provenance_id.to_string(),
+            provenance_id: ctx.provenance_id.to_string(),
         });
         edges_added += 1;
     }
 
-    cozo.insert_edges(&edge_batch)?;
+    ctx.cozo.insert_edges(&edge_batch)?;
+    ctx.counters.call_edges = edges_added;
+    Ok(())
+}
 
-    // --- 4. Read api_routes → endpoint nodes and edges ---
+// ---------------------------------------------------------------------------
+// Phase 4 — Routes / endpoints
+// ---------------------------------------------------------------------------
+fn phase_routes(ctx: &mut GraphLoadContext) -> Result<()> {
+    let conn = ctx.storage.get_connection();
     let mut route_stmt = conn
         .prepare(
             "SELECT \
@@ -151,16 +292,7 @@ pub fn build_native_graph(
         )
         .into_diagnostic()?;
 
-    #[allow(clippy::type_complexity)]
-    let route_rows: Vec<(
-        String,
-        String,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-    )> = route_stmt
+    let route_rows: Vec<RouteRow> = route_stmt
         .query_map([], |row| {
             Ok((
                 row.get(0)?,
@@ -205,7 +337,7 @@ pub fn build_native_graph(
                 target: endpoint_id.clone(),
                 relation: EdgeKind::Handles,
                 confidence: 1.0,
-                provenance_id: provenance_id.to_string(),
+                provenance_id: ctx.provenance_id.to_string(),
             });
         }
 
@@ -216,7 +348,7 @@ pub fn build_native_graph(
                 target: endpoint_id.clone(),
                 relation: EdgeKind::Owns,
                 confidence: 1.0,
-                provenance_id: provenance_id.to_string(),
+                provenance_id: ctx.provenance_id.to_string(),
             });
         }
 
@@ -230,7 +362,7 @@ pub fn build_native_graph(
                     target: auth_urn,
                     relation: EdgeKind::Authenticates,
                     confidence: 1.0,
-                    provenance_id: provenance_id.to_string(),
+                    provenance_id: ctx.provenance_id.to_string(),
                 });
             }
         }
@@ -249,7 +381,7 @@ pub fn build_native_graph(
                     target: endpoint_id.clone(),
                     relation: EdgeKind::Consumes,
                     confidence: 1.0,
-                    provenance_id: provenance_id.to_string(),
+                    provenance_id: ctx.provenance_id.to_string(),
                 });
             }
         }
@@ -264,16 +396,27 @@ pub fn build_native_graph(
                     target: schema_urn,
                     relation: EdgeKind::Handles,
                     confidence: 1.0,
-                    provenance_id: provenance_id.to_string(),
+                    provenance_id: ctx.provenance_id.to_string(),
                 });
             }
         }
     }
 
-    cozo.insert_nodes(&endpoint_nodes)?;
-    cozo.insert_edges(&endpoint_edges)?;
+    ctx.cozo.insert_nodes(&endpoint_nodes)?;
+    ctx.cozo.insert_edges(&endpoint_edges)?;
 
-    // --- 5. Read adr_metadata → ADR nodes and links ---
+    ctx.counters.routes_nodes = endpoint_nodes.len();
+    ctx.counters.routes_edges = endpoint_edges.len();
+    ctx.route_rows = route_rows;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Phase 5 — Dependencies / ADR metadata (current code has ADR here; dependency
+// lock-file parsing is reserved for a future track).
+// ---------------------------------------------------------------------------
+fn phase_dependencies(ctx: &mut GraphLoadContext) -> Result<()> {
+    let conn = ctx.storage.get_connection();
     let mut adr_stmt = conn
         .prepare(
             "SELECT am.adr_id, am.status, am.owner, am.supersedes, am.affected_entities, le.summary \
@@ -325,7 +468,7 @@ pub fn build_native_graph(
             target: tx_urn,
             relation: EdgeKind::Governs,
             confidence: 1.0,
-            provenance_id: provenance_id.to_string(),
+            provenance_id: ctx.provenance_id.to_string(),
         });
 
         if let Some(old_adr_id) = supersedes {
@@ -335,18 +478,14 @@ pub fn build_native_graph(
                 target: old_urn,
                 relation: EdgeKind::Supersedes,
                 confidence: 1.0,
-                provenance_id: provenance_id.to_string(),
+                provenance_id: ctx.provenance_id.to_string(),
             });
         }
 
-        // Link ADR to each affected entity declared in its metadata.
         if let Some(affected_json) = affected
             && let Ok(entities) = serde_json::from_str::<Vec<String>>(affected_json)
         {
             for entity in entities {
-                // Entities may be file paths, service names, symbol names, etc.
-                // Emit as a generic Governs edge; the target URN may not yet exist
-                // in the graph but will resolve once those nodes are added.
                 let entity_urn = if entity.starts_with("urn:") {
                     entity.clone()
                 } else if entity.contains('/') || entity.ends_with(".rs") || entity.ends_with(".ts")
@@ -360,19 +499,28 @@ pub fn build_native_graph(
                     target: entity_urn,
                     relation: EdgeKind::Governs,
                     confidence: 0.9,
-                    provenance_id: provenance_id.to_string(),
+                    provenance_id: ctx.provenance_id.to_string(),
                 });
             }
         }
     }
 
-    cozo.insert_nodes(&adr_nodes)?;
-    cozo.insert_edges(&adr_edges)?;
+    ctx.cozo.insert_nodes(&adr_nodes)?;
+    ctx.cozo.insert_edges(&adr_edges)?;
 
-    // --- 6. Read declared services ---
+    ctx.counters.dependencies_nodes = adr_nodes.len();
+    ctx.counters.dependencies_edges = adr_edges.len();
+    ctx.adr_nodes = adr_nodes;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6 — Deployments (declared services)
+// ---------------------------------------------------------------------------
+fn phase_deployments(ctx: &mut GraphLoadContext) -> Result<()> {
     let mut service_nodes = Vec::new();
     let mut service_edges = Vec::new();
-    for ds in &config.services.definitions {
+    for ds in &ctx.config.services.definitions {
         let urn = crate::platform::urn::build_urn(NodeKind::Service, &ds.name);
         service_nodes.push(GraphNode {
             id: urn.clone(),
@@ -399,11 +547,10 @@ pub fn build_native_graph(
                 target: urn.clone(),
                 relation: EdgeKind::Owns,
                 confidence: 1.0,
-                provenance_id: provenance_id.to_string(),
+                provenance_id: ctx.provenance_id.to_string(),
             });
         }
 
-        // Async topology edges: queues, topics, RPC endpoints
         for queue in &ds.queues {
             let q_urn = crate::platform::urn::build_urn(NodeKind::ObservabilitySignal, queue);
             service_nodes.push(GraphNode {
@@ -418,7 +565,7 @@ pub fn build_native_graph(
                 target: q_urn,
                 relation: EdgeKind::DependsOn,
                 confidence: 1.0,
-                provenance_id: provenance_id.to_string(),
+                provenance_id: ctx.provenance_id.to_string(),
             });
         }
         for topic in &ds.topics {
@@ -435,7 +582,7 @@ pub fn build_native_graph(
                 target: t_urn,
                 relation: EdgeKind::DependsOn,
                 confidence: 1.0,
-                provenance_id: provenance_id.to_string(),
+                provenance_id: ctx.provenance_id.to_string(),
             });
         }
         for rpc in &ds.rpc_endpoints {
@@ -452,14 +599,25 @@ pub fn build_native_graph(
                 target: r_urn,
                 relation: EdgeKind::Calls,
                 confidence: 1.0,
-                provenance_id: provenance_id.to_string(),
+                provenance_id: ctx.provenance_id.to_string(),
             });
         }
     }
-    cozo.insert_nodes(&service_nodes)?;
-    cozo.insert_edges(&service_edges)?;
+    ctx.cozo.insert_nodes(&service_nodes)?;
+    ctx.cozo.insert_edges(&service_edges)?;
 
-    // --- 7. Read Data Models and link to owning services ---
+    ctx.counters.deployments_nodes = service_nodes.len();
+    ctx.counters.deployments_edges = service_edges.len();
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Phase 7 — Environment (data models + env declarations)
+// ---------------------------------------------------------------------------
+fn phase_environment(ctx: &mut GraphLoadContext) -> Result<()> {
+    let conn = ctx.storage.get_connection();
+
+    // --- Data Models ---
     let mut model_stmt = conn
         .prepare(
             "SELECT dm.model_name, dm.language, dm.model_kind, dm.fields, pf.file_path \
@@ -496,18 +654,16 @@ pub fn build_native_graph(
             ),
         });
 
-        // Link data model to its source file
         let file_urn = crate::platform::urn::build_urn(NodeKind::File, file_path);
         model_edges.push(GraphEdge {
             source: urn.clone(),
             target: file_urn,
             relation: EdgeKind::DependsOn,
             confidence: 1.0,
-            provenance_id: provenance_id.to_string(),
+            provenance_id: ctx.provenance_id.to_string(),
         });
 
-        // Link data model to owning service (by root path prefix)
-        for ds in &config.services.definitions {
+        for ds in &ctx.config.services.definitions {
             let root_norm = ds.root.replace('\\', "/");
             let file_norm = file_path.replace('\\', "/");
             if file_norm.starts_with(&root_norm) {
@@ -517,16 +673,14 @@ pub fn build_native_graph(
                     target: urn.clone(),
                     relation: EdgeKind::Owns,
                     confidence: 0.9,
-                    provenance_id: provenance_id.to_string(),
+                    provenance_id: ctx.provenance_id.to_string(),
                 });
                 break;
             }
         }
     }
-    cozo.insert_nodes(&model_nodes)?;
-    cozo.insert_edges(&model_edges)?;
 
-    // --- 7b. Read env_declarations → ConfigKey nodes linked to services ---
+    // --- Env Declarations ---
     let mut env_stmt = conn
         .prepare(
             "SELECT ed.var_name, ed.source_kind, ed.is_secret, ed.owner, pf.file_path \
@@ -566,18 +720,16 @@ pub fn build_native_graph(
             })),
         });
 
-        // Link to source file
         let file_urn = crate::platform::urn::build_urn(NodeKind::File, file_path);
         config_edges.push(GraphEdge {
             source: urn.clone(),
             target: file_urn,
             relation: EdgeKind::DependsOn,
             confidence: 1.0,
-            provenance_id: provenance_id.to_string(),
+            provenance_id: ctx.provenance_id.to_string(),
         });
 
-        // Link to owning service by root path prefix
-        for ds in &config.services.definitions {
+        for ds in &ctx.config.services.definitions {
             let root_norm = ds.root.replace('\\', "/");
             let file_norm = file_path.replace('\\', "/");
             if file_norm.starts_with(&root_norm) {
@@ -587,19 +739,33 @@ pub fn build_native_graph(
                     target: urn.clone(),
                     relation: EdgeKind::Configures,
                     confidence: 0.9,
-                    provenance_id: provenance_id.to_string(),
+                    provenance_id: ctx.provenance_id.to_string(),
                 });
                 break;
             }
         }
     }
-    cozo.insert_nodes(&config_nodes)?;
-    cozo.insert_edges(&config_edges)?;
 
-    // --- 8. Read OpenSLO YAMLs ---
+    ctx.cozo.insert_nodes(&model_nodes)?;
+    ctx.cozo.insert_edges(&model_edges)?;
+    ctx.cozo.insert_nodes(&config_nodes)?;
+    ctx.cozo.insert_edges(&config_edges)?;
+
+    let env_edges = model_edges.len() + config_edges.len();
+    ctx.counters.environment_model_nodes = model_nodes.len();
+    ctx.counters.environment_config_nodes = config_nodes.len();
+    ctx.counters.environment_edges = env_edges;
+    ctx.config_nodes = config_nodes;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Phase 8 — Observability (OpenSLO)
+// ---------------------------------------------------------------------------
+fn phase_observability(ctx: &mut GraphLoadContext) -> Result<()> {
     let mut obs_nodes = Vec::new();
     let mut obs_edges = Vec::new();
-    let obs_dir = storage.root_path().join("observability");
+    let obs_dir = ctx.storage.root_path().join("observability");
     if obs_dir.exists()
         && let Ok(entries) = std::fs::read_dir(obs_dir)
     {
@@ -618,7 +784,7 @@ pub fn build_native_graph(
                 let abs_str = path.to_string_lossy().replace('\\', "/");
                 let root_prefix = format!(
                     "{}/",
-                    storage
+                    ctx.storage
                         .root_path()
                         .as_str()
                         .replace('\\', "/")
@@ -630,8 +796,6 @@ pub fn build_native_graph(
                     .to_string();
                 if let Ok(entities) = crate::observability::openslo::parse_openslo(&content) {
                     for mut entity in entities {
-                        // Inject source_file into metadata so observability diff can match
-                        // changed files against the node's origin file.
                         if let serde_json::Value::Object(ref mut m) = entity.metadata {
                             m.insert(
                                 "source_file".to_string(),
@@ -664,7 +828,7 @@ pub fn build_native_graph(
                                         target: entity.urn.clone(),
                                         relation: EdgeKind::Owns,
                                         confidence: 1.0,
-                                        provenance_id: provenance_id.to_string(),
+                                        provenance_id: ctx.provenance_id.to_string(),
                                     });
                                 }
                             }
@@ -687,7 +851,7 @@ pub fn build_native_graph(
                                         target: svc_urn,
                                         relation: EdgeKind::Monitors,
                                         confidence: 1.0,
-                                        provenance_id: provenance_id.to_string(),
+                                        provenance_id: ctx.provenance_id.to_string(),
                                     });
                                 }
 
@@ -709,7 +873,7 @@ pub fn build_native_graph(
                                         target: metric.urn.clone(),
                                         relation: EdgeKind::DependsOn,
                                         confidence: 1.0,
-                                        provenance_id: provenance_id.to_string(),
+                                        provenance_id: ctx.provenance_id.to_string(),
                                     });
                                 }
                             }
@@ -732,7 +896,7 @@ pub fn build_native_graph(
                                         target: svc_urn,
                                         relation: EdgeKind::Monitors,
                                         confidence: 1.0,
-                                        provenance_id: provenance_id.to_string(),
+                                        provenance_id: ctx.provenance_id.to_string(),
                                     });
                                 }
 
@@ -754,7 +918,7 @@ pub fn build_native_graph(
                                         target: metric.urn.clone(),
                                         relation: EdgeKind::DependsOn,
                                         confidence: 1.0,
-                                        provenance_id: provenance_id.to_string(),
+                                        provenance_id: ctx.provenance_id.to_string(),
                                     });
                                 }
 
@@ -768,7 +932,7 @@ pub fn build_native_graph(
                                         target: entity.urn.clone(),
                                         relation: EdgeKind::AlertsOn,
                                         confidence: 1.0,
-                                        provenance_id: provenance_id.to_string(),
+                                        provenance_id: ctx.provenance_id.to_string(),
                                     });
                                 }
 
@@ -788,7 +952,7 @@ pub fn build_native_graph(
                                         target: entity.urn.clone(),
                                         relation: EdgeKind::Owns,
                                         confidence: 1.0,
-                                        provenance_id: provenance_id.to_string(),
+                                        provenance_id: ctx.provenance_id.to_string(),
                                     });
                                 }
                             }
@@ -818,7 +982,7 @@ pub fn build_native_graph(
                                         target: entity.urn.clone(),
                                         relation: EdgeKind::Owns,
                                         confidence: 1.0,
-                                        provenance_id: provenance_id.to_string(),
+                                        provenance_id: ctx.provenance_id.to_string(),
                                     });
                                 }
                             }
@@ -839,7 +1003,7 @@ pub fn build_native_graph(
                                         target: ap_urn,
                                         relation: EdgeKind::DependsOn,
                                         confidence: 1.0,
-                                        provenance_id: provenance_id.to_string(),
+                                        provenance_id: ctx.provenance_id.to_string(),
                                     });
                                 }
                             }
@@ -859,10 +1023,21 @@ pub fn build_native_graph(
             }
         }
     }
-    cozo.insert_nodes(&obs_nodes)?;
-    cozo.insert_edges(&obs_edges)?;
+    ctx.cozo.insert_nodes(&obs_nodes)?;
+    ctx.cozo.insert_edges(&obs_edges)?;
 
-    // --- 8b. Collect deploy manifest file paths for cross-surface policy links ---
+    ctx.counters.observability_nodes = obs_nodes.len();
+    ctx.counters.observability_edges = obs_edges.len();
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Phase 9 — Security (Cedar policies, orphan pruning, cross-surface links)
+// ---------------------------------------------------------------------------
+fn phase_security(ctx: &mut GraphLoadContext) -> Result<()> {
+    let conn = ctx.storage.get_connection();
+
+    // 9a. Collect deploy manifest file paths for cross-surface policy links
     let mut dm_stmt = conn
         .prepare("SELECT file_path FROM deploy_manifests")
         .into_diagnostic()?;
@@ -873,10 +1048,10 @@ pub fn build_native_graph(
         .into_diagnostic()?;
     drop(dm_stmt);
 
-    // --- 9. Read Cedar Policies ---
+    // 9b. Read Cedar Policies
     let mut policy_nodes = Vec::new();
     let mut policy_edges = Vec::new();
-    let policy_dir = storage.root_path().join("policies");
+    let policy_dir = ctx.storage.root_path().join("policies");
     if policy_dir.exists()
         && let Ok(entries) = std::fs::read_dir(policy_dir)
     {
@@ -917,7 +1092,7 @@ pub fn build_native_graph(
                             target: t_urn,
                             relation: EdgeKind::MapsTo,
                             confidence: 1.0,
-                            provenance_id: provenance_id.to_string(),
+                            provenance_id: ctx.provenance_id.to_string(),
                         });
                     }
 
@@ -938,7 +1113,7 @@ pub fn build_native_graph(
                             target: p_urn,
                             relation: EdgeKind::Authorizes,
                             confidence: 1.0,
-                            provenance_id: provenance_id.to_string(),
+                            provenance_id: ctx.provenance_id.to_string(),
                         });
                     }
                     if let Some(ref a) = policy.action
@@ -958,7 +1133,7 @@ pub fn build_native_graph(
                             target: a_urn,
                             relation: EdgeKind::Authorizes,
                             confidence: 1.0,
-                            provenance_id: provenance_id.to_string(),
+                            provenance_id: ctx.provenance_id.to_string(),
                         });
                     }
                     if let Some(ref r) = policy.resource
@@ -978,15 +1153,10 @@ pub fn build_native_graph(
                             target: r_urn.clone(),
                             relation: EdgeKind::Authorizes,
                             confidence: 1.0,
-                            provenance_id: provenance_id.to_string(),
+                            provenance_id: ctx.provenance_id.to_string(),
                         });
 
-                        // Cross-surface: if the resource name matches a known service,
-                        // link the policy as protecting that service boundary.
-                        // Use exact suffix match on the URN resource name (e.g.
-                        // "MyService" in "urn:changeguard:resource:MyService") to avoid
-                        // false positives from substring matching.
-                        for ds in &config.services.definitions {
+                        for ds in &ctx.config.services.definitions {
                             if resource_matches_service(r, &ds.name) {
                                 let svc_urn =
                                     crate::platform::urn::build_urn(NodeKind::Service, &ds.name);
@@ -995,7 +1165,7 @@ pub fn build_native_graph(
                                     target: svc_urn,
                                     relation: EdgeKind::ProtectedBy,
                                     confidence: 0.8,
-                                    provenance_id: provenance_id.to_string(),
+                                    provenance_id: ctx.provenance_id.to_string(),
                                 });
                             }
                         }
@@ -1004,22 +1174,13 @@ pub fn build_native_graph(
             }
         }
     }
-    cozo.insert_nodes(&policy_nodes)?;
-    cozo.insert_edges(&policy_edges)?;
+    ctx.cozo.insert_nodes(&policy_nodes)?;
+    ctx.cozo.insert_edges(&policy_edges)?;
 
-    // --- 9b. Cascade pruning of Cedar child nodes (principal / action / resource).
-    // A child node is orphaned if it has no incoming Authorizes edge from a
-    // currently-valid policy node (one whose URN derives from a real .cedar file).
-    // Run this *before* cross-surface links so the graph is clean before further
-    // edge building.
+    // 9c. Cascade pruning of Cedar child nodes (principal / action / resource).
     const CHILD_CATEGORIES: [NodeKind; 3] =
         [NodeKind::Principal, NodeKind::Action, NodeKind::Resource];
 
-    // Collect the file stems of policies that were actually loaded — a policy
-    // is "valid" if its URN contains a recognized cedar-filename component.
-    // URN format: urn:changeguard:policy:<full-path>:<idx>
-    // MUST strip prefix and use rfind(':') for the idx separator, because
-    // Windows drive letters (C:\...) contain colons that split(':') would break on.
     const POLICY_URN_PREFIX: &str = "urn:changeguard:policy:";
     let valid_cedar_stems: Vec<String> = {
         let mut stems: Vec<String> = policy_nodes
@@ -1027,7 +1188,6 @@ pub fn build_native_graph(
             .filter(|n| n.category == NodeKind::Policy)
             .filter_map(|n| {
                 let body = n.id.strip_prefix(POLICY_URN_PREFIX)?;
-                // The trailing ":<idx>" is the last colon component.
                 let last_colon = body.rfind(':')?;
                 let path_str = &body[..last_colon];
                 let path = std::path::Path::new(path_str);
@@ -1041,14 +1201,18 @@ pub fn build_native_graph(
         stems
     };
 
-    // --- Prune stale policy nodes whose cedar file no longer exists on disk. ---
     if valid_cedar_stems.is_empty() {
-        if let Err(e) = cozo.run_script("?[id] := *node{id, category: 'policy'} :rm node {id}") {
+        if let Err(e) = ctx
+            .cozo
+            .run_script("?[id] := *node{id, category: 'policy'} :rm node {id}")
+        {
             tracing::warn!("Cedar policy cleanup: failed to prune all policy nodes: {e}");
         }
     } else {
-        // Selective prune: remove policy nodes whose filename stem doesn't match.
-        if let Ok(pol_res) = cozo.run_script("?[id] := *node{id, category: 'policy'}") {
+        if let Ok(pol_res) = ctx
+            .cozo
+            .run_script("?[id] := *node{id, category: 'policy'}")
+        {
             let stale_policy_ids: Vec<String> = pol_res
                 .rows
                 .iter()
@@ -1062,7 +1226,7 @@ pub fn build_native_graph(
                 })
                 .collect();
             if !stale_policy_ids.is_empty()
-                && let Err(e) = cozo.remove_nodes_by_id(&stale_policy_ids)
+                && let Err(e) = ctx.cozo.remove_nodes_by_id(&stale_policy_ids)
             {
                 tracing::warn!("Cedar policy cleanup: failed to prune stale policy nodes: {e}");
             }
@@ -1070,10 +1234,9 @@ pub fn build_native_graph(
     }
 
     if valid_cedar_stems.is_empty() {
-        // No valid cedar files at all — prune every child node unconditionally.
         for cat in &CHILD_CATEGORIES {
             let cat_str = cat.to_string();
-            if let Err(e) = cozo.run_script(&format!(
+            if let Err(e) = ctx.cozo.run_script(&format!(
                 "?[id] := *node{{id, category: '{cat_str}'}} :rm node {{id}}"
             )) {
                 tracing::warn!(
@@ -1085,12 +1248,11 @@ pub fn build_native_graph(
             "Cedar child node cleanup: pruned all principal/action/resource orphans (no valid policies)"
         );
     } else {
-        // Some policies remain — only prune child nodes that have NO incoming
-        // Authorizes edge from a live policy node.
         for cat in &CHILD_CATEGORIES {
             let cat_str = cat.to_string();
-            let Ok(child_res) =
-                cozo.run_script(&format!("?[id] := *node{{id, category: '{cat_str}'}}"))
+            let Ok(child_res) = ctx
+                .cozo
+                .run_script(&format!("?[id] := *node{{id, category: '{cat_str}'}}"))
             else {
                 continue;
             };
@@ -1103,13 +1265,12 @@ pub fn build_native_graph(
                         Some(cozo::DataValue::Str(s)) => s.to_string(),
                         _ => return None,
                     };
-                    // Escape single-quotes in the URN so the CozoDatalog literal is valid.
                     let escaped = child_id.replace('\'', "\\'");
                     let check = format!(
                         "?[src] := *edge{{source: src, target: '{escaped}', relation: 'authorizes'}}, \
                          *node{{id: src, category: 'policy'}}"
                     );
-                    let has_live_edge = cozo
+                    let has_live_edge = ctx.cozo
                         .run_script(&check)
                         .ok()
                         .map(|r| {
@@ -1136,7 +1297,7 @@ pub fn build_native_graph(
                 .collect();
 
             let pruned = stale_ids.len();
-            if let Err(e) = cozo.remove_nodes_by_id(&stale_ids) {
+            if let Err(e) = ctx.cozo.remove_nodes_by_id(&stale_ids) {
                 tracing::warn!("Cedar child node cleanup: failed to prune {cat_str} orphans: {e}");
             } else {
                 tracing::info!("Cedar child node cleanup: pruned {pruned} stale {cat_str} nodes");
@@ -1144,13 +1305,10 @@ pub fn build_native_graph(
         }
     }
 
-    // --- Cross-surface security links: policies → endpoints, config keys, deploy manifests, ADRs ---
-    // Run this as a second pass after all nodes are inserted.
+    // 9d. Cross-surface security links
     let mut cross_edges = Vec::new();
 
-    // Policy → endpoint: link policy nodes to endpoint nodes where the policy raw
-    // text references the endpoint's path pattern.
-    for (method, path, _, _, _, _, _) in route_rows.iter() {
+    for (method, path, _, _, _, _, _) in ctx.route_rows.iter() {
         let endpoint_id = format!("urn:changeguard:endpoint:{}:{}", method, path);
         for p_node in policy_nodes
             .iter()
@@ -1169,14 +1327,13 @@ pub fn build_native_graph(
                     target: endpoint_id.clone(),
                     relation: EdgeKind::ProtectedBy,
                     confidence: 0.7,
-                    provenance_id: provenance_id.to_string(),
+                    provenance_id: ctx.provenance_id.to_string(),
                 });
             }
         }
     }
 
-    // Policy → config key: link policies to config keys referenced in conditions
-    for cfg_node in config_nodes.iter() {
+    for cfg_node in ctx.config_nodes.iter() {
         if cfg_node.category == NodeKind::ConfigKey {
             let var_name = cfg_node.label.trim_start_matches("Config: ");
             for p_node in policy_nodes
@@ -1199,21 +1356,18 @@ pub fn build_native_graph(
                         target: cfg_node.id.clone(),
                         relation: EdgeKind::Configures,
                         confidence: 0.75,
-                        provenance_id: provenance_id.to_string(),
+                        provenance_id: ctx.provenance_id.to_string(),
                     });
                 }
             }
         }
     }
 
-    // Policy → ADR: each policy governs ADRs that have matching category metadata
-    for adr_node in adr_nodes.iter() {
+    for adr_node in ctx.adr_nodes.iter() {
         for p_node in policy_nodes
             .iter()
             .filter(|n| n.category == NodeKind::Policy)
         {
-            // Link policies to ADRs whose summary (label) references security/authz topics.
-            // ADR `status` is lifecycle metadata (accepted/proposed), not scope — use label.
             let label_lc = adr_node.label.to_lowercase();
             let adr_is_security = label_lc.contains("security")
                 || label_lc.contains("auth")
@@ -1225,13 +1379,12 @@ pub fn build_native_graph(
                     target: adr_node.id.clone(),
                     relation: EdgeKind::Governs,
                     confidence: 0.6,
-                    provenance_id: provenance_id.to_string(),
+                    provenance_id: ctx.provenance_id.to_string(),
                 });
             }
         }
     }
 
-    // Policy → deploy manifests: policies protect deployment surfaces
     for dm_row in deploy_manifests.iter() {
         let dm_urn = crate::platform::urn::build_urn(NodeKind::DeploySurface, dm_row);
         for p_node in policy_nodes
@@ -1251,57 +1404,22 @@ pub fn build_native_graph(
                     target: dm_urn.clone(),
                     relation: EdgeKind::ProtectedBy,
                     confidence: 0.7,
-                    provenance_id: provenance_id.to_string(),
+                    provenance_id: ctx.provenance_id.to_string(),
                 });
             }
         }
     }
 
-    cozo.insert_edges(&cross_edges)?;
+    ctx.cozo.insert_edges(&cross_edges)?;
 
-    info!(
-        "Native graph built: {} files, {} symbols, {} edges, {} endpoints, {} ADRs, {} services, \
-         {} models, {} config_keys, {} obs, {} policies, {} cross-surface edges",
-        files_indexed,
-        symbols_indexed,
-        edges_added
-            + endpoint_edges.len()
-            + adr_edges.len()
-            + obs_edges.len()
-            + policy_edges.len()
-            + cross_edges.len(),
-        endpoint_nodes.len(),
-        adr_nodes.len(),
-        service_nodes.len(),
-        model_nodes.len(),
-        config_nodes.len(),
-        obs_nodes.len(),
-        policy_nodes.len(),
-        cross_edges.len(),
-    );
-
-    Ok(GraphStats {
-        nodes_added: files_indexed
-            + symbols_indexed
-            + endpoint_nodes.len()
-            + adr_nodes.len()
-            + service_nodes.len()
-            + model_nodes.len()
-            + config_nodes.len()
-            + obs_nodes.len()
-            + policy_nodes.len(),
-        edges_added: edges_added
-            + endpoint_edges.len()
-            + adr_edges.len()
-            + service_edges.len()
-            + model_edges.len()
-            + config_edges.len()
-            + obs_edges.len()
-            + policy_edges.len()
-            + cross_edges.len(),
-        files_indexed,
-        symbols_indexed,
-    })
+    let sec_nodes = policy_nodes.len();
+    let sec_edges = policy_edges.len() + cross_edges.len();
+    ctx.counters.security_nodes = sec_nodes;
+    ctx.counters.security_edges = sec_edges;
+    ctx.counters.cross_surface_edges = cross_edges.len();
+    ctx.policy_nodes = policy_nodes;
+    ctx.deploy_manifests = deploy_manifests;
+    Ok(())
 }
 
 pub fn run_community_louvain(cozo: &CozoStorage) -> Result<Vec<Community>> {
@@ -1350,4 +1468,34 @@ fn resource_matches_service(resource: &str, service_name: &str) -> bool {
         .next_back()
         .unwrap_or(resource.trim());
     r.eq_ignore_ascii_case(service_name) || r.eq_ignore_ascii_case(&service_name.replace('-', "_"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_phase_counters_default() {
+        let counters = PhaseCounters::default();
+        assert_eq!(counters.files, 0);
+        assert_eq!(counters.symbols, 0);
+        assert_eq!(counters.call_edges, 0);
+        assert_eq!(counters.cross_surface_edges, 0);
+    }
+
+    #[test]
+    fn test_resource_matches_service_exact() {
+        assert!(resource_matches_service("MyService", "MyService"));
+        assert!(resource_matches_service("MyService", "myService"));
+        assert!(!resource_matches_service("MyService", "Other"));
+    }
+
+    #[test]
+    fn test_resource_matches_service_urn_suffix() {
+        assert!(resource_matches_service(
+            "urn:changeguard:resource:MyService",
+            "MyService"
+        ));
+        assert!(resource_matches_service("My_Service", "My-Service"));
+    }
 }
