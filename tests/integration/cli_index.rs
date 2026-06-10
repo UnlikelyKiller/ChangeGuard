@@ -1,9 +1,9 @@
 use camino::Utf8Path;
-use changeguard::commands::index::{execute_index, execute_index_check, IndexArgs};
+use changeguard::commands::index::{IndexArgs, execute_index, execute_index_check};
 use std::fs;
 use tempfile::tempdir;
 
-use crate::common::{cwd_lock, DirGuard, setup_git_repo};
+use crate::common::{DirGuard, cwd_lock, setup_git_repo};
 
 /// Check mode on a missing index in an empty repo should report fresh
 /// (no exit because there are no source files).
@@ -65,7 +65,9 @@ fn test_index_docs_no_config_skips() {
     let _guard = DirGuard::from_utf8(root);
 
     // ensure state dir exists so StorageManager::init can create ledger.db
-    changeguard::state::layout::Layout::new(root).ensure_state_dir().unwrap();
+    changeguard::state::layout::Layout::new(root)
+        .ensure_state_dir()
+        .unwrap();
 
     let result = execute_index(IndexArgs {
         docs: true,
@@ -113,7 +115,9 @@ fn test_index_semantic_with_analyze_graph_falls_through() {
     let _guard = DirGuard::from_utf8(root);
 
     // Ensure state dir exists so the main path gets past StorageManager::init.
-    changeguard::state::layout::Layout::new(root).ensure_state_dir().unwrap();
+    changeguard::state::layout::Layout::new(root)
+        .ensure_state_dir()
+        .unwrap();
 
     // analyze_graph falls through to main path and completes successfully on
     // a minimal repo (unlike the semantic standalone path which needs CozoDB).
