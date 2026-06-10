@@ -9,3 +9,7 @@ target/
 graphify-out/
 
 /scratch/
+
+# Agent worktrees create embedded git repos; ignore them
+.agents/worktrees/
+.codex/worktrees/

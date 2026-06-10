@@ -1,2 +1,0 @@
-@echo off
-codex exec -C "C:\dev\changeguard" -s read-only -m gpt-5.4 -o output\review_gf5.md "Review the current diff for Track GF5: CLI Command Definition and Dispatch Split. Focus on: (1) Are all public types still reachable through the facade? (2) Were any clap attributes accidentally dropped? (3) Is run_with still the stable entry point? (4) Any missed re-exports? (5) Are tests sufficient? Do not modify files."
