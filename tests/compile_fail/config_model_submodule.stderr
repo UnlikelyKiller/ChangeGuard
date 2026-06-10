@@ -1,0 +1,11 @@
+error[E0603]: module `local_model` is private
+ --> tests/compile_fail/config_model_submodule.rs:1:33
+  |
+1 | use changeguard::config::model::local_model::LocalModelConfig;
+  |                                 ^^^^^^^^^^^ private module
+  |
+note: the module `local_model` is defined here
+ --> src/config/model.rs
+  |
+  | mod local_model;
+  | ^^^^^^^^^^^^^^^
