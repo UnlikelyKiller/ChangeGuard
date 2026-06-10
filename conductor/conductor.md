@@ -1660,6 +1660,74 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Definition of done: `config view --json` never emits secret values; `ask --backend local` succeeds with valid Ollama Cloud config and reports clear actionable errors for invalid credentials; `verify --health` is bounded and informative; dry-run, JSON, bridge, empty-state, and federation UX issues have tests; official Ollama API behavior is captured in regression coverage; full verification plus reinstall passes.
 
 
+## Milestone GF: God-File Decomposition and Boundary Hardening (Planning)
+
+Execution guidance (added 2026-06-09 review): run these tracks **serially**, one branch at a time — every track moves large files, so parallel tracks guarantee merge churn. Hard ordering: GF3 → GF6 → GF7. GF1, GF2, GF4, GF5, GF8 are independent of each other, but GF1 and GF8 both touch `DeadCodeFinding`/`ConfidenceFactor` in `src/impact/packet.rs`, so whichever runs second must rebase on the first. Every track is a `REFACTOR`-category ledger transaction: `ledger start` in Phase 0, `ledger commit` at finalization.
+
+*   **Track GF1: Impact Packet Domain Type Split**
+    *   Status: Planning
+    *   Spec: `conductor/trackGF1/spec.md`
+    *   Plan: `conductor/trackGF1/plan.md`
+    *   Goal: Decompose `src/impact/packet.rs` into focused domain modules for core packet metadata, changed files, risk, verification, coverage, observability, contracts, services, deployments, dependencies, security, and serialization helpers without changing the public `ImpactPacket` schema.
+    *   Definition of done: Existing imports continue to compile through compatibility re-exports; all packet JSON snapshots and integration behavior remain stable; compile-time fan-in risk is reduced by module boundaries; full verification plus reinstall passes.
+
+*   **Track GF2: Config Model Domain Split**
+    *   Status: Planning
+    *   Dependencies: GF1 optional
+    *   Spec: `conductor/trackGF2/spec.md`
+    *   Plan: `conductor/trackGF2/plan.md`
+    *   Goal: Split `src/config/model.rs` into domain-specific config modules and isolate environment/dotenv/default resolution from pure config data types.
+    *   Definition of done: Config serialization, aliases, secret redaction, env precedence, and validation behavior are unchanged; domain modules have focused tests; full verification plus reinstall passes.
+
+*   **Track GF3: Native Graph Loader Phase Extraction**
+    *   Status: Planning
+    *   Dependencies: GF1 optional
+    *   Spec: `conductor/trackGF3/spec.md`
+    *   Plan: `conductor/trackGF3/plan.md`
+    *   Goal: Break the 1300-line `build_native_graph` procedure in `src/index/graph_loader.rs` into explicit graph loading phases with testable helpers and unchanged CozoDB output.
+    *   Definition of done: Files, symbols, edges, routes, dependencies, deployments, environment, observability, and security indexing remain idempotent; phase-level tests protect deleted-node pruning and incremental behavior; full verification plus reinstall passes.
+
+*   **Track GF4: Ledger Database Query Domain Split**
+    *   Status: Planning
+    *   Dependencies: GF2 optional
+    *   Spec: `conductor/trackGF4/spec.md`
+    *   Plan: `conductor/trackGF4/plan.md`
+    *   Goal: Decompose `src/ledger/db.rs` by query domain while preserving `LedgerDb` as the stable facade for transaction lifecycle, drift, search, ADR, enforcement, federation, provenance, and graph-link operations.
+    *   Definition of done: Existing `LedgerDb` call sites are not forced to migrate in the same track; query-domain tests use isolated temp repositories/databases; ledger hooks and drift lifecycle continue to work; full verification plus reinstall passes.
+
+*   **Track GF5: CLI Command Definition and Dispatch Split**
+    *   Status: Planning
+    *   Dependencies: GF2, GF4 optional
+    *   Spec: `conductor/trackGF5/spec.md`
+    *   Plan: `conductor/trackGF5/plan.md`
+    *   Goal: Split `src/cli.rs` into command-group argument modules and dispatch helpers while preserving the `run_with` entry point, clap contract, aliases, JSON behavior, and command help text.
+    *   Definition of done: `changeguard --help` and command-level help remain stable except intentional grouping; dispatch smoke tests cover all command groups; full verification plus reinstall passes.
+
+*   **Track GF6: Index Orchestrator Capability Split**
+    *   Status: Planning
+    *   Dependencies: GF3
+    *   Spec: `conductor/trackGF6/spec.md`
+    *   Plan: `conductor/trackGF6/plan.md`
+    *   Goal: Split `src/index/orchestrator.rs` into focused indexing capabilities for file discovery, tree-sitter parsing, index lifecycle, extraction delegation, centrality, services, KG build delegation, and SQL row helpers. (Note: the facade struct is `ProjectIndexer`; SCIP/semantic/docs-export orchestration lives in `src/commands/index.rs` and belongs to GF7.)
+    *   Definition of done: `ProjectIndexer` remains the stable public facade; each capability has focused tests or smoke coverage; graph/search freshness behavior remains unchanged; full verification plus reinstall passes.
+
+*   **Track GF7: Index Command Mode Extraction**
+    *   Status: Planning
+    *   Dependencies: GF3, GF6
+    *   Spec: `conductor/trackGF7/spec.md`
+    *   Plan: `conductor/trackGF7/plan.md`
+    *   Goal: Extract `src/commands/index.rs` mode handlers for docs, contracts, analyze-graph, semantic, semantic-dry-run, incremental, check, SCIP, export-docs, and the `--fast` Gemini extraction path into navigable functions or modules with shared option normalization (including `--concurrency` and `--strict`).
+    *   Definition of done: All `changeguard index` modes preserve CLI behavior, progress output, JSON/script safety, and state side effects; integration tests cover every mode path; full verification plus reinstall passes.
+
+*   **Track GF8: Dead-Code Analysis Provider Boundary Tightening**
+    *   Status: Planning
+    *   Dependencies: GF3, GF6 optional
+    *   Spec: `conductor/trackGF8/spec.md`
+    *   Plan: `conductor/trackGF8/plan.md`
+    *   Goal: Continue the RE2 provider-pattern direction in `src/impact/analysis/dead_code.rs` by splitting evidence collection, confidence scoring, filtering, and report rendering into focused modules.
+    *   Definition of done: Dead-code confidence scores remain deterministic; existing tests remain green and gain focused provider coverage; no new false-positive deletion recommendations are introduced; full verification plus reinstall passes.
+
+
 ## Workflow
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.
