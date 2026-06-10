@@ -1,11 +1,16 @@
-use crate::config::model::LocalModelConfig;
-use crate::local_model::client::{ChatMessage, CompletionOptions, complete};
+use crate::config::model::{GeminiConfig, LocalModelConfig};
+use crate::local_model::client::{ChatMessage, CompletionOptions, complete, gemini_complete};
 use crate::state::storage_cozo::CozoStorage;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use tracing::warn;
+use std::fs;
+use tracing::{info, warn};
+
+/// When set, the full prompt and raw LLM response are dumped to this directory
+/// for inspection (one file per chunk attempt).
+const DEBUG_DUMP_ENV: &str = "CHANGEGUARD_DEBUG_SEMANTIC";
 
 #[derive(Debug, Clone)]
 pub struct SemanticNode {
@@ -39,6 +44,8 @@ pub struct SemanticExtractorConfig {
     pub overlap_chars: usize,
     pub max_retries: usize,
     pub enable_adaptive_recursion: bool,
+    /// When true, use Gemini API instead of the local model for extraction.
+    pub fast: bool,
 }
 
 impl Default for SemanticExtractorConfig {
@@ -49,6 +56,7 @@ impl Default for SemanticExtractorConfig {
             overlap_chars: 1000,
             max_retries: 3,
             enable_adaptive_recursion: true,
+            fast: false,
         }
     }
 }
@@ -118,6 +126,7 @@ impl SemanticExtractor {
         path: &Path,
         content: &str,
         local_model_config: &LocalModelConfig,
+        gemini_config: &GeminiConfig,
     ) -> Result<ExtractionResult, String> {
         // Dynamically adjust based on the model's reported context window
         let max_input_tokens = if local_model_config.context_window >= 64000 {
@@ -144,7 +153,7 @@ impl SemanticExtractor {
             let chunk_input_tokens = chunk.chars().count().div_ceil(4);
             total_input_tokens += chunk_input_tokens;
 
-            match self.call_llm(path, &chunk, local_model_config) {
+            match self.call_llm(path, &chunk, local_model_config, gemini_config) {
                 Ok((partial, output_tokens)) => {
                     total_output_tokens += output_tokens;
                     all_nodes.extend(partial.nodes);
@@ -173,18 +182,37 @@ impl SemanticExtractor {
         &self,
         files: Vec<(PathBuf, String)>,
         local_model_config: &LocalModelConfig,
+        gemini_config: &GeminiConfig,
     ) -> Result<ExtractionResult, String> {
         let mut all_nodes = Vec::new();
         let mut all_edges = Vec::new();
         let mut total_input_tokens = 0;
         let mut total_output_tokens = 0;
+        let n = files.len();
 
-        for (path, content) in files {
-            let result = self.extract_from_file(&path, &content, local_model_config)?;
+        for (i, (path, content)) in files.iter().enumerate() {
+            let file_label = path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or(path.to_str().unwrap_or("<unknown>"));
+            let byte_len = content.len();
+            let start = std::time::Instant::now();
+            info!(
+                "Semantic extraction [{}/{}]: processing {} ({} bytes)...",
+                i + 1, n, file_label, byte_len,
+            );
+            let result = self.extract_from_file(path, content, local_model_config, gemini_config)?;
+            let elapsed = start.elapsed();
             total_input_tokens += result.input_tokens;
             total_output_tokens += result.output_tokens;
+            let node_count = result.nodes.len();
+            let edge_count = result.edges.len();
             all_nodes.extend(result.nodes);
             all_edges.extend(result.edges);
+            info!(
+                "Semantic extraction [{}/{}]: completed {} in {:.1}s ({} nodes, {} edges from this file)",
+                i + 1, n, file_label, elapsed.as_secs_f64(), node_count, edge_count,
+            );
         }
 
         let (nodes, edges) = deduplicate(all_nodes, all_edges);
@@ -256,15 +284,31 @@ impl SemanticExtractor {
         path: &Path,
         chunk: &str,
         local_model_config: &LocalModelConfig,
+        gemini_config: &GeminiConfig,
     ) -> Result<(ExtractionResult, usize), String> {
         let system_msg = ChatMessage {
             role: "system".to_string(),
             content: "You are a semantic code analysis engine that returns only JSON.".to_string(),
         };
+
+        // Derive output budget from the model's actual context window.
+        // Reserve ~60% for input+prompts, ~40% for output JSON.
+        // The hardcoded default was 8192 — too small for 64K models processing
+        // symbol-dense files like model.rs (130+ functions).
+        let max_output_tokens = std::cmp::max(
+            8192,
+            local_model_config.context_window.saturating_mul(2) / 5,
+        );
         let options = CompletionOptions {
-            max_tokens: self.config.model_context_window,
+            max_tokens: max_output_tokens,
             temperature: 0.1,
         };
+
+        // Semantic extraction can require many output tokens at ~20ms/token on GPU,
+        // so use a generous read timeout (10 min) to prevent premature cut-off.
+        let effective_timeout = std::cmp::max(600, local_model_config.timeout_secs);
+
+        let debug_dir = std::env::var(DEBUG_DUMP_ENV).ok();
 
         let mut last_error = String::new();
         let mut attempt = 0;
@@ -273,6 +317,15 @@ impl SemanticExtractor {
         while attempt < self.config.max_retries {
             attempt += 1;
             let prompt = format!("{}{}\n```", EXTRACTION_PROMPT, current_chunk);
+
+            // Debug dump: write the full prompt before sending
+            if let Some(ref dir) = debug_dir {
+                let stem = path.file_stem().unwrap_or_default();
+                let dump_path = PathBuf::from(dir).join(format!("{}_attempt{}_prompt.txt", stem.to_string_lossy(), attempt));
+                let _ = fs::write(&dump_path, prompt.as_str());
+                info!(target: "semantic_debug", "Wrote prompt to {}", dump_path.display());
+            }
+
             let messages = vec![
                 system_msg.clone(),
                 ChatMessage {
@@ -281,14 +334,48 @@ impl SemanticExtractor {
                 },
             ];
 
-            match complete(local_model_config, &messages, &options, None) {
+            let llm_result = if self.config.fast {
+                info!(
+                    "Semantic extraction [{}/{}]: using Gemini (fast mode)...",
+                    attempt, self.config.max_retries,
+                );
+                gemini_complete(gemini_config, &messages, &options)
+            } else {
+                complete(local_model_config, &messages, &options, Some(effective_timeout))
+            };
+
+            match llm_result {
                 Ok(response) => {
+                    // Debug dump: write the raw LLM response
+                    if let Some(ref dir) = debug_dir {
+                        let stem = path.file_stem().unwrap_or_default();
+                        let dump_path = PathBuf::from(dir).join(format!("{}_attempt{}_response.txt", stem.to_string_lossy(), attempt));
+                        let _ = fs::write(&dump_path, &response);
+                        info!(target: "semantic_debug", "Wrote response to {}", dump_path.display());
+                    }
+
                     let output_tokens = response.chars().count().div_ceil(4);
-                    let trimmed = response.trim_end();
+
+                    // Strip code fences before the truncation check so that
+                    // markdown-wrapped valid JSON is not falsely flagged.
+                    let cleaned = response.trim();
+                    let cleaned = if cleaned.starts_with("```json") {
+                        cleaned.trim_start_matches("```json").trim_end_matches("```").trim()
+                    } else if cleaned.starts_with("```") {
+                        cleaned.trim_start_matches("```").trim_end_matches("```").trim()
+                    } else {
+                        cleaned
+                    };
+
                     if self.config.enable_adaptive_recursion
-                        && (!trimmed.ends_with('}') && !trimmed.ends_with(']'))
+                        && (!cleaned.ends_with('}') && !cleaned.ends_with(']'))
                     {
-                        warn!("LLM response appears truncated, retrying with smaller chunk");
+                        warn!(
+                            "LLM response appears truncated ({} bytes received, does not end with '}}' or ']'), retrying with smaller chunk ({} → {})",
+                            response.len(),
+                            current_chunk.len(),
+                            current_chunk.len() / 2,
+                        );
                         if current_chunk.len() > 1000 {
                             current_chunk = current_chunk[..current_chunk.len() / 2].to_string();
                             continue;

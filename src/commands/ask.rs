@@ -151,6 +151,7 @@ pub fn execute_ask(
                 doc_type: None,
                 concurrency: None,
                 semantic_dry_run: None,
+                fast: false,
             })?;
         }
     }

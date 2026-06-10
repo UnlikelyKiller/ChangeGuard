@@ -61,6 +61,8 @@ pub struct IndexArgs {
     pub concurrency: Option<usize>,
     /// Print resolved semantic settings and exit. Optionally takes a path for JSON output.
     pub semantic_dry_run: Option<Option<std::path::PathBuf>>,
+    /// Use Gemini for semantic extraction (fast, large context) instead of local model
+    pub fast: bool,
 }
 
 pub fn execute_index(args: IndexArgs) -> Result<()> {
@@ -82,7 +84,7 @@ pub fn execute_index(args: IndexArgs) -> Result<()> {
         return execute_scip_index(&layout, storage, scip_path);
     }
 
-    if args.semantic {
+    if args.semantic && !args.analyze_graph {
         return execute_semantic_index(
             &layout,
             storage,
@@ -203,7 +205,7 @@ pub fn execute_index(args: IndexArgs) -> Result<()> {
 
     // Compute centrality if requested
     let cent_stats = if args.analyze_graph {
-        indexer.build_kg_native(&config.local_model)?;
+        indexer.build_kg_native(&config.local_model, &config.gemini, args.semantic, args.fast)?;
         indexer.compute_centrality()?
     } else {
         info!("Centrality computation skipped (use --analyze-graph to enable).");

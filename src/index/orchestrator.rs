@@ -105,6 +105,9 @@ impl ProjectIndexer {
     pub fn build_kg_native(
         &self,
         local_model_config: &crate::config::model::LocalModelConfig,
+        gemini_config: &crate::config::model::GeminiConfig,
+        enable_semantic: bool,
+        fast: bool,
     ) -> Result<()> {
         let Some(cozo) = &self.storage.cozo else {
             info!("CozoDB not available, skipping native KG build");
@@ -118,33 +121,53 @@ impl ProjectIndexer {
             &self.config,
         )?;
 
-        // Optionally enrich with semantic extraction on a sample of files
-        match self.get_semantic_sample_files() {
-            Ok(sample_files) if !sample_files.is_empty() => {
-                let extractor = crate::ai::semantic_extractor::SemanticExtractor::new(
-                    crate::ai::semantic_extractor::SemanticExtractorConfig::default(),
-                );
-                match extractor.extract_batch(sample_files, local_model_config) {
-                    Ok(result) => {
-                        if let Err(e) =
-                            crate::ai::semantic_extractor::SemanticExtractor::ingest_into_cozo(
-                                &result,
-                                cozo,
-                                "semantic_kg",
-                            )
-                        {
-                            warn!("Semantic extraction ingestion failed: {}", e);
+        // Semantic enrichment is only performed when --semantic is explicitly passed.
+        if enable_semantic {
+            match self.get_semantic_sample_files() {
+                Ok(sample_files) if !sample_files.is_empty() => {
+                    info!(
+                        "Running semantic enrichment on {} sample files via LLM...",
+                        sample_files.len()
+                    );
+                    let extractor = crate::ai::semantic_extractor::SemanticExtractor::new(
+                        crate::ai::semantic_extractor::SemanticExtractorConfig {
+                            fast,
+                            ..Default::default()
+                        },
+                    );
+                    match extractor.extract_batch(sample_files, local_model_config, gemini_config) {
+                        Ok(result) => {
+                            info!(
+                                "Semantic extraction complete: {} nodes, {} edges ({} input tokens, {} output tokens)",
+                                result.nodes.len(),
+                                result.edges.len(),
+                                result.input_tokens,
+                                result.output_tokens,
+                            );
+                            if let Err(e) =
+                                crate::ai::semantic_extractor::SemanticExtractor::ingest_into_cozo(
+                                    &result,
+                                    cozo,
+                                    "semantic_kg",
+                                )
+                            {
+                                warn!("Semantic extraction ingestion failed: {}", e);
+                            }
+                        }
+                        Err(e) => {
+                            warn!("Semantic extraction failed: {}", e);
                         }
                     }
-                    Err(e) => {
-                        warn!("Semantic extraction failed: {}", e);
-                    }
+                }
+                Ok(_) => {
+                    info!("No parsed source files found; skipping semantic enrichment.");
+                }
+                Err(e) => {
+                    warn!("Failed to collect semantic sample files: {}", e);
                 }
             }
-            Ok(_) => {}
-            Err(e) => {
-                warn!("Failed to collect semantic sample files: {}", e);
-            }
+        } else {
+            info!("Semantic enrichment skipped (pass --semantic to enable LLM-based extraction).");
         }
 
         let communities = crate::index::graph_loader::run_community_louvain(cozo)?;
@@ -165,11 +188,15 @@ impl ProjectIndexer {
 
     fn get_semantic_sample_files(&self) -> Result<Vec<(std::path::PathBuf, String)>> {
         let conn = self.storage.get_connection();
+        // Select files with the highest symbol+edge counts — more likely to benefit
+        // from semantic enrichment than the first-10 by insertion order.
         let mut stmt = conn
             .prepare(
-                "SELECT file_path FROM project_files \
-                 WHERE parse_status = 'OK' \
-                 AND language IN ('Rust', 'TypeScript', 'Python', 'Go') \
+                "SELECT pf.file_path \
+                 FROM project_files pf \
+                 WHERE pf.parse_status = 'OK' \
+                   AND pf.language IN ('Rust', 'TypeScript', 'Python', 'Go') \
+                 ORDER BY (SELECT COUNT(*) FROM project_symbols ps WHERE ps.file_id = pf.id) DESC \
                  LIMIT 10",
             )
             .into_diagnostic()?;

@@ -109,6 +109,9 @@ pub enum Commands {
         /// Print resolved semantic settings and exit. Optionally takes a path for JSON output.
         #[arg(long, value_name = "OUTPUT_PATH", num_args = 0..=1)]
         semantic_dry_run: Option<Option<std::path::PathBuf>>,
+        /// Use Gemini for semantic extraction (fast, large context) instead of local model
+        #[arg(long)]
+        fast: bool,
     },
     /// Search the codebase using high-performance regex or semantic search
     Search {
@@ -875,6 +878,7 @@ pub fn run_with(cli: Cli) -> Result<()> {
             strict,
             concurrency,
             semantic_dry_run,
+            fast,
         } => {
             if check {
                 crate::commands::index::execute_index_check(
@@ -898,6 +902,7 @@ pub fn run_with(cli: Cli) -> Result<()> {
                     doc_type,
                     concurrency,
                     semantic_dry_run,
+                    fast,
                 })
             }
         }

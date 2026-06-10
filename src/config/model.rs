@@ -616,7 +616,7 @@ fn default_context_window_local() -> usize {
     38000
 }
 fn default_local_timeout() -> u64 {
-    60
+    300
 }
 
 fn default_chunk_top_k() -> usize {
@@ -1176,6 +1176,8 @@ fn resolve_local_model_config_with(
     resolved.rerank_model = resolve_string(&config.rerank_model, "CHANGEGUARD_RERANK_MODEL");
     resolved.dimensions = resolve_usize(config.dimensions, "CHANGEGUARD_EMBEDDING_DIMENSIONS");
     resolved.disable_hnsw = resolve_bool(config.disable_hnsw, "CHANGEGUARD_DISABLE_HNSW");
+    resolved.context_window =
+        resolve_usize(config.context_window, "CHANGEGUARD_LOCAL_CONTEXT_WINDOW");
 
     resolved
 }
@@ -1369,7 +1371,7 @@ mod tests {
         assert_eq!(config.rerank_model, "");
         assert_eq!(config.dimensions, 0);
         assert_eq!(config.context_window, 38000);
-        assert_eq!(config.timeout_secs, 60);
+        assert_eq!(config.timeout_secs, 300);
         assert!(!config.prefer_local);
     }
 

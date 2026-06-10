@@ -58,6 +58,7 @@ fn execute_migration(dry_run: bool) -> Result<()> {
         strict: false,
         concurrency: None,
         semantic_dry_run: None,
+        fast: false,
     })?;
 
     println!("{} Migration complete.", "DONE".green().bold());
