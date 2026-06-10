@@ -1,9 +1,9 @@
 #[cfg(test)]
 use crate::config::model::Config;
 use crate::index::call_graph::CallEdge;
-use crate::index::orchestrator::{
-    BINARY_EXTENSIONS, ProjectIndexer, SUPPORTED_EXTENSIONS, delete_file_index_dependents,
-    get_file_id_by_path, insert_symbol_row, upsert_file_row,
+use crate::index::orchestrator::{BINARY_EXTENSIONS, ProjectIndexer, SUPPORTED_EXTENSIONS};
+use crate::index::rows::{
+    delete_file_index_dependents, get_file_id_by_path, insert_symbol_row, upsert_file_row,
 };
 use crate::index::types::{ProjectFile, ProjectSymbol};
 use crate::state::graph_kinds::{EdgeKind, NodeKind};

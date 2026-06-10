@@ -286,42 +286,27 @@ fn execute_main_mode(
     engine.verify_index_integrity(index_path.as_std_path())?;
 
     // ── Output formatting ──────────────────────────────────────────────────
+    let output_stats = IndexOutputStats {
+        stats,
+        doc_stats,
+        topo_stats,
+        ep_stats,
+        service_stats,
+        cg_stats,
+        route_stats,
+        dm_stats,
+        obs_stats,
+        tm_stats,
+        ci_stats,
+        env_stats,
+        cent_stats,
+        contracts_summary,
+        analyze_graph: args.analyze_graph,
+    };
     if args.json {
-        print_json_output(
-            &stats,
-            &doc_stats,
-            &topo_stats,
-            &ep_stats,
-            &service_stats,
-            &cg_stats,
-            &route_stats,
-            &dm_stats,
-            &obs_stats,
-            &tm_stats,
-            &ci_stats,
-            &env_stats,
-            &cent_stats,
-            &contracts_summary,
-            args.analyze_graph,
-        )?;
+        print_json_output(&output_stats)?;
     } else {
-        print_human_output(
-            &stats,
-            &doc_stats,
-            &topo_stats,
-            &ep_stats,
-            &service_stats,
-            &cg_stats,
-            &route_stats,
-            &dm_stats,
-            &obs_stats,
-            &tm_stats,
-            &ci_stats,
-            &env_stats,
-            &cent_stats,
-            &contracts_summary,
-            args.analyze_graph,
-        );
+        print_human_output(&output_stats);
     }
 
     // ── Sub-mode: export-docs ────────────────────────────────────────────
@@ -423,104 +408,107 @@ fn execute_export_docs_mode(
     Ok(())
 }
 
+/// Bundles all index statistics for output formatting.
+/// Eliminates the 15-parameter signatures on print helpers.
+struct IndexOutputStats {
+    stats: crate::index::orchestrator::IndexStats,
+    doc_stats: crate::index::docs::DocIndexStats,
+    topo_stats: crate::index::topology::TopologyIndexStats,
+    ep_stats: crate::index::entrypoint::EntrypointStats,
+    service_stats: ServiceIndexStats,
+    cg_stats: crate::index::call_graph::CallGraphStats,
+    route_stats: crate::index::routes::RouteStats,
+    dm_stats: crate::index::data_models::DataModelStats,
+    obs_stats: crate::index::observability::ObservabilityStats,
+    tm_stats: crate::index::test_mapping::TestMappingStats,
+    ci_stats: crate::index::ci_gates::CIGateStats,
+    env_stats: crate::index::env_schema::EnvSchemaStats,
+    cent_stats: crate::index::centrality::CentralityStats,
+    contracts_summary: Option<crate::contracts::index::ContractsIndexSummary>,
+    analyze_graph: bool,
+}
+
 // ── Output formatting helpers ───────────────────────────────────────────────
 
-#[allow(clippy::too_many_arguments)]
-fn print_json_output(
-    stats: &crate::index::orchestrator::IndexStats,
-    doc_stats: &crate::index::docs::DocIndexStats,
-    topo_stats: &crate::index::topology::TopologyIndexStats,
-    ep_stats: &crate::index::entrypoint::EntrypointStats,
-    service_stats: &ServiceIndexStats,
-    cg_stats: &crate::index::call_graph::CallGraphStats,
-    route_stats: &crate::index::routes::RouteStats,
-    dm_stats: &crate::index::data_models::DataModelStats,
-    obs_stats: &crate::index::observability::ObservabilityStats,
-    tm_stats: &crate::index::test_mapping::TestMappingStats,
-    ci_stats: &crate::index::ci_gates::CIGateStats,
-    env_stats: &crate::index::env_schema::EnvSchemaStats,
-    cent_stats: &crate::index::centrality::CentralityStats,
-    contracts_summary: &Option<crate::contracts::index::ContractsIndexSummary>,
-    analyze_graph: bool,
-) -> Result<()> {
-    let mut output = serde_json::to_value(stats).into_diagnostic()?;
-    let doc_obj = serde_json::to_value(doc_stats).into_diagnostic()?;
-    let topo_obj = serde_json::to_value(topo_stats).into_diagnostic()?;
-    let ep_obj = serde_json::to_value(ep_stats).into_diagnostic()?;
-    let service_obj = serde_json::to_value(service_stats).into_diagnostic()?;
-    if let (Some(map), Some(doc)) = (output.as_object_mut(), doc_obj.as_object()) {
+fn print_json_output(output: &IndexOutputStats) -> Result<()> {
+    let mut merged = serde_json::to_value(&output.stats).into_diagnostic()?;
+    let doc_obj = serde_json::to_value(&output.doc_stats).into_diagnostic()?;
+    let topo_obj = serde_json::to_value(&output.topo_stats).into_diagnostic()?;
+    let ep_obj = serde_json::to_value(&output.ep_stats).into_diagnostic()?;
+    let service_obj = serde_json::to_value(&output.service_stats).into_diagnostic()?;
+    if let (Some(map), Some(doc)) = (merged.as_object_mut(), doc_obj.as_object()) {
         for (k, v) in doc {
             map.insert(format!("doc_{}", k), v.clone());
         }
     }
-    if let (Some(map), Some(topo)) = (output.as_object_mut(), topo_obj.as_object()) {
+    if let (Some(map), Some(topo)) = (merged.as_object_mut(), topo_obj.as_object()) {
         for (k, v) in topo {
             map.insert(format!("topo_{}", k), v.clone());
         }
     }
-    if let (Some(map), Some(ep)) = (output.as_object_mut(), ep_obj.as_object()) {
+    if let (Some(map), Some(ep)) = (merged.as_object_mut(), ep_obj.as_object()) {
         for (k, v) in ep {
             map.insert(format!("ep_{}", k), v.clone());
         }
     }
-    if let (Some(map), Some(svc)) = (output.as_object_mut(), service_obj.as_object()) {
+    if let (Some(map), Some(svc)) = (merged.as_object_mut(), service_obj.as_object()) {
         for (k, v) in svc {
             map.insert(format!("service_{}", k), v.clone());
         }
     }
-    let cg_obj = serde_json::to_value(cg_stats).into_diagnostic()?;
-    if let (Some(map), Some(cg)) = (output.as_object_mut(), cg_obj.as_object()) {
+    let cg_obj = serde_json::to_value(&output.cg_stats).into_diagnostic()?;
+    if let (Some(map), Some(cg)) = (merged.as_object_mut(), cg_obj.as_object()) {
         for (k, v) in cg {
             map.insert(format!("cg_{}", k), v.clone());
         }
     }
-    let route_obj = serde_json::to_value(route_stats).into_diagnostic()?;
-    if let (Some(map), Some(route)) = (output.as_object_mut(), route_obj.as_object()) {
+    let route_obj = serde_json::to_value(&output.route_stats).into_diagnostic()?;
+    if let (Some(map), Some(route)) = (merged.as_object_mut(), route_obj.as_object()) {
         for (k, v) in route {
             map.insert(format!("route_{}", k), v.clone());
         }
     }
-    let dm_obj = serde_json::to_value(dm_stats).into_diagnostic()?;
-    if let (Some(map), Some(dm)) = (output.as_object_mut(), dm_obj.as_object()) {
+    let dm_obj = serde_json::to_value(&output.dm_stats).into_diagnostic()?;
+    if let (Some(map), Some(dm)) = (merged.as_object_mut(), dm_obj.as_object()) {
         for (k, v) in dm {
             map.insert(format!("dm_{}", k), v.clone());
         }
     }
-    let obs_obj = serde_json::to_value(obs_stats).into_diagnostic()?;
-    if let (Some(map), Some(obs)) = (output.as_object_mut(), obs_obj.as_object()) {
+    let obs_obj = serde_json::to_value(&output.obs_stats).into_diagnostic()?;
+    if let (Some(map), Some(obs)) = (merged.as_object_mut(), obs_obj.as_object()) {
         for (k, v) in obs {
             map.insert(format!("obs_{}", k), v.clone());
         }
     }
-    let tm_obj = serde_json::to_value(tm_stats).into_diagnostic()?;
-    if let (Some(map), Some(tm)) = (output.as_object_mut(), tm_obj.as_object()) {
+    let tm_obj = serde_json::to_value(&output.tm_stats).into_diagnostic()?;
+    if let (Some(map), Some(tm)) = (merged.as_object_mut(), tm_obj.as_object()) {
         for (k, v) in tm {
             map.insert(format!("tm_{}", k), v.clone());
         }
     }
-    let ci_obj = serde_json::to_value(ci_stats).into_diagnostic()?;
-    if let (Some(map), Some(ci)) = (output.as_object_mut(), ci_obj.as_object()) {
+    let ci_obj = serde_json::to_value(&output.ci_stats).into_diagnostic()?;
+    if let (Some(map), Some(ci)) = (merged.as_object_mut(), ci_obj.as_object()) {
         for (k, v) in ci {
             map.insert(format!("ci_{}", k), v.clone());
         }
     }
-    let env_obj = serde_json::to_value(env_stats).into_diagnostic()?;
-    if let (Some(map), Some(env)) = (output.as_object_mut(), env_obj.as_object()) {
+    let env_obj = serde_json::to_value(&output.env_stats).into_diagnostic()?;
+    if let (Some(map), Some(env)) = (merged.as_object_mut(), env_obj.as_object()) {
         for (k, v) in env {
             map.insert(format!("env_{}", k), v.clone());
         }
     }
-    if analyze_graph {
-        let cent_obj = serde_json::to_value(cent_stats).into_diagnostic()?;
-        if let (Some(map), Some(cent)) = (output.as_object_mut(), cent_obj.as_object()) {
+    if output.analyze_graph {
+        let cent_obj = serde_json::to_value(&output.cent_stats).into_diagnostic()?;
+        if let (Some(map), Some(cent)) = (merged.as_object_mut(), cent_obj.as_object()) {
             for (k, v) in cent {
                 map.insert(format!("cent_{}", k), v.clone());
             }
         }
     }
-    if let Some(cs) = contracts_summary {
+    if let Some(ref cs) = output.contracts_summary {
         let cs_obj = serde_json::to_value(cs).into_diagnostic()?;
-        if let (Some(map), Some(cs)) = (output.as_object_mut(), cs_obj.as_object()) {
+        if let (Some(map), Some(cs)) = (merged.as_object_mut(), cs_obj.as_object()) {
             for (k, v) in cs {
                 map.insert(format!("contracts_{}", k), v.clone());
             }
@@ -528,49 +516,35 @@ fn print_json_output(
     }
     println!(
         "{}",
-        serde_json::to_string_pretty(&output).into_diagnostic()?
+        serde_json::to_string_pretty(&merged).into_diagnostic()?
     );
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
-fn print_human_output(
-    stats: &crate::index::orchestrator::IndexStats,
-    doc_stats: &crate::index::docs::DocIndexStats,
-    topo_stats: &crate::index::topology::TopologyIndexStats,
-    ep_stats: &crate::index::entrypoint::EntrypointStats,
-    service_stats: &ServiceIndexStats,
-    cg_stats: &crate::index::call_graph::CallGraphStats,
-    route_stats: &crate::index::routes::RouteStats,
-    dm_stats: &crate::index::data_models::DataModelStats,
-    obs_stats: &crate::index::observability::ObservabilityStats,
-    tm_stats: &crate::index::test_mapping::TestMappingStats,
-    ci_stats: &crate::index::ci_gates::CIGateStats,
-    env_stats: &crate::index::env_schema::EnvSchemaStats,
-    cent_stats: &crate::index::centrality::CentralityStats,
-    contracts_summary: &Option<crate::contracts::index::ContractsIndexSummary>,
-    analyze_graph: bool,
-) {
+fn print_human_output(output: &IndexOutputStats) {
     println!("Indexing complete:");
-    println!("  Files indexed:   {}", stats.files_indexed);
-    println!("  Symbols indexed: {}", stats.symbols_indexed);
-    if stats.parse_failures > 0 {
-        println!("  Parse failures:  {}", stats.parse_failures);
+    println!("  Files indexed:   {}", output.stats.files_indexed);
+    println!("  Symbols indexed: {}", output.stats.symbols_indexed);
+    if output.stats.parse_failures > 0 {
+        println!("  Parse failures:  {}", output.stats.parse_failures);
     }
-    if stats.skipped_binary > 0 {
-        println!("  Skipped binary:  {}", stats.skipped_binary);
+    if output.stats.skipped_binary > 0 {
+        println!("  Skipped binary:  {}", output.stats.skipped_binary);
     }
-    if stats.skipped_unsupported > 0 {
-        println!("  Skipped unsupported: {}", stats.skipped_unsupported);
+    if output.stats.skipped_unsupported > 0 {
+        println!(
+            "  Skipped unsupported: {}",
+            output.stats.skipped_unsupported
+        );
     }
-    println!("  Duration:        {}ms", stats.duration_ms);
+    println!("  Duration:        {}ms", output.stats.duration_ms);
     println!();
     println!("Documentation:");
-    println!("  Docs indexed:    {}", doc_stats.docs_indexed);
-    if doc_stats.parse_failures > 0 {
-        println!("  Doc parse failures: {}", doc_stats.parse_failures);
+    println!("  Docs indexed:    {}", output.doc_stats.docs_indexed);
+    if output.doc_stats.parse_failures > 0 {
+        println!("  Doc parse failures: {}", output.doc_stats.parse_failures);
     }
-    if doc_stats.missing_readme {
+    if output.doc_stats.missing_readme {
         println!("  README:          not found");
     } else {
         println!("  README:          found");
@@ -579,10 +553,10 @@ fn print_human_output(
     println!("Topology:");
     println!(
         "  Directories classified: {}",
-        topo_stats.directories_classified
+        output.topo_stats.directories_classified
     );
-    if topo_stats.unclassified > 0 {
-        println!("  Unclassified:    {}", topo_stats.unclassified);
+    if output.topo_stats.unclassified > 0 {
+        println!("  Unclassified:    {}", output.topo_stats.unclassified);
     }
     let role_order = [
         crate::index::topology::DirectoryRole::Source,
@@ -595,80 +569,92 @@ fn print_human_output(
         crate::index::topology::DirectoryRole::BuildArtifact,
     ];
     for role in &role_order {
-        if let Some(count) = topo_stats.role_counts.get(role) {
+        if let Some(count) = output.topo_stats.role_counts.get(role) {
             println!("  {}: {}", role.as_str(), count);
         }
     }
     println!();
     println!("Entrypoints:");
-    println!("  Entrypoints:   {}", ep_stats.entrypoints);
-    println!("  Handlers:      {}", ep_stats.handlers);
-    println!("  Public APIs:   {}", ep_stats.public_apis);
-    println!("  Tests:         {}", ep_stats.tests);
-    println!("  Internal:     {}", ep_stats.internal);
+    println!("  Entrypoints:   {}", output.ep_stats.entrypoints);
+    println!("  Handlers:      {}", output.ep_stats.handlers);
+    println!("  Public APIs:   {}", output.ep_stats.public_apis);
+    println!("  Tests:         {}", output.ep_stats.tests);
+    println!("  Internal:     {}", output.ep_stats.internal);
     println!();
     println!("Call Graph:");
-    println!("  Edges:          {}", cg_stats.total_edges);
-    println!("  Resolved:       {}", cg_stats.resolved_edges);
-    println!("  Unresolved:     {}", cg_stats.unresolved_edges);
-    println!("  Ambiguous:      {}", cg_stats.ambiguous_edges);
-    println!("  Files processed: {}", cg_stats.files_processed);
+    println!("  Edges:          {}", output.cg_stats.total_edges);
+    println!("  Resolved:       {}", output.cg_stats.resolved_edges);
+    println!("  Unresolved:     {}", output.cg_stats.unresolved_edges);
+    println!("  Ambiguous:      {}", output.cg_stats.ambiguous_edges);
+    println!("  Files processed: {}", output.cg_stats.files_processed);
     println!();
     println!("API Routes:");
-    println!("  Total routes:   {}", route_stats.total_routes);
-    if !route_stats.frameworks_detected.is_empty() {
+    println!("  Total routes:   {}", output.route_stats.total_routes);
+    if !output.route_stats.frameworks_detected.is_empty() {
         println!(
             "  Frameworks:    {}",
-            route_stats.frameworks_detected.join(", ")
+            output.route_stats.frameworks_detected.join(", ")
         );
     }
-    println!("  Files processed: {}", route_stats.files_processed);
+    println!("  Files processed: {}", output.route_stats.files_processed);
     println!();
     println!("Data Models:");
-    println!("  Total models:   {}", dm_stats.total_models);
-    println!("  Files processed: {}", dm_stats.files_processed);
+    println!("  Total models:   {}", output.dm_stats.total_models);
+    println!("  Files processed: {}", output.dm_stats.files_processed);
     println!();
     println!("Observability:");
-    println!("  Total patterns: {}", obs_stats.total_patterns);
+    println!("  Total patterns: {}", output.obs_stats.total_patterns);
     println!(
         "  Error handling patterns: {}",
-        obs_stats.error_handling_patterns
+        output.obs_stats.error_handling_patterns
     );
-    println!("  Telemetry patterns: {}", obs_stats.telemetry_patterns);
-    println!("  Files processed: {}", obs_stats.files_processed);
+    println!(
+        "  Telemetry patterns: {}",
+        output.obs_stats.telemetry_patterns
+    );
+    println!("  Files processed: {}", output.obs_stats.files_processed);
     println!();
     println!("Test Mapping:");
-    println!("  Total mappings: {}", tm_stats.total_mappings);
-    println!("  Import mappings: {}", tm_stats.import_mappings);
+    println!("  Total mappings: {}", output.tm_stats.total_mappings);
+    println!("  Import mappings: {}", output.tm_stats.import_mappings);
     println!(
         "  Naming convention mappings: {}",
-        tm_stats.naming_convention_mappings
+        output.tm_stats.naming_convention_mappings
     );
-    println!("  Files processed: {}", tm_stats.files_processed);
+    println!("  Files processed: {}", output.tm_stats.files_processed);
     println!();
     println!("CI/CD Gates:");
-    println!("  Total gates: {}", ci_stats.total_gates);
-    println!("  GitHub Actions: {}", ci_stats.github_actions_gates);
-    println!("  GitLab CI: {}", ci_stats.gitlab_ci_gates);
-    println!("  CircleCI: {}", ci_stats.circleci_gates);
-    println!("  Makefile: {}", ci_stats.makefile_gates);
-    println!("  Files processed: {}", ci_stats.files_processed);
+    println!("  Total gates: {}", output.ci_stats.total_gates);
+    println!("  GitHub Actions: {}", output.ci_stats.github_actions_gates);
+    println!("  GitLab CI: {}", output.ci_stats.gitlab_ci_gates);
+    println!("  CircleCI: {}", output.ci_stats.circleci_gates);
+    println!("  Makefile: {}", output.ci_stats.makefile_gates);
+    println!("  Files processed: {}", output.ci_stats.files_processed);
     println!();
     println!("Env Schema:");
-    println!("  Total declarations: {}", env_stats.total_declarations);
-    println!("  Total references: {}", env_stats.total_references);
-    println!("  Dotenv declarations: {}", env_stats.dotenv_declarations);
-    println!("  Config declarations: {}", env_stats.config_declarations);
-    println!("  Files processed: {}", env_stats.files_processed);
-    if analyze_graph {
+    println!(
+        "  Total declarations: {}",
+        output.env_stats.total_declarations
+    );
+    println!("  Total references: {}", output.env_stats.total_references);
+    println!(
+        "  Dotenv declarations: {}",
+        output.env_stats.dotenv_declarations
+    );
+    println!(
+        "  Config declarations: {}",
+        output.env_stats.config_declarations
+    );
+    println!("  Files processed: {}", output.env_stats.files_processed);
+    if output.analyze_graph {
         println!();
         println!("Centrality:");
-        println!("  Entry points:   {}", cent_stats.entry_points_count);
-        println!("  Symbols computed: {}", cent_stats.symbols_computed);
-        println!("  Max reachable:  {}", cent_stats.max_reachable);
+        println!("  Entry points:   {}", output.cent_stats.entry_points_count);
+        println!("  Symbols computed: {}", output.cent_stats.symbols_computed);
+        println!("  Max reachable:  {}", output.cent_stats.max_reachable);
     }
 
-    if let Some(cs) = contracts_summary {
+    if let Some(ref cs) = output.contracts_summary {
         println!();
         println!("Contracts:");
         println!("  Specs parsed:     {}", cs.specs_parsed);
@@ -679,8 +665,14 @@ fn print_human_output(
 
     println!();
     println!("Services:");
-    println!("  Services inferred: {}", service_stats.services_inferred);
-    println!("  Files assigned:    {}", service_stats.files_assigned);
+    println!(
+        "  Services inferred: {}",
+        output.service_stats.services_inferred
+    );
+    println!(
+        "  Files assigned:    {}",
+        output.service_stats.files_assigned
+    );
 }
 
 fn execute_docs_index(layout: &Layout, storage: &StorageManager) -> Result<()> {
@@ -969,7 +961,7 @@ fn execute_scip_index(
     mut storage: StorageManager,
     scip_path: std::path::PathBuf,
 ) -> Result<()> {
-    use crate::index::orchestrator::{get_file_id_by_path, insert_symbol_row};
+    use crate::index::rows::{get_file_id_by_path, insert_symbol_row};
     use crate::scip::{
         ScipIndex, ScipSymbolMapper, is_scip_stale, normalize_scip_path, register_scip_index,
     };

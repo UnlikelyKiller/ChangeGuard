@@ -58,15 +58,6 @@ mod lifecycle;
 mod parsing;
 mod topology;
 
-// ---------------------------------------------------------------------------
-// Re-exports: row helpers live in the sibling `rows` module
-// ---------------------------------------------------------------------------
-
-pub use crate::index::rows::{
-    delete_file_index_dependents, delete_file_symbols, get_file_id_by_path, insert_file_row,
-    insert_symbol_row, upsert_file_row,
-};
-
 impl ProjectIndexer {
     pub fn new(storage: StorageManager, repo_path: Utf8PathBuf, config: Config) -> Self {
         Self {
@@ -91,7 +82,8 @@ impl ProjectIndexer {
     pub fn new_for_worker(repo_path: Utf8PathBuf) -> Self {
         Self {
             storage: StorageManager::init_from_conn(
-                rusqlite::Connection::open_in_memory().unwrap(),
+                rusqlite::Connection::open_in_memory()
+                    .expect("SQLite in-memory open is infallible"),
             ),
             repo_path,
             config: Config::default(),

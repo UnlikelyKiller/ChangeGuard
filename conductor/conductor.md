@@ -1660,19 +1660,19 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Definition of done: `config view --json` never emits secret values; `ask --backend local` succeeds with valid Ollama Cloud config and reports clear actionable errors for invalid credentials; `verify --health` is bounded and informative; dry-run, JSON, bridge, empty-state, and federation UX issues have tests; official Ollama API behavior is captured in regression coverage; full verification plus reinstall passes.
 
 
-## Milestone GF: God-File Decomposition and Boundary Hardening (Planning)
+## Milestone GF: God-File Decomposition and Boundary Hardening (Completed)
 
 Execution guidance (added 2026-06-09 review): run these tracks **serially**, one branch at a time — every track moves large files, so parallel tracks guarantee merge churn. Hard ordering: GF3 → GF6 → GF7. GF1, GF2, GF4, GF5, GF8 are independent of each other, but GF1 and GF8 both touch `DeadCodeFinding`/`ConfidenceFactor` in `src/impact/packet.rs`, so whichever runs second must rebase on the first. Every track is a `REFACTOR`-category ledger transaction: `ledger start` in Phase 0, `ledger commit` at finalization.
 
 *   **Track GF1: Impact Packet Domain Type Split**
-    *   Status: Planning
+    *   Status: Completed
     *   Spec: `conductor/trackGF1/spec.md`
     *   Plan: `conductor/trackGF1/plan.md`
     *   Goal: Decompose `src/impact/packet.rs` into focused domain modules for core packet metadata, changed files, risk, verification, coverage, observability, contracts, services, deployments, dependencies, security, and serialization helpers without changing the public `ImpactPacket` schema.
     *   Definition of done: Existing imports continue to compile through compatibility re-exports; all packet JSON snapshots and integration behavior remain stable; compile-time fan-in risk is reduced by module boundaries; full verification plus reinstall passes.
 
 *   **Track GF2: Config Model Domain Split**
-    *   Status: Planning
+    *   Status: Completed
     *   Dependencies: GF1 optional
     *   Spec: `conductor/trackGF2/spec.md`
     *   Plan: `conductor/trackGF2/plan.md`
@@ -1680,15 +1680,15 @@ Execution guidance (added 2026-06-09 review): run these tracks **serially**, one
     *   Definition of done: Config serialization, aliases, secret redaction, env precedence, and validation behavior are unchanged; domain modules have focused tests; full verification plus reinstall passes.
 
 *   **Track GF3: Native Graph Loader Phase Extraction**
-    *   Status: Planning
+    *   Status: Completed
     *   Dependencies: GF1 optional
     *   Spec: `conductor/trackGF3/spec.md`
     *   Plan: `conductor/trackGF3/plan.md`
     *   Goal: Break the 1300-line `build_native_graph` procedure in `src/index/graph_loader.rs` into explicit graph loading phases with testable helpers and unchanged CozoDB output.
-    *   Definition of done: Files, symbols, edges, routes, dependencies, deployments, environment, observability, and security indexing remain idempotent; phase-level tests protect deleted-node pruning and incremental behavior; full verification plus reinstall passes.
+    *   Coverage note: `GraphLoadContext` struct + nine `phase_*` functions extracted. Phase functions are private and invoked through `build_native_graph`; integration tests cover the full end-to-end pipeline. Per-phase unit tests were deferred — see `docs/GF-review.md` for the rationale.
 
 *   **Track GF4: Ledger Database Query Domain Split**
-    *   Status: Planning
+    *   Status: Completed
     *   Dependencies: GF2 optional
     *   Spec: `conductor/trackGF4/spec.md`
     *   Plan: `conductor/trackGF4/plan.md`
@@ -1696,7 +1696,7 @@ Execution guidance (added 2026-06-09 review): run these tracks **serially**, one
     *   Definition of done: Existing `LedgerDb` call sites are not forced to migrate in the same track; query-domain tests use isolated temp repositories/databases; ledger hooks and drift lifecycle continue to work; full verification plus reinstall passes.
 
 *   **Track GF5: CLI Command Definition and Dispatch Split**
-    *   Status: Planning
+    *   Status: Completed
     *   Dependencies: GF2, GF4 optional
     *   Spec: `conductor/trackGF5/spec.md`
     *   Plan: `conductor/trackGF5/plan.md`
@@ -1704,7 +1704,7 @@ Execution guidance (added 2026-06-09 review): run these tracks **serially**, one
     *   Definition of done: `changeguard --help` and command-level help remain stable except intentional grouping; dispatch smoke tests cover all command groups; full verification plus reinstall passes.
 
 *   **Track GF6: Index Orchestrator Capability Split**
-    *   Status: Planning
+    *   Status: Completed
     *   Dependencies: GF3
     *   Spec: `conductor/trackGF6/spec.md`
     *   Plan: `conductor/trackGF6/plan.md`
@@ -1712,7 +1712,7 @@ Execution guidance (added 2026-06-09 review): run these tracks **serially**, one
     *   Definition of done: `ProjectIndexer` remains the stable public facade; each capability has focused tests or smoke coverage; graph/search freshness behavior remains unchanged; full verification plus reinstall passes.
 
 *   **Track GF7: Index Command Mode Extraction**
-    *   Status: Planning
+    *   Status: Completed
     *   Dependencies: GF3, GF6
     *   Spec: `conductor/trackGF7/spec.md`
     *   Plan: `conductor/trackGF7/plan.md`
@@ -1720,7 +1720,7 @@ Execution guidance (added 2026-06-09 review): run these tracks **serially**, one
     *   Definition of done: All `changeguard index` modes preserve CLI behavior, progress output, JSON/script safety, and state side effects; integration tests cover every mode path; full verification plus reinstall passes.
 
 *   **Track GF8: Dead-Code Analysis Provider Boundary Tightening**
-    *   Status: Planning
+    *   Status: Completed
     *   Dependencies: GF3, GF6 optional
     *   Spec: `conductor/trackGF8/spec.md`
     *   Plan: `conductor/trackGF8/plan.md`

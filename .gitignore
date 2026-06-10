@@ -13,3 +13,10 @@ graphify-out/
 # Agent worktrees create embedded git repos; ignore them
 .agents/worktrees/
 .codex/worktrees/
+
+# Temp review artifacts — intermediate transcripts, never in git
+.agents/review_*.md
+.codex/review_*.md
+
+# Generated output dir (graphs, reports, etc.)
+output/
