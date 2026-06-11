@@ -76,9 +76,11 @@ pub fn execute_observability(args: ObservabilityArgs) -> Result<()> {
             }
 
             if !json && final_rows.is_empty() {
-                println!("  {}", "No observability coverage data found.".yellow());
+                println!("  {}", "No OpenSLO coverage data found.".yellow());
+                println!("  {}", "Note: The patterns extracted from your source code are stored in SQLite and shown in 'observability diff'.");
+                println!("  {}", "Coverage specifically requires OpenSLO YAML definitions in the 'observability/' directory.");
                 println!(
-                    "  Run {} to populate.",
+                    "  Once added, run {} to populate.",
                     "changeguard index --analyze-graph".cyan().bold()
                 );
                 return Ok(());

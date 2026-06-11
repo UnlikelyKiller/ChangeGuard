@@ -848,7 +848,11 @@ mod tests {
             &CompletionOptions::default(),
             None,
         );
-        assert!(result.is_ok(), "expected reasoning content as Ok, got: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "expected reasoning content as Ok, got: {:?}",
+            result
+        );
         let content = result.unwrap();
         assert_eq!(content, "internal chain");
     }
@@ -882,7 +886,11 @@ mod tests {
             &CompletionOptions::default(),
             None,
         );
-        assert!(result.is_ok(), "expected reasoning content from reasoning_content alias, got: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "expected reasoning content from reasoning_content alias, got: {:?}",
+            result
+        );
         let content = result.unwrap();
         assert_eq!(content, "llama.cpp thinking chain here");
     }

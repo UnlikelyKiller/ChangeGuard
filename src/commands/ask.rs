@@ -1,6 +1,6 @@
 use crate::commands::helpers::{get_layout, load_ledger_config};
 use crate::config::model::Config;
-use crate::gemini::modes::{GeminiMode, build_system_prompt};
+use crate::gemini::modes::GeminiMode;
 use crate::gemini::wrapper::run_query;
 use crate::index::warn_if_stale;
 use crate::local_model::pruner;
@@ -164,6 +164,92 @@ pub fn execute_ask(
         );
     }
 
+    let mut relevant_chunks = gather_semantic_chunks(
+        &storage,
+        &query_string,
+        limit,
+        &config.local_model,
+        is_global,
+    );
+
+    if relevant_chunks.is_empty() {
+        relevant_chunks = pruner::query_relevant_chunks(
+            &query_string,
+            &config.local_model,
+            storage.get_connection(),
+            limit,
+            config.local_model.chunk_min_similarity,
+            config.local_model.chunk_dedup_threshold,
+        )
+        .unwrap_or_else(|e| {
+            tracing::warn!("Chunk retrieval failed: {e}, proceeding without chunks");
+            Vec::new()
+        });
+
+        // KG Fallback logic
+        if is_global
+            && relevant_chunks.is_empty()
+            && !no_kg_fallback
+            && let Some(cozo) = &storage.cozo
+            && let Some(kg_bm25_context) = fetch_kg_bm25(cozo, &query_string, limit)
+        {
+            println!(
+                "{}",
+                "Note: semantic index empty — using KG text search for context".yellow()
+            );
+            relevant_chunks.push(crate::local_model::pruner::RankedChunk {
+                source: "Knowledge Graph (BM25)".to_string(),
+                content: kg_bm25_context,
+                score: 1.0,
+            });
+        }
+
+        // CR7: Apply KG neighborhood to pruner fallback chunks as well.
+        if is_global
+            && !relevant_chunks.is_empty()
+            && let Some(cozo) = &storage.cozo
+        {
+            let syms = relevant_chunks.iter().filter_map(|c| {
+                let path = std::path::Path::new(&c.source);
+                path.file_stem()?.to_str()
+            });
+            if let Some(kg_ctx) = fetch_kg_neighborhood(cozo, syms) {
+                relevant_chunks.push(crate::local_model::pruner::RankedChunk {
+                    source: "Knowledge Graph".to_string(),
+                    content: kg_ctx,
+                    score: 1.0,
+                });
+            }
+        }
+    }
+
+    let adaptive_mode = if semantic {
+        crate::local_model::context::AdaptiveMode::CodebaseFocus
+    } else {
+        crate::local_model::context::AdaptiveMode::ChangesFocus
+    };
+
+    let user_prompt = if is_global {
+        format!(
+            "Answer the following codebase query:\n\nQuery: {}",
+            query_string
+        )
+    } else if narrative {
+        crate::gemini::prompt::build_architect_prompt(&latest_packet, &query_string)
+    } else {
+        crate::gemini::prompt::build_suggest_prompt(&latest_packet, &query_string)
+    };
+
+    let base_system_prompt = if is_global {
+        let mut base = "You are ChangeGuard, an expert software engineering assistant. You act as a codebase oracle answering architectural and implementation questions based on retrieved knowledge graph and semantic context snippets. Provide direct, technical, and accurate answers citing the retrieved snippets where relevant.".to_string();
+        if relevant_chunks.is_empty() {
+            base.push_str("\n\nNote: no project context available for this query.");
+        }
+        base
+    } else {
+        crate::local_model::context::get_system_prompt(&mode.to_string())
+    };
+
     match resolved_backend {
         Backend::Local => {
             let max_tokens = config.local_model.context_window;
@@ -184,96 +270,8 @@ pub fn execute_ask(
                 }
             }
 
-            let mut relevant_chunks = gather_semantic_chunks(
-                &storage,
-                &query_string,
-                limit,
-                &config.local_model,
-                is_global,
-            );
-
-            if relevant_chunks.is_empty() {
-                relevant_chunks = pruner::query_relevant_chunks(
-                    &query_string,
-                    &config.local_model,
-                    storage.get_connection(),
-                    limit,
-                    config.local_model.chunk_min_similarity,
-                    config.local_model.chunk_dedup_threshold,
-                )
-                .unwrap_or_else(|e| {
-                    tracing::warn!("Chunk retrieval failed: {e}, proceeding without chunks");
-                    Vec::new()
-                });
-
-                // KG Fallback logic for Local Backend
-                if is_global
-                    && relevant_chunks.is_empty()
-                    && !no_kg_fallback
-                    && let Some(cozo) = &storage.cozo
-                    && let Some(kg_bm25_context) = fetch_kg_bm25(cozo, &query_string, limit)
-                {
-                    println!(
-                        "{}",
-                        "Note: semantic index empty — using KG text search for context".yellow()
-                    );
-                    relevant_chunks.push(crate::local_model::pruner::RankedChunk {
-                        source: "Knowledge Graph (BM25)".to_string(),
-                        content: kg_bm25_context,
-                        score: 1.0,
-                    });
-                }
-
-                // CR7: Apply KG neighborhood to pruner fallback chunks as well.
-                // Pruner chunks only have file paths as source, so extract the file
-                // stem (module name) as a candidate symbol for KG lookups.
-                if is_global
-                    && !relevant_chunks.is_empty()
-                    && let Some(cozo) = &storage.cozo
-                {
-                    let syms = relevant_chunks.iter().filter_map(|c| {
-                        let path = std::path::Path::new(&c.source);
-                        path.file_stem()?.to_str()
-                    });
-                    if let Some(kg_ctx) = fetch_kg_neighborhood(cozo, syms) {
-                        relevant_chunks.push(crate::local_model::pruner::RankedChunk {
-                            source: "Knowledge Graph".to_string(),
-                            content: kg_ctx,
-                            score: 1.0,
-                        });
-                    }
-                }
-            }
-
-            // 4. Assemble context with budget enforcement
-            let system_prompt = if is_global {
-                let mut base = "You are ChangeGuard, an expert software engineering assistant. You act as a codebase oracle answering architectural and implementation questions based on retrieved knowledge graph and semantic context snippets. Provide direct, technical, and accurate answers citing the retrieved snippets where relevant.".to_string();
-                if relevant_chunks.is_empty() {
-                    base.push_str("\n\nNote: no project context available for this query.");
-                }
-                base
-            } else {
-                crate::local_model::context::get_system_prompt(&mode.to_string())
-            };
-            let user_prompt = if is_global {
-                format!(
-                    "Answer the following codebase query:\n\nQuery: {}",
-                    query_string
-                )
-            } else if narrative {
-                crate::gemini::prompt::build_architect_prompt(&latest_packet, &query_string)
-            } else {
-                crate::gemini::prompt::build_suggest_prompt(&latest_packet, &query_string)
-            };
-
-            let adaptive_mode = if semantic {
-                crate::local_model::context::AdaptiveMode::CodebaseFocus
-            } else {
-                crate::local_model::context::AdaptiveMode::ChangesFocus
-            };
-
             let messages = crate::local_model::context::assemble_context(
-                &system_prompt,
+                &base_system_prompt,
                 &user_prompt,
                 &relevant_chunks,
                 max_tokens,
@@ -313,103 +311,40 @@ pub fn execute_ask(
             }
         }
         Backend::Gemini => {
-            // Show progress indicator before LLM call
             eprintln!("Using Gemini...");
 
             let budget_tokens = config.gemini.context_window;
-            let char_limit = (budget_tokens as f64 * 0.8 * 4.0) as usize;
 
-            let user_prompt = if is_global {
-                format!(
-                    "Answer the following codebase query:\n\nQuery: {}",
-                    query_string
-                )
-            } else if narrative {
-                crate::gemini::prompt::build_architect_prompt(&latest_packet, &query_string)
-            } else {
-                crate::gemini::prompt::build_suggest_prompt(&latest_packet, &query_string)
-            };
+            let messages = crate::local_model::context::assemble_context(
+                &base_system_prompt,
+                &user_prompt,
+                &relevant_chunks,
+                budget_tokens,
+                adaptive_mode,
+            );
 
-            let final_user_prompt = if semantic {
-                let mut relevant_chunks = gather_semantic_chunks(
-                    &storage,
-                    &query_string,
-                    limit,
-                    &config.local_model,
-                    is_global,
-                );
+            let final_sys_prompt = &messages[0].content;
 
-                if relevant_chunks.is_empty() {
-                    relevant_chunks = pruner::query_relevant_chunks(
-                        &query_string,
-                        &config.local_model,
-                        storage.get_connection(),
-                        limit,
-                        config.local_model.chunk_min_similarity,
-                        config.local_model.chunk_dedup_threshold,
-                    )
-                    .unwrap_or_default();
+            let mut final_usr_prompt = String::new();
+            if messages.len() > 2 {
+                final_usr_prompt.push_str("## Codebase Context Chunks\n\n");
+                for msg in &messages[1..messages.len() - 1] {
+                    final_usr_prompt.push_str(&msg.content);
+                    final_usr_prompt.push_str("\n\n");
                 }
-
-                // KG Fallback logic for Gemini Backend
-                if is_global
-                    && relevant_chunks.is_empty()
-                    && !no_kg_fallback
-                    && let Some(cozo) = &storage.cozo
-                    && let Some(kg_bm25_context) = fetch_kg_bm25(cozo, &query_string, limit)
-                {
-                    println!(
-                        "{}",
-                        "Note: semantic index empty — using KG text search for context".yellow()
-                    );
-                    relevant_chunks.push(crate::local_model::pruner::RankedChunk {
-                        source: "Knowledge Graph (BM25)".to_string(),
-                        content: kg_bm25_context,
-                        score: 1.0,
-                    });
-                }
-
-                // Build a combined prompt for Gemini that includes semantic snippets
-                let codebase_context = if relevant_chunks.is_empty() {
-                    "No project context available for this query.".to_string()
-                } else {
-                    relevant_chunks
-                        .iter()
-                        .map(|c| format!("[{}] {}", c.source, c.content))
-                        .collect::<Vec<_>>()
-                        .join("\n\n")
-                };
-
-                format!(
-                    "{}\n\n## Codebase Context Chunks\n\n{}\n\nUser Question: {}",
-                    user_prompt, codebase_context, query_string
-                )
+            }
+            if messages.len() > 1 {
+                final_usr_prompt.push_str("User Question: ");
+                final_usr_prompt.push_str(&messages.last().unwrap().content);
             } else {
-                user_prompt
-            };
-
-            // The system prompt is static application text. Sanitize context.
-            let sanitize_result = crate::gemini::sanitize::sanitize_for_gemini(&final_user_prompt);
-            let mut sanitized_user_prompt = sanitize_result.sanitized;
-
-            if sanitized_user_prompt.len() > char_limit {
-                tracing::warn!("Prompt exceeds Gemini budget, truncating...");
-                sanitized_user_prompt.truncate(char_limit);
-                sanitized_user_prompt.push_str("\n\n[Prompt truncated for Gemini budget]");
+                final_usr_prompt.push_str(&user_prompt);
             }
 
-            let system_prompt = if is_global {
-                let mut base = "You are ChangeGuard, an expert software engineering assistant. You act as a codebase oracle answering architectural and implementation questions based on retrieved knowledge graph and semantic context snippets. Provide direct, technical, and accurate answers citing the retrieved snippets where relevant.".to_string();
-                if sanitized_user_prompt.contains("No project context available") {
-                    base.push_str("\n\nNote: no project context available for this query.");
-                }
-                base
-            } else {
-                build_system_prompt(mode)
-            };
+            let sanitize_result = crate::gemini::sanitize::sanitize_for_gemini(&final_usr_prompt);
+            let sanitized_user_prompt = sanitize_result.sanitized;
 
             run_query(
-                &system_prompt,
+                final_sys_prompt,
                 &sanitized_user_prompt,
                 Some(timeout_secs),
                 &crate::gemini::wrapper::select_gemini_model(&config.gemini, mode, &latest_packet),
