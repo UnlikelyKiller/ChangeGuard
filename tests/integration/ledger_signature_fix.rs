@@ -34,11 +34,7 @@ fn test_timestamp_preservation_and_signature_validity() {
     std::fs::create_dir_all(entity_path.parent().unwrap()).unwrap();
     std::fs::write(&entity_path, "").unwrap();
 
-    let mut tx_mgr = TransactionManager::new(
-        storage.get_connection_mut(),
-        repo_root.clone(),
-        Config::default(),
-    );
+    let mut tx_mgr = TransactionManager::new(&mut storage, repo_root.clone(), Config::default());
 
     let entity = "src/main.rs";
     let category = Category::Feature;
@@ -130,11 +126,7 @@ fn ledger_status_verify_signatures_rejects_corrupted_signature() {
 
     let db_path = root.join(".changeguard").join("state").join("ledger.db");
     let mut storage = StorageManager::init(db_path.as_std_path()).unwrap();
-    let mut tx_mgr = TransactionManager::new(
-        storage.get_connection_mut(),
-        root.clone().into(),
-        Config::default(),
-    );
+    let mut tx_mgr = TransactionManager::new(&mut storage, root.clone().into(), Config::default());
 
     let category = Category::Feature;
     let tx_id = tx_mgr

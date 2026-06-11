@@ -63,8 +63,7 @@ pub fn execute_hook_post_commit() -> Result<()> {
     };
 
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
-    let mut tx_mgr =
-        TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
+    let mut tx_mgr = TransactionManager::new(&mut storage, layout.root.into(), config);
 
     let req = CommitRequest {
         summary: pending.summary,

@@ -147,28 +147,37 @@ pub fn execute_data_models(args: DataModelsArgs) -> Result<()> {
                 let mut table = Table::new();
                 table.set_header(vec!["Name", "File", "Language", "Kind", "Changed?"]);
                 if impacted.is_empty() {
-                    println!(
-                        "{}",
-                        "  No data models indexed. Data models are extracted from ORM structs, \
-                         SQL table definitions, and migration files. Run `changeguard index \
-                         --incremental` if models exist, or confirm your ORM/framework is supported."
-                            .dimmed()
-                    );
+                    let total_models: i64 = conn
+                        .query_row("SELECT COUNT(*) FROM data_models", [], |row| row.get(0))
+                        .into_diagnostic()?;
+
+                    if total_models > 0 && changed {
+                        println!("{}", "  No changed data models found.".dimmed());
+                    } else {
+                        println!(
+                            "{}",
+                            "  No data models indexed. Data models are extracted from ORM structs, \
+                             SQL table definitions, and migration files. Run `changeguard index \
+                             --incremental` if models exist, or confirm your ORM/framework is supported."
+                                .dimmed()
+                        );
+                    }
+                } else {
+                    for item in impacted {
+                        table.add_row(vec![
+                            item["name"].as_str().unwrap_or("").bold().to_string(),
+                            item["file_path"].as_str().unwrap_or("").to_string(),
+                            item["language"].as_str().unwrap_or("").to_string(),
+                            item["kind"].as_str().unwrap_or("").to_string(),
+                            if item["is_changed"].as_bool().unwrap_or(false) {
+                                "YES".red().bold().to_string()
+                            } else {
+                                "NO".dimmed().to_string()
+                            },
+                        ]);
+                    }
+                    println!("{}", table);
                 }
-                for item in impacted {
-                    table.add_row(vec![
-                        item["name"].as_str().unwrap_or("").bold().to_string(),
-                        item["file_path"].as_str().unwrap_or("").to_string(),
-                        item["language"].as_str().unwrap_or("").to_string(),
-                        item["kind"].as_str().unwrap_or("").to_string(),
-                        if item["is_changed"].as_bool().unwrap_or(false) {
-                            "YES".red().bold().to_string()
-                        } else {
-                            "NO".dimmed().to_string()
-                        },
-                    ]);
-                }
-                println!("{}", table);
             }
         }
     }

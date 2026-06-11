@@ -15,11 +15,7 @@ fn test_ledger_token_provenance() {
     fs::write(repo_root.join("main.rs"), "").unwrap();
 
     let mut storage = StorageManager::init(&db_path).unwrap();
-    let mut manager = TransactionManager::new(
-        storage.get_connection_mut(),
-        repo_root.clone(),
-        Config::default(),
-    );
+    let mut manager = TransactionManager::new(&mut storage, repo_root.clone(), Config::default());
 
     let tx_id = manager
         .start_change(TransactionRequest {

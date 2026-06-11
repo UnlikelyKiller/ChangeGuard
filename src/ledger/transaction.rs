@@ -15,17 +15,21 @@ use crate::ledger::validators::ValidatorRunner;
 use crate::platform::process_policy::ProcessPolicy;
 
 pub struct TransactionManager<'a> {
-    conn: &'a mut Connection,
+    storage: &'a mut crate::state::storage::StorageManager,
     repo_root: PathBuf,
     is_case_insensitive: bool,
     config: Config,
 }
 
 impl<'a> TransactionManager<'a> {
-    pub fn new(conn: &'a mut Connection, repo_root: PathBuf, config: Config) -> Self {
+    pub fn new(
+        storage: &'a mut crate::state::storage::StorageManager,
+        repo_root: PathBuf,
+        config: Config,
+    ) -> Self {
         let is_case_insensitive = repo_root.join(".GIT").exists();
         Self {
-            conn,
+            storage,
             repo_root,
             is_case_insensitive,
             config,
@@ -33,13 +37,13 @@ impl<'a> TransactionManager<'a> {
     }
 
     pub fn get_connection(&self) -> &Connection {
-        self.conn
+        self.storage.get_connection()
     }
 
     pub fn start_change(&mut self, req: TransactionRequest) -> Result<String, LedgerError> {
         let normalized = self.entity_normalized(&req.entity)?;
 
-        let db = LedgerDb::new(self.conn);
+        let db = LedgerDb::new(self.storage.get_connection());
         if let Some(pending) = db.get_pending_by_entity(&normalized)? {
             return Err(LedgerError::Conflict(pending.entity));
         }
@@ -132,7 +136,7 @@ impl<'a> TransactionManager<'a> {
         let tx_id = self.resolve_tx_id(&tx_id)?;
 
         let tx = {
-            let db = LedgerDb::new(self.conn);
+            let db = LedgerDb::new(self.storage.get_connection());
             db.get_transaction(&tx_id)?
                 .ok_or_else(|| LedgerError::NotFound(tx_id.clone()))?
         };
@@ -160,7 +164,7 @@ impl<'a> TransactionManager<'a> {
         }
 
         // Commit Validation
-        let db = LedgerDb::new(self.conn);
+        let db = LedgerDb::new(self.storage.get_connection());
         let cat_str = serde_json::to_string(&tx.category)
             .unwrap_or_default()
             .trim_matches('"')
@@ -234,7 +238,11 @@ impl<'a> TransactionManager<'a> {
         let now = req.committed_at.unwrap_or_else(|| Utc::now().to_rfc3339());
 
         // Use a database transaction to ensure atomicity
-        let sqlite_tx = self.conn.transaction().map_err(LedgerError::from)?;
+        let sqlite_tx = self
+            .storage
+            .get_connection_mut()
+            .transaction()
+            .map_err(LedgerError::from)?;
         {
             let db = LedgerDb::new(&sqlite_tx);
 
@@ -286,14 +294,14 @@ impl<'a> TransactionManager<'a> {
 
             let entry = LedgerEntry {
                 id: 0, // DB will assign
-                tx_id,
+                tx_id: tx_id.clone(),
                 category: tx.category,
                 entry_type,
                 entity: tx.entity,
                 entity_normalized: tx.entity_normalized,
                 change_type: req.change_type,
-                summary: req.summary,
-                reason: req.reason,
+                summary: req.summary.clone(),
+                reason: req.reason.clone(),
                 is_breaking: req.is_breaking,
                 committed_at: now,
                 verification_status: req.verification_status,
@@ -311,13 +319,78 @@ impl<'a> TransactionManager<'a> {
         }
         sqlite_tx.commit().map_err(LedgerError::from)?;
 
+        // 3. Update Knowledge Graph (CozoDB)
+        if let Some(ref cozo) = self.storage.cozo {
+            let changed_files = match self.get_transaction_files(&tx_id) {
+                Ok(files) => files,
+                Err(e) => {
+                    tracing::warn!(
+                        "ledger commit: could not discover changed files for KG edges (tx={tx_id}): {e}"
+                    );
+                    vec![]
+                }
+            };
+
+            let tx_urn = crate::platform::urn::build_urn(
+                crate::state::graph_kinds::NodeKind::LedgerTransaction,
+                &tx_id,
+            );
+            let mut nodes = Vec::new();
+            let mut edges = Vec::new();
+
+            nodes.push(crate::state::storage_cozo::GraphNode {
+                id: tx_urn.clone(),
+                label: tx_id.to_string(),
+                category: crate::state::graph_kinds::NodeKind::LedgerTransaction,
+                risk_score: 0.0,
+                metadata: Some(serde_json::json!({
+                    "summary": req.summary,
+                    "reason": req.reason,
+                    "category": tx.category.to_string(),
+                })),
+            });
+
+            for file in changed_files {
+                // Filter out synthetic entities like "drift_adoption" and UUID transaction IDs
+                // that are not real file paths.
+                if file.contains("drift_adoption:") || uuid::Uuid::parse_str(&file).is_ok() {
+                    continue;
+                }
+
+                let file_urn = crate::platform::urn::build_urn(
+                    crate::state::graph_kinds::NodeKind::File,
+                    &file,
+                );
+                edges.push(crate::state::storage_cozo::GraphEdge {
+                    source: tx_urn.clone(),
+                    target: file_urn,
+                    relation: crate::state::graph_kinds::EdgeKind::Affects,
+                    confidence: 1.0,
+                    provenance_id: tx_id.to_string(),
+                });
+            }
+
+            if let Err(e) = cozo.insert_nodes(&nodes) {
+                tracing::warn!(
+                    "ledger commit: failed to write transaction node to CozoDB (tx={tx_id}): {e}"
+                );
+            }
+            if !edges.is_empty()
+                && let Err(e) = cozo.insert_edges(&edges)
+            {
+                tracing::warn!(
+                    "ledger commit: failed to write affects edges to CozoDB (tx={tx_id}): {e}"
+                );
+            }
+        }
+
         Ok(())
     }
 
     pub fn rollback_change(&mut self, tx_id: String, reason: String) -> Result<(), LedgerError> {
         let tx_id = self.resolve_tx_id(&tx_id)?;
         let tx = {
-            let db = LedgerDb::new(self.conn);
+            let db = LedgerDb::new(self.storage.get_connection());
             db.get_transaction(&tx_id)?
                 .ok_or_else(|| LedgerError::NotFound(tx_id.clone()))?
         };
@@ -328,7 +401,11 @@ impl<'a> TransactionManager<'a> {
 
         let now = Utc::now().to_rfc3339();
 
-        let sqlite_tx = self.conn.transaction().map_err(LedgerError::from)?;
+        let sqlite_tx = self
+            .storage
+            .get_connection_mut()
+            .transaction()
+            .map_err(LedgerError::from)?;
         {
             let db = LedgerDb::new(&sqlite_tx);
 
@@ -418,7 +495,7 @@ impl<'a> TransactionManager<'a> {
         all: bool,
         reason: String,
     ) -> Result<(), LedgerError> {
-        let db = LedgerDb::new(self.conn);
+        let db = LedgerDb::new(self.storage.get_connection());
         let to_reconcile = if all {
             db.get_all_unaudited()?
         } else if let Some(p) = pattern {
@@ -443,7 +520,11 @@ impl<'a> TransactionManager<'a> {
         }
 
         let now = Utc::now().to_rfc3339();
-        let sqlite_tx = self.conn.transaction().map_err(LedgerError::from)?;
+        let sqlite_tx = self
+            .storage
+            .get_connection_mut()
+            .transaction()
+            .map_err(LedgerError::from)?;
         {
             let db = LedgerDb::new(&sqlite_tx);
             let tx_ids: Vec<String> = to_reconcile.iter().map(|tx| tx.tx_id.clone()).collect();
@@ -516,7 +597,7 @@ impl<'a> TransactionManager<'a> {
         all: bool,
         reason: Option<String>,
     ) -> Result<Vec<String>, LedgerError> {
-        let db = LedgerDb::new(self.conn);
+        let db = LedgerDb::new(self.storage.get_connection());
         let to_adopt = if all {
             db.get_all_unaudited()?
         } else if let Some(p) = pattern {
@@ -561,7 +642,7 @@ impl<'a> TransactionManager<'a> {
         entity_normalized: &str,
         reason: String,
     ) -> Result<(), LedgerError> {
-        let db = LedgerDb::new(self.conn);
+        let db = LedgerDb::new(self.storage.get_connection());
         if let Some(tx) = db.get_unaudited_by_entity(entity_normalized)? {
             self.reconcile_drift(Some(tx.tx_id), None, false, reason)?;
         }
@@ -569,7 +650,7 @@ impl<'a> TransactionManager<'a> {
     }
 
     pub fn resolve_tx_id(&self, tx_id_or_prefix: &str) -> Result<String, LedgerError> {
-        let db = LedgerDb::new(self.conn);
+        let db = LedgerDb::new(self.storage.get_connection());
 
         // 1. Exact full UUID match
         if tx_id_or_prefix.len() == 36 && db.get_transaction(tx_id_or_prefix)?.is_some() {
@@ -631,22 +712,22 @@ impl<'a> TransactionManager<'a> {
 
     pub fn get_pending(&self, entity: &str) -> Result<Option<Transaction>, LedgerError> {
         let normalized = self.entity_normalized(entity)?;
-        let db = LedgerDb::new(self.conn);
+        let db = LedgerDb::new(self.storage.get_connection());
         db.get_pending_by_entity(&normalized)
     }
 
     pub fn get_transaction(&self, tx_id: &str) -> Result<Option<Transaction>, LedgerError> {
-        let db = LedgerDb::new(self.conn);
+        let db = LedgerDb::new(self.storage.get_connection());
         db.get_transaction(tx_id)
     }
 
     pub fn get_ledger_entries_for_tx(&self, tx_id: &str) -> Result<Vec<LedgerEntry>, LedgerError> {
-        let db = LedgerDb::new(self.conn);
+        let db = LedgerDb::new(self.storage.get_connection());
         db.get_ledger_entries_for_tx(tx_id)
     }
 
     pub fn get_adr_entries(&self, days: Option<u64>) -> Result<Vec<LedgerEntry>, LedgerError> {
-        let db = LedgerDb::new(self.conn);
+        let db = LedgerDb::new(self.storage.get_connection());
         db.get_adr_entries(days)
     }
 
@@ -659,7 +740,7 @@ impl<'a> TransactionManager<'a> {
         limit: Option<usize>,
         offset: usize,
     ) -> Result<Vec<LedgerEntry>, LedgerError> {
-        let db = LedgerDb::new(self.conn);
+        let db = LedgerDb::new(self.storage.get_connection());
         db.search_ledger(query, category, days, breaking_only, limit, offset)
     }
 
@@ -674,17 +755,17 @@ impl<'a> TransactionManager<'a> {
         offset: usize,
     ) -> Result<Vec<LedgerEntry>, LedgerError> {
         let normalized = self.entity_normalized(entity)?;
-        let db = LedgerDb::new(self.conn);
+        let db = LedgerDb::new(self.storage.get_connection());
         db.get_ledger_entries_by_entity_paginated(&normalized, limit, offset)
     }
 
     pub fn get_all_pending(&self) -> Result<Vec<Transaction>, LedgerError> {
-        let db = LedgerDb::new(self.conn);
+        let db = LedgerDb::new(self.storage.get_connection());
         db.get_all_pending()
     }
 
     pub fn get_all_unaudited(&self) -> Result<Vec<Transaction>, LedgerError> {
-        let db = LedgerDb::new(self.conn);
+        let db = LedgerDb::new(self.storage.get_connection());
         db.get_all_unaudited()
     }
 
@@ -695,12 +776,12 @@ impl<'a> TransactionManager<'a> {
     ) -> Result<(), LedgerError> {
         let tx_id = self.resolve_tx_id(tx_id)?;
         let tx = {
-            let db = LedgerDb::new(self.conn);
+            let db = LedgerDb::new(self.storage.get_connection());
             db.get_transaction(&tx_id)?
                 .ok_or_else(|| LedgerError::NotFound(tx_id.clone()))?
         };
 
-        let db = LedgerDb::new(self.conn);
+        let db = LedgerDb::new(self.storage.get_connection());
         for (symbol, action) in symbol_diff {
             let prov = TokenProvenance {
                 id: None,
@@ -732,12 +813,12 @@ impl<'a> TransactionManager<'a> {
         adr_id: &str,
         update: AdrMetadataUpdate,
     ) -> Result<(), LedgerError> {
-        let db = LedgerDb::new(self.conn);
+        let db = LedgerDb::new(self.storage.get_connection());
         db.update_adr_metadata(adr_id, update)
     }
 
     pub fn get_adr_metadata(&self, adr_id: &str) -> Result<AdrMetadata, LedgerError> {
-        let db = LedgerDb::new(self.conn);
+        let db = LedgerDb::new(self.storage.get_connection());
         db.get_adr_metadata(adr_id)?
             .ok_or_else(|| LedgerError::NotFound(format!("ADR metadata for ID {}", adr_id)))
     }
@@ -747,13 +828,13 @@ impl<'a> TransactionManager<'a> {
         adr_id: &str,
         supersedes_id: &str,
     ) -> Result<(), LedgerError> {
-        let db = LedgerDb::new(self.conn);
+        let db = LedgerDb::new(self.storage.get_connection());
         db.link_adr_supersedes(adr_id, supersedes_id)
     }
 
     pub fn get_transaction_files(&self, tx_id: &str) -> Result<Vec<String>, LedgerError> {
         let tx_id = self.resolve_tx_id(tx_id)?;
-        let db = LedgerDb::new(self.conn);
+        let db = LedgerDb::new(self.storage.get_connection());
         let tx = db
             .get_transaction(&tx_id)?
             .ok_or_else(|| LedgerError::NotFound(tx_id.clone()))?;
@@ -767,7 +848,7 @@ impl<'a> TransactionManager<'a> {
         }
 
         // Check if there are other files in changed_files via snapshot_id
-        let stmt = self.conn.prepare(
+        let stmt = self.storage.get_connection().prepare(
             "SELECT path FROM changed_files WHERE snapshot_id = (SELECT snapshot_id FROM transactions WHERE tx_id = ?1)"
         );
         if let Ok(mut stmt) = stmt
@@ -781,7 +862,7 @@ impl<'a> TransactionManager<'a> {
         }
 
         // Check transaction_links if the table exists
-        let stmt = self.conn.prepare(
+        let stmt = self.storage.get_connection().prepare(
             "SELECT entity_normalized FROM transaction_links WHERE tx_id = ?1 AND entity_type = 'FILE'"
         );
         if let Ok(mut stmt) = stmt

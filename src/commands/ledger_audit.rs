@@ -96,11 +96,7 @@ pub fn execute_ledger_audit(
 
     if let Some(path) = entity {
         let config = load_ledger_config(&layout)?;
-        let manager = TransactionManager::new(
-            storage.get_connection_mut(),
-            layout.root.clone().into(),
-            config,
-        );
+        let manager = TransactionManager::new(&mut storage, layout.root.clone().into(), config);
         let matched_file = if looks_like_file_path(&path) {
             // Try to canonicalize the path for matching
             let resolved = std::path::Path::new(&path);
@@ -156,11 +152,7 @@ fn gather_audit_data(
 
     // Opening a second connection for the manager avoids borrow conflicts
     let mut storage_mut = StorageManager::open_read_only_sqlite_only(&layout.root)?;
-    let manager = TransactionManager::new(
-        storage_mut.get_connection_mut(),
-        layout.root.clone().into(),
-        config,
-    );
+    let manager = TransactionManager::new(&mut storage_mut, layout.root.clone().into(), config);
 
     let v_7 = db
         .get_transaction_velocity(7)

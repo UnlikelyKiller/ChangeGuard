@@ -208,10 +208,9 @@ fn test_tech_stack_enforcement_at_start() {
     let dir = tempdir().unwrap();
     let db_path = dir.path().join("ledger.db");
     let mut storage = StorageManager::init(&db_path).unwrap();
-    let conn = storage.get_connection_mut();
 
     {
-        let db = LedgerDb::new(conn);
+        let db = LedgerDb::new(storage.get_connection_mut());
         // 1. Register a tech stack rule with a forbidden term
         db.insert_tech_stack_rule(&TechStackRule {
             category: "DATABASE".to_string(),
@@ -233,7 +232,7 @@ fn test_tech_stack_enforcement_at_start() {
         .expect("Should insert mapping");
     }
 
-    let mut manager = TransactionManager::new(conn, dir.path().to_path_buf(), {
+    let mut manager = TransactionManager::new(&mut storage, dir.path().to_path_buf(), {
         let mut cfg = Config::default();
         cfg.ledger.enforcement_enabled = true;
         cfg
@@ -366,7 +365,7 @@ fn test_commit_validator_blocking() {
 
     let mut storage_mut = StorageManager::init(&db_path).unwrap();
     let mut manager = TransactionManager::new(
-        storage_mut.get_connection_mut(),
+        &mut storage_mut,
         dir.path().to_path_buf(),
         Config::default(),
     );
@@ -425,7 +424,7 @@ fn test_commit_validator_warning() {
 
     let mut storage_mut = StorageManager::init(&db_path).unwrap();
     let mut manager = TransactionManager::new(
-        storage_mut.get_connection_mut(),
+        &mut storage_mut,
         dir.path().to_path_buf(),
         Config::default(),
     );
@@ -479,7 +478,7 @@ fn test_commit_validator_timeout() {
 
     let mut storage_mut = StorageManager::init(&db_path).unwrap();
     let mut manager = TransactionManager::new(
-        storage_mut.get_connection_mut(),
+        &mut storage_mut,
         dir.path().to_path_buf(),
         Config::default(),
     );
@@ -541,11 +540,8 @@ fn test_commit_validator_absolute_path() {
 
     let mut storage_mut = StorageManager::init(&db_path).unwrap();
     let repo_root = dir.path().to_path_buf();
-    let mut manager = TransactionManager::new(
-        storage_mut.get_connection_mut(),
-        repo_root.clone(),
-        Config::default(),
-    );
+    let mut manager =
+        TransactionManager::new(&mut storage_mut, repo_root.clone(), Config::default());
 
     std::fs::write(dir.path().join("main.rs"), "").unwrap();
 
@@ -613,7 +609,7 @@ fn test_all_category_validators() {
 
     let mut storage_mut = StorageManager::init(&db_path).unwrap();
     let mut manager = TransactionManager::new(
-        storage_mut.get_connection_mut(),
+        &mut storage_mut,
         dir.path().to_path_buf(),
         Config::default(),
     );
@@ -667,7 +663,7 @@ fn test_verification_gate_blocks_high_risk_categories() {
     let mut config = Config::default();
     config.ledger.verify_to_commit = true;
 
-    let mut tx_mgr = TransactionManager::new(storage.get_connection_mut(), repo_root, config);
+    let mut tx_mgr = TransactionManager::new(&mut storage, repo_root, config);
 
     // Test that Architecture category requires verification
     for category in [
@@ -727,7 +723,7 @@ fn test_verification_gate_allows_with_status() {
     let mut config = Config::default();
     config.ledger.verify_to_commit = true;
 
-    let mut tx_mgr = TransactionManager::new(storage.get_connection_mut(), repo_root, config);
+    let mut tx_mgr = TransactionManager::new(&mut storage, repo_root, config);
 
     let tx_id = tx_mgr
         .start_change(TransactionRequest {
@@ -767,7 +763,7 @@ fn test_verification_gate_force_override() {
     let mut config = Config::default();
     config.ledger.verify_to_commit = true;
 
-    let mut tx_mgr = TransactionManager::new(storage.get_connection_mut(), repo_root, config);
+    let mut tx_mgr = TransactionManager::new(&mut storage, repo_root, config);
 
     let tx_id = tx_mgr
         .start_change(TransactionRequest {
@@ -803,8 +799,7 @@ fn test_verification_gate_disabled_by_default() {
     std::fs::write(&entity_path, "").unwrap();
 
     // Default config has verify_to_commit = false
-    let mut tx_mgr =
-        TransactionManager::new(storage.get_connection_mut(), repo_root, Config::default());
+    let mut tx_mgr = TransactionManager::new(&mut storage, repo_root, Config::default());
 
     let tx_id = tx_mgr
         .start_change(TransactionRequest {
@@ -852,7 +847,7 @@ fn test_verification_gate_allows_low_risk_categories() {
     let mut config = Config::default();
     config.ledger.verify_to_commit = true;
 
-    let mut tx_mgr = TransactionManager::new(storage.get_connection_mut(), repo_root, config);
+    let mut tx_mgr = TransactionManager::new(&mut storage, repo_root, config);
 
     // Low-risk categories should not require verification
     for (entity, category) in [

@@ -180,7 +180,6 @@ static RUST_ENV_VAR_DEFAULT: LazyLock<Regex> = LazyLock::new(|| {
 });
 static TS_ENV_DOT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"process\.env\.([A-Z_][A-Z0-9_]*)"#).unwrap());
-#[allow(dead_code)]
 static TS_ENV_INDEXED: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"process\.env\[['"]([^'"]+)['"]\]"#).unwrap());
 #[allow(dead_code)]
@@ -192,7 +191,6 @@ static PY_ENV_GET: LazyLock<Regex> =
 static PY_ENV_GET_DEFAULT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"os\.(?:environ\.get|getenv)\(['"]([^'"]+)['"]\s*,\s*"#).unwrap()
 });
-#[allow(dead_code)]
 static PY_ENV_INDEXED: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"os\.environ\[['"]([^'"]+)['"]\]"#).unwrap());
 #[allow(dead_code)]
@@ -330,11 +328,13 @@ impl EnvSchemaExtractor {
                 collect_env_captures(&RUST_ENV_VAR, content, &mut names);
                 collect_env_captures(&RUST_ENV_MACRO, content, &mut names);
             }
-            "ts" | "js" => {
+            "ts" | "js" | "tsx" | "jsx" => {
                 collect_env_captures(&TS_ENV_DOT, content, &mut names);
+                collect_env_captures(&TS_ENV_INDEXED, content, &mut names);
             }
             "py" => {
                 collect_env_captures(&PY_ENV_GET, content, &mut names);
+                collect_env_captures(&PY_ENV_INDEXED, content, &mut names);
             }
             _ => {}
         }
@@ -401,39 +401,132 @@ impl<'a> EnvSchemaIndexer<'a> {
 
     pub fn extract(&self) -> Result<EnvSchemaStats> {
         let now = chrono::Utc::now().to_rfc3339();
+        let conn = self.storage.get_connection();
+
+        // 1. Resolve .env.example file ID if it exists
+        let example_file_id: Option<i64> = conn
+            .query_row(
+                "SELECT id FROM project_files WHERE file_path = '.env.example' OR file_path = '.env.dist'",
+                [],
+                |row| row.get(0),
+            )
+            .ok();
+
+        // 2. Extract declarations from .env.example
         let mut decls = Vec::new();
-        // ... (simplified discovery for now to keep implementation focused on persistence)
+        let mut dotenv_count = 0;
         let example_path = self.repo_path.join(".env.example");
         if example_path.exists() {
-            let content = std::fs::read_to_string(&example_path).into_diagnostic()?;
-            decls.extend(EnvSchemaExtractor::extract_from_dotenv(&content));
+            let content =
+                crate::util::fs::read_to_string_with_encoding(&example_path).into_diagnostic()?;
+            let file_decls = EnvSchemaExtractor::extract_from_dotenv(&content);
+            dotenv_count = file_decls.len();
+
+            let file_id = if let Some(id) = example_file_id {
+                id
+            } else {
+                // Ensure .env.example is in project_files to satisfy FK constraints
+                conn.execute(
+                    "INSERT OR IGNORE INTO project_files (file_path, language, last_indexed_at) \
+                     VALUES (?1, ?2, ?3)",
+                    rusqlite::params![".env.example", "Dotenv", now],
+                )
+                .into_diagnostic()?;
+                conn.query_row(
+                    "SELECT id FROM project_files WHERE file_path = '.env.example'",
+                    [],
+                    |row| row.get(0),
+                )
+                .into_diagnostic()?
+            };
+
+            // Clear existing declarations for this file ID to ensure idempotency
+            conn.execute(
+                "DELETE FROM env_declarations WHERE source_file_id = ?",
+                [file_id],
+            )
+            .into_diagnostic()?;
+
+            let rows: Vec<EnvDeclarationRow> = file_decls
+                .into_iter()
+                .map(|d| EnvDeclarationRow {
+                    source_file_id: file_id,
+                    var_name: d.var_name,
+                    source_kind: d.source_kind.to_string(),
+                    required: d.required,
+                    is_secret: d.is_secret,
+                    default_value_redacted: d.default_value_redacted,
+                    description: d.description,
+                    owner: d.owner,
+                    environment: d.environment,
+                    confidence: d.confidence,
+                })
+                .collect();
+            self.insert_declaration_batch(&rows, &now)?;
+            decls.extend(rows);
         }
+
+        // 3. Extract references from all source files
+        let mut file_stmt = conn
+            .prepare("SELECT id, file_path FROM project_files WHERE parse_status != 'DELETED'")
+            .into_diagnostic()?;
+
+        let files: Vec<(i64, String)> = file_stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .into_diagnostic()?
+            .collect::<Result<Vec<_>, _>>()
+            .into_diagnostic()?;
+        drop(file_stmt);
+
+        let mut all_refs = Vec::new();
+        let mut files_processed = 0;
+
+        for (file_id, file_path) in files {
+            let full_path = self.repo_path.join(&file_path);
+            if let Ok(content) = crate::util::fs::read_to_string_with_encoding(&full_path) {
+                let refs = EnvSchemaExtractor::extract_references_from_source(
+                    std::path::Path::new(&file_path),
+                    &content,
+                );
+
+                // Always clear existing references for this file to avoid duplicates (HP: NULL in UNIQUE constraint)
+                conn.execute("DELETE FROM env_references WHERE file_id = ?", [file_id])
+                    .into_diagnostic()?;
+
+                if !refs.is_empty() {
+                    let ref_rows: Vec<EnvReferenceRow> = refs
+                        .into_iter()
+                        .map(|r| EnvReferenceRow {
+                            file_id,
+                            symbol_id: None, // Use NULL, but DELETE above ensures no duplicates
+                            var_name: r.var_name,
+                            reference_kind: r.reference_kind.to_string(),
+                            confidence: r.confidence,
+                            line_start: None,
+                        })
+                        .collect();
+                    self.insert_reference_batch(&ref_rows, &now)?;
+                    all_refs.extend(ref_rows);
+                }
+                files_processed += 1;
+            }
+        }
+
+        // 4. Prune references for files that are no longer tracked (DELETED or removed
+        // from project_files entirely) so that incremental indexing does not leave orphans.
+        conn.execute(
+            "DELETE FROM env_references WHERE file_id NOT IN (SELECT id FROM project_files WHERE parse_status != 'DELETED')",
+            [],
+        ).into_diagnostic()?;
 
         let stats = EnvSchemaStats {
             total_declarations: decls.len(),
-            total_references: 0,
-            dotenv_declarations: decls.len(),
-            config_declarations: 0,
-            files_processed: 1,
+            total_references: all_refs.len(),
+            dotenv_declarations: dotenv_count,
+            config_declarations: decls.len() - dotenv_count,
+            files_processed,
         };
 
-        let rows: Vec<EnvDeclarationRow> = decls
-            .into_iter()
-            .map(|d| EnvDeclarationRow {
-                source_file_id: 1, // Placeholder
-                var_name: d.var_name,
-                source_kind: d.source_kind.to_string(),
-                required: d.required,
-                is_secret: d.is_secret,
-                default_value_redacted: d.default_value_redacted,
-                description: d.description,
-                owner: d.owner,
-                environment: d.environment,
-                confidence: d.confidence,
-            })
-            .collect();
-
-        self.insert_declaration_batch(&rows, &now)?;
         Ok(stats)
     }
 
@@ -451,7 +544,6 @@ impl<'a> EnvSchemaIndexer<'a> {
         Ok(())
     }
 
-    #[allow(dead_code)]
     fn insert_reference_batch(&self, rows: &[EnvReferenceRow], now: &str) -> Result<()> {
         let conn = self.storage.get_connection();
         let tx = conn.unchecked_transaction().into_diagnostic()?;

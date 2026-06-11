@@ -48,8 +48,7 @@ pub fn execute_ledger_start(entity: String, category: &str, message: &str) -> Re
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
     let config = load_ledger_config(&layout)?;
-    let mut tx_mgr =
-        TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
+    let mut tx_mgr = TransactionManager::new(&mut storage, layout.root.into(), config);
 
     let tx_id = tx_mgr
         .start_change(TransactionRequest {
@@ -75,11 +74,7 @@ pub fn execute_ledger_commit(
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
     let config = load_ledger_config(&layout)?;
 
-    let mut tx_mgr = TransactionManager::new(
-        storage.get_connection_mut(),
-        layout.root.into(),
-        config.clone(),
-    );
+    let mut tx_mgr = TransactionManager::new(&mut storage, layout.root.into(), config.clone());
 
     let resolved_id = if let Some(id) = tx_id {
         tx_mgr
@@ -114,26 +109,6 @@ pub fn execute_ledger_commit(
             false,
         )
         .map_err(|e| miette::miette!("{}", e))?;
-
-    let changed_files = match tx_mgr.get_transaction_files(&resolved_id) {
-        Ok(files) => files,
-        Err(e) => {
-            tracing::warn!(
-                "ledger commit: could not discover changed files for KG edges (tx={resolved_id}): {e}"
-            );
-            vec![]
-        }
-    };
-    drop(tx_mgr);
-
-    write_ledger_graph_edges(
-        &storage.cozo,
-        &resolved_id,
-        summary,
-        reason,
-        &tx_category,
-        changed_files,
-    );
 
     println!("{}", "Transaction committed.".green().bold());
 
@@ -221,8 +196,7 @@ pub fn execute_ledger_rollback(tx_id: Option<String>, reason: String) -> Result<
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
     let config = load_ledger_config(&layout)?;
-    let mut tx_mgr =
-        TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
+    let mut tx_mgr = TransactionManager::new(&mut storage, layout.root.into(), config);
 
     let resolved_id = if let Some(id) = tx_id {
         tx_mgr
@@ -252,14 +226,12 @@ pub fn execute_ledger_atomic(
     reason: &str,
 ) -> Result<()> {
     let category = Category::from_str(category, true).map_err(|e| miette::miette!("{}", e))?;
-    let category_str = category.to_string();
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
     let config = load_ledger_config(&layout)?;
-    let mut tx_mgr =
-        TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
+    let mut tx_mgr = TransactionManager::new(&mut storage, layout.root.into(), config);
 
-    let tx_id = tx_mgr
+    tx_mgr
         .atomic_change(
             TransactionRequest {
                 category,
@@ -276,26 +248,6 @@ pub fn execute_ledger_atomic(
         )
         .map_err(|e| miette::miette!("{}", e))?;
 
-    let changed_files = match tx_mgr.get_transaction_files(&tx_id) {
-        Ok(files) => files,
-        Err(e) => {
-            tracing::warn!(
-                "ledger atomic: could not discover changed files for KG edges (tx={tx_id}): {e}"
-            );
-            vec![]
-        }
-    };
-    drop(tx_mgr);
-
-    write_ledger_graph_edges(
-        &storage.cozo,
-        &tx_id,
-        summary,
-        reason,
-        &category_str,
-        changed_files,
-    );
-
     println!("{}", "Atomic change committed.".green().bold());
     Ok(())
 }
@@ -304,7 +256,7 @@ pub fn execute_ledger_resume(tx_id: Option<String>) -> Result<()> {
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
     let config = load_ledger_config(&layout)?;
-    let tx_mgr = TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
+    let tx_mgr = TransactionManager::new(&mut storage, layout.root.into(), config);
 
     if let Some(id) = tx_id {
         let full_id = tx_mgr
@@ -327,58 +279,6 @@ pub fn execute_ledger_resume(tx_id: Option<String>) -> Result<()> {
         }
     }
     Ok(())
-}
-
-/// Write transaction-affects edges to the KG (CozoDB) so that
-/// `ledger graph <tx-id>` returns the entity neighborhood.
-fn write_ledger_graph_edges(
-    cozo_opt: &Option<crate::state::storage_cozo::CozoStorage>,
-    tx_id: &str,
-    summary: &str,
-    reason: &str,
-    category: &str,
-    changed_files: Vec<String>,
-) {
-    if let Some(cozo) = cozo_opt {
-        use crate::platform::urn::build_urn;
-        use crate::state::graph_kinds::{EdgeKind, NodeKind};
-        use crate::state::storage_cozo::{GraphEdge, GraphNode};
-
-        let tx_urn = build_urn(NodeKind::LedgerTransaction, tx_id);
-
-        let mut nodes = Vec::new();
-        let mut edges = Vec::new();
-
-        nodes.push(GraphNode {
-            id: tx_urn.clone(),
-            label: tx_id.to_string(),
-            category: NodeKind::LedgerTransaction,
-            risk_score: 0.0,
-            metadata: Some(serde_json::json!({
-                "summary": summary,
-                "reason": reason,
-                "category": category,
-            })),
-        });
-
-        for file in changed_files {
-            let file_urn = build_urn(NodeKind::File, &file);
-            edges.push(GraphEdge {
-                source: tx_urn.clone(),
-                target: file_urn,
-                relation: EdgeKind::Affects,
-                confidence: 1.0,
-                provenance_id: tx_id.to_string(),
-            });
-        }
-
-        if let Err(e) = cozo.insert_nodes(&nodes) {
-            tracing::warn!("ledger graph: failed to write transaction node: {}", e);
-        }
-        if let Err(e) = cozo.insert_edges(&edges) {
-            tracing::warn!("ledger graph: failed to write KG edges: {}", e);
-        }
-    }
 }
 
 #[cfg(test)]

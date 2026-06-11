@@ -17,11 +17,7 @@ fn test_ledger_adr_export() {
     fs::write(repo_root.join("src/api.rs"), "").unwrap();
 
     let mut storage = StorageManager::init(&db_path).unwrap();
-    let mut manager = TransactionManager::new(
-        storage.get_connection_mut(),
-        repo_root.clone(),
-        Config::default(),
-    );
+    let mut manager = TransactionManager::new(&mut storage, repo_root.clone(), Config::default());
 
     // 1. Create an ARCHITECTURE entry
     let tx_id = manager

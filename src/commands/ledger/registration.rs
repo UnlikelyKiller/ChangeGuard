@@ -8,7 +8,7 @@ pub fn execute_ledger_register_rule(term: &str, category: &str, reason: &str) ->
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
     let config = load_ledger_config(&layout)?;
-    let tx_mgr = TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
+    let tx_mgr = TransactionManager::new(&mut storage, layout.root.into(), config);
 
     let db = LedgerDb::new(tx_mgr.get_connection());
     db.register_forbidden_term(term, category, reason)
@@ -31,7 +31,7 @@ pub fn execute_ledger_register_validator(
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
     let config = load_ledger_config(&layout)?;
-    let tx_mgr = TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
+    let tx_mgr = TransactionManager::new(&mut storage, layout.root.into(), config);
 
     let db = LedgerDb::new(tx_mgr.get_connection());
     db.register_validator(name, command, category, timeout)

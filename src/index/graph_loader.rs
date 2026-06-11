@@ -28,7 +28,8 @@ pub struct PhaseCounters {
     pub call_edges: usize,
     pub routes_nodes: usize,
     pub routes_edges: usize,
-    pub dependencies_nodes: usize,
+    pub dependencies_nodes: usize, // ADRs
+    pub packages_nodes: usize,
     pub dependencies_edges: usize,
     pub deployments_nodes: usize,
     pub deployments_edges: usize,
@@ -39,6 +40,8 @@ pub struct PhaseCounters {
     pub observability_edges: usize,
     pub security_nodes: usize,
     pub security_edges: usize,
+    pub test_nodes: usize,
+    pub test_edges: usize,
     pub cross_surface_edges: usize,
 }
 
@@ -92,27 +95,32 @@ pub fn build_native_graph(
     let symbols_indexed = phase_symbols(&mut ctx)?;
     phase_call_edges(&mut ctx)?;
     phase_routes(&mut ctx)?;
+    phase_cargo_dependencies(&mut ctx)?;
     phase_dependencies(&mut ctx)?;
+    phase_test_mappings(&mut ctx)?;
     phase_deployments(&mut ctx)?;
     phase_environment(&mut ctx)?;
     phase_observability(&mut ctx)?;
     phase_security(&mut ctx)?;
 
     info!(
-        "Native graph built: {} files, {} symbols, {} edges, {} endpoints, {} ADRs, {} deploy nodes, \
+        "Native graph built: {} files, {} symbols, {} edges, {} endpoints, {} ADRs, {} packages, {} tests, {} deploy nodes, \
          {} models, {} config_keys, {} obs, {} security nodes, {} cross-surface edges",
         files_indexed,
         symbols_indexed,
         ctx.counters.call_edges
             + ctx.counters.routes_edges
             + ctx.counters.dependencies_edges
+            + ctx.counters.test_edges
             + ctx.counters.deployments_edges
             + ctx.counters.environment_edges
             + ctx.counters.observability_edges
             + ctx.counters.security_edges,
         ctx.counters.routes_nodes,
-        ctx.counters.dependencies_nodes, // ADR count carried here
-        ctx.counters.deployments_nodes,  // includes services + owners/queues/topics/rpc
+        ctx.counters.dependencies_nodes, // ADR count
+        ctx.counters.packages_nodes,
+        ctx.counters.test_nodes,
+        ctx.counters.deployments_nodes, // includes services + owners/queues/topics/rpc
         ctx.counters.environment_model_nodes,
         ctx.counters.environment_config_nodes,
         ctx.counters.observability_nodes,
@@ -125,6 +133,8 @@ pub fn build_native_graph(
             + symbols_indexed
             + ctx.counters.routes_nodes
             + ctx.counters.dependencies_nodes
+            + ctx.counters.packages_nodes
+            + ctx.counters.test_nodes
             + ctx.counters.deployments_nodes
             + ctx.counters.environment_model_nodes
             + ctx.counters.environment_config_nodes
@@ -133,6 +143,7 @@ pub fn build_native_graph(
         edges_added: ctx.counters.call_edges
             + ctx.counters.routes_edges
             + ctx.counters.dependencies_edges
+            + ctx.counters.test_edges
             + ctx.counters.deployments_edges
             + ctx.counters.environment_edges
             + ctx.counters.observability_edges
@@ -1419,6 +1430,226 @@ fn phase_security(ctx: &mut GraphLoadContext) -> Result<()> {
     ctx.counters.cross_surface_edges = cross_edges.len();
     ctx.policy_nodes = policy_nodes;
     ctx.deploy_manifests = deploy_manifests;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Phase 10 — Cargo dependencies (from Cargo.lock)
+// ---------------------------------------------------------------------------
+fn phase_cargo_dependencies(ctx: &mut GraphLoadContext) -> Result<()> {
+    let lock_path = ctx.storage.root_path().join("Cargo.lock");
+    if !lock_path.exists() {
+        tracing::warn!("Cargo.lock not found at repository root; skipping dependency ingestion.");
+        return Ok(());
+    }
+
+    let content = std::fs::read_to_string(&lock_path).into_diagnostic()?;
+    let value: serde_json::Value = toml::from_str(&content).into_diagnostic()?;
+
+    let packages = value.get("package").and_then(|p| p.as_array());
+    if let Some(pkgs) = packages {
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+
+        // 1. First pass: collect all (name, version, source) triples keyed by name
+        #[derive(Debug, Clone)]
+        struct PkgInfo {
+            version: String,
+            source: Option<String>,
+        }
+        let mut name_to_packages: std::collections::HashMap<String, Vec<PkgInfo>> =
+            std::collections::HashMap::new();
+        for pkg in pkgs {
+            if let Some(name) = pkg.get("name").and_then(|n| n.as_str()) {
+                let version = pkg
+                    .get("version")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("0.0.0");
+                let source = pkg.get("source").and_then(|s| s.as_str()).map(String::from);
+                name_to_packages
+                    .entry(name.to_string())
+                    .or_default()
+                    .push(PkgInfo {
+                        version: version.to_string(),
+                        source,
+                    });
+            }
+        }
+
+        // 2. Second pass: create nodes and edges
+        for pkg in pkgs {
+            let name = match pkg.get("name").and_then(|n| n.as_str()) {
+                Some(n) => n,
+                None => {
+                    tracing::warn!("Cargo.lock: package missing name; skipping");
+                    continue;
+                }
+            };
+            let version = match pkg.get("version").and_then(|v| v.as_str()) {
+                Some(v) => v,
+                None => {
+                    tracing::warn!(
+                        "Cargo.lock: package '{}' missing version; defaulting to 0.0.0",
+                        name
+                    );
+                    "0.0.0"
+                }
+            };
+            let parent_source = pkg.get("source").and_then(|s| s.as_str());
+
+            let urn = format!("urn:changeguard:package:{}:{}", name, version);
+            nodes.push(GraphNode {
+                id: urn.clone(),
+                label: format!("{}@{}", name, version),
+                category: NodeKind::Package,
+                risk_score: 0.0,
+                metadata: Some(json!({
+                    "name": name,
+                    "version": version,
+                    "ecosystem": "rust/cargo",
+                    "manifest": "Cargo.lock",
+                    "schema_version": "v1"
+                })),
+            });
+
+            if let Some(deps) = pkg.get("dependencies").and_then(|d| d.as_array()) {
+                for dep in deps {
+                    if let Some(dep_str) = dep.as_str() {
+                        let parts: Vec<&str> = dep_str.split_whitespace().collect();
+                        let dep_name = parts[0];
+
+                        let dep_urn = if parts.len() > 1 {
+                            format!("urn:changeguard:package:{}:{}", dep_name, parts[1])
+                        } else {
+                            // Resolve bare dependency name against collected package list.
+                            let candidates = name_to_packages.get(dep_name);
+                            match candidates {
+                                Some(pkgs) if pkgs.len() == 1 => {
+                                    format!(
+                                        "urn:changeguard:package:{}:{}",
+                                        dep_name, &pkgs[0].version
+                                    )
+                                }
+                                Some(pkgs) if pkgs.len() > 1 => {
+                                    // Ambiguity: try source-matching heuristic.
+                                    let matched: Vec<&PkgInfo> = pkgs
+                                        .iter()
+                                        .filter(|p| match (parent_source, p.source.as_ref()) {
+                                            (Some(ps), Some(cs)) => ps == cs,
+                                            _ => true,
+                                        })
+                                        .collect();
+                                    if matched.len() == 1 {
+                                        format!(
+                                            "urn:changeguard:package:{}:{}",
+                                            dep_name, &matched[0].version
+                                        )
+                                    } else {
+                                        // Still ambiguous: skip edge to avoid incorrect graph.
+                                        tracing::warn!(
+                                            "Cargo.lock: Skipping ambiguous dependency '{}' for '{}'; {} versions present but dependency string lacks version qualifier.",
+                                            dep_name,
+                                            name,
+                                            pkgs.len()
+                                        );
+                                        continue;
+                                    }
+                                }
+                                _ => {
+                                    tracing::warn!(
+                                        "Cargo.lock: dependency '{}' for '{}' not found in package list",
+                                        dep_name,
+                                        name
+                                    );
+                                    format!("urn:changeguard:package:{}:0.0.0", dep_name)
+                                }
+                            }
+                        };
+
+                        edges.push(GraphEdge {
+                            source: urn.clone(),
+                            target: dep_urn,
+                            relation: EdgeKind::DependsOn,
+                            confidence: 1.0,
+                            provenance_id: ctx.provenance_id.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+        ctx.cozo.insert_nodes(&nodes)?;
+        ctx.cozo.insert_edges(&edges)?;
+        ctx.counters.packages_nodes = nodes.len();
+        ctx.counters.dependencies_edges += edges.len();
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Phase 11 — Test mappings (from test_mapping table)
+// ---------------------------------------------------------------------------
+fn phase_test_mappings(ctx: &mut GraphLoadContext) -> Result<()> {
+    let conn = ctx.storage.get_connection();
+    let mut tm_stmt = conn
+        .prepare(
+            "SELECT ps_test.qualified_name, ps_tested.qualified_name, \
+                    tm.confidence, tm.mapping_kind, tm.evidence \
+             FROM test_mapping tm \
+             JOIN project_symbols ps_test ON tm.test_symbol_id = ps_test.id \
+             JOIN project_symbols ps_tested ON tm.tested_symbol_id = ps_tested.id",
+        )
+        .into_diagnostic()?;
+
+    let tm_rows: Vec<(String, String, f64, String, Option<String>)> = tm_stmt
+        .query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        })
+        .into_diagnostic()?
+        .collect::<Result<Vec<_>, _>>()
+        .into_diagnostic()?;
+    drop(tm_stmt);
+
+    let mut test_nodes = Vec::new();
+    let mut test_edges = Vec::new();
+
+    for (test_qn, tested_qn, confidence, kind, evidence) in &tm_rows {
+        let test_urn = crate::platform::urn::build_urn(NodeKind::Test, test_qn);
+        let tested_urn = crate::platform::urn::build_urn(NodeKind::Symbol, tested_qn);
+
+        test_nodes.push(GraphNode {
+            id: test_urn.clone(),
+            label: test_qn.clone(),
+            category: NodeKind::Test,
+            risk_score: 0.0,
+            metadata: Some(json!({
+                "schema_version": "v1",
+                "mapping_kind": kind,
+                "evidence": evidence
+            })),
+        });
+
+        test_edges.push(GraphEdge {
+            source: test_urn,
+            target: tested_urn,
+            relation: EdgeKind::Validates, // Use Validates for consistency with existing consumers
+            confidence: *confidence,
+            provenance_id: ctx.provenance_id.to_string(),
+        });
+    }
+
+    ctx.cozo.insert_nodes(&test_nodes)?;
+    ctx.cozo.insert_edges(&test_edges)?;
+
+    ctx.counters.test_nodes = test_nodes.len();
+    ctx.counters.test_edges = test_edges.len();
+
     Ok(())
 }
 

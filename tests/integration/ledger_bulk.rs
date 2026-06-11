@@ -34,11 +34,7 @@ fn test_reconcile_drift_bulk_concurrency() {
         db.insert_transaction(&tx1).unwrap();
     }
 
-    let mut tx_mgr = TransactionManager::new(
-        storage.get_connection_mut(),
-        repo_root.clone(),
-        Config::default(),
-    );
+    let mut tx_mgr = TransactionManager::new(&mut storage, repo_root.clone(), Config::default());
 
     // 2. Call reconcile_drift. This should succeed.
     tx_mgr
@@ -120,11 +116,7 @@ fn test_adopt_drift_bulk_concurrency() {
     };
     db.insert_transaction(&tx2).unwrap();
 
-    let mut tx_mgr = TransactionManager::new(
-        storage.get_connection_mut(),
-        repo_root.clone(),
-        Config::default(),
-    );
+    let mut tx_mgr = TransactionManager::new(&mut storage, repo_root.clone(), Config::default());
 
     // Adopt it
     tx_mgr

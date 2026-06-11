@@ -14,8 +14,7 @@ pub fn execute_ledger_reconcile(
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
     let config = load_ledger_config(&layout)?;
-    let mut tx_mgr =
-        TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
+    let mut tx_mgr = TransactionManager::new(&mut storage, layout.root.into(), config);
 
     tx_mgr
         .reconcile_drift(tx_id, pattern, all, reason.unwrap_or_default())
@@ -36,8 +35,7 @@ pub fn execute_ledger_adopt(
     let layout = get_layout()?;
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
     let config = load_ledger_config(&layout)?;
-    let mut tx_mgr =
-        TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
+    let mut tx_mgr = TransactionManager::new(&mut storage, layout.root.into(), config);
 
     // Collect unaudited drift entities *before* adopt to derive real file set for KG edges.
     // adopt_drift returns the tx_ids it promoted; we then gather files from each.
@@ -132,8 +130,7 @@ pub fn execute_ledger_gc(stale: bool, orphans: bool, ttl_hours: u64, force: bool
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
     let config = load_ledger_config(&layout)?;
 
-    let mut tx_mgr =
-        TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
+    let mut tx_mgr = TransactionManager::new(&mut storage, layout.root.into(), config);
 
     if stale {
         let stale_ids = {

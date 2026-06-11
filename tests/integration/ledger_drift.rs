@@ -33,8 +33,7 @@ fn test_drift_detection_creates_unaudited() {
             .expect("Should process drift");
     }
 
-    let tx_mgr =
-        TransactionManager::new(storage.get_connection_mut(), repo_root, Config::default());
+    let tx_mgr = TransactionManager::new(&mut storage, repo_root, Config::default());
     let unaudited = tx_mgr.get_all_unaudited().expect("Should get unaudited");
 
     assert_eq!(unaudited.len(), 1);
@@ -62,8 +61,7 @@ fn test_drift_detection_increments_count() {
         drift_mgr.process_event(entity).unwrap();
     }
 
-    let tx_mgr =
-        TransactionManager::new(storage.get_connection_mut(), repo_root, Config::default());
+    let tx_mgr = TransactionManager::new(&mut storage, repo_root, Config::default());
     let unaudited = tx_mgr.get_all_unaudited().unwrap();
 
     assert_eq!(unaudited.len(), 1);
@@ -80,11 +78,8 @@ fn test_drift_detection_ignores_pending() {
     fs::write(&entity_path, "").unwrap();
 
     {
-        let mut tx_mgr = TransactionManager::new(
-            storage.get_connection_mut(),
-            repo_root.clone(),
-            Config::default(),
-        );
+        let mut tx_mgr =
+            TransactionManager::new(&mut storage, repo_root.clone(), Config::default());
         tx_mgr
             .start_change(TransactionRequest {
                 entity: entity.to_string(),
@@ -105,8 +100,7 @@ fn test_drift_detection_ignores_pending() {
             .expect("Should process tracked file without drift");
     }
 
-    let tx_mgr =
-        TransactionManager::new(storage.get_connection_mut(), repo_root, Config::default());
+    let tx_mgr = TransactionManager::new(&mut storage, repo_root, Config::default());
     let unaudited = tx_mgr.get_all_unaudited().expect("Should get unaudited");
     assert_eq!(
         unaudited.len(),
@@ -133,11 +127,8 @@ fn test_reconcile_drift() {
     }
 
     {
-        let mut tx_mgr = TransactionManager::new(
-            storage.get_connection_mut(),
-            repo_root.clone(),
-            Config::default(),
-        );
+        let mut tx_mgr =
+            TransactionManager::new(&mut storage, repo_root.clone(), Config::default());
         let unaudited = tx_mgr.get_all_unaudited().unwrap();
         let tx_id = unaudited[0].tx_id.clone();
 
@@ -146,8 +137,7 @@ fn test_reconcile_drift() {
             .unwrap();
     }
 
-    let tx_mgr =
-        TransactionManager::new(storage.get_connection_mut(), repo_root, Config::default());
+    let tx_mgr = TransactionManager::new(&mut storage, repo_root, Config::default());
     let unaudited = tx_mgr.get_all_unaudited().unwrap();
     assert_eq!(unaudited.len(), 0);
 
@@ -175,19 +165,15 @@ fn test_adopt_drift() {
     }
 
     {
-        let mut tx_mgr = TransactionManager::new(
-            storage.get_connection_mut(),
-            repo_root.clone(),
-            Config::default(),
-        );
+        let mut tx_mgr =
+            TransactionManager::new(&mut storage, repo_root.clone(), Config::default());
         let unaudited = tx_mgr.get_all_unaudited().unwrap();
         let tx_id = unaudited[0].tx_id.clone();
 
         tx_mgr.adopt_drift(Some(tx_id), None, false, None).unwrap();
     }
 
-    let tx_mgr =
-        TransactionManager::new(storage.get_connection_mut(), repo_root, Config::default());
+    let tx_mgr = TransactionManager::new(&mut storage, repo_root, Config::default());
     let unaudited = tx_mgr.get_all_unaudited().unwrap();
     assert_eq!(unaudited.len(), 0);
 
@@ -220,11 +206,8 @@ fn test_bulk_reconcile_by_pattern() {
     }
 
     {
-        let mut tx_mgr = TransactionManager::new(
-            storage.get_connection_mut(),
-            repo_root.clone(),
-            Config::default(),
-        );
+        let mut tx_mgr =
+            TransactionManager::new(&mut storage, repo_root.clone(), Config::default());
         tx_mgr
             .reconcile_drift(
                 None,
@@ -235,8 +218,7 @@ fn test_bulk_reconcile_by_pattern() {
             .unwrap();
     }
 
-    let tx_mgr =
-        TransactionManager::new(storage.get_connection_mut(), repo_root, Config::default());
+    let tx_mgr = TransactionManager::new(&mut storage, repo_root, Config::default());
     let unaudited = tx_mgr.get_all_unaudited().unwrap();
     assert_eq!(unaudited.len(), 1);
     assert_eq!(unaudited[0].entity, "docs/readme.md");
@@ -260,11 +242,8 @@ fn test_auto_reconcile_on_commit() {
     }
 
     {
-        let mut tx_mgr = TransactionManager::new(
-            storage.get_connection_mut(),
-            repo_root.clone(),
-            Config::default(),
-        );
+        let mut tx_mgr =
+            TransactionManager::new(&mut storage, repo_root.clone(), Config::default());
         let tx_id = tx_mgr
             .start_change(TransactionRequest {
                 entity: entity.to_string(),
@@ -289,8 +268,7 @@ fn test_auto_reconcile_on_commit() {
             .unwrap();
     }
 
-    let tx_mgr =
-        TransactionManager::new(storage.get_connection_mut(), repo_root, Config::default());
+    let tx_mgr = TransactionManager::new(&mut storage, repo_root, Config::default());
     let unaudited = tx_mgr.get_all_unaudited().unwrap();
     assert_eq!(unaudited.len(), 0);
 

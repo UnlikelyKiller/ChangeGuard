@@ -23,7 +23,7 @@ pub fn execute_ledger_status(
     let mut storage = StorageManager::open_read_only_sqlite_only(&layout.root)?;
     let config = load_ledger_config(&layout)?;
     let stale_threshold = config.ledger.stale_threshold_hours as i64;
-    let tx_mgr = TransactionManager::new(storage.get_connection_mut(), layout.root.into(), config);
+    let tx_mgr = TransactionManager::new(&mut storage, layout.root.into(), config);
     let clock = SystemClock;
 
     if json {

@@ -365,7 +365,7 @@ fn silently_record_ledger(args: SilentRecordArgs) -> Result<()> {
     let category = parse_category_from_message(args.what);
     let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
     let mut tx_mgr = TransactionManager::new(
-        storage.get_connection_mut(),
+        &mut storage,
         layout.root.clone().into(),
         args.config.clone(),
     );

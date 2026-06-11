@@ -27,7 +27,7 @@ pub fn execute_ledger_graph(args: LedgerGraphArgs) -> Result<()> {
     let mut sqlite_storage = StorageManager::init(db_path.as_std_path())?;
     let config = crate::config::load::load_config(&layout).unwrap_or_default();
     let manager = crate::ledger::transaction::TransactionManager::new(
-        sqlite_storage.get_connection_mut(),
+        &mut sqlite_storage,
         layout.root.clone().into(),
         config,
     );

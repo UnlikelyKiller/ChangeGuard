@@ -23,11 +23,7 @@ pub fn execute_ledger_search(
     let db_path = layout.state_subdir().join("ledger.db");
     let mut storage = StorageManager::init(db_path.as_std_path())?;
     let config = load_ledger_config(&layout)?;
-    let manager = TransactionManager::new(
-        storage.get_connection_mut(),
-        layout.root.clone().into(),
-        config,
-    );
+    let manager = TransactionManager::new(&mut storage, layout.root.clone().into(), config);
 
     let cat_filter = category.map(|c| {
         serde_json::to_string(&c)

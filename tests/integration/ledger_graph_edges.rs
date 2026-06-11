@@ -46,11 +46,7 @@ fn test_commit_writes_kg_edges() {
     cozo.run_script(&node_query).unwrap();
 
     // Start a transaction for src/api.rs
-    let mut manager = TransactionManager::new(
-        storage.get_connection_mut(),
-        root.clone(),
-        Config::default(),
-    );
+    let mut manager = TransactionManager::new(&mut storage, root.clone(), Config::default());
 
     let tx_id = manager
         .start_change(TransactionRequest {

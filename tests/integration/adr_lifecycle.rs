@@ -14,11 +14,7 @@ fn test_adr_lifecycle_status_and_owner() {
     fs::write(repo_root.join("docs/arch.md"), "").unwrap();
 
     let mut storage = StorageManager::init(&db_path).unwrap();
-    let mut manager = TransactionManager::new(
-        storage.get_connection_mut(),
-        repo_root.clone(),
-        Config::default(),
-    );
+    let mut manager = TransactionManager::new(&mut storage, repo_root.clone(), Config::default());
 
     // 1. Create an ADR
     let tx_id = manager
@@ -70,11 +66,7 @@ fn test_adr_lifecycle_supersession() {
     fs::write(repo_root.join("docs/adr2.md"), "").unwrap();
 
     let mut storage = StorageManager::init(&db_path).unwrap();
-    let mut manager = TransactionManager::new(
-        storage.get_connection_mut(),
-        repo_root.clone(),
-        Config::default(),
-    );
+    let mut manager = TransactionManager::new(&mut storage, repo_root.clone(), Config::default());
 
     // 1. Create ADR 1
     let adr1_id = manager

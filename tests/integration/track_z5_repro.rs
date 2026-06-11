@@ -1,0 +1,117 @@
+use crate::common::{cwd_lock, setup_git_repo};
+use camino::Utf8Path;
+use changeguard::state::storage::StorageManager;
+use std::fs;
+use std::process::Command;
+use tempfile::tempdir;
+
+#[test]
+fn test_test_mapping_ingestion() {
+    let _lock = cwd_lock().lock().unwrap();
+    let tmp = tempdir().unwrap();
+    let root = tmp.path();
+    let root_utf8 = Utf8Path::from_path(root).unwrap();
+
+    setup_git_repo(root);
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("src/lib.rs"),
+        "pub fn add(a: i32, b: i32) -> i32 { a + b }",
+    )
+    .unwrap();
+    fs::create_dir_all(root.join("tests")).unwrap();
+    // Use 'use' to trigger IMPORT mapping (confidence 1.0)
+    fs::write(
+        root.join("tests/test_add.rs"),
+        "use crate::add;\n#[test]\nfn test_add() { assert_eq!(add(2,2), 4); }",
+    )
+    .unwrap();
+
+    // Commit so indexer sees them correctly
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(root)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["commit", "-m", "initial"])
+        .current_dir(root)
+        .output()
+        .unwrap();
+
+    let changeguard_bin = env!("CARGO_BIN_EXE_changeguard");
+
+    // Init and Index (to get symbols and test mappings)
+    Command::new(changeguard_bin)
+        .arg("init")
+        .current_dir(root)
+        .output()
+        .unwrap();
+    Command::new(changeguard_bin)
+        .arg("index")
+        .current_dir(root)
+        .output()
+        .unwrap();
+
+    // Now run index --analyze-graph
+    Command::new(changeguard_bin)
+        .args(["index", "--analyze-graph"])
+        .current_dir(root)
+        .output()
+        .unwrap();
+
+    // Check CozoDB
+    let storage = StorageManager::open_read_only(root_utf8).unwrap();
+    let cozo = storage.cozo.as_ref().expect("CozoDB should be initialized");
+
+    // 1. Verify test node exists and carries metadata
+    let res = cozo
+        .run_script("?[id, label, meta] := *node{id, label, category: 'test', metadata: meta}")
+        .unwrap();
+    assert!(!res.rows.is_empty(), "CozoDB should have test nodes");
+
+    let found_test_node = res.rows.iter().any(|row| {
+        row.get(1)
+            .map(|v| v.to_string().contains("test_add"))
+            .unwrap_or(false)
+    });
+    assert!(found_test_node, "Should have a test node for test_add");
+
+    // 2. Verify specific validates edge from test_add -> add with confidence 1.0
+    let edge_res = cozo
+        .run_script(
+            "?[src, tgt, rel, conf] := \
+             *node{id: src, category: 'test'}, \
+             *node{id: tgt, category: 'symbol'}, \
+             *edge{source: src, target: tgt, relation: rel, confidence: conf}",
+        )
+        .unwrap();
+    let found_specific_edge = edge_res.rows.iter().any(|row| {
+        let src_label = match row.first() {
+            Some(cozo::DataValue::Str(s)) => s.to_string(),
+            _ => String::new(),
+        };
+        let tgt_label = match row.get(1) {
+            Some(cozo::DataValue::Str(s)) => s.to_string(),
+            _ => String::new(),
+        };
+        let rel = match row.get(2) {
+            Some(cozo::DataValue::Str(s)) => s.to_string(),
+            _ => String::new(),
+        };
+        let conf = match row.get(3) {
+            Some(cozo::DataValue::Num(cozo::Num::Float(f))) => *f,
+            Some(cozo::DataValue::Num(cozo::Num::Int(i))) => *i as f64,
+            _ => 0.0,
+        };
+        src_label.contains("test_add")
+            && tgt_label.contains("add")
+            && rel == "validates"
+            && (conf - 1.0).abs() < 0.01
+    });
+    assert!(
+        found_specific_edge,
+        "CozoDB should have a validates edge from test_add to add with confidence 1.0. Rows: {:?}",
+        edge_res.rows
+    );
+}

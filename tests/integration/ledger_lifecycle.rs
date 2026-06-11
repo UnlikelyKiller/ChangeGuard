@@ -20,8 +20,7 @@ fn test_ledger_start_commit_roundtrip() {
     std::fs::create_dir_all(entity_path.parent().unwrap()).unwrap();
     std::fs::write(&entity_path, "").unwrap();
 
-    let mut tx_mgr =
-        TransactionManager::new(storage.get_connection_mut(), repo_root, Config::default());
+    let mut tx_mgr = TransactionManager::new(&mut storage, repo_root, Config::default());
 
     let entity = "src/main.rs";
     let tx_id = tx_mgr
@@ -81,8 +80,7 @@ fn test_ledger_start_rollback() {
     std::fs::create_dir_all(entity_path.parent().unwrap()).unwrap();
     std::fs::write(&entity_path, "").unwrap();
 
-    let mut tx_mgr =
-        TransactionManager::new(storage.get_connection_mut(), repo_root, Config::default());
+    let mut tx_mgr = TransactionManager::new(&mut storage, repo_root, Config::default());
 
     let entity = "src/lib.rs";
     let tx_id = tx_mgr
@@ -124,8 +122,7 @@ fn test_ledger_conflict() {
     std::fs::create_dir_all(entity_path.parent().unwrap()).unwrap();
     std::fs::write(&entity_path, "").unwrap();
 
-    let mut tx_mgr =
-        TransactionManager::new(storage.get_connection_mut(), repo_root, Config::default());
+    let mut tx_mgr = TransactionManager::new(&mut storage, repo_root, Config::default());
 
     let entity = "src/util.rs";
     tx_mgr
@@ -157,8 +154,7 @@ fn test_ledger_atomic() {
     std::fs::create_dir_all(entity_path.parent().unwrap()).unwrap();
     std::fs::write(&entity_path, "").unwrap();
 
-    let mut tx_mgr =
-        TransactionManager::new(storage.get_connection_mut(), repo_root, Config::default());
+    let mut tx_mgr = TransactionManager::new(&mut storage, repo_root, Config::default());
 
     let entity = "src/main.rs";
     tx_mgr
@@ -194,8 +190,7 @@ fn test_fuzzy_matching() {
     let entity_path = repo_root.join("test.txt");
     std::fs::write(&entity_path, "").unwrap();
 
-    let mut tx_mgr =
-        TransactionManager::new(storage.get_connection_mut(), repo_root, Config::default());
+    let mut tx_mgr = TransactionManager::new(&mut storage, repo_root, Config::default());
 
     let real_id = tx_mgr
         .start_change(TransactionRequest {

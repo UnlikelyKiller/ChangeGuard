@@ -1650,7 +1650,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Definition of done: Startup banner appears; Ctrl+C exits 0; state dir changes ignored; tests pass.
 
 
-## Milestone Z: Command Audit Remediation & Ollama Cloud Hardening (In Progress)
+## Milestone Z: Command Audit Remediation & Ollama Cloud Hardening (Completed)
 
 *   **Track Z1: Command Audit Remediation and Ollama Cloud Hardening**
     *   Status: Completed
@@ -1660,40 +1660,69 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Definition of done: `config view --json` never emits secret values; `ask --backend local` succeeds with valid Ollama Cloud config and reports clear actionable errors for invalid credentials; `verify --health` is bounded and informative; dry-run, JSON, bridge, empty-state, and federation UX issues have tests; official Ollama API behavior is captured in regression coverage; full verification plus reinstall passes.
 
 *   **Track Z2: `data-models impact --changed` Clean-Tree Message**
-    *   Status: In Progress
+    *   Status: Completed
     *   Spec: `conductor/trackZ2/spec.md`
     *   Plan: `conductor/trackZ2/plan.md`
     *   Goal: Differentiate between clean working tree and no data models indexed in data-models impact.
     *   Definition of done: Graceful no changes message when data models exist but are unchanged; original warning when count is 0; tests pass.
 
 *   **Track Z3: Config Diff Env Var References**
-    *   Status: In Progress
+    *   Status: Completed
     *   Spec: `conductor/trackZ3/spec.md`
     *   Plan: `conductor/trackZ3/plan.md`
     *   Goal: Scan project files for environment variable references during indexing to eliminate false-negative unused declarations.
     *   Definition of done: Scan executes during incremental/full indexing, references persisted, config diff works accurately; tests pass.
 
 *   **Track Z4: Cargo.lock Dependency Ingestion**
-    *   Status: In Progress
+    *   Status: Completed
     *   Spec: `conductor/trackZ4/spec.md`
     *   Plan: `conductor/trackZ4/plan.md`
     *   Goal: Parse Cargo.lock during index --analyze-graph and populate packages as node/edges in CozoDB.
     *   Definition of done: Cargo.lock packages ingested, direct/transitive edges populated, dependencies list works; tests pass.
 
 *   **Track Z5: Test Mapping Graph Loader**
-    *   Status: In Progress
+    *   Status: Completed
     *   Spec: `conductor/trackZ5/spec.md`
     *   Plan: `conductor/trackZ5/plan.md`
     *   Goal: Port SQLite test mappings to CozoDB as nodes and validates edges during index --analyze-graph.
     *   Definition of done: Mappings loaded into CozoDB, tests <entity> command works; tests pass.
 
 *   **Track Z6: Ledger Graph Transaction Edges**
-    *   Status: In Progress
+    *   Status: Completed
     *   Spec: `conductor/trackZ6/spec.md`
     *   Plan: `conductor/trackZ6/plan.md`
     *   Goal: Write transaction -> file affects edges in CozoDB upon ledger commit.
     *   Definition of done: Affects edges populated transactional, ledger graph shows neighborhood; tests pass.
 
+### Milestone Z Remediation (Codex Review Follow-Up)
+
+*   **Track Z-R1: Cargo.lock Disambiguation & Schema Hardening**
+    *   Status: Planned
+    *   Spec: `conductor/trackZ-R1/spec.md`
+    *   Plan: `conductor/trackZ-R1/plan.md`
+    *   Goal: Close the test-coverage gap for Cargo.lock multi-version disambiguation and harden the parser against schema drift.
+    *   Definition of done: Duplicate-version integration test passes and fails if heuristic is broken; typed deserialization path exists alongside Value fallback; zero behavior change on standard lockfiles.
+
+*   **Track Z-R2: Ledger Adopt Path Deduplication & Defense-in-Depth**
+    *   Status: Planned
+    *   Spec: `conductor/trackZ-R2/spec.md`
+    *   Plan: `conductor/trackZ-R2/plan.md`
+    *   Goal: Eliminate redundant KG writes in `execute_ledger_adopt`, centralize synthetic-entity filtering, and harden `get_transaction_files`.
+    *   Definition of done: Adopt produces exactly one node + edges per file; synthetic filter present in `write_ledger_graph_edges`; `get_transaction_files` skips non-path entities; backward-compatible API preserved.
+
+*   **Track Z-R3: Env Schema Completeness & Regex Consolidation**
+    *   Status: Planned
+    *   Spec: `conductor/trackZ-R3/spec.md`
+    *   Plan: `conductor/trackZ-R3/plan.md`
+    *   Goal: Wire dead regexes, expand real-world env-var coverage, deduplicate patterns into `src/index/env_patterns.rs`, and make reference replacement atomic.
+    *   Definition of done: All dead regexes are active; new patterns (option_env!, import.meta.env, etc.) are covered; shared module exists; atomic transaction wraps cleanup + inserts.
+
+*   **Track Z-R4: CozoDB Parameterized Queries & Test Precision**
+    *   Status: Planned
+    *   Spec: `conductor/trackZ-R4/spec.md`
+    *   Plan: `conductor/trackZ-R4/plan.md`
+    *   Goal: Eliminate format!-based Datalog queries, add safe `CozoStorage` helpers, strengthen assertions to exact-match, and cover `--json` output.
+    *   Definition of done: Zero format! interpolation in CozoDB test queries; parameterized helpers used everywhere; Z5/Z6 tests assert exact URNs; Z2 has JSON coverage.
 
 
 ## Milestone GF: God-File Decomposition and Boundary Hardening (Completed)

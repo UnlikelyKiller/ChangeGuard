@@ -70,6 +70,11 @@ mod search_performance;
 mod semantic_search;
 mod tantivy_hardening;
 mod temporal_coupling;
+mod track_z2_repro;
+mod track_z3_repro;
+mod track_z4_repro;
+mod track_z5_repro;
+mod track_z6_repro;
 mod watch_graph_sync;
 
 #[test]
