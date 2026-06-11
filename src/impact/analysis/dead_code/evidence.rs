@@ -263,9 +263,9 @@ impl<'a> ConfidenceScorer<'a> {
                     let location = match change {
                         gix::object::tree::diff::ChangeDetached::Addition { location, .. }
                         | gix::object::tree::diff::ChangeDetached::Deletion { location, .. }
-                        | gix::object::tree::diff::ChangeDetached::Modification { location, .. } => {
-                            String::from_utf8_lossy(&location).into_owned()
-                        }
+                        | gix::object::tree::diff::ChangeDetached::Modification {
+                            location, ..
+                        } => String::from_utf8_lossy(&location).into_owned(),
                         gix::object::tree::diff::ChangeDetached::Rewrite {
                             location,
                             source_location,
@@ -310,7 +310,9 @@ impl<'a> ConfidenceScorer<'a> {
         };
 
         let result = calculate()?;
-        self.git_activity_cache.borrow_mut().insert(file_path.to_path_buf(), result);
+        self.git_activity_cache
+            .borrow_mut()
+            .insert(file_path.to_path_buf(), result);
         Ok(result)
     }
 

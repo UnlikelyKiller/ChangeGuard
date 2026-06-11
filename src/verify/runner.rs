@@ -97,9 +97,11 @@ fn fallback_install_hint(cmd: &str) -> String {
     } else if lower.contains("cargo") {
         "\nHint: Verify that Rust/Cargo is installed. Visit https://rustup.rs to set up the toolchain.".to_string()
     } else if lower.contains("npm") {
-        "\nHint: Verify Node.js/NPM is installed. Visit https://nodejs.org to set up Node.".to_string()
+        "\nHint: Verify Node.js/NPM is installed. Visit https://nodejs.org to set up Node."
+            .to_string()
     } else if lower.contains("python") || lower.contains("pytest") || lower.contains("pip") {
-        "\nHint: Verify Python and your virtual environment are active and on your PATH.".to_string()
+        "\nHint: Verify Python and your virtual environment are active and on your PATH."
+            .to_string()
     } else if lower.contains("make") {
         "\nHint: Install make (e.g. 'choco install make' on Windows, or 'brew install make' on macOS).".to_string()
     } else {

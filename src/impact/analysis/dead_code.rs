@@ -51,7 +51,8 @@ pub struct ConfidenceScorer<'a> {
     pub(super) storage: &'a StorageManager,
     pub(super) config: &'a DeadCodeConfig,
     pub(super) repo_path: &'a Path,
-    pub(super) git_activity_cache: std::cell::RefCell<std::collections::HashMap<std::path::PathBuf, Option<u32>>>,
+    pub(super) git_activity_cache:
+        std::cell::RefCell<std::collections::HashMap<std::path::PathBuf, Option<u32>>>,
 }
 
 impl<'a> ConfidenceScorer<'a> {
