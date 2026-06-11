@@ -1650,7 +1650,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Definition of done: Startup banner appears; Ctrl+C exits 0; state dir changes ignored; tests pass.
 
 
-## Milestone Z: Command Audit Remediation & Ollama Cloud Hardening (Completed)
+## Milestone Z: Command Audit Remediation & Ollama Cloud Hardening (In Progress)
 
 *   **Track Z1: Command Audit Remediation and Ollama Cloud Hardening**
     *   Status: Completed
@@ -1658,6 +1658,42 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Plan: `conductor/trackZ1/plan.md`
     *   Goal: Close all command-audit "Doesn't Work / Risks" and friction items found on 2026-06-09, with special focus on secret-safe config output, working Ollama Cloud fallback for `ask`, bounded verification health checks, structured-output consistency, and clearer UX for noisy or empty command surfaces.
     *   Definition of done: `config view --json` never emits secret values; `ask --backend local` succeeds with valid Ollama Cloud config and reports clear actionable errors for invalid credentials; `verify --health` is bounded and informative; dry-run, JSON, bridge, empty-state, and federation UX issues have tests; official Ollama API behavior is captured in regression coverage; full verification plus reinstall passes.
+
+*   **Track Z2: `data-models impact --changed` Clean-Tree Message**
+    *   Status: In Progress
+    *   Spec: `conductor/trackZ2/spec.md`
+    *   Plan: `conductor/trackZ2/plan.md`
+    *   Goal: Differentiate between clean working tree and no data models indexed in data-models impact.
+    *   Definition of done: Graceful no changes message when data models exist but are unchanged; original warning when count is 0; tests pass.
+
+*   **Track Z3: Config Diff Env Var References**
+    *   Status: In Progress
+    *   Spec: `conductor/trackZ3/spec.md`
+    *   Plan: `conductor/trackZ3/plan.md`
+    *   Goal: Scan project files for environment variable references during indexing to eliminate false-negative unused declarations.
+    *   Definition of done: Scan executes during incremental/full indexing, references persisted, config diff works accurately; tests pass.
+
+*   **Track Z4: Cargo.lock Dependency Ingestion**
+    *   Status: In Progress
+    *   Spec: `conductor/trackZ4/spec.md`
+    *   Plan: `conductor/trackZ4/plan.md`
+    *   Goal: Parse Cargo.lock during index --analyze-graph and populate packages as node/edges in CozoDB.
+    *   Definition of done: Cargo.lock packages ingested, direct/transitive edges populated, dependencies list works; tests pass.
+
+*   **Track Z5: Test Mapping Graph Loader**
+    *   Status: In Progress
+    *   Spec: `conductor/trackZ5/spec.md`
+    *   Plan: `conductor/trackZ5/plan.md`
+    *   Goal: Port SQLite test mappings to CozoDB as nodes and validates edges during index --analyze-graph.
+    *   Definition of done: Mappings loaded into CozoDB, tests <entity> command works; tests pass.
+
+*   **Track Z6: Ledger Graph Transaction Edges**
+    *   Status: In Progress
+    *   Spec: `conductor/trackZ6/spec.md`
+    *   Plan: `conductor/trackZ6/plan.md`
+    *   Goal: Write transaction -> file affects edges in CozoDB upon ledger commit.
+    *   Definition of done: Affects edges populated transactional, ledger graph shows neighborhood; tests pass.
+
 
 
 ## Milestone GF: God-File Decomposition and Boundary Hardening (Completed)

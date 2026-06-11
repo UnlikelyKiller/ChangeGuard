@@ -9,7 +9,9 @@ onboarding{
 }
 
 changeguard{
-  before[3]:
+  before[5]:
+    "changeguard doctor to verify the full stack is healthy at session start"
+    "changeguard audit at session start for project health"
     "changeguard ledger status --compact"
     "changeguard scan --impact for meaningful code/config/policy edits"
     "read .changeguard/reports/latest-impact.json if present"
@@ -69,11 +71,14 @@ rust{
 kg{
   backend:"CozoDB"
   state:".changeguard/state/ledger.cozo"
-  use[5]:
+  use[8]:
     "changeguard search for high-precision regex/text discovery (prefer over grep)"
     "changeguard ask --semantic for conceptual discovery (prefer over semantic search)"
     "changeguard ask for architecture/codebase questions"
-    "changeguard index --analyze-graph to refresh structure"
+    "changeguard index --incremental before any search/ask or after pulling changes"
+    "changeguard dead-code before cleanup sprints"
+    "changeguard data-models list before schema changes"
+    "changeguard config verify after config changes"
     "changeguard viz for deep architecture review"
   surfaces[8]:
     "changeguard endpoints --changed / --json"
