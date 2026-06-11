@@ -26,11 +26,11 @@ globset = "0.4.18"
 
 camino = { version = "1.2.2", features = ["serde1"] }
 
-rusqlite = { version = "0.39.0", features = ["bundled"] }
-rusqlite_migration = "2.5.0"
+rusqlite = { version = "0.40.1", features = ["bundled"] }
+rusqlite_migration = "2.6.0"
 
 uuid = { version = "1.23", features = ["v4", "serde"] }
-gix = "0.83.0"
+gix = "0.84.0"
 
 regex = "1.12"
 regex-syntax = "0.8"
@@ -66,14 +66,14 @@ dunce = "1.0.5"
 path-clean = "1.0.1"
 ureq = { version = "2", features = ["json"] }
 tree-sitter-go = "0.25.0"
-scip = "0.7"
+scip = "0.8.1"
 protobuf = "3.7"
 ratatui = "0.30.0"
 crossterm = "0.29.0"
 ed25519-dalek = "2.1.1"
 rand = "0.8"
 ignore = "0.4.25"
-inquire = "0.7.5"
+inquire = "0.9.4"
 strum = { version = "0.28.0", features = ["derive"] }
 cedar-policy = "4.11.0"
 
