@@ -218,6 +218,8 @@ pub struct CommitRequest {
     pub public_key: Option<String>,
     pub risk: Option<String>,
     pub related_tickets: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub changed_files: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

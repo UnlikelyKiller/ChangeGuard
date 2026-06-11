@@ -59,9 +59,7 @@ fn test_ledger_graph_edges_ingestion() {
     let cozo = storage.cozo.as_ref().expect("CozoDB should be initialized");
 
     // 1. Verify transaction node
-    let node_res = cozo
-        .run_script("?[id, cat] := *node{id, category: cat}, cat == 'ledger_transaction'")
-        .unwrap();
+    let node_res = cozo.query_nodes_by_category("ledger_transaction").unwrap();
     assert!(
         !node_res.rows.is_empty(),
         "CozoDB should have transaction nodes"
@@ -69,7 +67,15 @@ fn test_ledger_graph_edges_ingestion() {
 
     // 2. Verify affects edge
     let edge_res = cozo
-        .run_script("?[src, tgt] := *edge{source: src, target: tgt, relation: 'affects'}")
+        .run_script_with_params(
+            "?[src, tgt] := *edge{source: src, target: tgt, relation: $rel}",
+            {
+                let mut p = std::collections::BTreeMap::new();
+                p.insert("rel".into(), cozo::DataValue::Str("affects".into()));
+                p
+            },
+            cozo::ScriptMutability::Immutable,
+        )
         .unwrap();
     assert!(
         !edge_res.rows.is_empty(),
@@ -79,7 +85,10 @@ fn test_ledger_graph_edges_ingestion() {
 
     let found_target = edge_res.rows.iter().any(|row| {
         row.get(1)
-            .map(|v| v.to_string().contains("test.rs"))
+            .map(|v| match v {
+                cozo::DataValue::Str(s) => s.as_str() == "urn:changeguard:file:test.rs",
+                _ => false,
+            })
             .unwrap_or(false)
     });
     assert!(found_target, "CozoDB should have edge to test.rs");

@@ -138,9 +138,12 @@ pub fn execute_data_models(args: DataModelsArgs) -> Result<()> {
             }
 
             if json {
+                let json_out = serde_json::json!({
+                    "impacted": impacted
+                });
                 println!(
                     "{}",
-                    serde_json::to_string_pretty(&impacted).into_diagnostic()?
+                    serde_json::to_string_pretty(&json_out).into_diagnostic()?
                 );
             } else {
                 println!("{}", "Data Model Impact Analysis".bold().cyan());

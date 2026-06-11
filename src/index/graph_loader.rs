@@ -1247,9 +1247,13 @@ fn phase_security(ctx: &mut GraphLoadContext) -> Result<()> {
     if valid_cedar_stems.is_empty() {
         for cat in &CHILD_CATEGORIES {
             let cat_str = cat.to_string();
-            if let Err(e) = ctx.cozo.run_script(&format!(
-                "?[id] := *node{{id, category: '{cat_str}'}} :rm node {{id}}"
-            )) {
+            let mut params = std::collections::BTreeMap::new();
+            params.insert("cat".into(), cozo::DataValue::Str(cat_str.clone().into()));
+            if let Err(e) = ctx.cozo.run_script_with_params(
+                "?[id] := *node{id, category: $cat} :rm node {id}",
+                params,
+                cozo::ScriptMutability::Mutable,
+            ) {
                 tracing::warn!(
                     "Cedar child node cleanup (empty): failed to prune {cat_str} nodes: {e}"
                 );
@@ -1261,10 +1265,13 @@ fn phase_security(ctx: &mut GraphLoadContext) -> Result<()> {
     } else {
         for cat in &CHILD_CATEGORIES {
             let cat_str = cat.to_string();
-            let Ok(child_res) = ctx
-                .cozo
-                .run_script(&format!("?[id] := *node{{id, category: '{cat_str}'}}"))
-            else {
+            let mut params = std::collections::BTreeMap::new();
+            params.insert("cat".into(), cozo::DataValue::Str(cat_str.clone().into()));
+            let Ok(child_res) = ctx.cozo.run_script_with_params(
+                "?[id] := *node{id, category: $cat}",
+                params,
+                cozo::ScriptMutability::Immutable,
+            ) else {
                 continue;
             };
 
@@ -1276,13 +1283,16 @@ fn phase_security(ctx: &mut GraphLoadContext) -> Result<()> {
                         Some(cozo::DataValue::Str(s)) => s.to_string(),
                         _ => return None,
                     };
-                    let escaped = child_id.replace('\'', "\\'");
-                    let check = format!(
-                        "?[src] := *edge{{source: src, target: '{escaped}', relation: 'authorizes'}}, \
-                         *node{{id: src, category: 'policy'}}"
-                    );
+                    let mut edge_params = std::collections::BTreeMap::new();
+                    edge_params.insert("tgt".into(), cozo::DataValue::Str(child_id.clone().into()));
+                    let check = "?[src] := *edge{source: src, target: $tgt, relation: 'authorizes'}, \
+                                 *node{id: src, category: 'policy'}";
                     let has_live_edge = ctx.cozo
-                        .run_script(&check)
+                        .run_script_with_params(
+                            check,
+                            edge_params,
+                            cozo::ScriptMutability::Immutable,
+                        )
                         .ok()
                         .map(|r| {
                             r.rows.iter().any(|edge_row| {
@@ -1433,6 +1443,20 @@ fn phase_security(ctx: &mut GraphLoadContext) -> Result<()> {
     Ok(())
 }
 
+#[derive(serde::Deserialize)]
+struct CargoLockFile {
+    #[serde(rename = "package")]
+    packages: Vec<CargoLockPackage>,
+}
+
+#[derive(serde::Deserialize, Clone, Debug)]
+struct CargoLockPackage {
+    name: String,
+    version: String,
+    source: Option<String>,
+    dependencies: Option<Vec<String>>,
+}
+
 // ---------------------------------------------------------------------------
 // Phase 10 — Cargo dependencies (from Cargo.lock)
 // ---------------------------------------------------------------------------
@@ -1444,144 +1468,204 @@ fn phase_cargo_dependencies(ctx: &mut GraphLoadContext) -> Result<()> {
     }
 
     let content = std::fs::read_to_string(&lock_path).into_diagnostic()?;
-    let value: serde_json::Value = toml::from_str(&content).into_diagnostic()?;
 
-    let packages = value.get("package").and_then(|p| p.as_array());
-    if let Some(pkgs) = packages {
-        let mut nodes = Vec::new();
-        let mut edges = Vec::new();
+    // Attempt strongly typed deserialization first
+    let typed_lock: Option<CargoLockFile> = toml::from_str(&content).ok();
 
-        // 1. First pass: collect all (name, version, source) triples keyed by name
-        #[derive(Debug, Clone)]
-        struct PkgInfo {
-            version: String,
-            source: Option<String>,
+    let pkgs_data: Vec<CargoLockPackage> = if let Some(lock) = typed_lock {
+        lock.packages
+    } else {
+        tracing::warn!(
+            "Cargo.lock: Failed to parse with strongly typed schema; falling back to weakly typed parsing."
+        );
+        let value: serde_json::Value = toml::from_str(&content).into_diagnostic()?;
+        let packages = value.get("package").and_then(|p| p.as_array());
+        if let Some(pkgs) = packages {
+            pkgs.iter()
+                .map(|p| CargoLockPackage {
+                    name: p
+                        .get("name")
+                        .and_then(|n| n.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                    version: p
+                        .get("version")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("0.0.0")
+                        .to_string(),
+                    source: p.get("source").and_then(|s| s.as_str()).map(String::from),
+                    dependencies: p
+                        .get("dependencies")
+                        .and_then(|d| d.as_array())
+                        .map(|deps| {
+                            deps.iter()
+                                .filter_map(|d| d.as_str().map(String::from))
+                                .collect()
+                        }),
+                })
+                .collect()
+        } else {
+            Vec::new()
         }
-        let mut name_to_packages: std::collections::HashMap<String, Vec<PkgInfo>> =
-            std::collections::HashMap::new();
-        for pkg in pkgs {
-            if let Some(name) = pkg.get("name").and_then(|n| n.as_str()) {
-                let version = pkg
-                    .get("version")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("0.0.0");
-                let source = pkg.get("source").and_then(|s| s.as_str()).map(String::from);
-                name_to_packages
-                    .entry(name.to_string())
-                    .or_default()
-                    .push(PkgInfo {
-                        version: version.to_string(),
-                        source,
-                    });
-            }
+    };
+
+    if pkgs_data.is_empty() {
+        return Ok(());
+    }
+
+    let mut nodes = Vec::new();
+    let mut edges = Vec::new();
+
+    // 1. First pass: collect all (name, version, source) triples keyed by name
+    #[derive(Debug, Clone)]
+    struct PkgInfo {
+        version: String,
+        source: Option<String>,
+    }
+    let mut name_to_packages: std::collections::HashMap<String, Vec<PkgInfo>> =
+        std::collections::HashMap::new();
+    for pkg in &pkgs_data {
+        name_to_packages
+            .entry(pkg.name.clone())
+            .or_default()
+            .push(PkgInfo {
+                version: pkg.version.clone(),
+                source: pkg.source.clone(),
+            });
+    }
+
+    let build_pkg_urn = |name: &str, version: &str, source: Option<&str>| {
+        if let Some(s) = source {
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            let mut hasher = DefaultHasher::new();
+            s.hash(&mut hasher);
+            format!(
+                "urn:changeguard:package:{}:{}:{:x}",
+                name,
+                version,
+                hasher.finish()
+            )
+        } else {
+            format!("urn:changeguard:package:{}:{}", name, version)
+        }
+    };
+
+    // 2. Second pass: create nodes and edges
+    for pkg in &pkgs_data {
+        let name = &pkg.name;
+        let version = &pkg.version;
+        let parent_source = pkg.source.as_deref();
+
+        let urn = build_pkg_urn(name, version, parent_source);
+        let mut metadata = json!({
+            "name": name,
+            "version": version,
+            "ecosystem": "rust/cargo",
+            "manifest": "Cargo.lock",
+            "schema_version": "v1"
+        });
+        if let Some(s) = parent_source {
+            metadata["source"] = json!(s);
         }
 
-        // 2. Second pass: create nodes and edges
-        for pkg in pkgs {
-            let name = match pkg.get("name").and_then(|n| n.as_str()) {
-                Some(n) => n,
-                None => {
-                    tracing::warn!("Cargo.lock: package missing name; skipping");
+        nodes.push(GraphNode {
+            id: urn.clone(),
+            label: format!("{}@{}", name, version),
+            category: NodeKind::Package,
+            risk_score: 0.0,
+            metadata: Some(metadata),
+        });
+
+        if let Some(deps) = &pkg.dependencies {
+            for dep_str in deps {
+                let parts: Vec<&str> = dep_str.split_whitespace().collect();
+                if parts.is_empty() {
                     continue;
                 }
-            };
-            let version = match pkg.get("version").and_then(|v| v.as_str()) {
-                Some(v) => v,
-                None => {
-                    tracing::warn!(
-                        "Cargo.lock: package '{}' missing version; defaulting to 0.0.0",
-                        name
-                    );
-                    "0.0.0"
-                }
-            };
-            let parent_source = pkg.get("source").and_then(|s| s.as_str());
+                let dep_name = parts[0];
 
-            let urn = format!("urn:changeguard:package:{}:{}", name, version);
-            nodes.push(GraphNode {
-                id: urn.clone(),
-                label: format!("{}@{}", name, version),
-                category: NodeKind::Package,
-                risk_score: 0.0,
-                metadata: Some(json!({
-                    "name": name,
-                    "version": version,
-                    "ecosystem": "rust/cargo",
-                    "manifest": "Cargo.lock",
-                    "schema_version": "v1"
-                })),
-            });
-
-            if let Some(deps) = pkg.get("dependencies").and_then(|d| d.as_array()) {
-                for dep in deps {
-                    if let Some(dep_str) = dep.as_str() {
-                        let parts: Vec<&str> = dep_str.split_whitespace().collect();
-                        let dep_name = parts[0];
-
-                        let dep_urn = if parts.len() > 1 {
-                            format!("urn:changeguard:package:{}:{}", dep_name, parts[1])
+                let dep_urn = if parts.len() > 1 {
+                    let dep_version = parts[1];
+                    let candidates = name_to_packages.get(dep_name);
+                    // Try to find a package that matches both name and version.
+                    // If multiple sources exist for same name/version, try to match parent's source.
+                    let pkg = if let Some(pkgs) = candidates {
+                        let version_matches: Vec<&PkgInfo> =
+                            pkgs.iter().filter(|p| p.version == dep_version).collect();
+                        if version_matches.len() == 1 {
+                            Some(version_matches[0])
                         } else {
-                            // Resolve bare dependency name against collected package list.
-                            let candidates = name_to_packages.get(dep_name);
-                            match candidates {
-                                Some(pkgs) if pkgs.len() == 1 => {
-                                    format!(
-                                        "urn:changeguard:package:{}:{}",
-                                        dep_name, &pkgs[0].version
-                                    )
-                                }
-                                Some(pkgs) if pkgs.len() > 1 => {
-                                    // Ambiguity: try source-matching heuristic.
-                                    let matched: Vec<&PkgInfo> = pkgs
-                                        .iter()
-                                        .filter(|p| match (parent_source, p.source.as_ref()) {
-                                            (Some(ps), Some(cs)) => ps == cs,
-                                            _ => true,
-                                        })
-                                        .collect();
-                                    if matched.len() == 1 {
-                                        format!(
-                                            "urn:changeguard:package:{}:{}",
-                                            dep_name, &matched[0].version
-                                        )
-                                    } else {
-                                        // Still ambiguous: skip edge to avoid incorrect graph.
-                                        tracing::warn!(
-                                            "Cargo.lock: Skipping ambiguous dependency '{}' for '{}'; {} versions present but dependency string lacks version qualifier.",
-                                            dep_name,
-                                            name,
-                                            pkgs.len()
-                                        );
-                                        continue;
-                                    }
-                                }
-                                _ => {
-                                    tracing::warn!(
-                                        "Cargo.lock: dependency '{}' for '{}' not found in package list",
-                                        dep_name,
-                                        name
-                                    );
-                                    format!("urn:changeguard:package:{}:0.0.0", dep_name)
-                                }
+                            // Multiple sources for same version: match parent source if possible.
+                            version_matches
+                                .iter()
+                                .find(|p| match (parent_source, p.source.as_ref()) {
+                                    (Some(ps), Some(cs)) => ps == cs,
+                                    _ => false,
+                                })
+                                .copied()
+                                .or(version_matches.first().copied())
+                        }
+                    } else {
+                        None
+                    };
+                    build_pkg_urn(dep_name, dep_version, pkg.and_then(|p| p.source.as_deref()))
+                } else {
+                    // Resolve bare dependency name against collected package list.
+                    let candidates = name_to_packages.get(dep_name);
+                    match candidates {
+                        Some(pkgs) if pkgs.len() == 1 => {
+                            build_pkg_urn(dep_name, &pkgs[0].version, pkgs[0].source.as_deref())
+                        }
+                        Some(pkgs) if pkgs.len() > 1 => {
+                            // Ambiguity: try source-matching heuristic.
+                            let matched: Vec<&PkgInfo> = pkgs
+                                .iter()
+                                .filter(|p| match (parent_source, p.source.as_ref()) {
+                                    (Some(ps), Some(cs)) => ps == cs,
+                                    (None, _) => true,
+                                    (Some(_), None) => false,
+                                })
+                                .collect();
+                            if !matched.is_empty() {
+                                // Fulfill Z-R1 requirement: target exactly one node even if still ambiguous.
+                                // We pick the first match (likely the one appearing first in Cargo.lock).
+                                build_pkg_urn(
+                                    dep_name,
+                                    &matched[0].version,
+                                    matched[0].source.as_deref(),
+                                )
+                            } else {
+                                // No source matches: fall back to the first available package to ensure graph connectivity.
+                                build_pkg_urn(dep_name, &pkgs[0].version, pkgs[0].source.as_deref())
                             }
-                        };
-
-                        edges.push(GraphEdge {
-                            source: urn.clone(),
-                            target: dep_urn,
-                            relation: EdgeKind::DependsOn,
-                            confidence: 1.0,
-                            provenance_id: ctx.provenance_id.to_string(),
-                        });
+                        }
+                        _ => {
+                            tracing::warn!(
+                                "Cargo.lock: dependency '{}' for '{}' not found in package list",
+                                dep_name,
+                                name
+                            );
+                            build_pkg_urn(dep_name, "0.0.0", None)
+                        }
                     }
-                }
+                };
+
+                edges.push(GraphEdge {
+                    source: urn.clone(),
+                    target: dep_urn,
+                    relation: EdgeKind::DependsOn,
+                    confidence: 1.0,
+                    provenance_id: ctx.provenance_id.to_string(),
+                });
             }
         }
-        ctx.cozo.insert_nodes(&nodes)?;
-        ctx.cozo.insert_edges(&edges)?;
-        ctx.counters.packages_nodes = nodes.len();
-        ctx.counters.dependencies_edges += edges.len();
     }
+
+    ctx.cozo.insert_nodes(&nodes)?;
+    ctx.cozo.insert_edges(&edges)?;
+    ctx.counters.packages_nodes = nodes.len();
+    ctx.counters.dependencies_edges += edges.len();
 
     Ok(())
 }

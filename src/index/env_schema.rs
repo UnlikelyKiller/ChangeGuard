@@ -1,9 +1,9 @@
+use crate::index::env_patterns::*;
 use crate::state::storage::StorageManager;
 use miette::{IntoDiagnostic, Result};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use std::sync::LazyLock;
 
 // --- Redacted value markers ---
 pub const HAS_DEFAULT: &str = "HAS_DEFAULT";
@@ -65,18 +65,16 @@ impl std::fmt::Display for EnvSourceKind {
 #[serde(rename_all = "camelCase")]
 pub enum EnvReferenceKind {
     Read,
+    ReadWithDefault,
     Write,
-    Defaulted,
-    Dynamic,
 }
 
 impl std::fmt::Display for EnvReferenceKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             EnvReferenceKind::Read => write!(f, "READ"),
+            EnvReferenceKind::ReadWithDefault => write!(f, "READ_WITH_DEFAULT"),
             EnvReferenceKind::Write => write!(f, "WRITE"),
-            EnvReferenceKind::Defaulted => write!(f, "DEFAULTED"),
-            EnvReferenceKind::Dynamic => write!(f, "DYNAMIC"),
         }
     }
 }
@@ -169,41 +167,19 @@ fn redact_default(var_name: &str, value: &str) -> String {
     HAS_DEFAULT.to_string()
 }
 
-// --- Regex patterns ---
-static RUST_ENV_VAR: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"std::env::var\("([^"]+)"\)"#).unwrap());
-static RUST_ENV_MACRO: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"env!\("([^"]+)"\)"#).unwrap());
-#[allow(dead_code)]
-static RUST_ENV_VAR_DEFAULT: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"std::env::var\("([^"]+)"\)\.(?:unwrap_or|ok|unwrap_or_else)"#).unwrap()
-});
-static TS_ENV_DOT: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"process\.env\.([A-Z_][A-Z0-9_]*)"#).unwrap());
-static TS_ENV_INDEXED: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"process\.env\[['"]([^'"]+)['"]\]"#).unwrap());
-#[allow(dead_code)]
-static TS_ENV_DEFAULT: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"process\.env\.([A-Z_][A-Z0-9_]*)\s*\|\|"#).unwrap());
-static PY_ENV_GET: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"os\.(?:environ\.get|getenv)\(['"]([^'"]+)['"]\)"#).unwrap());
-#[allow(dead_code)]
-static PY_ENV_GET_DEFAULT: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"os\.(?:environ\.get|getenv)\(['"]([^'"]+)['"]\s*,\s*"#).unwrap()
-});
-static PY_ENV_INDEXED: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"os\.environ\[['"]([^'"]+)['"]\]"#).unwrap());
-#[allow(dead_code)]
-static RUST_SET_ENV: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"std::env::set_var\("([^"]+)""#).unwrap());
-#[allow(dead_code)]
-static TS_SET_ENV: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"process\.env\[?\.?([A-Z_][A-Z0-9_]*)\]?\s*="#).unwrap());
-
-fn collect_env_captures(regex: &Regex, content: &str, out: &mut Vec<String>) {
+fn collect_env_captures(
+    regex: &Regex,
+    content: &str,
+    kind: EnvReferenceKind,
+    out: &mut Vec<EnvReference>,
+) {
     for capture in regex.captures_iter(content) {
         if let Some(m) = capture.get(1) {
-            out.push(m.as_str().to_string());
+            out.push(EnvReference {
+                var_name: m.as_str().to_string(),
+                reference_kind: kind.clone(),
+                confidence: 1.0,
+            });
         }
     }
 }
@@ -322,28 +298,85 @@ impl EnvSchemaExtractor {
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or_default();
-        let mut names = Vec::new();
         match extension {
             "rs" => {
-                collect_env_captures(&RUST_ENV_VAR, content, &mut names);
-                collect_env_captures(&RUST_ENV_MACRO, content, &mut names);
+                collect_env_captures(&RUST_ENV_VAR, content, EnvReferenceKind::Read, &mut result);
+                collect_env_captures(
+                    &RUST_ENV_VAR_OS,
+                    content,
+                    EnvReferenceKind::Read,
+                    &mut result,
+                );
+                collect_env_captures(
+                    &RUST_ENV_MACRO,
+                    content,
+                    EnvReferenceKind::Read,
+                    &mut result,
+                );
+                collect_env_captures(
+                    &RUST_OPTION_ENV,
+                    content,
+                    EnvReferenceKind::Read,
+                    &mut result,
+                );
+                collect_env_captures(
+                    &RUST_ENV_VAR_DEFAULT,
+                    content,
+                    EnvReferenceKind::ReadWithDefault,
+                    &mut result,
+                );
+                collect_env_captures(&RUST_SET_ENV, content, EnvReferenceKind::Write, &mut result);
             }
             "ts" | "js" | "tsx" | "jsx" => {
-                collect_env_captures(&TS_ENV_DOT, content, &mut names);
-                collect_env_captures(&TS_ENV_INDEXED, content, &mut names);
+                collect_env_captures(&TS_ENV_DOT, content, EnvReferenceKind::Read, &mut result);
+                collect_env_captures(
+                    &TS_ENV_INDEXED,
+                    content,
+                    EnvReferenceKind::Read,
+                    &mut result,
+                );
+                collect_env_captures(
+                    &TS_IMPORT_META_ENV,
+                    content,
+                    EnvReferenceKind::Read,
+                    &mut result,
+                );
+                collect_env_captures(
+                    &TS_ENV_DESTRUCTURING,
+                    content,
+                    EnvReferenceKind::Read,
+                    &mut result,
+                );
+                collect_env_captures(
+                    &TS_ENV_DEFAULT,
+                    content,
+                    EnvReferenceKind::ReadWithDefault,
+                    &mut result,
+                );
+                collect_env_captures(&TS_SET_ENV, content, EnvReferenceKind::Write, &mut result);
             }
             "py" => {
-                collect_env_captures(&PY_ENV_GET, content, &mut names);
-                collect_env_captures(&PY_ENV_INDEXED, content, &mut names);
+                collect_env_captures(&PY_ENV_GET, content, EnvReferenceKind::Read, &mut result);
+                collect_env_captures(
+                    &PY_ENVIRON_GET,
+                    content,
+                    EnvReferenceKind::Read,
+                    &mut result,
+                );
+                collect_env_captures(
+                    &PY_ENV_INDEXED,
+                    content,
+                    EnvReferenceKind::Read,
+                    &mut result,
+                );
+                collect_env_captures(
+                    &PY_ENV_GET_DEFAULT,
+                    content,
+                    EnvReferenceKind::ReadWithDefault,
+                    &mut result,
+                );
             }
             _ => {}
-        }
-        for name in names {
-            result.push(EnvReference {
-                var_name: name,
-                reference_kind: EnvReferenceKind::Read,
-                confidence: 1.0,
-            });
         }
         result
     }
@@ -403,8 +436,13 @@ impl<'a> EnvSchemaIndexer<'a> {
         let now = chrono::Utc::now().to_rfc3339();
         let conn = self.storage.get_connection();
 
+        // Use a transaction for atomic replacement (Phase 3)
+        let tx = conn
+            .unchecked_transaction()
+            .map_err(|e| miette::miette!("Failed to start transaction: {}", e))?;
+
         // 1. Resolve .env.example file ID if it exists
-        let example_file_id: Option<i64> = conn
+        let example_file_id: Option<i64> = tx
             .query_row(
                 "SELECT id FROM project_files WHERE file_path = '.env.example' OR file_path = '.env.dist'",
                 [],
@@ -426,13 +464,13 @@ impl<'a> EnvSchemaIndexer<'a> {
                 id
             } else {
                 // Ensure .env.example is in project_files to satisfy FK constraints
-                conn.execute(
+                tx.execute(
                     "INSERT OR IGNORE INTO project_files (file_path, language, last_indexed_at) \
                      VALUES (?1, ?2, ?3)",
                     rusqlite::params![".env.example", "Dotenv", now],
                 )
                 .into_diagnostic()?;
-                conn.query_row(
+                tx.query_row(
                     "SELECT id FROM project_files WHERE file_path = '.env.example'",
                     [],
                     |row| row.get(0),
@@ -441,7 +479,7 @@ impl<'a> EnvSchemaIndexer<'a> {
             };
 
             // Clear existing declarations for this file ID to ensure idempotency
-            conn.execute(
+            tx.execute(
                 "DELETE FROM env_declarations WHERE source_file_id = ?",
                 [file_id],
             )
@@ -462,21 +500,22 @@ impl<'a> EnvSchemaIndexer<'a> {
                     confidence: d.confidence,
                 })
                 .collect();
-            self.insert_declaration_batch(&rows, &now)?;
+            self.insert_declaration_batch(&tx, &rows, &now)?;
             decls.extend(rows);
         }
 
         // 3. Extract references from all source files
-        let mut file_stmt = conn
-            .prepare("SELECT id, file_path FROM project_files WHERE parse_status != 'DELETED'")
-            .into_diagnostic()?;
+        let files: Vec<(i64, String)> = {
+            let mut file_stmt = tx
+                .prepare("SELECT id, file_path FROM project_files WHERE parse_status != 'DELETED'")
+                .into_diagnostic()?;
 
-        let files: Vec<(i64, String)> = file_stmt
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-            .into_diagnostic()?
-            .collect::<Result<Vec<_>, _>>()
-            .into_diagnostic()?;
-        drop(file_stmt);
+            file_stmt
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .into_diagnostic()?
+                .collect::<Result<Vec<_>, _>>()
+                .into_diagnostic()?
+        };
 
         let mut all_refs = Vec::new();
         let mut files_processed = 0;
@@ -489,8 +528,8 @@ impl<'a> EnvSchemaIndexer<'a> {
                     &content,
                 );
 
-                // Always clear existing references for this file to avoid duplicates (HP: NULL in UNIQUE constraint)
-                conn.execute("DELETE FROM env_references WHERE file_id = ?", [file_id])
+                // Always clear existing references for this file to avoid duplicates
+                tx.execute("DELETE FROM env_references WHERE file_id = ?", [file_id])
                     .into_diagnostic()?;
 
                 if !refs.is_empty() {
@@ -498,26 +537,27 @@ impl<'a> EnvSchemaIndexer<'a> {
                         .into_iter()
                         .map(|r| EnvReferenceRow {
                             file_id,
-                            symbol_id: None, // Use NULL, but DELETE above ensures no duplicates
+                            symbol_id: None,
                             var_name: r.var_name,
                             reference_kind: r.reference_kind.to_string(),
                             confidence: r.confidence,
                             line_start: None,
                         })
                         .collect();
-                    self.insert_reference_batch(&ref_rows, &now)?;
+                    self.insert_reference_batch(&tx, &ref_rows, &now)?;
                     all_refs.extend(ref_rows);
                 }
                 files_processed += 1;
             }
         }
 
-        // 4. Prune references for files that are no longer tracked (DELETED or removed
-        // from project_files entirely) so that incremental indexing does not leave orphans.
-        conn.execute(
+        // 4. Prune references for files that are no longer tracked
+        tx.execute(
             "DELETE FROM env_references WHERE file_id NOT IN (SELECT id FROM project_files WHERE parse_status != 'DELETED')",
             [],
         ).into_diagnostic()?;
+
+        tx.commit().into_diagnostic()?;
 
         let stats = EnvSchemaStats {
             total_declarations: decls.len(),
@@ -530,9 +570,12 @@ impl<'a> EnvSchemaIndexer<'a> {
         Ok(stats)
     }
 
-    fn insert_declaration_batch(&self, rows: &[EnvDeclarationRow], now: &str) -> Result<()> {
-        let conn = self.storage.get_connection();
-        let tx = conn.unchecked_transaction().into_diagnostic()?;
+    fn insert_declaration_batch(
+        &self,
+        tx: &rusqlite::Transaction,
+        rows: &[EnvDeclarationRow],
+        now: &str,
+    ) -> Result<()> {
         for row in rows {
             tx.execute(
                 "INSERT OR IGNORE INTO env_declarations (var_name, source_file_id, source_kind, required, is_secret, default_value_redacted, description, owner, environment, confidence, last_indexed_at) \
@@ -540,13 +583,15 @@ impl<'a> EnvSchemaIndexer<'a> {
                 rusqlite::params![row.var_name, row.source_file_id, row.source_kind, row.required as i32, row.is_secret as i32, row.default_value_redacted, row.description, row.owner, row.environment, row.confidence, now],
             ).into_diagnostic()?;
         }
-        tx.commit().into_diagnostic()?;
         Ok(())
     }
 
-    fn insert_reference_batch(&self, rows: &[EnvReferenceRow], now: &str) -> Result<()> {
-        let conn = self.storage.get_connection();
-        let tx = conn.unchecked_transaction().into_diagnostic()?;
+    fn insert_reference_batch(
+        &self,
+        tx: &rusqlite::Transaction,
+        rows: &[EnvReferenceRow],
+        now: &str,
+    ) -> Result<()> {
         for row in rows {
             tx.execute(
                 "INSERT OR IGNORE INTO env_references (file_id, symbol_id, var_name, reference_kind, confidence, line_start, last_indexed_at) \
@@ -554,7 +599,6 @@ impl<'a> EnvSchemaIndexer<'a> {
                 rusqlite::params![row.file_id, row.symbol_id, row.var_name, row.reference_kind, row.confidence, row.line_start, now],
             ).into_diagnostic()?;
         }
-        tx.commit().into_diagnostic()?;
         Ok(())
     }
 }

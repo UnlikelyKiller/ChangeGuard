@@ -7,6 +7,7 @@ pub mod ci_gates;
 pub mod data_models;
 pub mod docs;
 pub mod entrypoint;
+pub mod env_patterns;
 pub mod env_schema;
 pub mod git_worker;
 pub mod graph_loader;

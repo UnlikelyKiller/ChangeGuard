@@ -321,13 +321,17 @@ impl<'a> TransactionManager<'a> {
 
         // 3. Update Knowledge Graph (CozoDB)
         if let Some(ref cozo) = self.storage.cozo {
-            let changed_files = match self.get_transaction_files(&tx_id) {
-                Ok(files) => files,
-                Err(e) => {
-                    tracing::warn!(
-                        "ledger commit: could not discover changed files for KG edges (tx={tx_id}): {e}"
-                    );
-                    vec![]
+            let changed_files = if let Some(files) = req.changed_files {
+                files
+            } else {
+                match self.get_transaction_files(&tx_id) {
+                    Ok(files) => files,
+                    Err(e) => {
+                        tracing::warn!(
+                            "ledger commit: could not discover changed files for KG edges (tx={tx_id}): {e}"
+                        );
+                        vec![]
+                    }
                 }
             };
 
@@ -351,9 +355,8 @@ impl<'a> TransactionManager<'a> {
             });
 
             for file in changed_files {
-                // Filter out synthetic entities like "drift_adoption" and UUID transaction IDs
-                // that are not real file paths.
-                if file.contains("drift_adoption:") || uuid::Uuid::parse_str(&file).is_ok() {
+                // Filter out synthetic entities and non-file paths
+                if !is_real_file_path(&file) {
                     continue;
                 }
 
@@ -840,11 +843,17 @@ impl<'a> TransactionManager<'a> {
             .ok_or_else(|| LedgerError::NotFound(tx_id.clone()))?;
 
         let mut files = std::collections::BTreeSet::new();
-        files.insert(tx.entity_normalized);
+
+        // Only insert entity_normalized if it looks like a real file path and is not synthetic
+        if is_real_file_path(&tx.entity_normalized) {
+            files.insert(tx.entity_normalized);
+        }
 
         let provs = db.get_token_provenance_for_tx(&tx_id)?;
         for prov in provs {
-            files.insert(prov.entity_normalized);
+            if is_real_file_path(&prov.entity_normalized) {
+                files.insert(prov.entity_normalized);
+            }
         }
 
         // Check if there are other files in changed_files via snapshot_id
@@ -855,7 +864,9 @@ impl<'a> TransactionManager<'a> {
             && let Ok(mut rows) = stmt.query([&tx_id])
         {
             while let Ok(Some(row)) = rows.next() {
-                if let Ok(file_path) = row.get::<_, String>(0) {
+                if let Ok(file_path) = row.get::<_, String>(0)
+                    && is_real_file_path(&file_path)
+                {
                     files.insert(file_path);
                 }
             }
@@ -869,7 +880,9 @@ impl<'a> TransactionManager<'a> {
             && let Ok(mut rows) = stmt.query([&tx_id])
         {
             while let Ok(Some(row)) = rows.next() {
-                if let Ok(file_path) = row.get::<_, String>(0) {
+                if let Ok(file_path) = row.get::<_, String>(0)
+                    && is_real_file_path(&file_path)
+                {
                     files.insert(file_path);
                 }
             }
@@ -877,4 +890,27 @@ impl<'a> TransactionManager<'a> {
 
         Ok(files.into_iter().collect())
     }
+}
+
+/// Returns true if the string looks like a real file path and is not a synthetic entity.
+fn is_real_file_path(s: &str) -> bool {
+    if s.is_empty() {
+        return false;
+    }
+    // Filter out synthetic prefixes
+    if s.contains("drift_adoption:") {
+        return false;
+    }
+    // Filter out UUIDs (which are often used as synthetic entity IDs)
+    if uuid::Uuid::parse_str(s).is_ok() {
+        return false;
+    }
+    // Most real file paths in a repo will have a dot (extension) or a slash (directory).
+    // However, root-level files like LICENSE, Makefile, or Dockerfile are valid.
+    // We reject only if it looks like a bare internal ID (alphanumeric only, no punctuation, long).
+    if !s.contains('.') && !s.contains('/') && !s.contains('\\') && s.len() > 20 {
+        return false;
+    }
+
+    true
 }

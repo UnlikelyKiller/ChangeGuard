@@ -61,10 +61,18 @@ pub fn execute_ledger_adopt(
     changed_files.sort_unstable();
     changed_files.dedup();
 
-    // Use the first adopted entity as the ledger transaction entity for human readability.
+    // Use the first adopted entity (prefixed) as the ledger transaction entity for human readability.
     // For multi-entity adoption, we use the count as a synthetic label.
+    // We use a prefix to avoid conflict with the now-PENDING adopted transaction's own entity name.
     let adopt_entity = if adopted_tx_ids.len() == 1 {
-        adopted_tx_ids[0].clone()
+        let id = &adopted_tx_ids[0];
+        let entity_name = tx_mgr
+            .get_transaction(id)
+            .ok()
+            .flatten()
+            .map(|tx| tx.entity)
+            .unwrap_or_else(|| id.clone());
+        format!("drift_adoption:{}", entity_name)
     } else {
         format!("drift_adoption:{}_items", adopted_tx_ids.len())
     };
@@ -78,7 +86,6 @@ pub fn execute_ledger_adopt(
         })
         .map_err(|e| miette::miette!("{}", e))?;
 
-    let category_str = category.to_string();
     tx_mgr
         .commit_change(
             tx_id.clone(),
@@ -86,6 +93,7 @@ pub fn execute_ledger_adopt(
                 change_type: ChangeType::Modify,
                 summary: summary.to_string(),
                 reason: reason.to_string(),
+                changed_files: Some(changed_files),
                 ..Default::default()
             },
             false,
@@ -93,15 +101,6 @@ pub fn execute_ledger_adopt(
         .map_err(|e| miette::miette!("{}", e))?;
 
     drop(tx_mgr);
-
-    write_ledger_graph_edges(
-        &storage.cozo,
-        &tx_id,
-        summary,
-        reason,
-        &category_str,
-        changed_files,
-    );
 
     println!("{}", "Drift adopted and committed.".green());
     Ok(())
@@ -358,56 +357,4 @@ pub fn execute_ledger_hook_repair(force: bool) -> Result<()> {
     }
 
     Ok(())
-}
-
-/// Write transaction-affects edges to the KG (CozoDB) so that
-/// `ledger graph <tx-id>` returns the entity neighborhood.
-fn write_ledger_graph_edges(
-    cozo_opt: &Option<crate::state::storage_cozo::CozoStorage>,
-    tx_id: &str,
-    summary: &str,
-    reason: &str,
-    category: &str,
-    changed_files: Vec<String>,
-) {
-    if let Some(cozo) = cozo_opt {
-        use crate::platform::urn::build_urn;
-        use crate::state::graph_kinds::{EdgeKind, NodeKind};
-        use crate::state::storage_cozo::{GraphEdge, GraphNode};
-
-        let tx_urn = build_urn(NodeKind::LedgerTransaction, tx_id);
-
-        let mut nodes = Vec::new();
-        let mut edges = Vec::new();
-
-        nodes.push(GraphNode {
-            id: tx_urn.clone(),
-            label: tx_id.to_string(),
-            category: NodeKind::LedgerTransaction,
-            risk_score: 0.0,
-            metadata: Some(serde_json::json!({
-                "summary": summary,
-                "reason": reason,
-                "category": category,
-            })),
-        });
-
-        for file in changed_files {
-            let file_urn = build_urn(NodeKind::File, &file);
-            edges.push(GraphEdge {
-                source: tx_urn.clone(),
-                target: file_urn,
-                relation: EdgeKind::Affects,
-                confidence: 1.0,
-                provenance_id: tx_id.to_string(),
-            });
-        }
-
-        if let Err(e) = cozo.insert_nodes(&nodes) {
-            tracing::warn!("ledger graph: failed to write transaction node: {}", e);
-        }
-        if let Err(e) = cozo.insert_edges(&edges) {
-            tracing::warn!("ledger graph: failed to write KG edges: {}", e);
-        }
-    }
 }

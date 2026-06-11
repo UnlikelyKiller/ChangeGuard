@@ -1,1 +1,0 @@
-fn hello() { println!("hi"); }

@@ -79,6 +79,7 @@ pub fn execute_hook_post_commit() -> Result<()> {
         public_key: pending.public_key,
         risk: pending.risk,
         related_tickets: pending.related_tickets,
+        ..Default::default()
     };
 
     match tx_mgr.commit_change(pending.tx_id.clone(), req, false) {

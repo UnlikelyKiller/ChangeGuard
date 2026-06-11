@@ -39,11 +39,11 @@ fn test_commit_writes_kg_edges() {
 
     // Pre-create node for the file in CozoDB (simulating indexer output)
     let file_urn = build_urn(NodeKind::File, file_path);
-    let node_query = format!(
-        "?[id, label, category, risk_score, metadata] <- [['{}', 'api.rs', 'file', 0.0, {{}}]] :put node",
-        file_urn
-    );
-    cozo.run_script(&node_query).unwrap();
+    let mut params = std::collections::BTreeMap::new();
+    params.insert("id".into(), cozo::DataValue::Str(file_urn.clone().into()));
+    let node_query = "?[id, label, category, risk_score, metadata] <- [[$id, 'api.rs', 'file', 0.0, {}]] :put node";
+    cozo.run_script_with_params(node_query, params, cozo::ScriptMutability::Mutable)
+        .unwrap();
 
     // Start a transaction for src/api.rs
     let mut manager = TransactionManager::new(&mut storage, root.clone(), Config::default());
@@ -82,10 +82,15 @@ fn test_commit_writes_kg_edges() {
 
     // Verify LedgerTransaction node exists in CozoDB
     let node_res = cozo_read
-        .run_script(&format!(
-            "?[id, category] := *node{{id, category}}, id = '{}'",
-            tx_urn
-        ))
+        .run_script_with_params(
+            "?[id, category] := *node{id, category}, id = $id",
+            {
+                let mut p = std::collections::BTreeMap::new();
+                p.insert("id".into(), cozo::DataValue::Str(tx_urn.clone().into()));
+                p
+            },
+            cozo::ScriptMutability::Immutable,
+        )
         .unwrap();
     assert_eq!(
         node_res.rows.len(),
@@ -98,12 +103,7 @@ fn test_commit_writes_kg_edges() {
     );
 
     // Verify Edge exists in CozoDB: source=tx_urn, target=file_urn, relation=affects
-    let edge_res = cozo_read
-        .run_script(&format!(
-            "?[source, target, relation] := *edge{{source, target, relation}}, source = '{}'",
-            tx_urn
-        ))
-        .unwrap();
+    let edge_res = cozo_read.query_edges_by_source(&tx_urn, "affects").unwrap();
     assert!(
         !edge_res.rows.is_empty(),
         "Edges from transaction URN should exist in CozoDB"
@@ -211,9 +211,15 @@ fn test_adopt_writes_kg_edges_with_real_files() {
     // There must be at least one edge whose target URN contains the real file path
     let file_urn = build_urn(NodeKind::File, drift_file);
     let edges = cozo_read
-        .run_script(&format!(
-            "?[source, target, relation] := *edge{{source, target, relation}}, target = '{file_urn}'"
-        ))
+        .run_script_with_params(
+            "?[source, target, relation] := *edge{source, target, relation}, target = $tgt",
+            {
+                let mut p = std::collections::BTreeMap::new();
+                p.insert("tgt".into(), cozo::DataValue::Str(file_urn.clone().into()));
+                p
+            },
+            cozo::ScriptMutability::Immutable,
+        )
         .unwrap();
     assert!(
         !edges.rows.is_empty(),

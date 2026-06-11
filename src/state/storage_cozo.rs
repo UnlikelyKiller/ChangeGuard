@@ -69,6 +69,38 @@ impl CozoStorage {
             .map_err(|e| miette::miette!("CozoDB script error: {:?}", e))
     }
 
+    pub fn query_nodes_by_category(&self, category: &str) -> Result<NamedRows> {
+        let mut params = std::collections::BTreeMap::new();
+        params.insert("cat".into(), DataValue::Str(category.into()));
+        self.run_script_with_params(
+            "?[id, label] := *node{id, label, category: $cat}",
+            params,
+            ScriptMutability::Immutable,
+        )
+    }
+
+    pub fn query_edges_by_source(&self, source: &str, relation: &str) -> Result<NamedRows> {
+        let mut params = std::collections::BTreeMap::new();
+        params.insert("src".into(), DataValue::Str(source.into()));
+        params.insert("rel".into(), DataValue::Str(relation.into()));
+        self.run_script_with_params(
+            "?[source, target, relation] := *edge{source, target, relation}, source = $src, relation = $rel",
+            params,
+            ScriptMutability::Immutable,
+        )
+    }
+
+    pub fn query_edges_by_target(&self, target: &str, relation: &str) -> Result<NamedRows> {
+        let mut params = std::collections::BTreeMap::new();
+        params.insert("tgt".into(), DataValue::Str(target.into()));
+        params.insert("rel".into(), DataValue::Str(relation.into()));
+        self.run_script_with_params(
+            "?[source, target, relation] := *edge{source, target, relation}, target = $tgt, relation = $rel",
+            params,
+            ScriptMutability::Immutable,
+        )
+    }
+
     pub fn shutdown(self) {
         debug!("Shutting down CozoDB instance");
         drop(self.db);
@@ -221,19 +253,17 @@ impl CozoStorage {
         if !relations.contains(&"snippet_embedding".to_string()) {
             return Ok(());
         }
-        let mut script = String::from("paths[file_path] <- [\n");
-        for (i, fp) in file_paths.iter().enumerate() {
-            let escaped = fp.replace('\'', "\\'");
-            script.push_str(&format!(
-                "  ['{}']{}\n",
-                escaped,
-                if i == file_paths.len() - 1 { "" } else { "," }
-            ));
+
+        let mut list_vals = Vec::new();
+        for fp in file_paths {
+            list_vals.push(DataValue::Str(fp.clone().into()));
         }
-        script.push_str("]\n");
-        script.push_str("?[file_path, name, line_offset] := paths[file_path], *snippet_embedding{file_path, name, line_offset}\n");
-        script.push_str(":rm snippet_embedding {file_path, name, line_offset}");
-        self.run_script(&script)?;
+
+        let mut params = std::collections::BTreeMap::new();
+        params.insert("paths".into(), DataValue::List(Box::new(list_vals)));
+
+        let script = "?[file_path, name, line_offset] := *snippet_embedding{file_path, name, line_offset}, $paths[file_path]\n:rm snippet_embedding {file_path, name, line_offset}";
+        self.run_script_with_params(script, params, ScriptMutability::Mutable)?;
         Ok(())
     }
 

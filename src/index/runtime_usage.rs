@@ -1,7 +1,7 @@
+use crate::index::env_patterns::*;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use std::sync::LazyLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "camelCase")]
@@ -9,27 +9,6 @@ pub struct RuntimeUsage {
     pub env_vars: Vec<String>,
     pub config_keys: Vec<String>,
 }
-
-static RUST_ENV_VAR: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"std::env::var\("([^"]+)"\)"#).expect("valid regex"));
-static RUST_ENV_MACRO: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"env!\("([^"]+)"\)"#).expect("valid regex"));
-static TS_ENV_DOT: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"process\.env\.([A-Z_][A-Z0-9_]*)"#).expect("valid regex"));
-static TS_ENV_INDEXED: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"process\.env\[['"]([^'"]+)['"]\]"#).expect("valid regex"));
-static PY_ENV_GET: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"os\.(?:environ\.get|getenv)\(['"]([^'"]+)['"]\)"#).expect("valid regex")
-});
-static PY_ENV_INDEXED: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"os\.environ\[['"]([^'"]+)['"]\]"#).expect("valid regex"));
-static CONFIG_HINTS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
-    vec![
-        Regex::new(r"\bdotenv\b").expect("valid regex"),
-        Regex::new(r"\bconfig\.from_env\b").expect("valid regex"),
-        Regex::new(r"\bos\.getenv\b").expect("valid regex"),
-    ]
-});
 
 pub fn extract_runtime_usage(path: &Path, content: &str) -> Option<RuntimeUsage> {
     let extension = path
@@ -41,15 +20,25 @@ pub fn extract_runtime_usage(path: &Path, content: &str) -> Option<RuntimeUsage>
     match extension {
         "rs" => {
             collect_captures(&RUST_ENV_VAR, content, &mut env_vars);
+            collect_captures(&RUST_ENV_VAR_OS, content, &mut env_vars);
             collect_captures(&RUST_ENV_MACRO, content, &mut env_vars);
+            collect_captures(&RUST_OPTION_ENV, content, &mut env_vars);
+            collect_captures(&RUST_ENV_VAR_DEFAULT, content, &mut env_vars);
+            collect_captures(&RUST_SET_ENV, content, &mut env_vars);
         }
         "ts" | "tsx" | "js" | "jsx" => {
             collect_captures(&TS_ENV_DOT, content, &mut env_vars);
             collect_captures(&TS_ENV_INDEXED, content, &mut env_vars);
+            collect_captures(&TS_IMPORT_META_ENV, content, &mut env_vars);
+            collect_captures(&TS_ENV_DESTRUCTURING, content, &mut env_vars);
+            collect_captures(&TS_ENV_DEFAULT, content, &mut env_vars);
+            collect_captures(&TS_SET_ENV, content, &mut env_vars);
         }
         "py" => {
             collect_captures(&PY_ENV_GET, content, &mut env_vars);
+            collect_captures(&PY_ENVIRON_GET, content, &mut env_vars);
             collect_captures(&PY_ENV_INDEXED, content, &mut env_vars);
+            collect_captures(&PY_ENV_GET_DEFAULT, content, &mut env_vars);
         }
         _ => return None,
     }

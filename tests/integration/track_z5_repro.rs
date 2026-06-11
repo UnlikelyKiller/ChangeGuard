@@ -65,25 +65,33 @@ fn test_test_mapping_ingestion() {
     let cozo = storage.cozo.as_ref().expect("CozoDB should be initialized");
 
     // 1. Verify test node exists and carries metadata
-    let res = cozo
-        .run_script("?[id, label, meta] := *node{id, label, category: 'test', metadata: meta}")
-        .unwrap();
+    let res = cozo.query_nodes_by_category("test").unwrap();
     assert!(!res.rows.is_empty(), "CozoDB should have test nodes");
 
     let found_test_node = res.rows.iter().any(|row| {
         row.get(1)
-            .map(|v| v.to_string().contains("test_add"))
+            .map(|v| match v {
+                cozo::DataValue::Str(s) => s.as_str() == "test_add",
+                _ => false,
+            })
             .unwrap_or(false)
     });
     assert!(found_test_node, "Should have a test node for test_add");
 
     // 2. Verify specific validates edge from test_add -> add with confidence 1.0
     let edge_res = cozo
-        .run_script(
+        .run_script_with_params(
             "?[src, tgt, rel, conf] := \
              *node{id: src, category: 'test'}, \
              *node{id: tgt, category: 'symbol'}, \
-             *edge{source: src, target: tgt, relation: rel, confidence: conf}",
+             *edge{source: src, target: tgt, relation: rel, confidence: conf}, \
+             rel = $rel",
+            {
+                let mut p = std::collections::BTreeMap::new();
+                p.insert("rel".into(), cozo::DataValue::Str("validates".into()));
+                p
+            },
+            cozo::ScriptMutability::Immutable,
         )
         .unwrap();
     let found_specific_edge = edge_res.rows.iter().any(|row| {
@@ -104,8 +112,8 @@ fn test_test_mapping_ingestion() {
             Some(cozo::DataValue::Num(cozo::Num::Int(i))) => *i as f64,
             _ => 0.0,
         };
-        src_label.contains("test_add")
-            && tgt_label.contains("add")
+        src_label.ends_with(":test_add")
+            && tgt_label.ends_with(":add")
             && rel == "validates"
             && (conf - 1.0).abs() < 0.01
     });
