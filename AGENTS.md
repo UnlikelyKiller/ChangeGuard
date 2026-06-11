@@ -94,3 +94,12 @@ powershell{
     "use backslashes for shell-level Windows paths"
     "avoid Bash shims for complex logic"
 }
+
+aibrains{
+  preflight:"session start briefing: run 'ai-brains preflight --summary'"
+  pre_edit:"check constraints before risky edits: run 'ai-brains preflight --summary'"
+  unified_search:"query memory + code symbols: run 'ai-brains sync query \"<query>\"'"
+  recall:"query past decisions only: run 'ai-brains recall \"<query>\" --semantic'"
+  pin:"persist decisions/constraints: run 'ai-brains pin \"<DECISION/CONSTRAINT/HOTSPOT: message>\"'"
+}
+
