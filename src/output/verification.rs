@@ -74,9 +74,12 @@ impl VerificationReporter {
 
         println!("\n{}", "Predicted CI Failures:".bold().bright_red());
 
+        let mut explain_config = embed_config.clone();
+        explain_config.timeout_secs = 15;
+
         let engine = if explain {
             Some(crate::verify::explanation::ExplanationEngine::new(
-                embed_config.clone(),
+                explain_config,
             ))
         } else {
             None

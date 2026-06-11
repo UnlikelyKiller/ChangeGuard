@@ -181,127 +181,137 @@ impl<'a> ConfidenceScorer<'a> {
     }
 
     pub(super) fn days_since_last_commit(&self, file_path: &Path) -> Result<Option<u32>> {
-        let repo = match gix::discover(self.repo_path) {
-            Ok(discovered) => gix::open(discovered.path()),
-            Err(_) => return Ok(None),
-        };
-        let repo = match repo {
-            Ok(r) => r,
-            Err(_) => return Ok(None),
-        };
-
-        let head = match repo.head_commit() {
-            Ok(h) => h,
-            Err(_) => return Ok(None),
-        };
-
-        let file_str = file_path.to_string_lossy();
-        let target_path = file_str.replace('\\', "/");
-
-        let walk = match head.id().ancestors().all() {
-            Ok(w) => w,
-            Err(_) => return Ok(None),
-        };
-
-        let max_commits = 1000usize;
-        let mut commit_count = 0;
-
-        for res in walk {
-            if commit_count >= max_commits {
-                break;
-            }
-            let info = match res {
-                Ok(info) => info,
-                Err(e) => {
-                    debug!("Skip commit during git walk: {}", e);
-                    continue;
-                }
-            };
-
-            let commit = match info.id().object().map(|obj| obj.into_commit()) {
-                Ok(commit) => commit,
-                Err(e) => {
-                    debug!("Skip commit object: {}", e);
-                    continue;
-                }
-            };
-
-            let current_tree = match commit.tree() {
-                Ok(tree) => tree,
-                Err(e) => {
-                    debug!("Skip tree: {}", e);
-                    continue;
-                }
-            };
-
-            let parent_id = commit.parent_ids().next();
-            let parent_tree = if let Some(p_id) = parent_id {
-                match p_id.object().map(|obj| obj.into_commit().tree()) {
-                    Ok(Ok(tree)) => tree,
-                    _ => repo.empty_tree(),
-                }
-            } else {
-                repo.empty_tree()
-            };
-
-            let changes =
-                match repo.diff_tree_to_tree(Some(&parent_tree), Some(&current_tree), None) {
-                    Ok(changes) => changes,
-                    Err(e) => {
-                        debug!("Skip diff: {}", e);
-                        continue;
-                    }
-                };
-
-            let mut touches_file = false;
-            for change in changes {
-                let location = match change {
-                    gix::object::tree::diff::ChangeDetached::Addition { location, .. }
-                    | gix::object::tree::diff::ChangeDetached::Deletion { location, .. }
-                    | gix::object::tree::diff::ChangeDetached::Modification { location, .. } => {
-                        String::from_utf8_lossy(&location).into_owned()
-                    }
-                    gix::object::tree::diff::ChangeDetached::Rewrite {
-                        location,
-                        source_location,
-                        ..
-                    } => {
-                        let loc = String::from_utf8_lossy(&location).into_owned();
-                        let src = String::from_utf8_lossy(&source_location).into_owned();
-                        if loc.replace('\\', "/") == target_path
-                            || src.replace('\\', "/") == target_path
-                        {
-                            touches_file = true;
-                        }
-                        continue;
-                    }
-                };
-                if location.replace('\\', "/") == target_path {
-                    touches_file = true;
-                }
-            }
-
-            if touches_file {
-                let commit_time = match commit.time() {
-                    Ok(t) => t,
-                    Err(e) => {
-                        debug!("Skip commit with unreadable time: {}", e);
-                        continue;
-                    }
-                };
-                let commit_secs = commit_time.seconds;
-                let now_secs = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs() as i64)
-                    .unwrap_or(commit_secs);
-                let days = ((now_secs - commit_secs).max(0) as f64 / 86400.0).ceil() as u32;
-                return Ok(Some(days));
-            }
-
-            commit_count += 1;
+        if let Some(cached) = self.git_activity_cache.borrow().get(file_path) {
+            return Ok(*cached);
         }
 
-        Ok(Some(self.config.git_inactivity_days))
+        let calculate = || -> Result<Option<u32>> {
+            let repo = match gix::discover(self.repo_path) {
+                Ok(discovered) => gix::open(discovered.path()),
+                Err(_) => return Ok(None),
+            };
+            let repo = match repo {
+                Ok(r) => r,
+                Err(_) => return Ok(None),
+            };
+
+            let head = match repo.head_commit() {
+                Ok(h) => h,
+                Err(_) => return Ok(None),
+            };
+
+            let file_str = file_path.to_string_lossy();
+            let target_path = file_str.replace('\\', "/");
+
+            let walk = match head.id().ancestors().all() {
+                Ok(w) => w,
+                Err(_) => return Ok(None),
+            };
+
+            let max_commits = 1000usize;
+            let mut commit_count = 0;
+
+            for res in walk {
+                if commit_count >= max_commits {
+                    break;
+                }
+                let info = match res {
+                    Ok(info) => info,
+                    Err(e) => {
+                        debug!("Skip commit during git walk: {}", e);
+                        continue;
+                    }
+                };
+
+                let commit = match info.id().object().map(|obj| obj.into_commit()) {
+                    Ok(commit) => commit,
+                    Err(e) => {
+                        debug!("Skip commit object: {}", e);
+                        continue;
+                    }
+                };
+
+                let current_tree = match commit.tree() {
+                    Ok(tree) => tree,
+                    Err(e) => {
+                        debug!("Skip tree: {}", e);
+                        continue;
+                    }
+                };
+
+                let parent_id = commit.parent_ids().next();
+                let parent_tree = if let Some(p_id) = parent_id {
+                    match p_id.object().map(|obj| obj.into_commit().tree()) {
+                        Ok(Ok(tree)) => tree,
+                        _ => repo.empty_tree(),
+                    }
+                } else {
+                    repo.empty_tree()
+                };
+
+                let changes =
+                    match repo.diff_tree_to_tree(Some(&parent_tree), Some(&current_tree), None) {
+                        Ok(changes) => changes,
+                        Err(e) => {
+                            debug!("Skip diff: {}", e);
+                            continue;
+                        }
+                    };
+
+                let mut touches_file = false;
+                for change in changes {
+                    let location = match change {
+                        gix::object::tree::diff::ChangeDetached::Addition { location, .. }
+                        | gix::object::tree::diff::ChangeDetached::Deletion { location, .. }
+                        | gix::object::tree::diff::ChangeDetached::Modification { location, .. } => {
+                            String::from_utf8_lossy(&location).into_owned()
+                        }
+                        gix::object::tree::diff::ChangeDetached::Rewrite {
+                            location,
+                            source_location,
+                            ..
+                        } => {
+                            let loc = String::from_utf8_lossy(&location).into_owned();
+                            let src = String::from_utf8_lossy(&source_location).into_owned();
+                            if loc.replace('\\', "/") == target_path
+                                || src.replace('\\', "/") == target_path
+                            {
+                                touches_file = true;
+                            }
+                            continue;
+                        }
+                    };
+                    if location.replace('\\', "/") == target_path {
+                        touches_file = true;
+                    }
+                }
+
+                if touches_file {
+                    let commit_time = match commit.time() {
+                        Ok(t) => t,
+                        Err(e) => {
+                            debug!("Skip commit with unreadable time: {}", e);
+                            continue;
+                        }
+                    };
+                    let commit_secs = commit_time.seconds;
+                    let now_secs = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs() as i64)
+                        .unwrap_or(commit_secs);
+                    let days = ((now_secs - commit_secs).max(0) as f64 / 86400.0).ceil() as u32;
+                    return Ok(Some(days));
+                }
+
+                commit_count += 1;
+            }
+
+            Ok(Some(self.config.git_inactivity_days))
+        };
+
+        let result = calculate()?;
+        self.git_activity_cache.borrow_mut().insert(file_path.to_path_buf(), result);
+        Ok(result)
     }
 
     // ------------------------------------------------------------------

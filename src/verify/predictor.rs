@@ -99,7 +99,8 @@ impl OutcomePredictor {
             && let Some(storage) = &ctx.storage
         {
             let diff_text = semantic_predictor::build_diff_text(ctx.packet.as_ref().unwrap());
-            let embed_config = ctx.config.local_model.clone();
+            let mut embed_config = ctx.config.local_model.clone();
+            embed_config.timeout_secs = 6;
             let conn = storage.get_connection();
             let history_count = crate::verify::predict::count_history_rows(conn).unwrap_or(0);
 
@@ -153,13 +154,14 @@ impl OutcomePredictor {
             && let Some(storage) = &ctx.storage
         {
             let diff_text = semantic_predictor::build_diff_text(ctx.packet.as_ref().unwrap());
-            let embed_config = &ctx.config.local_model;
+            let mut embed_config = ctx.config.local_model.clone();
+            embed_config.timeout_secs = 6;
 
             if !embed_config.base_url.is_empty() && !diff_text.is_empty() {
                 let conn = storage.get_connection();
                 match crate::verify::ci_predictor::query_similar_ci_outcomes(
                     conn,
-                    embed_config,
+                    &embed_config,
                     &diff_text,
                     10,
                 ) {
@@ -168,7 +170,7 @@ impl OutcomePredictor {
                             crate::output::verification::VerificationReporter::print_ci_predictions(
                                 &similar_ci,
                                 ctx.explain,
-                                embed_config,
+                                &embed_config,
                                 &diff_text,
                             );
                         }

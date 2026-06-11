@@ -65,9 +65,10 @@ pub fn execute_step(step: &PreparedStep, policy: &ProcessPolicy) -> Result<Execu
         Ok(result) => {
             if step.execution_mode == ExecutionMode::Shell && looks_like_command_not_found(&result)
             {
+                let hint = fallback_install_hint(&step.display_command);
                 return Err(CommandError::Verify(format!(
-                    "Command not found via shell fallback: {}",
-                    step.display_command
+                    "Command not found via shell fallback: {}{}",
+                    step.display_command, hint
                 ))
                 .into());
             }
@@ -77,7 +78,8 @@ pub fn execute_step(step: &PreparedStep, policy: &ProcessPolicy) -> Result<Execu
             Err(CommandError::Verify(format!("Timed out after {:?}", timeout)).into())
         }
         Err(ProcessError::NotFound { cmd }) => {
-            Err(CommandError::Verify(format!("Command not found: {}", cmd)).into())
+            let hint = fallback_install_hint(&cmd);
+            Err(CommandError::Verify(format!("Command not found: {}{}", cmd, hint)).into())
         }
         Err(ProcessError::Failed { status, stderr }) => Err(CommandError::Verify(format!(
             "Process exited with status {}: {}",
@@ -85,6 +87,23 @@ pub fn execute_step(step: &PreparedStep, policy: &ProcessPolicy) -> Result<Execu
         ))
         .into()),
         Err(e) => Err(e.into()),
+    }
+}
+
+fn fallback_install_hint(cmd: &str) -> String {
+    let lower = cmd.to_lowercase();
+    if lower.contains("nextest") {
+        "\nHint: You can install nextest via 'cargo install cargo-nextest' or visit https://nexte.st".to_string()
+    } else if lower.contains("cargo") {
+        "\nHint: Verify that Rust/Cargo is installed. Visit https://rustup.rs to set up the toolchain.".to_string()
+    } else if lower.contains("npm") {
+        "\nHint: Verify Node.js/NPM is installed. Visit https://nodejs.org to set up Node.".to_string()
+    } else if lower.contains("python") || lower.contains("pytest") || lower.contains("pip") {
+        "\nHint: Verify Python and your virtual environment are active and on your PATH.".to_string()
+    } else if lower.contains("make") {
+        "\nHint: Install make (e.g. 'choco install make' on Windows, or 'brew install make' on macOS).".to_string()
+    } else {
+        "\nHint: Double check that the executable is installed and available on your PATH environment variable.".to_string()
     }
 }
 
