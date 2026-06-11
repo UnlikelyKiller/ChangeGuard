@@ -121,10 +121,16 @@ impl<'a> VectorStore<'a> {
                     "Dimension mismatch or verification failed: {}. Clearing stale snippet embeddings.",
                     e
                 );
-                let _ = self
-                    .storage
-                    .run_script("::hnsw drop snippet_embedding:snippet_idx");
-                let _ = self.storage.run_script(":drop snippet_embedding");
+                // HP3: must drop FTS + HNSW indices before dropping the relation
+                for script in [
+                    "::fts drop snippet_embedding:fts_idx",
+                    "::hnsw drop snippet_embedding:snippet_idx",
+                    ":drop snippet_embedding",
+                ] {
+                    if let Err(e) = self.storage.run_script(script) {
+                        warn!("Failed to run migration cleanup script: {script} — {e}");
+                    }
+                }
                 return self.setup_schema();
             }
 

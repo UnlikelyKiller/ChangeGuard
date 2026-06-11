@@ -278,11 +278,11 @@ fn complete_with_endpoint(
                 if let Some(reasoning) = choice.message.reasoning
                     && !reasoning.is_empty()
                 {
-                    return Err(format!(
-                        "{} returned empty content (reasoning only: {} chars)",
-                        endpoint.label,
+                    tracing::warn!(
+                        "Model returned thinking-only response ({} chars), using reasoning as content",
                         reasoning.len()
-                    ));
+                    );
+                    return Ok(reasoning);
                 }
                 return Err(format!("{} returned empty message content", endpoint.label));
             }
@@ -848,12 +848,43 @@ mod tests {
             &CompletionOptions::default(),
             None,
         );
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(
-            err.contains("reasoning only"),
-            "expected reasoning-only error, got: {err}"
+        assert!(result.is_ok(), "expected reasoning content as Ok, got: {:?}", result);
+        let content = result.unwrap();
+        assert_eq!(content, "internal chain");
+    }
+
+    #[test]
+    fn test_openai_compatible_reasoning_content_alias() {
+        // Verify reasoning_content field name (llama.cpp standard) maps to 'reasoning' in Rust
+        let server = MockServer::start();
+
+        server.mock(|when, then| {
+            when.method(httpmock::Method::POST)
+                .path("/v1/chat/completions");
+            then.status(200)
+                .header("Content-Type", "application/json")
+                .json_body(serde_json::json!({
+                    "choices": [
+                        {
+                            "message": {
+                                "content": "",
+                                "reasoning_content": "llama.cpp thinking chain here"
+                            }
+                        }
+                    ]
+                }));
+        });
+
+        let config = test_config(&server.base_url());
+        let result = complete(
+            &config,
+            &test_messages(),
+            &CompletionOptions::default(),
+            None,
         );
+        assert!(result.is_ok(), "expected reasoning content from reasoning_content alias, got: {:?}", result);
+        let content = result.unwrap();
+        assert_eq!(content, "llama.cpp thinking chain here");
     }
 
     #[test]

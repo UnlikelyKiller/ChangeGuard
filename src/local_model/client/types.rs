@@ -49,6 +49,6 @@ use serde::Deserialize;
 pub struct ChoiceMessage {
     #[serde(default)]
     pub content: String,
-    #[serde(default)]
+    #[serde(default, alias = "reasoning_content")]
     pub reasoning: Option<String>,
 }
