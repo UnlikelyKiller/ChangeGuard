@@ -18,6 +18,6 @@ fn test_update_dry_run() {
     execute_init(false).unwrap();
 
     // dry_run=true with --migrate should only print what would be done
-    let result = execute_update(true, false, false, false, true);
+    let result = execute_update(true, false, false, false, false, true);
     assert!(result.is_ok());
 }
