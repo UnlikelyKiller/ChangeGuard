@@ -2,7 +2,7 @@ use crate::search::encoding::{normalize_to_utf8, strip_control_characters};
 use crate::search::tantivy_engine::TantivySearchEngine;
 use crate::search::trigram::extract_trigrams;
 use camino::{Utf8Path, Utf8PathBuf};
-use crossbeam::channel::{Sender, bounded};
+use crossbeam::channel::bounded;
 use miette::{IntoDiagnostic, Result};
 use std::fs;
 use std::thread;
@@ -80,7 +80,44 @@ impl StreamIndexer {
 
         drop(job_rx); // Close original rx in main thread
 
-        self.walk_dir(root, root, &job_tx)?;
+        let walker = ignore::WalkBuilder::new(root)
+            .hidden(true) // Skip hidden files/dirs like .git, .changeguard
+            .git_ignore(true)
+            .git_global(true)
+            .git_exclude(true)
+            .build();
+
+        for entry in walker {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(e) => {
+                    tracing::warn!("Error walking directory: {}", e);
+                    continue;
+                }
+            };
+
+            if entry.file_type().is_some_and(|ft| ft.is_file()) {
+                let path = entry.path();
+                let utf8_path = Utf8PathBuf::from_path_buf(path.to_path_buf())
+                    .map_err(|_| miette::miette!("Invalid UTF-8 path: {:?}", path))?;
+
+                // Skip large files (> 1MB)
+                let metadata = entry.metadata().into_diagnostic()?;
+                if metadata.len() > 1_000_000 {
+                    continue;
+                }
+
+                if let Ok(content) = fs::read(&utf8_path) {
+                    let relative_path = utf8_path.strip_prefix(root).unwrap_or(&utf8_path).to_path_buf();
+                    job_tx.send(IndexJob {
+                        path: relative_path,
+                        content,
+                    })
+                    .into_diagnostic()?;
+                }
+            }
+        }
+
         drop(job_tx); // Signals workers to finish
 
         for worker in workers {
@@ -96,43 +133,6 @@ impl StreamIndexer {
         let segment_count = self.engine.segment_count()?;
         debug!("Tantivy index committed with {} segments", segment_count);
 
-        Ok(())
-    }
-
-    fn walk_dir(&self, root: &Utf8Path, dir: &Utf8Path, tx: &Sender<IndexJob>) -> Result<()> {
-        for entry in fs::read_dir(dir).into_diagnostic()? {
-            let entry = entry.into_diagnostic()?;
-            let path = Utf8PathBuf::from_path_buf(entry.path())
-                .map_err(|_| miette::miette!("Invalid UTF-8 path: {:?}", entry.path()))?;
-            let file_name = entry.file_name();
-            let file_name = file_name.to_string_lossy();
-
-            if path.is_dir() {
-                if matches!(
-                    file_name.as_ref(),
-                    ".git" | ".changeguard" | ".claude" | ".codex" | "target" | "node_modules"
-                ) {
-                    continue;
-                }
-                self.walk_dir(root, &path, tx)?;
-                continue;
-            }
-
-            // Skip large files (> 1MB)
-            let metadata = entry.metadata().into_diagnostic()?;
-            if metadata.len() > 1_000_000 {
-                continue;
-            }
-
-            if let Ok(content) = fs::read(&path) {
-                let relative_path = path.strip_prefix(root).unwrap_or(&path).to_path_buf();
-                tx.send(IndexJob {
-                    path: relative_path,
-                    content,
-                })
-                .into_diagnostic()?;
-            }
-        }
         Ok(())
     }
 }
