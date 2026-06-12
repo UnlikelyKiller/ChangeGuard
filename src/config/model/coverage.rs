@@ -411,6 +411,10 @@ impl Default for ContractsConfig {
     }
 }
 
+fn default_max_reachability_depth() -> usize {
+    5
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CoverageConfig {
     #[serde(default)]
@@ -419,6 +423,8 @@ pub struct CoverageConfig {
     pub max_coupling_pairs: usize,
     #[serde(default = "default_kg_timeout")]
     pub kg_timeout_secs: usize,
+    #[serde(default = "default_max_reachability_depth")]
+    pub max_reachability_depth: usize,
     #[serde(default)]
     pub traces: TracesConfig,
     #[serde(default)]
@@ -449,6 +455,7 @@ impl Default for CoverageConfig {
             enabled: false,
             max_coupling_pairs: default_max_coupling_pairs(),
             kg_timeout_secs: default_kg_timeout(),
+            max_reachability_depth: default_max_reachability_depth(),
             traces: TracesConfig::default(),
             sdk: SdkConfig::default(),
             services: ServicesConfig::default(),

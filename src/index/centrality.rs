@@ -123,8 +123,50 @@ impl<'a> CentralityComputer<'a> {
             }
         }
 
-        // 4. Betweenness skipped (set to 0.0 for all)
-        // 5. Load symbol -> file_id mapping for symbols with reachable > 0
+        // 4. Load id and qualified_name from project_symbols to map SQLite symbol_id to URN representation
+        let mut sym_stmt = conn
+            .prepare("SELECT id, qualified_name FROM project_symbols")
+            .into_diagnostic()?;
+        let sym_rows: Vec<(i64, String)> = sym_stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })
+            .into_diagnostic()?
+            .collect::<Result<Vec<_>, _>>()
+            .into_diagnostic()?;
+        drop(sym_stmt);
+
+        let mut urn_to_symbol_id = HashMap::new();
+        for (id, qname) in &sym_rows {
+            let urn =
+                crate::platform::urn::build_urn(crate::state::graph_kinds::NodeKind::Symbol, qname);
+            urn_to_symbol_id.insert(urn, *id);
+        }
+
+        // 5. Run PageRank algorithm query on CozoDB if present
+        let mut pagerank_scores: HashMap<i64, f64> = HashMap::new();
+        if let Some(cozo) = &self.storage.cozo {
+            let script = "
+                edges[src, dst] := *edge{source: src, target: dst, relation: 'calls'}
+                ?[node, rank] <~ PageRank(edges[src, dst])
+            ";
+            let res = cozo.run_script(script)?;
+            for row in res.rows {
+                if let (Some(cozo::DataValue::Str(node_urn)), Some(cozo::DataValue::Num(num))) =
+                    (row.first(), row.get(1))
+                {
+                    let rank_score = match num {
+                        cozo::Num::Float(f) => *f,
+                        cozo::Num::Int(i) => *i as f64,
+                    };
+                    if let Some(&sym_id) = urn_to_symbol_id.get(node_urn.as_str()) {
+                        pagerank_scores.insert(sym_id, rank_score);
+                    }
+                }
+            }
+        }
+
+        // 6. Load symbol -> file_id mapping
         let mut symbol_file_stmt = conn
             .prepare("SELECT id, file_id FROM project_symbols")
             .into_diagnostic()?;
@@ -146,21 +188,30 @@ impl<'a> CentralityComputer<'a> {
             .into_diagnostic()?;
         tx.commit().into_diagnostic()?;
 
+        // Union of keys from reachable_counts and pagerank_scores
+        let mut all_sym_ids: HashSet<i64> = reachable_counts.keys().copied().collect();
+        all_sym_ids.extend(pagerank_scores.keys().copied());
+
         // Batch insert centrality rows
         let now = chrono::Utc::now().to_rfc3339();
-        let entries: Vec<(i64, i64, usize)> = reachable_counts
+        let entries: Vec<(i64, i64, usize, f64)> = all_sym_ids
             .iter()
-            .filter(|(sym_id, _)| symbol_to_file.contains_key(sym_id))
-            .map(|(sym_id, count)| (*sym_id, symbol_to_file[sym_id], *count))
+            .filter(|sym_id| symbol_to_file.contains_key(sym_id))
+            .map(|sym_id| {
+                let file_id = symbol_to_file[sym_id];
+                let count = reachable_counts.get(sym_id).copied().unwrap_or(0);
+                let pagerank = pagerank_scores.get(sym_id).copied().unwrap_or(0.0_f64);
+                (*sym_id, file_id, count, pagerank)
+            })
             .collect();
 
-        let max_reachable = entries.iter().map(|(_, _, c)| *c).max().unwrap_or(0);
+        let max_reachable = entries.iter().map(|(_, _, c, _)| *c).max().unwrap_or(0);
         let symbols_computed = entries.len();
 
         for chunk in entries.chunks(BATCH_SIZE) {
             let conn = self.storage.get_connection();
             let tx = conn.unchecked_transaction().into_diagnostic()?;
-            for (symbol_id, file_id, count) in chunk {
+            for (symbol_id, file_id, count, pagerank) in chunk {
                 tx.execute(
                     "INSERT INTO symbol_centrality (symbol_id, file_id, entrypoints_reachable, betweenness, last_computed_at) \
                      VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -168,7 +219,7 @@ impl<'a> CentralityComputer<'a> {
                         symbol_id,
                         file_id,
                         *count as i64,
-                        0.0_f64,
+                        *pagerank,
                         now,
                     ],
                 )
@@ -194,27 +245,40 @@ impl<'a> CentralityComputer<'a> {
 
 pub fn enrich_hotspots_with_centrality(
     hotspots: &mut [crate::impact::packet::Hotspot],
-    cozo: &crate::state::storage_cozo::CozoStorage,
+    storage: &StorageManager,
 ) -> Result<()> {
-    use cozo::{DataValue, Num};
-    let script = "?[file_path, max(reachable)] := *symbol_centrality{file_id, entrypoints_reachable: reachable}, *project_files{id: file_id, file_path}";
-    let res = cozo.run_script(script)?;
+    let conn = storage.get_connection();
+    let mut stmt = conn
+        .prepare(
+            "SELECT pf.file_path, MAX(sc.entrypoints_reachable), MAX(sc.betweenness) \
+         FROM symbol_centrality sc \
+         JOIN project_files pf ON sc.file_id = pf.id \
+         GROUP BY pf.file_path",
+        )
+        .into_diagnostic()?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            let path: String = row.get(0)?;
+            let reachable: i64 = row.get(1)?;
+            let pagerank: f64 = row.get(2)?;
+            Ok((path, reachable, pagerank))
+        })
+        .into_diagnostic()?;
 
     let mut file_centrality = HashMap::new();
-    for row in res.rows {
-        if let (Some(DataValue::Str(path)), Some(DataValue::Num(Num::Int(reachable)))) =
-            (row.first(), row.get(1))
-        {
-            file_centrality.insert(path.to_string(), *reachable as f64);
-        }
+    for row in rows {
+        let (path, reachable, pagerank) = row.into_diagnostic()?;
+        file_centrality.insert(path, (reachable as f64, pagerank));
     }
 
     for h in hotspots {
         let path_str = h.path.to_string_lossy().to_string().replace('\\', "/");
-        if let Some(reachable) = file_centrality.get(&path_str) {
-            h.centrality = Some(*reachable as usize);
-            // Update score to include centrality (weighted log scale)
-            h.display_score += (reachable.ln_1p() as f32) * 0.5;
+        if let Some(&(reachable, pagerank)) = file_centrality.get(&path_str) {
+            h.centrality = Some(reachable as usize);
+            let boost = (reachable.ln_1p() as f32) * 0.1 + (pagerank as f32) * 0.3;
+            h.score += boost;
+            h.display_score += boost;
         }
     }
 
@@ -454,5 +518,119 @@ mod tests {
             s20_result.is_none(),
             "Symbol at depth 21 should not be in centrality table"
         );
+    }
+
+    fn in_memory_storage_with_cozo() -> StorageManager {
+        let conn = Connection::open_in_memory().unwrap();
+        let mut conn = conn;
+        get_migrations().to_latest(&mut conn).unwrap();
+        let cozo = crate::state::storage_cozo::CozoStorage::new_in_memory().unwrap();
+        cozo.setup_schema().unwrap();
+        let mut storage = StorageManager::init_from_conn(conn);
+        storage.cozo = Some(cozo);
+        storage
+    }
+
+    #[test]
+    fn test_pagerank_computation_and_blending() {
+        let storage = in_memory_storage_with_cozo();
+        let conn = storage.get_connection();
+
+        let file_id = insert_file(conn, "src/lib.rs");
+        let ep_id = insert_symbol(conn, file_id, "main", "ENTRYPOINT");
+        let a_id = insert_symbol(conn, file_id, "a", "INTERNAL");
+        let b_id = insert_symbol(conn, file_id, "b", "INTERNAL");
+
+        // main -> a -> b
+        insert_edge(conn, ep_id, a_id, file_id, file_id);
+        insert_edge(conn, a_id, b_id, file_id, file_id);
+
+        // Map symbols to URNs
+        let ep_urn = crate::platform::urn::build_urn(
+            crate::state::graph_kinds::NodeKind::Symbol,
+            "crate::main",
+        );
+        let a_urn = crate::platform::urn::build_urn(
+            crate::state::graph_kinds::NodeKind::Symbol,
+            "crate::a",
+        );
+        let b_urn = crate::platform::urn::build_urn(
+            crate::state::graph_kinds::NodeKind::Symbol,
+            "crate::b",
+        );
+
+        // Insert edges into Cozo
+        let cozo = storage.cozo.as_ref().unwrap();
+        cozo.put_edge_batch(&[
+            crate::state::storage_cozo::GraphEdge {
+                source: ep_urn.clone(),
+                target: a_urn.clone(),
+                relation: crate::state::graph_kinds::EdgeKind::Calls,
+                confidence: 1.0,
+                provenance_id: "tx_1".to_string(),
+            },
+            crate::state::storage_cozo::GraphEdge {
+                source: a_urn.clone(),
+                target: b_urn.clone(),
+                relation: crate::state::graph_kinds::EdgeKind::Calls,
+                confidence: 1.0,
+                provenance_id: "tx_1".to_string(),
+            },
+        ])
+        .unwrap();
+
+        let computer = CentralityComputer::new(&storage);
+        let stats = computer.compute().unwrap();
+
+        assert_eq!(stats.entry_points_count, 1);
+
+        // Verify SQLite centrality scores
+        let a_betweenness: f64 = conn
+            .query_row(
+                "SELECT betweenness FROM symbol_centrality WHERE symbol_id = ?1",
+                [a_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let b_betweenness: f64 = conn
+            .query_row(
+                "SELECT betweenness FROM symbol_centrality WHERE symbol_id = ?1",
+                [b_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        assert!(a_betweenness > 0.0);
+        assert!(b_betweenness > 0.0);
+
+        // Now mock symbol_centrality in SQLite to test enrich_hotspots_with_centrality
+        conn.execute("DELETE FROM symbol_centrality", []).unwrap();
+        conn.execute(
+            "INSERT INTO symbol_centrality (symbol_id, file_id, entrypoints_reachable, betweenness, last_computed_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![
+                a_id,
+                file_id,
+                5i64,
+                0.75f64,
+                "now"
+            ]
+        ).unwrap();
+
+        let mut hotspots = vec![crate::impact::packet::Hotspot {
+            path: std::path::PathBuf::from("src/lib.rs"),
+            score: 1.0,
+            display_score: 1.0,
+            complexity: 10,
+            frequency: 1.0,
+            centrality: None,
+        }];
+
+        enrich_hotspots_with_centrality(&mut hotspots, &storage).unwrap();
+
+        assert_eq!(hotspots[0].centrality, Some(5));
+        // Expected display_score = 1.0 + ln(1+5)*0.1 + 0.75*0.3 ≈ 1.0 + 0.179176 + 0.225 = 1.404176
+        let diff = (hotspots[0].display_score - 1.404176).abs();
+        assert!(diff < 1e-4);
     }
 }

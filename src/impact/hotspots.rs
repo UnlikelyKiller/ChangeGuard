@@ -20,6 +20,7 @@ pub struct HotspotQuery {
     pub dir_filter: Option<String>,
     pub lang_filter: Option<String>,
     pub exact_file: Option<String>,
+    pub centrality: bool,
 }
 
 pub fn calculate_hotspots(
@@ -185,6 +186,10 @@ pub fn calculate_hotspots(
             frequency: freq,
             centrality: None,
         });
+    }
+
+    if query.centrality {
+        crate::index::centrality::enrich_hotspots_with_centrality(&mut hotspots, storage)?;
     }
 
     // Deterministic sorting: Score (desc) then Path (asc)

@@ -112,6 +112,19 @@ pub fn validate_config(config: &Config) -> Result<()> {
         .into());
     }
 
+    if config.coverage.max_reachability_depth == 0 {
+        return Err(ConfigError::ValidationFailed {
+            reason: "coverage.max_reachability_depth must be > 0".to_string(),
+        }
+        .into());
+    }
+    if config.coverage.max_reachability_depth > 10 {
+        return Err(ConfigError::ValidationFailed {
+            reason: "coverage.max_reachability_depth must be <= 10".to_string(),
+        }
+        .into());
+    }
+
     Ok(())
 }
 
@@ -462,5 +475,33 @@ mod tests {
         let err = validate_config(&config).unwrap_err();
         let msg = format!("{:?}", err);
         assert!(msg.contains("semantic.embed_concurrency_cap"));
+    }
+
+    #[test]
+    fn test_zero_max_reachability_depth_fails() {
+        let config = Config {
+            coverage: CoverageConfig {
+                max_reachability_depth: 0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let err = validate_config(&config).unwrap_err();
+        let msg = format!("{:?}", err);
+        assert!(msg.contains("max_reachability_depth must be > 0"));
+    }
+
+    #[test]
+    fn test_too_high_max_reachability_depth_fails() {
+        let config = Config {
+            coverage: CoverageConfig {
+                max_reachability_depth: 11,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let err = validate_config(&config).unwrap_err();
+        let msg = format!("{:?}", err);
+        assert!(msg.contains("max_reachability_depth must be <= 10"));
     }
 }

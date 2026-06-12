@@ -63,8 +63,11 @@ fn execute_impact(changed: bool, json: bool, layout: &crate::state::layout::Layo
     let changed_files = collect_changed_files()?;
     let cozo = open_cozo(&layout.root)?;
 
-    // Query all policy nodes from Cozo
-    let query = "?[id, label, metadata] := *node{id, label, category: 'policy', metadata}";
+    // Query all policy nodes and determine impact in-memory
+    let query = "?[id, label, raw, effect, source_file] := *node{id, label, category: 'policy', metadata: meta}, \
+                 raw = get(meta, 'raw'), \
+                 effect = get(meta, 'effect'), \
+                 source_file = get(meta, 'source_file')";
     let res = cozo.run_script(query)?;
 
     let mut impacted = Vec::new();
@@ -72,17 +75,19 @@ fn execute_impact(changed: bool, json: bool, layout: &crate::state::layout::Layo
         if let (
             Some(cozo::DataValue::Str(id)),
             Some(cozo::DataValue::Str(label)),
-            Some(cozo::DataValue::Json(meta)),
-        ) = (row.first(), row.get(1), row.get(2))
+            Some(cozo::DataValue::Str(raw)),
+            Some(cozo::DataValue::Str(effect)),
+            Some(cozo::DataValue::Str(source_file)),
+        ) = (row.first(), row.get(1), row.get(2), row.get(3), row.get(4))
         {
-            let is_impacted = changed_files.iter().any(|cf| id.contains(cf));
+            let is_impacted = changed_files.contains(source_file.as_str());
 
             if !changed || is_impacted {
                 impacted.push(serde_json::json!({
                     "id": id,
                     "label": label,
-                    "raw": meta.get("raw").and_then(|v| v.as_str()).unwrap_or(""),
-                    "effect": meta.get("effect").and_then(|v| v.as_str()).unwrap_or(""),
+                    "raw": raw,
+                    "effect": effect,
                     "is_changed": is_impacted,
                 }));
             }

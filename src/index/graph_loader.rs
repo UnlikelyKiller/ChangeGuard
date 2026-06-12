@@ -1079,6 +1079,8 @@ fn phase_security(ctx: &mut GraphLoadContext) -> Result<()> {
                 };
                 let policies = cedar_importer.parse(&content);
                 for (i, policy) in policies.iter().enumerate() {
+                    let rel_path = path.strip_prefix(ctx.storage.root_path()).unwrap_or(&path);
+                    let rel_path_str = rel_path.to_string_lossy().replace('\\', "/");
                     let urn = format!("urn:changeguard:policy:{}:{}", path.to_string_lossy(), i);
                     policy_nodes.push(GraphNode {
                         id: urn.clone(),
@@ -1092,6 +1094,7 @@ fn phase_security(ctx: &mut GraphLoadContext) -> Result<()> {
                             "annotations": policy.annotations,
                             "is_template": policy.is_template,
                             "template_id": policy.template_id,
+                            "source_file": rel_path_str,
                             "schema_version": "v1"
                         })),
                     });

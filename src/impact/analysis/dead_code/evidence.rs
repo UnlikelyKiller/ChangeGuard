@@ -22,6 +22,9 @@ impl<'a> ConfidenceScorer<'a> {
     }
 
     fn reachability_via_cozo(&self, symbol: &Symbol, cozo: &CozoStorage) -> Result<bool> {
+        use crate::platform::urn::build_urn;
+        use crate::state::graph_kinds::NodeKind;
+
         let entrypoints = self.get_entrypoint_qualified_names()?;
         if entrypoints.is_empty() {
             return Ok(false);
@@ -32,21 +35,31 @@ impl<'a> ConfidenceScorer<'a> {
             None => symbol.name.clone(),
         };
 
-        let entry_list = serde_json::to_string(
-            &entrypoints
-                .iter()
-                .map(|e| vec![e.as_str()])
-                .collect::<Vec<_>>(),
-        )
-        .into_diagnostic()?;
+        let target_urn = build_urn(NodeKind::Symbol, &qualified);
+        let entry_values: Vec<serde_json::Value> = entrypoints
+            .iter()
+            .map(|e| serde_json::json!([build_urn(NodeKind::Symbol, e)]))
+            .collect();
+        let entry_list_json = serde_json::Value::Array(entry_values);
 
-        let script = format!(
-            "entry[id] <- {}\n             reachable[node] := entry[e], *edge{{source: e, target: node}}\n             reachable[node] := reachable[mid], *edge{{source: mid, target: node}}\n             ?[count(node)] := reachable[node], node = '{}'",
-            entry_list,
-            qualified.replace('\'', "\\'")
+        let mut params = std::collections::BTreeMap::new();
+        params.insert(
+            "entry_list".to_string(),
+            cozo::DataValue::from(entry_list_json),
+        );
+        params.insert(
+            "target_node".to_string(),
+            cozo::DataValue::Str(target_urn.into()),
         );
 
-        let res = cozo.run_script(&script)?;
+        let script = "
+            entry[id] <- $entry_list
+            reachable[node] := entry[e], *edge{source: e, target: node}
+            reachable[node] := reachable[mid], *edge{source: mid, target: node}
+            ?[count(node)] := reachable[node], node = $target_node
+        ";
+
+        let res = cozo.run_script_with_params(script, params, cozo::ScriptMutability::Immutable)?;
         let count = res
             .rows
             .first()

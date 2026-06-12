@@ -196,22 +196,31 @@ mod tests {
 
     #[test]
     fn test_reachability_via_cozo() {
+        use crate::platform::urn::build_urn;
+        use crate::state::graph_kinds::NodeKind;
+
         let (storage, cozo) = in_memory_storage_with_cozo();
 
-        cozo.run_script(
+        let main_urn = build_urn(NodeKind::Symbol, "crate::main");
+        let helper_urn = build_urn(NodeKind::Symbol, "crate::helper");
+        let unused_urn = build_urn(NodeKind::Symbol, "crate::unused");
+
+        cozo.run_script(&format!(
             "?[id, label, category, risk_score, metadata] <- [
-                ['crate::main', 'main', 'code', 0.0, {}],
-                ['crate::helper', 'helper', 'code', 0.0, {}],
-                ['crate::unused', 'unused', 'code', 0.0, {}]
+                ['{}', 'main', 'code', 0.0, {{}}],
+                ['{}', 'helper', 'code', 0.0, {{}}],
+                ['{}', 'unused', 'code', 0.0, {{}}]
             ] :put node",
-        )
+            main_urn, helper_urn, unused_urn
+        ))
         .unwrap();
 
-        cozo.run_script(
+        cozo.run_script(&format!(
             "?[source, target, relation, confidence, provenance_id] <- [
-                ['crate::main', 'crate::helper', 'calls', 1.0, 'tx1']
+                ['{}', '{}', 'calls', 1.0, 'tx1']
             ] :put edge",
-        )
+            main_urn, helper_urn
+        ))
         .unwrap();
 
         let conn = storage.get_connection();

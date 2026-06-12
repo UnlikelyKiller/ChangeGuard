@@ -1841,7 +1841,39 @@ Execution guidance (added 2026-06-09 review): run these tracks **serially**, one
     *   Definition of done: `ledger.rs` is a pure facade; 13 handlers split across 4 groups; pure-helper unit tests added; all import paths unchanged; full verification plus reinstall passes.
 
 
+## Milestone KD: Knowledge Graph Deepening & CozoDB-redux Upgrade (Planned)
+
+*   **Track KD1: CozoDB-Redux Dependency Upgrade**
+    *   Status: Completed
+    *   Spec: `conductor/trackKD1/spec.md`
+    *   Plan: `conductor/trackKD1/plan.md`
+    *   Goal: Upgrade the `cozo` and `cozo-sys` dependencies in `Cargo.toml` to the latest GitHub-pushed `CozoDB-redux` repository version. Verify environmental health using `changeguard doctor` and ensure full test suite compatibility under the new engine.
+    *   Definition of done: Cargo compilation succeeds; `changeguard doctor` reports graph active; full verification test suite passes.
+
+*   **Track KD2: Transitive Closure Reachability in KGProvider**
+    *   Status: Completed
+    *   Spec: `conductor/trackKD2/spec.md`
+    *   Plan: `conductor/trackKD2/plan.md`
+    *   Goal: Refactor `src/impact/enrichment/kg_provider.rs` to replace the hardcoded 1-hop and 2-hop reachability checks with a parameterized recursive Datalog transitive closure query up to a configurable maximum depth.
+    *   Definition of done: `kg_provider.rs` uses a single recursive query; configurable depth limit is enforced; reachability tests remain green.
+
+*   **Track KD3: Declarative Logical & Security Checks in Datalog**
+    *   Status: Completed
+    *   Spec: `conductor/trackKD3/spec.md`
+    *   Plan: `conductor/trackKD3/plan.md`
+    *   Goal: Move imperative Rust-side verification checks—specifically security boundary authorization checks in `security.rs` and entrypoint-to-sink/unreachable check logic—into declarative Datalog rules in CozoDB.
+    *   Definition of done: Imperative loops are replaced by expressive Datalog queries; correctness and boundary violations are validated via database constraints/rules; existing security tests pass.
+
+*   **Track KD4: PageRank-Based Churn & Centrality Risk Scoring**
+    *   Status: Completed
+    *   Spec: `conductor/trackKD4/spec.md`
+    *   Plan: `conductor/trackKD4/plan.md`
+    *   Goal: Run CozoDB's native PageRank algorithm over the code dependency/call graph. Blend the resulting symbol centrality metrics with raw file change frequencies to rank codebase risk.
+    *   Definition of done: PageRank-based centrality is calculated on-the-fly or cached in CozoDB; overall node risk scores scale with graph centrality; tests verify score determinism.
+
+
 ## Workflow
+
 
 1.  **Plan**: `@architecture-planner` creates `conductor/trackN/plan.md`.
 2.  **Push Plan**: Commit and push plan to `main`.

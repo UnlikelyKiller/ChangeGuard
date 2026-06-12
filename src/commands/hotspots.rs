@@ -17,7 +17,7 @@ pub fn execute_hotspots(args: HotspotArgs) -> Result<()> {
     let repo = open_repo(&current_dir)?;
     let layout = get_layout()?;
 
-    let storage = if args.semantic {
+    let storage = if args.semantic || args.centrality {
         StorageManager::open_read_only(&layout.root)?
     } else {
         StorageManager::open_read_only_sqlite_only(&layout.root)?
@@ -78,18 +78,11 @@ pub fn execute_hotspots(args: HotspotArgs) -> Result<()> {
         days: args.days.map(|d| d as u64),
         decay_half_life: config.hotspots.decay_half_life,
         dir_filter: args.entity.clone(),
+        centrality: args.centrality,
         ..Default::default()
     };
 
-    let mut hotspots = calculate_hotspots(&storage, &history_provider, &query)?;
-
-    if args.centrality {
-        let cozo = storage
-            .cozo
-            .as_ref()
-            .ok_or_else(|| miette::miette!("CozoDB storage not initialized"))?;
-        crate::index::centrality::enrich_hotspots_with_centrality(&mut hotspots, cozo)?;
-    }
+    let hotspots = calculate_hotspots(&storage, &history_provider, &query)?;
 
     if args.snapshot {
         persist_hotspots_and_couplings(&storage, &repo, &hotspots, &config)?;
