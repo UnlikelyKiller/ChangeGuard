@@ -781,7 +781,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Key files: `src/search/tantivy_engine.rs`, `src/state/storage_cozo.rs`, `src/commands/update.rs`
 
 *   **Track K2: Intelligence Precision (Adaptive Inference Context)**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackK2/spec.md`
     *   Plan: `conductor/trackK2/plan.md`
     *   Goal: Eliminate `ask --semantic` hallucinations in clean git states by pivoting to a "Codebase Oracle" mode with 90% token allocation for retrieved code chunks and mandatory source attribution.
@@ -1697,28 +1697,28 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
 ### Milestone Z Remediation (Codex Review Follow-Up)
 
 *   **Track Z-R1: Cargo.lock Disambiguation & Schema Hardening**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackZ-R1/spec.md`
     *   Plan: `conductor/trackZ-R1/plan.md`
     *   Goal: Close the test-coverage gap for Cargo.lock multi-version disambiguation and harden the parser against schema drift.
     *   Definition of done: Duplicate-version integration test passes and fails if heuristic is broken; typed deserialization path exists alongside Value fallback; zero behavior change on standard lockfiles.
 
 *   **Track Z-R2: Ledger Adopt Path Deduplication & Defense-in-Depth**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackZ-R2/spec.md`
     *   Plan: `conductor/trackZ-R2/plan.md`
     *   Goal: Eliminate redundant KG writes in `execute_ledger_adopt`, centralize synthetic-entity filtering, and harden `get_transaction_files`.
     *   Definition of done: Adopt produces exactly one node + edges per file; synthetic filter present in `write_ledger_graph_edges`; `get_transaction_files` skips non-path entities; backward-compatible API preserved.
 
 *   **Track Z-R3: Env Schema Completeness & Regex Consolidation**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackZ-R3/spec.md`
     *   Plan: `conductor/trackZ-R3/plan.md`
     *   Goal: Wire dead regexes, expand real-world env-var coverage, deduplicate patterns into `src/index/env_patterns.rs`, and make reference replacement atomic.
     *   Definition of done: All dead regexes are active; new patterns (option_env!, import.meta.env, etc.) are covered; shared module exists; atomic transaction wraps cleanup + inserts.
 
 *   **Track Z-R4: CozoDB Parameterized Queries & Test Precision**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackZ-R4/spec.md`
     *   Plan: `conductor/trackZ-R4/plan.md`
     *   Goal: Eliminate format!-based Datalog queries, add safe `CozoStorage` helpers, strengthen assertions to exact-match, and cover `--json` output.
