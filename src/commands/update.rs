@@ -11,6 +11,7 @@ pub fn execute_update(
     binary: bool,
     force: bool,
     force_unlock: bool,
+    fast: bool,
     dry_run: bool,
 ) -> Result<()> {
     if !migrate && !binary {
@@ -22,7 +23,7 @@ pub fn execute_update(
     }
 
     if migrate {
-        execute_migration(dry_run)?;
+        execute_migration(fast, dry_run)?;
     }
 
     if binary {
@@ -32,7 +33,7 @@ pub fn execute_update(
     Ok(())
 }
 
-fn execute_migration(dry_run: bool) -> Result<()> {
+fn execute_migration(fast: bool, dry_run: bool) -> Result<()> {
     if dry_run {
         println!(
             "{} Would migrate repository state (perform full re-indexing and schema migration).",
@@ -49,7 +50,7 @@ fn execute_migration(dry_run: bool) -> Result<()> {
         analyze_graph: true,
         docs: true,
         contracts: true,
-        semantic: true,
+        semantic: !fast,
         scip: None,
         export_docs: false,
         doc_type: None,
@@ -58,7 +59,7 @@ fn execute_migration(dry_run: bool) -> Result<()> {
         strict: false,
         concurrency: None,
         semantic_dry_run: None,
-        fast: false,
+        fast,
     })?;
 
     println!("{} Migration complete.", "DONE".green().bold());
@@ -214,7 +215,7 @@ mod tests {
     #[test]
     fn test_execute_update_no_flags_prints_hint() {
         // Without any flag, execute_update should print the hint and not error.
-        let result = execute_update(false, false, false, false, false);
+        let result = execute_update(false, false, false, false, false, false);
         assert!(result.is_ok(), "no-flag invocation should succeed");
     }
 }

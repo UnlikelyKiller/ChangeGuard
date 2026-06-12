@@ -170,8 +170,9 @@ pub fn run_with(cli: Cli) -> Result<()> {
             binary,
             force,
             force_unlock,
+            fast,
             dry_run,
-        } => crate::commands::update::execute_update(migrate, binary, force, force_unlock, dry_run),
+        } => crate::commands::update::execute_update(migrate, binary, force, force_unlock, fast, dry_run),
         Commands::Watch {
             interval,
             json,

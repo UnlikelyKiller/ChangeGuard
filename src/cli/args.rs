@@ -327,6 +327,9 @@ pub enum Commands {
         /// Force unlock CozoDB by terminating other running ChangeGuard processes
         #[arg(long = "force-unlock")]
         force_unlock: bool,
+        /// Use fast semantic index bypass (skip LLM semantic extraction during migration)
+        #[arg(long)]
+        fast: bool,
         /// Show what update actions would be performed without executing them
         #[arg(long = "dry-run")]
         dry_run: bool,

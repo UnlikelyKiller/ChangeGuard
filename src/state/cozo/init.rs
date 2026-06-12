@@ -301,8 +301,17 @@ pub fn initialize_instance(db_path: &Path, read_only: bool) -> Result<DbInstance
                 if err_debug.contains("lock")
                     || err_debug.contains("access is denied")
                     || err_debug.contains("os error 33")
+                    || err_debug.contains("unable to open database file")
                 {
                     retries += 1;
+                    if retries == 3 {
+                        // Attempt to clean locks / remove lock files in Cozo directory
+                        warn!("CozoDB locked or blocked. Attempting to clear lock files in directory {:?}", db_path);
+                        if let Some(parent) = db_path.parent() {
+                            let lock_file = parent.join("ledger.cozo").join("lock");
+                            let _ = std::fs::remove_file(lock_file);
+                        }
+                    }
                     let delay = base_delay_ms * (2u64.pow(retries - 1));
                     debug!("CozoDB is locked, retrying in {}ms", delay);
                     std::thread::sleep(std::time::Duration::from_millis(delay));

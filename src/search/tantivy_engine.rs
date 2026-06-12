@@ -57,11 +57,23 @@ impl TantivySearchEngine {
             std::fs::create_dir_all(path).into_diagnostic()?;
         }
 
-        let index = Index::open_or_create(
+        let index = match Index::open_or_create(
             tantivy::directory::MmapDirectory::open(path).into_diagnostic()?,
             schema.clone(),
-        )
-        .into_diagnostic()?;
+        ) {
+            Ok(idx) => idx,
+            Err(tantivy::TantivyError::SchemaError(e)) => {
+                tracing::warn!("Tantivy schema mismatch detected: {}. Re-initializing search index...", e);
+                // Clear index directory
+                let _ = std::fs::remove_dir_all(path);
+                let _ = std::fs::create_dir_all(path);
+                Index::open_or_create(
+                    tantivy::directory::MmapDirectory::open(path).into_diagnostic()?,
+                    schema.clone(),
+                ).into_diagnostic()?
+            }
+            Err(e) => return Err(e).into_diagnostic(),
+        };
 
         index.tokenizers().register(
             "code_trigram",

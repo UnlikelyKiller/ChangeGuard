@@ -641,3 +641,35 @@ GET  /api/v1/settings/config      # Config (redacted)
 | Check verification health | `changeguard verify --health` |
 | Export compliance | `changeguard ledger audit --json --sections` |
 | View config | `changeguard config view --json` |
+
+---
+
+## 8. Critique & Competitive Analysis
+
+### 8.1 Comparison Matrix
+
+| Capability | ChangeGuard | GitKraken | SonarQube | Dependency Scanners (e.g. Snyk) |
+|---|---|---|---|---|
+| **Primary Focus** | AI governance, change intelligence, and cryptographic provenance | Git visualization and repository history | Static code analysis, security linting, and quality gates | Vulnerability database matching and package licenses |
+| **Data Engine** | Local-first CozoDB Graph DB + SQLite | Local Git representation | Centralized relational DB | Cloud-hosted vulnerability registry |
+| **Proven Proof of Change** | **Yes** (Ed25519 cryptographic signatures on ledger entries) | No (relies on Git commits which can be spoofed) | No (only analyzes code state) | No (only scans package lists) |
+| **Verification Logic** | **Yes** (Predictive Bayesian reordering & test execution) | No | **Yes** (Evaluates static quality gates, but lacks execution predictive engine) | No (only checks CVE matches) |
+
+### 8.2 Detailed Evaluation: Better vs. Worse
+
+#### Where ChangeGuard is Better (Strengths)
+1. **Cryptographic Intent & AI Governance**: Unlike GitKraken or SonarQube, ChangeGuard doesn't just track *who* committed code, but *why* (capturing intent via the TUI hook) and matches it to a signed mathematical proof. This provides a hard audit log proving whether a human approved an AI-generated chunk.
+2. **Predictive Bayesian Testing**: SonarQube executes quality gates on the *entire* codebase or diff. ChangeGuard uses its knowledge graph and historical outcomes to predict which tests are most likely to fail and runs/reorders them dynamically, reducing CI billable minutes.
+3. **Local-First Zero-Trust Architecture**: SonarQube requires a hosted server; Snyk and RepoKit require uploading code/manifests to the cloud. ChangeGuard runs fully offline as a zero-dependency Rust binary, making it compliant with strict financial/defense rules.
+
+#### Where ChangeGuard is Worse (Gaps)
+1. **Developer Experience & Tooling**: GitKraken provides a world-class visual Git graph, interactive rebase, and deep GitHub/GitLab integration. ChangeGuard's visualizations (`viz` D3 exports) are static and primitive by comparison.
+2. **Static Code Analysis Depth**: SonarQube has decades of rules detecting code smells, security vulnerabilities (SAST), and formatting errors across 30+ languages. ChangeGuard parses ASTs via tree-sitter, but does not perform advanced compiler-grade static analysis or security scanning.
+3. **Distribution & Collaborative Surfaces**: Dependency scanners and SonarQube integrate directly into pull request workflows (e.g., commenting on lines with warnings). ChangeGuard operates mainly inside the developer's local shell and lacks team collaboration dashboards.
+
+### 8.3 Key Takeaways & Recommendations
+
+ChangeGuard is **not a direct replacement** for any of these tools; rather, it occupies a distinct niche by blending aspects of all three:
+* **VS. GitKraken**: GitKraken is a productivity tool for Git operations; ChangeGuard is an audit and verification engine. GitKraken lacks any intelligence on code structure, impact boundaries, or testing.
+* **VS. SonarQube**: SonarQube is a passive quality inspector; ChangeGuard is an active test scheduler and impact analyzer. SonarQube doesn't know *what tests validate which code symbols*—ChangeGuard does.
+* **VS. Dependency Scanners**: Snyk focuses on CVE lookup tables. ChangeGuard's dependency capability links dependencies to AST symbols to trace whether vulnerable methods are actually *called* (reachability) rather than simply declared in a lockfile.
