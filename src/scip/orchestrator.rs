@@ -22,7 +22,8 @@ impl ScipToolchain {
             return Some(Self::ScipTypescript);
         }
         // Python detection
-        if (repo_root.join("requirements.txt").exists() || repo_root.join("pyproject.toml").exists())
+        if (repo_root.join("requirements.txt").exists()
+            || repo_root.join("pyproject.toml").exists())
             && is_on_path("scip-python")
         {
             return Some(Self::ScipPython);
@@ -62,7 +63,6 @@ impl ScipToolchain {
                 c
             }
         };
-
 
         cmd.current_dir(repo_root);
         info!("Running SCIP indexer: {:?}", cmd);
