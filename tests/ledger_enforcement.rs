@@ -29,7 +29,7 @@ fn test_verification_gate_blocks_high_risk_categories() {
     for cat in categories {
         let tx_id = tx_mgr
             .start_change(TransactionRequest {
-                category: cat.clone(),
+                category: cat,
                 entity: "test".to_string(),
                 ..Default::default()
             })
@@ -240,7 +240,7 @@ fn test_verification_gate_allows_low_risk_categories() {
     for cat in categories {
         let tx_id = tx_mgr
             .start_change(TransactionRequest {
-                category: cat.clone(),
+                category: cat,
                 entity: "test".to_string(),
                 ..Default::default()
             })

@@ -387,9 +387,8 @@ impl StorageManager {
         Ok(map)
     }
 
-    /// Checks if a table exists and contains at least one row.
-    pub fn table_exists_and_has_data(&self, table_name: &str) -> Result<bool> {
-        // First check if table exists in sqlite_master
+    /// Checks if a table exists in the database.
+    pub fn table_exists(&self, table_name: &str) -> Result<bool> {
         let exists: bool = self
             .conn
             .query_row(
@@ -399,7 +398,20 @@ impl StorageManager {
             )
             .into_diagnostic()?;
 
-        if !exists {
+        Ok(exists)
+    }
+
+    /// Checks if a table exists and contains at least one row.
+    pub fn table_exists_and_has_data(&self, table_name: &str) -> Result<bool> {
+        // Basic validation to prevent injection since we use format! for the table name
+        if !table_name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
+            return Err(miette::miette!("Invalid table name: {}", table_name));
+        }
+
+        if !self.table_exists(table_name)? {
             return Ok(false);
         }
 
@@ -515,6 +527,13 @@ mod tests {
         let storage = in_memory_storage();
         let result = storage.get_latest_verification_run().unwrap();
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_table_exists() {
+        let storage = in_memory_storage();
+        assert!(storage.table_exists("snapshots").unwrap());
+        assert!(!storage.table_exists("non_existent").unwrap());
     }
 
     #[test]

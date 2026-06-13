@@ -1872,6 +1872,36 @@ Execution guidance (added 2026-06-09 review): run these tracks **serially**, one
     *   Definition of done: PageRank-based centrality is calculated on-the-fly or cached in CozoDB; overall node risk scores scale with graph centrality; tests verify score determinism.
 
 
+## Milestone E: Engineering Coverage (In Progress)
+
+*   **Track CG-F1: Upgrade Gemini to 3.1 GA & FTS5 Sanitization**
+    *   Status: Completed
+    *   Spec: `conductor/trackCG-F1/spec.md`
+    *   Plan: `conductor/trackCG-F1/plan.md`
+    *   Goal: Upgrade the project to Gemini 3.1 GA models and implement robust FTS5 query sanitization.
+    *   Key additions: `gemini-3.1` model standardization, `src/util/query.rs` (sanitizer), integration into `bridge query`.
+
+*   **Track E0-1: Ledger Verification Gate Enforcement**
+    *   Status: Completed
+    *   Spec: `conductor/trackE0-1/spec.md`
+    *   Plan: `conductor/trackE0-1/plan.md`
+    *   Goal: Implement and wire the Ledger Verification Gate enforcement logic to block high-risk commits lacking verification.
+    *   Key additions: `TransactionManager` gate logic, `--force` bypass, `verify_to_commit` config, `tests/ledger_enforcement.rs`.
+
+*   **Track E0-2: Hotspot Complexity Fallback**
+    *   Status: Completed
+    *   Spec: `conductor/trackE0-2/spec.md`
+    *   Plan: `conductor/trackE0-2/plan.md`
+    *   Goal: Implement a two-tier complexity lookup for hotspots, falling back to project-wide symbols when impact-run data is missing.
+    *   Key additions: `query_file_complexities` helper, graceful degradation for missing `project_symbols` table, batched SQLite lookups.
+
+*   **Track CG-F2: bridge_export_tests.rs Formatting**
+    *   Status: Completed
+    *   Spec: `conductor/trackCG-F2/spec.md`
+    *   Plan: `conductor/trackCG-F2/plan.md`
+    *   Goal: Fix formatting drift in `tests/integration/bridge_export_tests.rs`.
+    *   Key additions: Formatted test file.
+
 ## Workflow
 
 
