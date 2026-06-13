@@ -211,3 +211,31 @@ fn test_scan_impact_excludes_tracked_ignored() {
         "Report should contain normal.rs"
     );
 }
+
+#[test]
+fn test_scan_impact_proactive_guidance_clean_tree() {
+    let _lock = cwd_lock().lock().unwrap();
+    let tmp = tempdir().unwrap();
+    let root = tmp.path();
+
+    setup_git_repo(root);
+    let _guard = DirGuard::new(root);
+
+    let changeguard_bin = env!("CARGO_BIN_EXE_changeguard");
+    let output = Command::new(changeguard_bin)
+        .args(["scan", "--impact"])
+        .current_dir(root)
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Working tree is clean"),
+        "Expected output to indicate clean tree, got: {}", stdout
+    );
+    assert!(
+        stdout.contains("changeguard ledger status"),
+        "Expected ledger status hint, got: {}", stdout
+    );
+
+}

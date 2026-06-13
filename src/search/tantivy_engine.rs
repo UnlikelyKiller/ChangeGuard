@@ -229,6 +229,80 @@ impl TantivySearchEngine {
         Ok(results)
     }
 
+    pub fn search_fuzzy(&self, query_str: &str, limit: usize) -> Result<Vec<SearchResult>> {
+        use tantivy::query::FuzzyTermQuery;
+
+        let searcher = self.reader.searcher();
+        let content_field = self.schema.get_field("content").into_diagnostic()?;
+        let path_field = self.schema.get_field("path").into_diagnostic()?;
+        let line_count_field = self.schema.get_field("line_count").into_diagnostic()?;
+
+        let term = Term::from_field_text(content_field, &query_str.to_lowercase());
+        let fuzzy_query = Box::new(FuzzyTermQuery::new(term, 2, true));
+
+        let snippet_generator =
+            SnippetGenerator::create(&searcher, &*fuzzy_query, content_field).into_diagnostic()?;
+
+        let top_docs = searcher
+            .search(&*fuzzy_query, &TopDocs::with_limit(limit).order_by_score())
+            .into_diagnostic()?;
+
+        let mut results = Vec::new();
+        for (score, doc_address) in top_docs {
+            let retrieved_doc: TantivyDocument = searcher.doc(doc_address).into_diagnostic()?;
+
+            let path = retrieved_doc
+                .get_first(path_field)
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+
+            let line_count = retrieved_doc
+                .get_first(line_count_field)
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize;
+
+            let mut snippet_opt = None;
+            let mut highlighted_opt = None;
+            let mut line_number_opt = None;
+
+            if let Some(content_val) = retrieved_doc
+                .get_first(content_field)
+                .and_then(|v| v.as_str())
+            {
+                let snippet = snippet_generator.snippet_from_doc(&retrieved_doc);
+                let highlighted_html = snippet.to_html();
+                if !highlighted_html.is_empty() {
+                    snippet_opt = Some(snippet.fragment().to_string());
+                    highlighted_opt = Some(
+                        highlighted_html
+                            .replace("<b>", "\x1b[1m")
+                            .replace("</b>", "\x1b[0m"),
+                    );
+                    let plain_snippet = snippet.fragment();
+                    if let Some(idx) = content_val.find(plain_snippet) {
+                        let lines_before =
+                            content_val[..idx].chars().filter(|&c| c == '\n').count();
+                        line_number_opt = Some(lines_before + 1);
+                    } else {
+                        line_number_opt = Some(1);
+                    }
+                }
+            }
+
+            results.push(SearchResult {
+                path,
+                line_count,
+                score,
+                snippet: snippet_opt,
+                highlighted: highlighted_opt,
+                line_number: line_number_opt,
+            });
+        }
+
+        Ok(results)
+    }
+
     pub fn search_trigrams(&self, trigrams: &[String], limit: usize) -> Result<Vec<String>> {
         use tantivy::query::BooleanQuery;
         use tantivy::query::TermQuery;

@@ -22,6 +22,7 @@ mod cli_index;
 mod cli_init;
 mod cli_reset;
 mod cli_scan;
+mod cli_search;
 mod cli_surfaces;
 mod cli_update;
 mod cli_verify;

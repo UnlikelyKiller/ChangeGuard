@@ -427,41 +427,95 @@ fn perform_search(
         }
         let results = engine.search(&args.query, args.limit)?;
 
-        if args.json {
-            for r in results {
-                let record = BridgeRecord {
-                    bridge_version: BridgeRecord::VERSION.to_string(),
-                    direction: BridgeDirection::Outbound,
-                    timestamp: chrono::Utc::now(),
-                    parent_hash: None,
-                    project_id: args.project_id.clone(),
-                    session_id: None,
-                    tx_id: None,
-                    record_kind: "bm25_match".to_string(),
-                    payload: BridgePayload::Insight {
-                        memory_id: r.path.clone(),
-                        relevance: r.score as f64,
-                        content: format!("{} ({})", r.path, r.snippet.unwrap_or_default()),
-                    },
-                    privacy: Privacy::ProjectLocal,
-                };
-                println!("{}", serde_json::to_string(&record).unwrap_or_default());
+        if results.is_empty() {
+            if !args.json {
+                println!("{}", "Falling back to fuzzy search...".yellow());
+            }
+            let fuzzy_matches = match engine.search_fuzzy(&args.query, args.limit) {
+                Ok(matches) => matches,
+                Err(e) => {
+                    tracing::warn!("Fuzzy search fallback failed: {}", e);
+                    Vec::new()
+                }
+            };
+
+            if fuzzy_matches.is_empty() {
+                if !args.json {
+                    println!(
+                        "{} No exact symbols found. Try {} or {}.",
+                        "HINT:".yellow().bold(),
+                        "--regex".cyan().bold(),
+                        "changeguard index".cyan().bold()
+                    );
+                    println!(
+                        "      Alternatively, try semantic search instead: {}",
+                        format!("changeguard ask \"{}\"", args.query).cyan()
+                    );
+                }
+            } else {
+                if args.json {
+                    for m in fuzzy_matches {
+                        let record = BridgeRecord {
+                            bridge_version: BridgeRecord::VERSION.to_string(),
+                            direction: BridgeDirection::Outbound,
+                            timestamp: chrono::Utc::now(),
+                            parent_hash: None,
+                            project_id: args.project_id.clone(),
+                            session_id: None,
+                            tx_id: None,
+                            record_kind: "fuzzy_match".to_string(),
+                            payload: BridgePayload::Insight {
+                                memory_id: format!("{}::{}", m.path, m.line_number.unwrap_or(1)),
+                                relevance: m.score as f64,
+                                content: format!("{}:{}: {}", m.path, m.line_number.unwrap_or(1), m.snippet.as_deref().unwrap_or_default()),
+                            },
+                            privacy: Privacy::ProjectLocal,
+                        };
+                        println!("{}", serde_json::to_string(&record).unwrap_or_default());
+                    }
+                } else {
+                    println!("\n{}", "Fuzzy Search Results:".bold().cyan());
+                    for m in fuzzy_matches {
+                        let line_info = if let Some(line) = m.line_number {
+                            format!(":{}", line.to_string().yellow())
+                        } else {
+                            String::new()
+                        };
+                        println!(
+                            "{} [score: {:.2}]",
+                            format!("{}{}", m.path.cyan(), line_info).bold(),
+                            owo_colors::OwoColorize::yellow(&m.score)
+                        );
+                        if let Some(snippet) = m.highlighted {
+                            println!("  {}", snippet.trim());
+                        }
+                    }
+                    println!();
+                }
             }
         } else {
-            println!("\n{}", "Ranked Search Results (BM25):".bold().cyan());
-            if results.is_empty() {
-                println!("No matches found.");
-                println!(
-                    "{} Try using {} for partial or literal substring matches.",
-                    "HINT".yellow().bold(),
-                    "--regex".cyan().bold()
-                );
-                println!(
-                    "{} Alternatively, run {} if recent changes are not indexed.",
-                    "HINT".yellow().bold(),
-                    "changeguard index".cyan().bold()
-                );
+            if args.json {
+                for r in results {
+                    let record = BridgeRecord {
+                        bridge_version: BridgeRecord::VERSION.to_string(),
+                        direction: BridgeDirection::Outbound,
+                        timestamp: chrono::Utc::now(),
+                        parent_hash: None,
+                        project_id: args.project_id.clone(),
+                        session_id: None,
+                        tx_id: None,
+                        record_kind: "bm25_match".to_string(),
+                        payload: BridgePayload::Insight {
+                            memory_id: r.path.clone(),
+                            relevance: r.score as f64,
+                            content: format!("{} ({})", r.path, r.snippet.unwrap_or_default()),
+                        },
+                        privacy: Privacy::ProjectLocal,
+                    };
+                    println!("{}", serde_json::to_string(&record).unwrap_or_default());
+                }
             } else {
+                println!("\n{}", "Ranked Search Results (BM25):".bold().cyan());
                 for r in results {
                     let line_info = if let Some(line) = r.line_number {
                         format!(":{}", line.to_string().yellow())
@@ -477,8 +531,8 @@ fn perform_search(
                         println!("  {}", snippet.trim());
                     }
                 }
+                println!();
             }
-            println!();
         }
     }
 

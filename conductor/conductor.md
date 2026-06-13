@@ -1929,6 +1929,13 @@ Execution guidance (added 2026-06-09 review): run these tracks **serially**, one
     *   Goal: Suppress noisy schema warnings for non-ChangeGuard sibling repositories during `federate scan`.
     *   Key additions: Explicit `.changeguard/` directory check and downgraded validation logging during sibling discovery.
 
+*   **Track CG-F5: Search UX & Fallback Enhancements**
+    *   Status: Completed
+    *   Spec: `conductor/trackCG-F5/spec.md`
+    *   Plan: `conductor/trackCG-F5/plan.md`
+    *   Goal: Improve search discoverability via fuzzy fallback, semantic handoffs, and proactive scan guidance.
+    *   Key additions: Fuzzy search fallback, semantic search hint, enhanced clean scan output.
+
 ## Workflow
 
 

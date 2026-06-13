@@ -161,6 +161,11 @@ pub fn execute_impact(
             success_marker()
         );
         println!("  Run 'git add <files>' before scanning for impact.");
+        println!(
+            "  {} Run {} to check for pending transactions.",
+            "HINT:".yellow().bold(),
+            "`changeguard ledger status`".cyan()
+        );
         return Ok(());
     }
 
