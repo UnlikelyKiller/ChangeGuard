@@ -795,7 +795,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Key files: `src/cli.rs`, `src/commands/search.rs`, `src/state/storage.rs`
 
 *   **Track K4: Service Boundary & Communication Mapping**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackK4/spec.md`
     *   Plan: `conductor/trackK4/plan.md`
     *   Goal: Infer service boundaries from monorepo markers (Cargo/Npm/Go); extract inter-service communication patterns (HTTP/Graph); surface service-level blast radius in impact reports.
@@ -1841,7 +1841,7 @@ Execution guidance (added 2026-06-09 review): run these tracks **serially**, one
     *   Definition of done: `ledger.rs` is a pure facade; 13 handlers split across 4 groups; pure-helper unit tests added; all import paths unchanged; full verification plus reinstall passes.
 
 
-## Milestone KD: Knowledge Graph Deepening & CozoDB-redux Upgrade (Planned)
+## Milestone KD: Knowledge Graph Deepening & CozoDB-redux Upgrade (Completed)
 
 *   **Track KD1: CozoDB-Redux Dependency Upgrade**
     *   Status: Completed
