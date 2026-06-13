@@ -288,35 +288,52 @@ fn print_observability_signals(signals: &[ObservabilitySignal]) {
     println!("{table}");
 }
 
-pub fn print_dead_code_summary(findings: &[DeadCodeFinding], _threshold: f64) {
+pub fn print_dead_code_summary(
+    findings: &[DeadCodeFinding],
+    _threshold: f64,
+    include_traits: bool,
+) {
     println!("\n{}", "Dead Code Analysis".bold());
     if findings.is_empty() {
         println!("  No dead code found above threshold.");
-        return;
+    } else {
+        let mut table = Table::new();
+        table
+            .load_preset(UTF8_FULL)
+            .apply_modifier(UTF8_ROUND_CORNERS)
+            .set_header(vec!["Symbol", "File", "Confidence", "Factors"]);
+
+        for f in findings {
+            let factors_str = f
+                .factors
+                .iter()
+                .map(|fac| format!("{:?}", fac))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            table.add_row(vec![
+                Cell::new(f.symbol_name.clone()),
+                Cell::new(f.file_path.display().to_string()),
+                Cell::new(format!("{:.0}%", f.confidence * 100.0)),
+                Cell::new(factors_str),
+            ]);
+        }
+        println!("{table}");
     }
 
-    let mut table = Table::new();
-    table
-        .load_preset(UTF8_FULL)
-        .apply_modifier(UTF8_ROUND_CORNERS)
-        .set_header(vec!["Symbol", "File", "Confidence", "Factors"]);
-
-    for f in findings {
-        let factors_str = f
-            .factors
-            .iter()
-            .map(|fac| format!("{:?}", fac))
-            .collect::<Vec<_>>()
-            .join(", ");
-
-        table.add_row(vec![
-            Cell::new(f.symbol_name.clone()),
-            Cell::new(f.file_path.display().to_string()),
-            Cell::new(format!("{:.0}%", f.confidence * 100.0)),
-            Cell::new(factors_str),
-        ]);
+    println!(
+        "\n  {}",
+        "HINT: Derived traits, serialization structs, and dynamically dispatched trait objects \
+are often falsely flagged as dead code due to implicit usage."
+            .yellow()
+    );
+    if !include_traits {
+        println!(
+            "  {}",
+            "      Use --include-traits to include standard trait implementations in results."
+                .yellow()
+        );
     }
-    println!("{table}");
 }
 
 pub fn print_verify_plan(plan: &VerificationPlan) {

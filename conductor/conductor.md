@@ -1936,6 +1936,13 @@ Execution guidance (added 2026-06-09 review): run these tracks **serially**, one
     *   Goal: Improve search discoverability via fuzzy fallback, semantic handoffs, and proactive scan guidance.
     *   Key additions: Fuzzy search fallback, semantic search hint, enhanced clean scan output.
 
+*   **Track CG-F6: Dead-Code False Positive Reduction**
+    *   Status: Completed
+    *   Spec: `conductor/trackCG-F6/spec.md`
+    *   Plan: `conductor/trackCG-F6/plan.md`
+    *   Goal: Reduce noise in `changeguard dead-code` via default trait exclusion, name-based confidence penalties, and a UX warning hint.
+    *   Key additions: `--include-traits` flag, `is_standard_trait()` filter (SymbolKind::Type + name match), -0.20 name penalty for Provider/Result/Chunk/Record suffixes, unconditional yellow HINT, 10 new unit tests, 2 new integration tests, SKILL.md updated.
+
 ## Workflow
 
 

@@ -165,7 +165,13 @@ pub fn run_with(cli: Cli) -> Result<()> {
             threshold,
             limit,
             auto_index,
-        } => crate::commands::dead_code::execute_dead_code(threshold, limit, auto_index),
+            include_traits,
+        } => crate::commands::dead_code::execute_dead_code(
+            threshold,
+            limit,
+            auto_index,
+            include_traits,
+        ),
         Commands::Viz {
             output,
             limit,

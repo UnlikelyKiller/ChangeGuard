@@ -17,7 +17,25 @@ fn test_dead_code_basic() {
     let _guard = DirGuard::new(root);
     execute_init(false).unwrap();
 
-    // threshold 0.9, limit 50, auto_index false
-    let result = execute_dead_code(0.9, 50, false);
+    // threshold 0.9, limit 50, auto_index false, include_traits false
+    let result = execute_dead_code(0.9, 50, false, false);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_dead_code_include_traits_flag() {
+    let _lock = cwd_lock().lock().unwrap();
+    let tmp = tempdir().unwrap();
+    let root = tmp.path();
+
+    setup_git_repo(root);
+    fs::write(root.join("dummy.txt"), "content").unwrap();
+    git_add_and_commit(root, "initial");
+
+    let _guard = DirGuard::new(root);
+    execute_init(false).unwrap();
+
+    // include_traits = true must not error even when no traits are present
+    let result = execute_dead_code(0.9, 50, false, true);
     assert!(result.is_ok());
 }

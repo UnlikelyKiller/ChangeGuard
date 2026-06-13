@@ -1,8 +1,9 @@
 use super::*;
 
 impl<'a> ConfidenceScorer<'a> {
-    /// Score a single symbol. Returns `None` if the symbol is an entrypoint itself
-    /// or if the confidence is below the threshold.
+    /// Score a single symbol. Returns `None` if the symbol is an entrypoint itself,
+    /// a standard trait (when `include_traits` is false), or if the final confidence
+    /// falls below the threshold after name-based penalties are applied.
     pub fn score_symbol(
         &self,
         symbol: &Symbol,
@@ -12,11 +13,17 @@ impl<'a> ConfidenceScorer<'a> {
             return Ok(None);
         }
 
+        if !self.include_traits && filters::is_standard_trait(symbol) {
+            return Ok(None);
+        }
+
         let reachability = self.reachability_score(symbol, file_path)?;
         let git_activity = self.git_activity_score(file_path)?;
         let test_coverage = self.test_coverage_score(symbol, file_path)?;
 
-        let confidence = self.blend(reachability, git_activity, test_coverage);
+        let raw_confidence = self.blend(reachability, git_activity, test_coverage);
+        let penalty = filters::name_penalty(&symbol.name);
+        let confidence = (raw_confidence - penalty).max(0.0);
 
         if confidence < self.config.confidence_threshold {
             return Ok(None);

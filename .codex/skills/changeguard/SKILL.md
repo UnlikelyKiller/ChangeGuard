@@ -110,7 +110,19 @@ changeguard ask "what API endpoints are defined in src/routes"
 
 # Dead code
 changeguard dead-code --threshold 0.75
+
+# Dead code — show everything including standard traits (Eq, Clone, Debug, …)
+# By default, standard trait symbols are EXCLUDED because they are used implicitly
+# via derive macros or blanket impls and almost always produce false positives.
+changeguard dead-code --include-traits
 ```
+
+> **Heuristic note**: Dead code analysis blends graph reachability, git inactivity, and
+> test coverage. Results are probabilistic, not definitive. Common false-positive patterns:
+> - Traits derived via `#[derive(...)]` (Eq, Ord, Clone, Debug, Serialize, …) — suppressed by default.
+> - Types ending in `Provider`, `Chunk`, `Record`, `Result` — receive a -0.20 confidence penalty
+>   (they are often dispatched dynamically or through serde).
+> Use `--include-traits` to restore unfiltered output for auditing purposes.
 
 These queries work because ChangeGuard indexes:
 - Every `pub fn`, `pub struct`, `pub enum`, `pub trait` via tree-sitter

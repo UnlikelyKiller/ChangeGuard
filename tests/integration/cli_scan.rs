@@ -231,11 +231,12 @@ fn test_scan_impact_proactive_guidance_clean_tree() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.contains("Working tree is clean"),
-        "Expected output to indicate clean tree, got: {}", stdout
+        "Expected output to indicate clean tree, got: {}",
+        stdout
     );
     assert!(
         stdout.contains("changeguard ledger status"),
-        "Expected ledger status hint, got: {}", stdout
+        "Expected ledger status hint, got: {}",
+        stdout
     );
-
 }

@@ -4,7 +4,12 @@ use crate::index::warn_if_stale;
 use crate::output::diagnostics::success_marker;
 use miette::Result;
 
-pub fn execute_dead_code(threshold: f64, limit: usize, auto_index: bool) -> Result<()> {
+pub fn execute_dead_code(
+    threshold: f64,
+    limit: usize,
+    auto_index: bool,
+    include_traits: bool,
+) -> Result<()> {
     let layout = get_layout()?;
     let mut config = load_ledger_config(&layout)?;
 
@@ -27,13 +32,18 @@ pub fn execute_dead_code(threshold: f64, limit: usize, auto_index: bool) -> Resu
     let cozo = storage.cozo.as_ref();
     let repo_path = layout.root.as_std_path();
 
-    let scorer = ConfidenceScorer::new(cozo, &storage, &config.dead_code, repo_path);
+    let scorer =
+        ConfidenceScorer::new(cozo, &storage, &config.dead_code, repo_path, include_traits);
     let mut findings = scorer.scan_repo(limit)?;
 
-    findings.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap());
+    findings.sort_by(|a, b| {
+        b.confidence
+            .partial_cmp(&a.confidence)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     findings.truncate(limit);
 
-    crate::output::human::print_dead_code_summary(&findings, threshold);
+    crate::output::human::print_dead_code_summary(&findings, threshold, include_traits);
 
     println!(
         "\n{} Scanned repository for dead code (threshold: {:.0}%, limit: {})",

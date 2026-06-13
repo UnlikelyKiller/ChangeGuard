@@ -25,6 +25,7 @@ impl EnrichmentProvider for DeadCodeProvider {
             context.storage,
             &context.config.dead_code,
             &context.project_root,
+            false,
         );
 
         for change in &packet.changes {

@@ -467,7 +467,12 @@ fn perform_search(
                             payload: BridgePayload::Insight {
                                 memory_id: format!("{}::{}", m.path, m.line_number.unwrap_or(1)),
                                 relevance: m.score as f64,
-                                content: format!("{}:{}: {}", m.path, m.line_number.unwrap_or(1), m.snippet.as_deref().unwrap_or_default()),
+                                content: format!(
+                                    "{}:{}: {}",
+                                    m.path,
+                                    m.line_number.unwrap_or(1),
+                                    m.snippet.as_deref().unwrap_or_default()
+                                ),
                             },
                             privacy: Privacy::ProjectLocal,
                         };

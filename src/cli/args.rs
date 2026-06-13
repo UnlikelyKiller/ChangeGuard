@@ -283,6 +283,11 @@ pub enum Commands {
         /// Automatically run incremental index before detection if the index is stale
         #[arg(long)]
         auto_index: bool,
+        /// Include standard trait implementations (Eq, Ord, Clone, Debug, etc.) in
+        /// results. By default these are suppressed because they are typically used
+        /// implicitly via derive macros or blanket impls.
+        #[arg(long)]
+        include_traits: bool,
     },
     /// Perform a holistic project audit or history for an entity
     Audit {
