@@ -4,30 +4,77 @@ use crate::index::references::extract_import_export;
 use camino::{Utf8Path, Utf8PathBuf};
 use miette::{IntoDiagnostic, Result};
 use regex::Regex;
+use std::collections::HashMap;
 use std::fs;
 use std::panic;
 use tracing::{debug, warn};
 
 pub const DEFAULT_SIBLING_LIMIT: usize = 20;
 
-/// Check whether a symbol name appears as a whole-word match in the given content.
-/// Uses word-boundary regex to avoid false positives like "api" matching "map_item".
-/// Falls back to exact substring match if the regex fails to compile (e.g., symbol
-/// contains regex metacharacters that break the pattern).
-fn symbol_matches_content(symbol: &str, content: &str) -> bool {
-    // Escape any regex metacharacters in the symbol name, then wrap in word boundaries.
-    let pattern = format!(r"\b{}\b", regex::escape(symbol));
-    match Regex::new(&pattern) {
-        Ok(re) => re.is_match(content),
-        Err(_) => {
-            // Regex compilation failed (unlikely with escaped input); fall back to
-            // substring match as a degraded mode rather than crashing.
-            warn!(
-                "Failed to compile word-boundary regex for symbol '{}', falling back to substring match",
-                symbol
-            );
-            content.contains(symbol)
+/// Stateful matching utility that caches compiled word-boundary regexes.
+/// This prevents redundant regex compilation and string allocations when
+/// checking the same public interface symbols against many files.
+pub struct SymbolMatcher {
+    cache: HashMap<String, Option<Regex>>,
+}
+
+impl SymbolMatcher {
+    pub fn new() -> Self {
+        Self {
+            cache: HashMap::new(),
         }
+    }
+
+    /// Check whether a symbol name appears as a whole-word match in the given content.
+    /// Uses a cached word-boundary regex to avoid false positives.
+    /// Falls back to exact substring match if the regex fails to compile.
+    pub fn matches(&mut self, symbol: &str, content: &str) -> bool {
+        if symbol.is_empty() {
+            return false;
+        }
+
+        let re_opt = self.cache.entry(symbol.to_string()).or_insert_with(|| {
+            // Escape any regex metacharacters in the symbol name.
+            let escaped = regex::escape(symbol);
+
+            // Use word boundary (\b) if the edge character is a word character,
+            // otherwise use a non-word boundary (\B) to ensure we don't match
+            // when adjacent to a word character.
+            let is_word = |c: char| c.is_alphanumeric() || c == '_';
+            let start = if symbol.chars().next().is_some_and(is_word) {
+                r"\b"
+            } else {
+                r"\B"
+            };
+            let end = if symbol.chars().last().is_some_and(is_word) {
+                r"\b"
+            } else {
+                r"\B"
+            };
+
+            let pattern = format!("{}{}{}", start, escaped, end);
+            match Regex::new(&pattern) {
+                Ok(re) => Some(re),
+                Err(_) => {
+                    warn!(
+                        "Failed to compile word-boundary regex for symbol '{}', falling back to substring match",
+                        symbol
+                    );
+                    None
+                }
+            }
+        });
+
+        match re_opt {
+            Some(re) => re.is_match(content),
+            None => content.contains(symbol),
+        }
+    }
+}
+
+impl Default for SymbolMatcher {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -193,6 +240,7 @@ impl FederatedScanner {
         sibling_schema: &FederatedSchema,
     ) -> Result<Vec<(String, String)>> {
         let mut edges = self.discover_dependencies_in_current_repo(sibling_schema)?;
+        let mut matcher = SymbolMatcher::new();
 
         for interface in &sibling_schema.public_interfaces {
             let symbol_to_find = &interface.symbol;
@@ -212,7 +260,7 @@ impl FederatedScanner {
                     // regex (heuristic). This avoids false positives like "api"
                     // matching "map_item".
                     let matches_import = symbol_imported(symbol_to_find, utf8_path, &file_content);
-                    let matches_word = symbol_matches_content(symbol_to_find, &file_content);
+                    let matches_word = matcher.matches(symbol_to_find, &file_content);
                     if matches_import || matches_word {
                         for local_symbol in local_symbols {
                             edges.push((local_symbol.name.clone(), symbol_to_find.clone()));
@@ -232,7 +280,8 @@ impl FederatedScanner {
         sibling_schema: &FederatedSchema,
     ) -> Result<Vec<(String, String)>> {
         let mut edges = Vec::new();
-        self.scan_dependency_dir(&self.root, sibling_schema, &mut edges)?;
+        let mut matcher = SymbolMatcher::new();
+        self.scan_dependency_dir(&self.root, sibling_schema, &mut edges, &mut matcher)?;
         edges.sort();
         edges.dedup();
         Ok(edges)
@@ -243,6 +292,7 @@ impl FederatedScanner {
         dir: &Utf8Path,
         sibling_schema: &FederatedSchema,
         edges: &mut Vec<(String, String)>,
+        matcher: &mut SymbolMatcher,
     ) -> Result<()> {
         for entry in fs::read_dir(dir).into_diagnostic()? {
             let entry = entry.into_diagnostic()?;
@@ -255,7 +305,7 @@ impl FederatedScanner {
                 if matches!(file_name.as_ref(), ".git" | ".changeguard" | "target") {
                     continue;
                 }
-                self.scan_dependency_dir(&path, sibling_schema, edges)?;
+                self.scan_dependency_dir(&path, sibling_schema, edges, matcher)?;
                 continue;
             }
 
@@ -286,7 +336,7 @@ impl FederatedScanner {
             for interface in &sibling_schema.public_interfaces {
                 let symbol_to_find = &interface.symbol;
                 let matches_import = symbol_imported(symbol_to_find, relative_path, &file_content);
-                let matches_word = symbol_matches_content(symbol_to_find, &file_content);
+                let matches_word = matcher.matches(symbol_to_find, &file_content);
                 if matches_import || matches_word {
                     for local_symbol in &local_symbol_names {
                         edges.push((local_symbol.clone(), symbol_to_find.clone()));
@@ -397,23 +447,32 @@ mod dependency_tests {
 
     #[test]
     fn symbol_matches_content_unit_tests() {
+        let mut matcher = SymbolMatcher::new();
         // Exact word match
-        assert!(symbol_matches_content(
-            "handler",
-            "let result = handler(request);"
-        ));
-        assert!(symbol_matches_content("api", "use crate::api;"));
+        assert!(matcher.matches("handler", "let result = handler(request);"));
+        assert!(matcher.matches("api", "use crate::api;"));
 
         // False positives prevented: substring should NOT match
-        assert!(!symbol_matches_content("api", "map_item"));
-        assert!(!symbol_matches_content("api", "the_capabilities"));
-        assert!(!symbol_matches_content("set", "upsetting"));
+        assert!(!matcher.matches("api", "map_item"));
+        assert!(!matcher.matches("api", "the_capabilities"));
+        assert!(!matcher.matches("set", "upsetting"));
 
         // Should match identifiers at word boundaries
-        assert!(symbol_matches_content(
-            "remote_api",
-            "let x = remote_api();"
-        ));
-        assert!(symbol_matches_content("RemoteApi", "use crate::RemoteApi;"));
+        assert!(matcher.matches("remote_api", "let x = remote_api();"));
+        assert!(matcher.matches("RemoteApi", "use crate::RemoteApi;"));
+
+        // Metacharacters should be escaped and matched correctly
+        assert!(matcher.matches("api.v1", "let x = api.v1();"));
+        assert!(!matcher.matches("api.v1", "api_v1"));
+        assert!(matcher.matches("search(fn)", "call search(fn) now"));
+
+        // Fallback behavior: manual insertion of None to simulate regex failure
+        matcher.cache.insert("fallback_sym".to_string(), None);
+        assert!(matcher.matches("fallback_sym", "this contains fallback_sym"));
+        assert!(!matcher.matches("fallback_sym", "other content"));
+
+        // Edge cases: empty content or symbols
+        assert!(!matcher.matches("symbol", ""));
+        assert!(!matcher.matches("", "content"));
     }
 }
