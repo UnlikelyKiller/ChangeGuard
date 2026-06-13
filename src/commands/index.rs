@@ -805,6 +805,9 @@ fn execute_semantic_index(
     let total = files_to_process.len();
 
     let pb_parse = ProgressBar::new(total as u64);
+    if !crate::util::term::is_interactive() {
+        pb_parse.set_draw_target(indicatif::ProgressDrawTarget::hidden());
+    }
     pb_parse.set_style(
         ProgressStyle::with_template(
             "  {spinner:.cyan} Parsing [{bar:40.cyan/dim}] {pos}/{len} files  {elapsed_precise}",
@@ -864,6 +867,9 @@ fn execute_semantic_index(
     let mut all_embeddings = Vec::new();
     if !flat_chunks.is_empty() {
         let pb_embed = ProgressBar::new(flat_chunks.len() as u64);
+        if !crate::util::term::is_interactive() {
+            pb_embed.set_draw_target(indicatif::ProgressDrawTarget::hidden());
+        }
         pb_embed.set_style(
             ProgressStyle::with_template(
                 "  {spinner:.cyan} Embedding [{bar:40.green/dim}] {pos}/{len} chunks  {elapsed_precise}",
@@ -926,6 +932,9 @@ fn execute_semantic_index(
 
     if !flat_chunks.is_empty() {
         let spinner = ProgressBar::new_spinner();
+        if !crate::util::term::is_interactive() {
+            spinner.set_draw_target(indicatif::ProgressDrawTarget::hidden());
+        }
         spinner.set_style(
             ProgressStyle::with_template(
                 "  {spinner:.yellow} Building HNSW index… {elapsed_precise}",

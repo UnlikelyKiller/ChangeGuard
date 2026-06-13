@@ -1,7 +1,13 @@
 use changeguard::commands::verify::execute_verify;
+use tempfile::tempdir;
+use camino::Utf8Path;
+use crate::common::DirGuard;
 
 #[test]
 fn test_verify_command_pass() {
+    let tmp = tempdir().unwrap();
+    let root = Utf8Path::from_path(tmp.path()).unwrap();
+    let _guard = DirGuard::from_utf8(root);
     let cmd = "echo hello";
     let result = execute_verify(Some(cmd.into()), 5, false, false, None, false, false);
     assert!(result.is_ok());
@@ -9,6 +15,9 @@ fn test_verify_command_pass() {
 
 #[test]
 fn test_verify_command_fail() {
+    let tmp = tempdir().unwrap();
+    let root = Utf8Path::from_path(tmp.path()).unwrap();
+    let _guard = DirGuard::from_utf8(root);
     let cmd = "exit 1";
     let result = execute_verify(Some(cmd.into()), 5, false, false, None, false, false);
     assert!(result.is_err());
@@ -16,6 +25,9 @@ fn test_verify_command_fail() {
 
 #[test]
 fn test_verify_command_timeout() {
+    let tmp = tempdir().unwrap();
+    let root = Utf8Path::from_path(tmp.path()).unwrap();
+    let _guard = DirGuard::from_utf8(root);
     let cmd = if cfg!(target_os = "windows") {
         "ping -n 10 127.0.0.1 >nul"
     } else {
@@ -29,6 +41,9 @@ fn test_verify_command_timeout() {
 
 #[test]
 fn test_verify_command_not_found() {
+    let tmp = tempdir().unwrap();
+    let root = Utf8Path::from_path(tmp.path()).unwrap();
+    let _guard = DirGuard::from_utf8(root);
     let result = execute_verify(
         Some("nonexistent_command_9999".into()),
         5,
@@ -46,6 +61,9 @@ fn test_verify_command_not_found() {
 // CR5: --dry-run flag should always succeed without executing any command.
 #[test]
 fn test_verify_dry_run_does_not_execute() {
+    let tmp = tempdir().unwrap();
+    let root = Utf8Path::from_path(tmp.path()).unwrap();
+    let _guard = DirGuard::from_utf8(root);
     let result = execute_verify(
         Some("nonexistent_command_that_would_fail_if_run".into()),
         5,
@@ -65,6 +83,9 @@ fn test_verify_dry_run_does_not_execute() {
 // CR5: --health flag should pass for a known executable.
 #[test]
 fn test_verify_health_check_known_executable() {
+    let tmp = tempdir().unwrap();
+    let root = Utf8Path::from_path(tmp.path()).unwrap();
+    let _guard = DirGuard::from_utf8(root);
     let result = execute_verify(
         Some("cargo --version".into()),
         10,
@@ -84,6 +105,9 @@ fn test_verify_health_check_known_executable() {
 // CR5: --health flag should fail for a missing executable.
 #[test]
 fn test_verify_health_check_missing_executable() {
+    let tmp = tempdir().unwrap();
+    let root = Utf8Path::from_path(tmp.path()).unwrap();
+    let _guard = DirGuard::from_utf8(root);
     // Health mode checks config steps and auto-detected tools. We test that
     // health mode completes without panicking/hanging on a normal dev machine.
     let result = execute_verify(
@@ -101,6 +125,9 @@ fn test_verify_health_check_missing_executable() {
 // CR4 regression: env-var prefix commands must correctly identify the real executable.
 #[test]
 fn test_verify_health_check_env_prefix_command() {
+    let tmp = tempdir().unwrap();
+    let root = Utf8Path::from_path(tmp.path()).unwrap();
+    let _guard = DirGuard::from_utf8(root);
     // Health check passes None manual command so it uses auto-detection.
     // The key test is that it doesn't crash or hang.
     let result = execute_verify(
