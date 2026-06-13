@@ -113,16 +113,16 @@ Track changes with transactional provenance:
 
 ```powershell
 # Start a transaction before editing
-changeguard ledger start --entity src/main.rs --category FEATURE --message "Add auth module"
+changeguard ledger start src/main.rs --category FEATURE --message "Add auth module"
 
 # After editing and verifying
-changeguard ledger commit --tx-id <id> --change-type MODIFY --summary "Added auth" --reason "API needs authentication"
+changeguard ledger commit --tx-id <id> --summary "Added auth" --reason "API needs authentication"
 
 # Quick single-file change
-changeguard ledger atomic --entity src/config.rs --category REFACTOR --summary "Extract config validation" --reason "SRP"
+changeguard ledger atomic src/config.rs --category REFACTOR --summary "Extract config validation" --reason "SRP"
 
 # Lightweight note for docs changes
-changeguard ledger note --entity docs/api.md "Update endpoint docs"
+changeguard ledger note docs/api.md "Update endpoint docs"
 
 # Check status and reconcile drift
 changeguard ledger status

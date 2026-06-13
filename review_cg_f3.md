@@ -1,0 +1,10 @@
+**Findings**
+
+- Medium: the spec explicitly requires proving that `--message` takes precedence when both forms are supplied, but the added test never exercises the execution path that applies that precedence. [`tests/integration/ledger_cli_parsing.rs`](C:\dev\ChangeGuard\tests\integration\ledger_cli_parsing.rs:345) only asserts that clap parses both fields, and even comments that precedence is handled elsewhere. The actual precedence logic lives in [`src/commands/ledger/lifecycle.rs`](C:\dev\ChangeGuard\src\commands\ledger\lifecycle.rs:291), so a regression there would still leave this suite green. That falls short of [` .planning/spec.md`](C:\dev\ChangeGuard\.planning\spec.md:37).
+
+- Medium: the new tests do not cover the shell-escaping cases you asked about. All parsing coverage goes through `Cli::try_parse_from` with pre-tokenized arrays in [`tests/integration/ledger_cli_parsing.rs`](C:\dev\ChangeGuard\tests\integration\ledger_cli_parsing.rs:10), so they bypass real shell quoting entirely. That means inputs with embedded quotes, backslashes, or Windows-style entity paths are untested, even though this command is intended for direct CLI/agent use.
+
+Against the current [` .planning/spec.md`](C:\dev\ChangeGuard\.planning\spec.md:1), the implementation itself looks aligned: the new variant in [`src/cli/args.rs`](C:\dev\ChangeGuard\src\cli\args.rs:766), dispatch wiring in [`src/cli/dispatch.rs`](C:\dev\ChangeGuard\src\cli\dispatch.rs:451), and the `atomic_change` call with `Category::Chore`, `ChangeType::Modify`, `"Lightweight note"`, and `force: false` in [`src/commands/ledger/lifecycle.rs`](C:\dev\ChangeGuard\src\commands\ledger\lifecycle.rs:300) all match the spec. Help text also looks clean in the available binary: `ledger note` is present and shows no deprecation warning.
+
+I could not validate end-to-end command execution or cargo gates in this sandbox. `changeguard doctor`, `changeguard audit`, and `changeguard ledger status --compact` all failed with `unable to open database file`, and `changeguard scan --impact` failed trying to write `.changeguard\reports\latest-scan.json`.
+

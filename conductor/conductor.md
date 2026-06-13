@@ -1896,16 +1896,18 @@ Execution guidance (added 2026-06-09 review): run these tracks **serially**, one
     *   Key additions: `query_file_complexities` helper, graceful degradation for missing `project_symbols` table, batched SQLite lookups.
 
 *   **Track E0-3: Federated Dependency Matching**
-    *   Status: In Progress
+    *   Status: Completed
     *   Spec: `conductor/trackE0-3/spec.md`
     *   Plan: `conductor/trackE0-3/plan.md`
     *   Goal: Implement `SymbolMatcher` caching and edge-case tests in `src/federated/scanner.rs` to optimize cross-repo symbol matching.
+    *   Key additions: `SymbolMatcher` struct with `HashMap` cache, optimized single-probe lookups, and enhanced word-boundary matching logic.
 
 *   **Track CG-F3: Fix ledger note**
-    *   Status: In Progress
+    *   Status: Completed
     *   Spec: `conductor/trackCG-F3/spec.md`
     *   Plan: `conductor/trackCG-F3/plan.md`
     *   Goal: Restore the `ledger note` command in `src/cli/args.rs` and remove any deprecation warnings.
+    *   Key additions: `ledger note` subcommand, `execute_ledger_note` handler, and comprehensive integration tests.
 
 ## Workflow
 

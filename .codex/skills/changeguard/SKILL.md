@@ -204,6 +204,14 @@ For surgical one-command provenance:
 changeguard ledger atomic <entity> --category <CAT> --summary "Task" --reason "Goal"
 ```
 
+For lightweight notes or lessons learned:
+
+```bash
+# Both positional and --message formats are supported
+changeguard ledger note <entity> "Note content"
+changeguard ledger note <entity> --message "Note content"
+```
+
 ### Git Hook Lifecycle (Milestone O)
 
 ChangeGuard uses a two-phase commit lifecycle to ensure zero phantom records:
