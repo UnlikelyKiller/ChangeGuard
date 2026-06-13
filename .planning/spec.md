@@ -1,61 +1,39 @@
-# Technical Specification: Federated Dependency Matching Cache (Track E0-3)
+# Technical Specification: Restore Ledger Note
 
-## Objective
-Optimize federated dependency discovery in ChangeGuard by replacing the repeated regex compilation in `symbol_matches_content` with a cached `SymbolMatcher` approach. This will significantly improve performance on large repositories by reducing redundant allocations and compilation overhead.
+## Context
+The `ledger note` command was recently removed or deprecated but is required to satisfy agent workflows documented in `SKILL.md`. It must be restored with a clean UX, allowing either a positional note or a `--message` flag.
 
-## Background
-In `src/federated/scanner.rs`, the function `symbol_matches_content(symbol: &str, content: &str)` compiles a new word-boundary `Regex` each time it is called. Because this is invoked inside nested loops iterating over multiple files and multiple public interfaces, the compilation overhead grows multiplicatively ($O(\text{files} \times \text{interfaces})$), causing severe latency during federated dependency discovery.
+## Interface Contract
 
-## Architecture & Implementation Details
-
-### 1. `SymbolMatcher` Struct
-Introduce a stateful matching utility:
+### CLI Arguments (`src/cli/args.rs`)
+Extend `LedgerCommands` with a `Note` variant:
 ```rust
-pub struct SymbolMatcher {
-    cache: std::collections::HashMap<String, Option<regex::Regex>>,
-}
+    /// Add a lightweight note/lesson to a transaction for an entity
+    Note {
+        /// Entity path
+        entity: String,
+        /// The note content
+        #[arg(required_unless_present = "message")]
+        note: Option<String>,
+        /// The note content (takes precedence over positional note)
+        #[arg(short, long)]
+        message: Option<String>,
+    },
 ```
-- Uses a `HashMap` to cache compiled `Regex` objects, keyed by `symbol`.
-- The value is `Option<Regex>` to cache compilation *failures* as well. This ensures we only warn and fallback to substring matching once per symbol, instead of repeatedly spamming logs and retrying compilation.
+*Note: Any previous "deprecated" help text must be omitted.*
 
-### 2. Zero-Allocation Cache Hits
-The `matches` function will be implemented to prevent string allocation on cache hits:
-```rust
-impl SymbolMatcher {
-    pub fn new() -> Self {
-        Self { cache: std::collections::HashMap::new() }
-    }
+### Execution Logic (`src/commands/ledger/lifecycle.rs`)
+Implement `pub fn execute_ledger_note(entity: &str, note: Option<String>, message: Option<String>) -> Result<()>`:
+1. Determine the final message text. If `message` is `Some`, use it. Otherwise, use `note`. If both are `None`, return a `miette!` error (though `clap` should prevent this, double-checking inside the function is defensive).
+2. Call `TransactionManager::atomic_change` with:
+   - `TransactionRequest { category: Category::Chore, entity: entity.to_string(), ..Default::default() }`
+   - `CommitRequest { change_type: ChangeType::Modify, summary: final_message, reason: "Lightweight note".to_string(), ..Default::default() }`
+   - `force: false`
+3. Print a success message (e.g., `println!("{}", "Note recorded.".green().bold());`).
 
-    pub fn matches(&mut self, symbol: &str, content: &str) -> bool {
-        if !self.cache.contains_key(symbol) {
-            let pattern = format!(r"\b{}\b", regex::escape(symbol));
-            let re_opt = match regex::Regex::new(&pattern) {
-                Ok(r) => Some(r),
-                Err(_) => {
-                    tracing::warn!(
-                        "Failed to compile word-boundary regex for symbol '{}', falling back to substring match",
-                        symbol
-                    );
-                    None
-                }
-            };
-            self.cache.insert(symbol.to_string(), re_opt);
-        }
+### Dispatch Logic (`src/cli/dispatch.rs`)
+Update `dispatch_ledger` to match `LedgerCommands::Note` and route to `crate::commands::ledger::execute_ledger_note`. Ensure `src/commands/ledger.rs` (or equivalent module export) re-exports `execute_ledger_note`.
 
-        match self.cache.get(symbol).unwrap() {
-            Some(re) => re.is_match(content),
-            None => content.contains(symbol),
-        }
-    }
-}
-```
-
-### 3. Integration in `FederatedScanner`
-Rather than making `FederatedScanner` globally stateful with interior mutability (`RefCell`, which would make it `!Sync`), we instantiate `SymbolMatcher` locally at the entry points of scanning to maintain thread-safety and simplicity:
-- **`scan_dependency_dir`**: Update signature to accept `matcher: &mut SymbolMatcher`. Pass it recursively. Replace `symbol_matches_content` calls with `matcher.matches(...)`.
-- **`discover_dependencies_in_current_repo`**: Instantiate `let mut matcher = SymbolMatcher::new();` and pass it to `scan_dependency_dir`.
-- **`discover_dependencies`**: Instantiate a separate local `let mut matcher = SymbolMatcher::new();` outside the public interfaces loop, and use it inside the `local_packet.changes` loop.
-
-### 4. Testing
-- Update the existing `symbol_matches_content_unit_tests` to instantiate `SymbolMatcher` and call `matches`.
-- Maintain existing behavioral guarantees (whole-word matching, substring fallback, escape of regex characters).
+## Verification Strategy
+- **Unit Tests**: Ensure `tests/integration/ledger_cli_parsing.rs` verifies the mutually inclusive argument structure (`note` OR `--message`). Test that `--message` takes precedence if both are passed.
+- **Cargo Checks**: `cargo clippy` and `cargo test` pass.
