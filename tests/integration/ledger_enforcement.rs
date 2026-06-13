@@ -694,7 +694,7 @@ fn test_verification_gate_blocks_high_risk_categories() {
 
         match result {
             Err(LedgerError::VerificationRequired(cat)) => {
-                assert_eq!(cat, format!("{} (both status and basis required)", category.to_string()));
+                assert_eq!(cat, format!("{} (both status and basis required)", category));
             }
             _ => panic!(
                 "Expected VerificationRequired for {:?}, got {:?}",

@@ -11,6 +11,7 @@ Use ChangeGuard as the local safety layer and engineering intelligence engine fo
 
 - **Search & Discovery**: High-performance regex (Tantivy), precise LSP navigation (SCIP), and conceptual semantic search (local embeddings) with parallel HNSW retrieval.
 - **Code Symbol Index**: Tree-sitter parsing of Rust, TypeScript, and Python — extracts every public function, struct, enum, trait, module, and HTTP route into the Knowledge Graph. Queryable via `changeguard search` and `changeguard ask`.
+- **Gemini Token Budgeting**: Automatically calculates character limits based on `config.gemini.context_window`. Appends `[Packet truncated for Gemini submission]` when limits are hit to ensure predictable LLM behavior.
 - **Route Extraction**: Detects HTTP routes from Axum, Express, and other frameworks. Stores `method`, `path_pattern`, `handler_name`, `framework`, and confidence score.
 - **Call Graph**: Tracks function call relationships (`Direct`, `MethodCall`, `TraitDispatch`, `Dynamic`, `External`) so you can answer "what calls this function?" and "what does this function depend on?".
 - **Knowledge Graph**: Durable, billion-edge relational and vector storage (CozoDB-redux/Sled) with native code-aware tokenization (Tree-Sitter). Stores symbols in `project_symbol` table.
@@ -87,6 +88,9 @@ Before searching the web or reading files manually, query ChangeGuard's symbol i
 ```bash
 # Always refresh the index first (incremental, fast)
 changeguard index --incremental
+
+# Use automated SCIP indexing for compiler-grade precision (Rust, TS, Python)
+changeguard index --auto-scip
 
 # Find a function, struct, or type by name
 changeguard search "handleGetUser"
