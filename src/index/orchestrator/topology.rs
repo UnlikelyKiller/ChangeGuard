@@ -53,11 +53,206 @@ pub fn index_topology(indexer: &mut ProjectIndexer) -> Result<TopologyIndexStats
             unclassified += 1;
         }
     }
+
+    // K4: Run marker-based boundary detection and persist to CozoDB
+    index_service_boundaries(indexer)?;
+
     Ok(TopologyIndexStats {
         directories_classified,
         unclassified,
         role_counts,
     })
+}
+
+/// K4: Scan the repository for manifest-based service boundaries and store them in
+/// the `service_roots` CozoDB relation. Also scans source files for HTTP client
+/// calls and stores inter-service communication edges in `service_dependencies`.
+pub fn index_service_boundaries(indexer: &mut ProjectIndexer) -> Result<()> {
+    use crate::coverage::services::{BoundaryDetector, detect_http_client_calls};
+    use cozo::{DataValue, ScriptMutability};
+    use std::collections::BTreeMap;
+
+    let cozo = match indexer.storage.cozo.as_ref() {
+        Some(c) => c,
+        None => return Ok(()), // CozoDB not available — skip silently
+    };
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let root = indexer.repo_path.as_std_path();
+
+    // 1. Detect service boundaries via manifest markers
+    let detector = BoundaryDetector::new(root);
+    let boundaries = detector.detect();
+
+    // Clear previous service_roots for a clean re-index
+    let _ = cozo.run_script("?[name, dir_path, marker_kind, confidence, last_indexed_at] := *service_roots{name, dir_path, marker_kind, confidence, last_indexed_at} :rm service_roots {name}");
+
+    for boundary in &boundaries {
+        let dir_str = boundary
+            .dir_path
+            .strip_prefix(root)
+            .unwrap_or(&boundary.dir_path)
+            .to_string_lossy()
+            .replace('\\', "/");
+
+        let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+        params.insert(
+            "name".to_string(),
+            DataValue::Str(boundary.name.clone().into()),
+        );
+        params.insert(
+            "dir_path".to_string(),
+            DataValue::Str(dir_str.clone().into()),
+        );
+        params.insert(
+            "marker_kind".to_string(),
+            DataValue::Str(boundary.marker.as_str().into()),
+        );
+        params.insert(
+            "confidence".to_string(),
+            DataValue::from(boundary.confidence),
+        );
+        params.insert("ts".to_string(), DataValue::Str(now.clone().into()));
+
+        let script = "?[name, dir_path, marker_kind, confidence, last_indexed_at] <- [[$name, $dir_path, $marker_kind, $confidence, $ts]] :put service_roots";
+        cozo.run_script_with_params(script, params, ScriptMutability::Mutable)
+            .unwrap();
+    }
+
+    tracing::debug!("K4: Indexed {} service boundaries", boundaries.len());
+
+    // 2. Scan source files for HTTP client call patterns
+    let source_extensions = ["rs", "ts", "tsx", "js", "jsx", "py"];
+    let all_files = super::discovery::discover_files(indexer)?;
+
+    // Build a map from dir-prefix → service name for resolution
+    let service_map: Vec<(String, String)> = boundaries
+        .iter()
+        .map(|b| {
+            let dir_str = b
+                .dir_path
+                .strip_prefix(root)
+                .unwrap_or(&b.dir_path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            (dir_str, b.name.clone())
+        })
+        .collect();
+
+    let cozo = match indexer.storage.cozo.as_ref() {
+        Some(c) => c,
+        None => return Ok(()),
+    };
+
+    // Clear previous service_dependencies
+    let _ = cozo.run_script("?[caller_service, callee_service, pattern, call_kind, confidence, last_indexed_at] := *service_dependencies{caller_service, callee_service, pattern, call_kind, confidence, last_indexed_at} :rm service_dependencies {caller_service, callee_service}");
+
+    let mut dep_edges: std::collections::HashSet<(String, String, String)> =
+        std::collections::HashSet::new();
+
+    for file_path in &all_files {
+        let ext = file_path.as_str().rsplit('.').next().unwrap_or("");
+        if !source_extensions.contains(&ext) {
+            continue;
+        }
+
+        let relative = file_path
+            .strip_prefix(&indexer.repo_path)
+            .unwrap_or(file_path)
+            .to_string()
+            .replace('\\', "/");
+
+        let caller_service = resolve_service_for_path(&relative, &service_map);
+
+        let content = match crate::util::fs::read_to_string_with_encoding(file_path.as_std_path()) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        let calls = detect_http_client_calls(&relative, &content);
+        for call in calls {
+            if let Some(ref caller) = caller_service {
+                let edge_key = (
+                    caller.clone(),
+                    call.call_kind.clone(),
+                    call.target_pattern.clone(),
+                );
+                if dep_edges.insert(edge_key) {
+                    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+                    params.insert(
+                        "caller_service".to_string(),
+                        DataValue::Str(caller.clone().into()),
+                    );
+                    // Resolve callee_service by trying to match the target pattern against known routes
+                    let mut callee_service = call.call_kind.clone(); // fallback
+                    let conn = indexer.storage.get_connection();
+                    if let Ok(mut stmt) =
+                        conn.prepare("SELECT handler_file_id, path_pattern FROM api_routes")
+                    {
+                        #[allow(clippy::collapsible_if)]
+                        if let Ok(mut rows) = stmt.query([]) {
+                            while let Ok(Some(row)) = rows.next() {
+                                let handler_file_id: i64 = row.get(0).unwrap_or(0);
+                                let path_pattern: String = row.get(1).unwrap_or_default();
+                                if !path_pattern.is_empty()
+                                    && call.target_pattern.contains(&path_pattern)
+                                {
+                                    if let Ok(file_path) = conn.query_row(
+                                        "SELECT file_path FROM project_files WHERE id = ?1",
+                                        [handler_file_id],
+                                        |r| r.get::<_, String>(0),
+                                    ) {
+                                        if let Some(resolved) =
+                                            resolve_service_for_path(&file_path, &service_map)
+                                        {
+                                            callee_service = resolved;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    params.insert(
+                        "callee_service".to_string(),
+                        DataValue::Str(callee_service.into()),
+                    );
+                    params.insert(
+                        "pattern".to_string(),
+                        DataValue::Str(call.target_pattern.into()),
+                    );
+                    params.insert(
+                        "call_kind".to_string(),
+                        DataValue::Str(call.call_kind.into()),
+                    );
+                    params.insert("confidence".to_string(), DataValue::from(call.confidence));
+                    params.insert("ts".to_string(), DataValue::Str(now.clone().into()));
+
+                    let script = "?[caller_service, callee_service, pattern, call_kind, confidence, last_indexed_at] <- [[$caller_service, $callee_service, $pattern, $call_kind, $confidence, $ts]] :put service_dependencies";
+                    cozo.run_script_with_params(script, params, ScriptMutability::Mutable)
+                        .unwrap();
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Resolve the service name for a source file path using the service map.
+fn resolve_service_for_path(file_path: &str, service_map: &[(String, String)]) -> Option<String> {
+    // Find the longest matching prefix (deepest service root wins)
+    let mut best: Option<(&str, &str)> = None;
+    for (dir, name) in service_map {
+        #[allow(clippy::collapsible_if)]
+        if file_path.starts_with(dir.as_str()) || (dir.is_empty() || dir == ".") {
+            if best.is_none() || dir.len() > best.unwrap().0.len() {
+                best = Some((dir.as_str(), name.as_str()));
+            }
+        }
+    }
+    best.map(|(_, n)| n.to_string())
 }
 
 pub fn classify_entrypoints(indexer: &mut ProjectIndexer) -> Result<EntrypointStats> {

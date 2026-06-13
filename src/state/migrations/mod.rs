@@ -35,6 +35,25 @@ pub fn get_migrations() -> Migrations<'static> {
     Migrations::new(all_m)
 }
 
+pub fn get_migrations_count() -> usize {
+    let mut count = 0;
+    count += m1_to_m10::m1_to_m10().len();
+    count += m11_to_m20::m11_to_m20().len();
+    count += m21_to_m29::m21_to_m29().len();
+    count += m30_scip::m30_scip().len();
+    count += m31_ci_predict::m31_ci_predict().len();
+    count += m32_symbol_metadata::m32_symbol_metadata().len();
+    count += m33_intent_provenance::m33_intent_provenance().len();
+    count += m34_api_route_enrichment::m34_api_route_enrichment().len();
+    count += m35_adr_lifecycle::m35_adr_lifecycle().len();
+    count += m36_env_config_metadata::m36_env_config_metadata().len();
+    count += m37_ci_deploy_enrichment::m37_ci_deploy_enrichment().len();
+    count += m38_hotspot_history::m38_hotspot_history().len();
+    count += m39_ledger_neighborhood::m39_ledger_neighborhood().len();
+    count += m40_validator_management::m40_validator_management().len();
+    count
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -66,7 +66,8 @@ pub fn run_with(cli: Cli) -> Result<()> {
             concurrency,
             semantic_dry_run,
             fast,
-        ),
+        )
+        .or_else(handle_schema_error),
         Commands::Search {
             query,
             regex,
@@ -75,6 +76,7 @@ pub fn run_with(cli: Cli) -> Result<()> {
             index,
             json,
             auto_index,
+            hybrid,
         } => dispatch_search(
             current_dir,
             query,
@@ -84,7 +86,9 @@ pub fn run_with(cli: Cli) -> Result<()> {
             index,
             json,
             auto_index,
-        ),
+            hybrid,
+        )
+        .or_else(handle_schema_error),
         Commands::Hotspots { args } => crate::commands::hotspots::execute_hotspots(args),
         Commands::Endpoints(args) => crate::commands::endpoints::execute_endpoints(args),
         Commands::Federate { command } => dispatch_federate(command),
@@ -132,7 +136,8 @@ pub fn run_with(cli: Cli) -> Result<()> {
             auto_index,
             timeout,
             no_kg_fallback,
-        ),
+        )
+        .or_else(handle_schema_error),
         Commands::Intent { command } => dispatch_intent(command),
         Commands::Reset {
             remove_config,
@@ -150,6 +155,9 @@ pub fn run_with(cli: Cli) -> Result<()> {
             dry_run,
         ),
         Commands::Doctor => crate::commands::doctor::execute_doctor(),
+        Commands::Status => {
+            crate::commands::ledger::execute_ledger_status(None, false, false, false, false)
+        }
         Commands::Config { command } => dispatch_config(command),
         Commands::DeadCode {
             threshold,
@@ -161,9 +169,10 @@ pub fn run_with(cli: Cli) -> Result<()> {
             limit,
             depth,
             entity,
+            view,
         } => {
             let path = output.map(std::path::PathBuf::from);
-            crate::commands::viz::execute_viz(path, limit, depth, entity)
+            crate::commands::viz::execute_viz(path, limit, depth, entity, view)
         }
         Commands::Update {
             migrate,
@@ -172,7 +181,14 @@ pub fn run_with(cli: Cli) -> Result<()> {
             force_unlock,
             fast,
             dry_run,
-        } => crate::commands::update::execute_update(migrate, binary, force, force_unlock, fast, dry_run),
+        } => crate::commands::update::execute_update(
+            migrate,
+            binary,
+            force,
+            force_unlock,
+            fast,
+            dry_run,
+        ),
         Commands::Watch {
             interval,
             json,
@@ -262,6 +278,7 @@ fn dispatch_search(
     index: bool,
     json: bool,
     auto_index: bool,
+    hybrid: bool,
 ) -> Result<()> {
     let project_id = current_dir
         .file_name()
@@ -276,6 +293,7 @@ fn dispatch_search(
         json,
         auto_index,
         project_id,
+        hybrid,
     })
 }
 
@@ -486,4 +504,25 @@ fn dispatch_internal(command: InternalCommands) -> Result<()> {
             crate::commands::hook_post_commit::execute_hook_post_commit()
         }
     }
+}
+
+fn handle_schema_error(err: miette::Error) -> Result<()> {
+    let is_schema_mismatch = if let Some(state_err) = err.downcast_ref::<crate::state::StateError>()
+    {
+        matches!(state_err, crate::state::StateError::SchemaMismatch)
+    } else {
+        false
+    };
+
+    if is_schema_mismatch && crate::util::term::is_interactive() {
+        use inquire::Confirm;
+        if let Ok(true) = Confirm::new("Schema mismatch detected. Run 'update --migrate' now?")
+            .with_default(true)
+            .prompt()
+        {
+            crate::commands::update::execute_update(true, false, true, false, false, false)?;
+            return Ok(());
+        }
+    }
+    Err(err)
 }

@@ -18,7 +18,7 @@ fn test_viz_generates_html() {
     execute_init(false).unwrap();
 
     let out_path = root.join("output.html");
-    let result = execute_viz(Some(out_path.clone()), 50, 3, None);
+    let result = execute_viz(Some(out_path.clone()), 50, 3, None, "graph".to_string());
     assert!(result.is_ok());
     // Viz produces HTML output
     assert!(out_path.exists(), "viz output file should exist");

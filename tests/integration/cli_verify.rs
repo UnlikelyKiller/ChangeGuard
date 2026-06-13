@@ -1,7 +1,7 @@
+use crate::common::DirGuard;
+use camino::Utf8Path;
 use changeguard::commands::verify::execute_verify;
 use tempfile::tempdir;
-use camino::Utf8Path;
-use crate::common::DirGuard;
 
 #[test]
 fn test_verify_command_pass() {

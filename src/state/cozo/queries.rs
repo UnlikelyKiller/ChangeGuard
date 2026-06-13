@@ -14,6 +14,10 @@ pub const CREATE_DECISION_TABLE: &str = ":create Decision { id: String => title:
 
 pub const GET_RELATIONS: &str = "::relations";
 
+// K4: Service boundary and communication relations
+pub const CREATE_SERVICE_ROOTS_TABLE: &str = ":create service_roots { name: String => dir_path: String, marker_kind: String, confidence: Float, last_indexed_at: String }";
+pub const CREATE_SERVICE_DEPENDENCIES_TABLE: &str = ":create service_dependencies { caller_service: String, callee_service: String => pattern: String, call_kind: String, confidence: Float, last_indexed_at: String }";
+
 pub fn node_count_query() -> &'static str {
     "?[count(id)] := *node{id}"
 }

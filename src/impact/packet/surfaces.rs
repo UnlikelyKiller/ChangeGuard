@@ -75,6 +75,14 @@ impl Ord for ApiRoute {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceImpact {
+    pub service_name: String,
+    pub impact_kind: String, // "Downstream Breakage", "Public Contract Change"
+    pub reason: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct ServiceMapDelta {
     pub services: Vec<Service>,

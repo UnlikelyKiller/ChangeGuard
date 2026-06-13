@@ -132,6 +132,9 @@ pub enum Commands {
         /// Automatically run incremental index before searching if the index is stale
         #[arg(long)]
         auto_index: bool,
+        /// Use hybrid search (combines regex and BM25 results)
+        #[arg(long)]
+        hybrid: bool,
     },
     /// Rank files by change frequency and complexity (Hotspots)
     Hotspots {
@@ -259,6 +262,8 @@ pub enum Commands {
     },
     /// Health check for ChangeGuard and local model stack
     Doctor,
+    /// Quick status check of the project ledger and pending transactions
+    Status,
     /// Configuration management
     Config {
         #[command(subcommand)]
@@ -311,9 +316,12 @@ pub enum Commands {
         /// Filter by specific entity (root of the graph)
         #[arg(long, short)]
         entity: Option<String>,
+        /// Visualization view: "graph" (default) or "services" (K4 service connectivity)
+        #[arg(long, default_value = "graph")]
+        view: String,
     },
     /// Update ChangeGuard binary or migrate repository state
-    #[command(visible_alias = "upgrade")]
+    #[command(alias = "upgrade")]
     Update {
         /// Perform repository state migration (re-index and schema upgrade)
         #[arg(long)]

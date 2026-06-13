@@ -4,6 +4,363 @@ use crate::index::topology::DirectoryClassification;
 
 use std::path::{Path, PathBuf};
 
+// ---------------------------------------------------------------------------
+// K4: Service Boundary Detection (Marker-based)
+// ---------------------------------------------------------------------------
+
+/// Identifies the kind of manifest that demarcates a service root.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BoundaryMarker {
+    CargoWorkspace,
+    NpmPackage,
+    GoModule,
+    MavenPom,
+    Dockerfile,
+}
+
+impl BoundaryMarker {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            BoundaryMarker::CargoWorkspace => "CARGO_WORKSPACE",
+            BoundaryMarker::NpmPackage => "NPM_PACKAGE",
+            BoundaryMarker::GoModule => "GO_MODULE",
+            BoundaryMarker::MavenPom => "MAVEN_POM",
+            BoundaryMarker::Dockerfile => "DOCKERFILE",
+        }
+    }
+
+    /// Confidence weight for this marker kind. Manifest files score higher.
+    pub fn confidence(&self) -> f64 {
+        match self {
+            BoundaryMarker::CargoWorkspace => 0.95,
+            BoundaryMarker::NpmPackage => 0.95,
+            BoundaryMarker::GoModule => 0.95,
+            BoundaryMarker::MavenPom => 0.90,
+            BoundaryMarker::Dockerfile => 0.75,
+        }
+    }
+}
+
+/// A detected service boundary from file-system marker scanning.
+#[derive(Debug, Clone)]
+pub struct DetectedBoundary {
+    pub dir_path: PathBuf,
+    /// Inferred service name (directory name or package name from manifest).
+    pub name: String,
+    pub marker: BoundaryMarker,
+    pub confidence: f64,
+}
+
+/// Walks a repository tree to detect service boundaries via manifest markers.
+pub struct BoundaryDetector {
+    /// Root of the repository to scan.
+    pub root: PathBuf,
+}
+
+impl BoundaryDetector {
+    pub fn new(root: impl Into<PathBuf>) -> Self {
+        Self { root: root.into() }
+    }
+
+    /// Recursively walk the tree and return all detected service boundaries.
+    /// Skips `node_modules`, `target`, `vendor`, `.git`.
+    pub fn detect(&self) -> Vec<DetectedBoundary> {
+        let mut results = Vec::new();
+        self.walk_dir(&self.root, &mut results, 0);
+        // Sort for determinism
+        results.sort_by(|a, b| a.dir_path.cmp(&b.dir_path));
+        results
+    }
+
+    fn walk_dir(&self, dir: &Path, results: &mut Vec<DetectedBoundary>, depth: usize) {
+        if depth > 8 {
+            return;
+        }
+        let skip_names: &[&str] = &[
+            "node_modules",
+            "target",
+            "vendor",
+            ".git",
+            "dist",
+            "build",
+            ".cache",
+        ];
+
+        let entries = match std::fs::read_dir(dir) {
+            Ok(e) => e,
+            Err(_) => return,
+        };
+
+        let mut child_dirs: Vec<PathBuf> = Vec::new();
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("")
+                    .to_string();
+                if !skip_names.contains(&name.as_str()) {
+                    child_dirs.push(path);
+                }
+            } else if path.is_file() {
+                let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                let marker_opt = detect_marker_file(file_name, &path);
+                if let Some((marker, name)) = marker_opt {
+                    let confidence = marker.confidence();
+                    results.push(DetectedBoundary {
+                        dir_path: dir.to_path_buf(),
+                        name,
+                        marker,
+                        confidence,
+                    });
+                }
+            }
+        }
+
+        for child in child_dirs {
+            self.walk_dir(&child, results, depth + 1);
+        }
+    }
+}
+
+/// Returns `Some((marker, service_name))` if the file is a boundary marker.
+fn detect_marker_file(file_name: &str, full_path: &Path) -> Option<(BoundaryMarker, String)> {
+    match file_name {
+        "Cargo.toml" => {
+            let content = std::fs::read_to_string(full_path).unwrap_or_default();
+            let name = parse_cargo_name(&content).unwrap_or_else(|| {
+                full_path
+                    .parent()
+                    .and_then(|p| p.file_name())
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("service")
+                    .to_string()
+            });
+            Some((BoundaryMarker::CargoWorkspace, name))
+        }
+        "package.json" => {
+            let content = std::fs::read_to_string(full_path).unwrap_or_default();
+            let name = parse_npm_name(&content).unwrap_or_else(|| {
+                full_path
+                    .parent()
+                    .and_then(|p| p.file_name())
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("service")
+                    .to_string()
+            });
+            Some((BoundaryMarker::NpmPackage, name))
+        }
+        "go.mod" => {
+            let content = std::fs::read_to_string(full_path).unwrap_or_default();
+            let name = parse_go_module_name(&content).unwrap_or_else(|| {
+                full_path
+                    .parent()
+                    .and_then(|p| p.file_name())
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("service")
+                    .to_string()
+            });
+            Some((BoundaryMarker::GoModule, name))
+        }
+        "pom.xml" => {
+            let dir_name = full_path
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .unwrap_or("service")
+                .to_string();
+            Some((BoundaryMarker::MavenPom, dir_name))
+        }
+        "Dockerfile" | "dockerfile" => {
+            let dir_name = full_path
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .unwrap_or("service")
+                .to_string();
+            Some((BoundaryMarker::Dockerfile, dir_name))
+        }
+        _ => None,
+    }
+}
+
+fn parse_cargo_name(content: &str) -> Option<String> {
+    content
+        .lines()
+        .skip_while(|l| !l.trim().starts_with("[package]"))
+        .skip(1)
+        .find(|l| l.trim().starts_with("name"))
+        .and_then(|l| l.splitn(2, '=').nth(1))
+        .map(|v| v.trim().trim_matches('"').to_string())
+}
+
+fn parse_npm_name(content: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(content)
+        .ok()
+        .and_then(|v| {
+            v.get("name")
+                .and_then(|n| n.as_str())
+                .map(|s| s.to_string())
+        })
+}
+
+fn parse_go_module_name(content: &str) -> Option<String> {
+    content
+        .lines()
+        .find(|l| l.trim().starts_with("module "))
+        .map(|l| {
+            l.trim()
+                .trim_start_matches("module ")
+                .split('/')
+                .next_back()
+                .unwrap_or("service")
+                .to_string()
+        })
+}
+
+// ---------------------------------------------------------------------------
+// K4: HTTP Client Call Detection (Communication Extraction)
+// ---------------------------------------------------------------------------
+
+/// Represents an outbound HTTP call detected in source code.
+#[derive(Debug, Clone)]
+pub struct HttpClientCall {
+    /// The source file containing the call.
+    pub source_file: String,
+    /// URL pattern or target (may be partial string literal).
+    pub target_pattern: String,
+    /// Call kind: "RUST_UREQ", "RUST_REQWEST", "TS_FETCH", "TS_AXIOS", "PY_REQUESTS", "PY_HTTPX"
+    pub call_kind: String,
+    pub confidence: f64,
+}
+
+/// Scans source file content for HTTP client call patterns.
+/// Returns a list of detected outbound calls.
+pub fn detect_http_client_calls(file_path: &str, content: &str) -> Vec<HttpClientCall> {
+    let mut calls = Vec::new();
+    let lower = content.to_lowercase();
+
+    // Rust: ureq
+    for pattern in &[
+        "ureq::get(",
+        "ureq::post(",
+        "ureq::put(",
+        "ureq::delete(",
+        "ureq::patch(",
+    ] {
+        if lower.contains(pattern) {
+            calls.push(HttpClientCall {
+                source_file: file_path.to_string(),
+                target_pattern: extract_url_arg(content, pattern).unwrap_or_default(),
+                call_kind: "RUST_UREQ".to_string(),
+                confidence: 0.85,
+            });
+        }
+    }
+
+    // Rust: reqwest
+    for pattern in &["reqwest::get(", "reqwest::post(", "reqwest::Client"] {
+        if lower.contains(pattern) {
+            calls.push(HttpClientCall {
+                source_file: file_path.to_string(),
+                target_pattern: extract_url_arg(content, pattern).unwrap_or_default(),
+                call_kind: "RUST_REQWEST".to_string(),
+                confidence: 0.85,
+            });
+        }
+    }
+
+    // TypeScript/JavaScript: fetch
+    if lower.contains("fetch(") {
+        calls.push(HttpClientCall {
+            source_file: file_path.to_string(),
+            target_pattern: extract_url_arg(content, "fetch(").unwrap_or_default(),
+            call_kind: "TS_FETCH".to_string(),
+            confidence: 0.80,
+        });
+    }
+
+    // TypeScript/JavaScript: axios
+    for pattern in &[
+        "axios.get(",
+        "axios.post(",
+        "axios.put(",
+        "axios.delete(",
+        "axios.patch(",
+        "axios.request(",
+    ] {
+        if lower.contains(pattern) {
+            calls.push(HttpClientCall {
+                source_file: file_path.to_string(),
+                target_pattern: extract_url_arg(content, pattern).unwrap_or_default(),
+                call_kind: "TS_AXIOS".to_string(),
+                confidence: 0.85,
+            });
+        }
+    }
+
+    // Python: requests
+    for pattern in &[
+        "requests.get(",
+        "requests.post(",
+        "requests.put(",
+        "requests.delete(",
+        "requests.patch(",
+    ] {
+        if lower.contains(pattern) {
+            calls.push(HttpClientCall {
+                source_file: file_path.to_string(),
+                target_pattern: extract_url_arg(content, pattern).unwrap_or_default(),
+                call_kind: "PY_REQUESTS".to_string(),
+                confidence: 0.85,
+            });
+        }
+    }
+
+    // Python: httpx
+    for pattern in &[
+        "httpx.get(",
+        "httpx.post(",
+        "httpx.put(",
+        "httpx.delete(",
+        "httpx.patch(",
+        "httpx.client(",
+        "httpx.asyncclient(",
+    ] {
+        if lower.contains(pattern) {
+            calls.push(HttpClientCall {
+                source_file: file_path.to_string(),
+                target_pattern: extract_url_arg(content, pattern).unwrap_or_default(),
+                call_kind: "PY_HTTPX".to_string(),
+                confidence: 0.85,
+            });
+        }
+    }
+
+    calls
+}
+
+/// Attempts to extract the first string literal argument from a call pattern.
+fn extract_url_arg(content: &str, pattern: &str) -> Option<String> {
+    let lower = content.to_lowercase();
+    let pos = lower.find(pattern)?;
+    let after = &content[pos + pattern.len()..];
+    // Look for a string literal (quoted)
+    let after_trimmed = after.trim_start();
+    if let Some(stripped) = after_trimmed.strip_prefix('"') {
+        let end = stripped.find('"')?;
+        return Some(stripped[..end].to_string());
+    }
+    if let Some(stripped) = after_trimmed.strip_prefix('\'') {
+        let end = stripped.find('\'')?;
+        return Some(stripped[..end].to_string());
+    }
+    // Return empty if no string literal found
+    None
+}
+
 #[derive(Debug, Clone)]
 pub struct DataModelSource {
     pub model: DataModel,
@@ -682,5 +1039,204 @@ mod tests {
         assert_eq!(edges.len(), 2);
         assert!(edges.contains(&("backend".to_string(), "frontend".to_string(), 1)));
         assert!(edges.contains(&("frontend".to_string(), "backend".to_string(), 1)));
+    }
+}
+
+#[cfg(test)]
+mod k4_tests {
+    use super::*;
+
+    // ---------------------------------------------------------------------------
+    // BoundaryDetector tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_boundary_detector_cargo_toml() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+
+        // Create a Cargo.toml at root (the project itself)
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"my-service\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+
+        let detector = BoundaryDetector::new(root);
+        let boundaries = detector.detect();
+
+        assert_eq!(boundaries.len(), 1);
+        assert_eq!(boundaries[0].name, "my-service");
+        assert_eq!(boundaries[0].marker, BoundaryMarker::CargoWorkspace);
+        assert!((boundaries[0].confidence - 0.95).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_boundary_detector_multiple_services() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+
+        // services/orders has Cargo.toml
+        let orders_dir = root.join("services").join("orders");
+        std::fs::create_dir_all(&orders_dir).unwrap();
+        std::fs::write(
+            orders_dir.join("Cargo.toml"),
+            "[package]\nname = \"orders-service\"\n",
+        )
+        .unwrap();
+
+        // services/frontend has package.json
+        let frontend_dir = root.join("services").join("frontend");
+        std::fs::create_dir_all(&frontend_dir).unwrap();
+        std::fs::write(
+            frontend_dir.join("package.json"),
+            r#"{"name":"frontend-app","version":"1.0.0"}"#,
+        )
+        .unwrap();
+
+        // services/gateway has Dockerfile
+        let gateway_dir = root.join("services").join("gateway");
+        std::fs::create_dir_all(&gateway_dir).unwrap();
+        std::fs::write(gateway_dir.join("Dockerfile"), "FROM alpine:latest\n").unwrap();
+
+        let detector = BoundaryDetector::new(root);
+        let mut boundaries = detector.detect();
+        boundaries.sort_by(|a, b| a.name.cmp(&b.name));
+
+        assert_eq!(boundaries.len(), 3);
+
+        let names: Vec<&str> = boundaries.iter().map(|b| b.name.as_str()).collect();
+        assert!(names.contains(&"orders-service"));
+        assert!(names.contains(&"frontend-app"));
+        assert!(names.contains(&"gateway"));
+
+        let cargo_boundary = boundaries
+            .iter()
+            .find(|b| b.name == "orders-service")
+            .unwrap();
+        assert_eq!(cargo_boundary.marker, BoundaryMarker::CargoWorkspace);
+
+        let npm_boundary = boundaries
+            .iter()
+            .find(|b| b.name == "frontend-app")
+            .unwrap();
+        assert_eq!(npm_boundary.marker, BoundaryMarker::NpmPackage);
+
+        let docker_boundary = boundaries.iter().find(|b| b.name == "gateway").unwrap();
+        assert_eq!(docker_boundary.marker, BoundaryMarker::Dockerfile);
+        assert!((docker_boundary.confidence - 0.75).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_boundary_detector_skips_target() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+
+        // Cargo.toml in target/ should be skipped
+        let target_dir = root.join("target").join("debug");
+        std::fs::create_dir_all(&target_dir).unwrap();
+        std::fs::write(
+            target_dir.join("Cargo.toml"),
+            "[package]\nname = \"skip-me\"\n",
+        )
+        .unwrap();
+
+        let detector = BoundaryDetector::new(root);
+        let boundaries = detector.detect();
+
+        assert!(
+            boundaries.iter().all(|b| b.name != "skip-me"),
+            "Should skip Cargo.toml inside target/"
+        );
+    }
+
+    #[test]
+    fn test_parse_cargo_name() {
+        let toml = "[package]\nname = \"my-crate\"\nversion = \"0.1.0\"\n[dependencies]\n";
+        assert_eq!(parse_cargo_name(toml), Some("my-crate".to_string()));
+    }
+
+    #[test]
+    fn test_parse_npm_name() {
+        let json = r#"{"name": "my-package", "version": "1.0.0"}"#;
+        assert_eq!(parse_npm_name(json), Some("my-package".to_string()));
+    }
+
+    #[test]
+    fn test_parse_go_module_name() {
+        let go_mod = "module github.com/myorg/my-service\n\ngo 1.21\n";
+        assert_eq!(parse_go_module_name(go_mod), Some("my-service".to_string()));
+    }
+
+    // ---------------------------------------------------------------------------
+    // HTTP client detection tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_detect_http_client_calls_ureq() {
+        let content = r#"
+            let resp = ureq::get("https://api.example.com/users")
+                .call()
+                .unwrap();
+        "#;
+        let calls = detect_http_client_calls("src/main.rs", content);
+        assert!(!calls.is_empty());
+        assert!(calls.iter().any(|c| c.call_kind == "RUST_UREQ"));
+    }
+
+    #[test]
+    fn test_detect_http_client_calls_fetch() {
+        let content = r#"
+            const resp = await fetch("https://api.example.com/orders");
+        "#;
+        let calls = detect_http_client_calls("src/client.ts", content);
+        assert!(!calls.is_empty());
+        let fetch_calls: Vec<_> = calls.iter().filter(|c| c.call_kind == "TS_FETCH").collect();
+        assert!(!fetch_calls.is_empty());
+        assert_eq!(
+            fetch_calls[0].target_pattern,
+            "https://api.example.com/orders"
+        );
+    }
+
+    #[test]
+    fn test_detect_http_client_calls_requests() {
+        let content = "import requests\nresp = requests.get('https://payments.internal/charge')\n";
+        let calls = detect_http_client_calls("service/client.py", content);
+        assert!(!calls.is_empty());
+        assert!(calls.iter().any(|c| c.call_kind == "PY_REQUESTS"));
+    }
+
+    #[test]
+    fn test_detect_http_client_calls_none() {
+        let content = "fn no_http() { println!(\"hello\"); }";
+        let calls = detect_http_client_calls("src/no_http.rs", content);
+        assert!(calls.is_empty());
+    }
+
+    #[test]
+    fn test_detect_http_client_calls_axios() {
+        let content = "const data = await axios.post('/api/orders', payload);";
+        let calls = detect_http_client_calls("src/api.js", content);
+        let axios_calls: Vec<_> = calls.iter().filter(|c| c.call_kind == "TS_AXIOS").collect();
+        assert!(!axios_calls.is_empty());
+    }
+
+    #[test]
+    fn test_boundary_marker_confidence() {
+        assert!((BoundaryMarker::CargoWorkspace.confidence() - 0.95).abs() < 1e-9);
+        assert!((BoundaryMarker::NpmPackage.confidence() - 0.95).abs() < 1e-9);
+        assert!((BoundaryMarker::GoModule.confidence() - 0.95).abs() < 1e-9);
+        assert!((BoundaryMarker::MavenPom.confidence() - 0.90).abs() < 1e-9);
+        assert!((BoundaryMarker::Dockerfile.confidence() - 0.75).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_boundary_marker_as_str() {
+        assert_eq!(BoundaryMarker::CargoWorkspace.as_str(), "CARGO_WORKSPACE");
+        assert_eq!(BoundaryMarker::NpmPackage.as_str(), "NPM_PACKAGE");
+        assert_eq!(BoundaryMarker::GoModule.as_str(), "GO_MODULE");
+        assert_eq!(BoundaryMarker::MavenPom.as_str(), "MAVEN_POM");
+        assert_eq!(BoundaryMarker::Dockerfile.as_str(), "DOCKERFILE");
     }
 }

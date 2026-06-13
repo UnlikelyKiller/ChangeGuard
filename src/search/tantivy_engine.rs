@@ -63,14 +63,18 @@ impl TantivySearchEngine {
         ) {
             Ok(idx) => idx,
             Err(tantivy::TantivyError::SchemaError(e)) => {
-                tracing::warn!("Tantivy schema mismatch detected: {}. Re-initializing search index...", e);
+                tracing::warn!(
+                    "Tantivy schema mismatch detected: {}. Re-initializing search index...",
+                    e
+                );
                 // Clear index directory
                 let _ = std::fs::remove_dir_all(path);
                 let _ = std::fs::create_dir_all(path);
                 Index::open_or_create(
                     tantivy::directory::MmapDirectory::open(path).into_diagnostic()?,
                     schema.clone(),
-                ).into_diagnostic()?
+                )
+                .into_diagnostic()?
             }
             Err(e) => return Err(e).into_diagnostic(),
         };

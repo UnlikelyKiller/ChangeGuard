@@ -108,12 +108,16 @@ impl StreamIndexer {
                 }
 
                 if let Ok(content) = fs::read(&utf8_path) {
-                    let relative_path = utf8_path.strip_prefix(root).unwrap_or(&utf8_path).to_path_buf();
-                    job_tx.send(IndexJob {
-                        path: relative_path,
-                        content,
-                    })
-                    .into_diagnostic()?;
+                    let relative_path = utf8_path
+                        .strip_prefix(root)
+                        .unwrap_or(&utf8_path)
+                        .to_path_buf();
+                    job_tx
+                        .send(IndexJob {
+                            path: relative_path,
+                            content,
+                        })
+                        .into_diagnostic()?;
                 }
             }
         }

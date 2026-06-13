@@ -63,6 +63,8 @@ pub struct ImpactPacket {
     #[serde(default)]
     pub knowledge_graph: Vec<super::KGImpact>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub service_impact: Vec<super::ServiceImpact>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub analysis_warnings: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dead_code_findings: Vec<super::DeadCodeFinding>,
@@ -96,6 +98,7 @@ impl ImpactPacket {
             && self.ci_config_change.is_none()
             && self.ci_predictions.is_empty()
             && self.knowledge_graph.is_empty()
+            && self.service_impact.is_empty()
             && self.analysis_warnings.is_empty()
             && self.dead_code_findings.is_empty()
     }
@@ -137,6 +140,7 @@ impl Default for ImpactPacket {
             ci_config_change: None,
             ci_predictions: Vec::new(),
             knowledge_graph: Vec::new(),
+            service_impact: Vec::new(),
             analysis_warnings: Vec::new(),
             dead_code_findings: Vec::new(),
         }
@@ -214,6 +218,7 @@ impl ImpactPacket {
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| a.job_name.cmp(&b.job_name))
         });
+        self.service_impact.sort_unstable();
         self.dead_code_findings.sort_unstable();
     }
 
@@ -344,6 +349,7 @@ impl ImpactPacket {
         self.deploy_manifest_changes.clear();
         self.ci_config_change = None;
         self.ci_predictions.clear();
+        self.service_impact.clear();
         self.service_map_delta = None;
         self.dead_code_findings.clear();
 

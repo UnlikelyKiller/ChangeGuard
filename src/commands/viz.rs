@@ -27,9 +27,15 @@ pub fn execute_viz(
     limit: usize,
     depth: usize,
     entity: Option<String>,
+    view: String,
 ) -> Result<()> {
     let current_dir = env::current_dir().into_diagnostic()?;
     let layout = Layout::new(current_dir.to_string_lossy().as_ref());
+
+    if view.eq_ignore_ascii_case("services") {
+        return execute_viz_services(output_path, layout);
+    }
+
     let db_path = layout.state_subdir().join("ledger.db");
     let storage = StorageManager::init(db_path.as_std_path())?;
 
@@ -418,6 +424,398 @@ fn generate_html(nodes: &[VizNode], edges: &[VizEdge]) -> String {
             }}
         }}
     </script>
+</body>
+</html>"#,
+        node_count = nodes.len(),
+        edge_count = edges.len(),
+        nodes_json = nodes_json,
+        edges_json = edges_json
+    )
+}
+
+// ---------------------------------------------------------------------------
+// K4: Service Connectivity Visualization
+// ---------------------------------------------------------------------------
+
+/// Renders the service boundary and communication graph as an HTML file.
+fn execute_viz_services(output_path: Option<PathBuf>, layout: Layout) -> Result<()> {
+    let db_path = layout.state_subdir().join("ledger.db");
+    let storage = StorageManager::init(db_path.as_std_path())?;
+
+    let cozo = storage
+        .cozo
+        .as_ref()
+        .ok_or_else(|| miette::miette!("CozoDB not initialized. Run 'changeguard index' first."))?;
+
+    // Query service roots
+    #[derive(serde::Serialize)]
+    struct SvcNode {
+        name: String,
+        dir_path: String,
+        marker_kind: String,
+        confidence: f64,
+    }
+
+    #[derive(serde::Serialize)]
+    struct SvcEdge {
+        caller: String,
+        callee: String,
+        call_kind: String,
+        pattern: String,
+    }
+
+    let mut svc_nodes: Vec<SvcNode> = Vec::new();
+    let roots_res = cozo.run_script(
+        "?[name, dir_path, marker_kind, confidence] := *service_roots{name, dir_path, marker_kind, confidence} :order name"
+    );
+
+    match roots_res {
+        Ok(res) => {
+            for row in res.rows {
+                if let (
+                    Some(cozo::DataValue::Str(name)),
+                    Some(cozo::DataValue::Str(dir)),
+                    Some(cozo::DataValue::Str(marker)),
+                    Some(cozo::DataValue::Num(conf)),
+                ) = (row.first(), row.get(1), row.get(2), row.get(3))
+                {
+                    let confidence = match conf {
+                        cozo::Num::Float(f) => *f,
+                        cozo::Num::Int(i) => *i as f64,
+                    };
+                    svc_nodes.push(SvcNode {
+                        name: name.to_string(),
+                        dir_path: dir.to_string(),
+                        marker_kind: marker.to_string(),
+                        confidence,
+                    });
+                }
+            }
+        }
+        Err(e) => {
+            println!("Warning: Could not query service_roots (run 'changeguard index' first): {e}");
+        }
+    }
+
+    let mut svc_edges: Vec<SvcEdge> = Vec::new();
+    let deps_res = cozo.run_script(
+        "?[caller_service, callee_service, call_kind, pattern] := *service_dependencies{caller_service, callee_service, call_kind, pattern} :order caller_service"
+    );
+
+    match deps_res {
+        Ok(res) => {
+            for row in res.rows {
+                if let (
+                    Some(cozo::DataValue::Str(caller)),
+                    Some(cozo::DataValue::Str(callee)),
+                    Some(cozo::DataValue::Str(call_kind)),
+                    Some(cozo::DataValue::Str(pattern)),
+                ) = (row.first(), row.get(1), row.get(2), row.get(3))
+                {
+                    svc_edges.push(SvcEdge {
+                        caller: caller.to_string(),
+                        callee: callee.to_string(),
+                        call_kind: call_kind.to_string(),
+                        pattern: pattern.to_string(),
+                    });
+                }
+            }
+        }
+        Err(e) => {
+            println!("Warning: Could not query service_dependencies: {e}");
+        }
+    }
+
+    let html = generate_services_html(&svc_nodes, &svc_edges);
+
+    let out = output_path.unwrap_or_else(|| layout.reports_dir().join("services.html").into());
+    if let Some(parent) = out.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent).into_diagnostic()?;
+    }
+    fs::write(&out, html).into_diagnostic()?;
+
+    println!("Service Connectivity Graph generated at {}", out.display());
+    println!("  Services detected: {}", svc_nodes.len());
+    println!("  Communication edges: {}", svc_edges.len());
+    if svc_nodes.is_empty() {
+        println!("  (Run 'changeguard index' to populate service data)");
+    }
+    Ok(())
+}
+
+fn generate_services_html(
+    nodes: &[impl serde::Serialize],
+    edges: &[impl serde::Serialize],
+) -> String {
+    let nodes_json = serde_json::to_string(nodes).unwrap_or_else(|_| "[]".to_string());
+    let edges_json = serde_json::to_string(edges).unwrap_or_else(|_| "[]".to_string());
+
+    format!(
+        r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChangeGuard — Service Connectivity</title>
+    <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <style>
+        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+        body {{
+            background: #0a0a14;
+            color: #e2e8f0;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }}
+        header {{
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            border-bottom: 1px solid #2d3748;
+            padding: 14px 24px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }}
+        header h1 {{
+            font-size: 1.15rem;
+            font-weight: 600;
+            background: linear-gradient(90deg, #63b3ed, #9f7aea);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }}
+        .badge {{
+            background: #2d3748;
+            color: #a0aec0;
+            border-radius: 20px;
+            padding: 3px 10px;
+            font-size: 0.78rem;
+        }}
+        .main {{
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }}
+        #graph-container {{
+            flex: 1;
+            position: relative;
+        }}
+        #network {{
+            width: 100%;
+            height: 100%;
+        }}
+        aside {{
+            width: 310px;
+            background: #111827;
+            border-left: 1px solid #1f2937;
+            overflow-y: auto;
+            padding: 16px;
+        }}
+        .section-title {{
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #718096;
+            margin-bottom: 10px;
+            margin-top: 16px;
+        }}
+        .service-card {{
+            background: #1a2035;
+            border: 1px solid #2d3748;
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s;
+        }}
+        .service-card:hover {{ border-color: #63b3ed; background: #1e2a4a; }}
+        .service-name {{ font-weight: 600; font-size: 0.9rem; color: #e2e8f0; }}
+        .service-meta {{ font-size: 0.76rem; color: #718096; margin-top: 3px; }}
+        .marker-badge {{
+            display: inline-block;
+            background: #2a3a5a;
+            color: #90cdf4;
+            border-radius: 4px;
+            padding: 1px 7px;
+            font-size: 0.7rem;
+            margin-top: 4px;
+        }}
+        .edge-item {{
+            background: #161e30;
+            border: 1px solid #2d3748;
+            border-radius: 6px;
+            padding: 8px 10px;
+            margin-bottom: 6px;
+            font-size: 0.78rem;
+        }}
+        .edge-caller {{ color: #63b3ed; font-weight: 600; }}
+        .edge-arrow {{ color: #718096; margin: 0 6px; }}
+        .edge-callee {{ color: #9f7aea; font-weight: 600; }}
+        .edge-kind {{ color: #68d391; font-size: 0.7rem; margin-top: 3px; }}
+        .edge-pattern {{ color: #a0aec0; font-size: 0.7rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+        .empty-state {{
+            color: #4a5568;
+            font-size: 0.85rem;
+            text-align: center;
+            padding: 24px 0;
+            line-height: 1.5;
+        }}
+        #info-panel {{
+            background: #1a2035;
+            border: 1px solid #2d3748;
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 16px;
+            font-size: 0.82rem;
+            min-height: 60px;
+            color: #a0aec0;
+        }}
+    </style>
+</head>
+<body>
+<header>
+    <h1>⬡ ChangeGuard — Service Connectivity Graph</h1>
+    <span class="badge">{node_count} services</span>
+    <span class="badge">{edge_count} connections</span>
+</header>
+<div class="main">
+    <div id="graph-container">
+        <div id="network"></div>
+    </div>
+    <aside>
+        <div class="section-title">Services</div>
+        <div id="service-list"></div>
+        <div class="section-title">Communication Edges</div>
+        <div id="edge-list"></div>
+        <div class="section-title">Selected Node</div>
+        <div id="info-panel">Click a node to inspect it.</div>
+    </aside>
+</div>
+<script>
+const SVC_NODES = {nodes_json};
+const SVC_EDGES = {edges_json};
+
+const markerColors = {{
+    CARGO_WORKSPACE: '#f6ad55',
+    NPM_PACKAGE: '#68d391',
+    GO_MODULE: '#63b3ed',
+    MAVEN_POM: '#fc8181',
+    DOCKERFILE: '#9f7aea',
+}};
+
+function markerColor(kind) {{
+    return markerColors[kind] || '#a0aec0';
+}}
+
+const visNodes = SVC_NODES.map((s, i) => ({{
+    id: s.name,
+    label: s.name,
+    title: `<b>${{s.name}}</b><br/>Path: ${{s.dir_path}}<br/>Marker: ${{s.marker_kind}}<br/>Confidence: ${{(s.confidence * 100).toFixed(0)}}%`,
+    shape: 'ellipse',
+    color: {{
+        background: markerColor(s.marker_kind),
+        border: '#1a1a2e',
+        highlight: {{ background: '#fff', border: '#63b3ed' }},
+    }},
+    font: {{ color: '#0a0a14', size: 14, bold: {{ size: 14 }} }},
+    size: 28,
+}}));
+
+const edgeMap = {{}};
+SVC_EDGES.forEach(e => {{
+    const key = `${{e.caller}}_${{e.callee}}`;
+    edgeMap[key] = (edgeMap[key] || 0) + 1;
+}});
+
+const visEdges = Object.entries(edgeMap).map(([key, count]) => {{
+    const [from, to] = key.split('_');
+    return {{
+        from, to,
+        label: String(count),
+        arrows: 'to',
+        color: {{ color: '#4a5568', highlight: '#63b3ed' }},
+        font: {{ color: '#a0aec0', size: 11 }},
+        width: Math.min(1 + count * 0.5, 5),
+    }};
+}});
+
+const container = document.getElementById('network');
+const network = new vis.Network(container, {{
+    nodes: new vis.DataSet(visNodes),
+    edges: new vis.DataSet(visEdges),
+}}, {{
+    physics: {{
+        stabilization: {{ iterations: 120 }},
+        barnesHut: {{ gravitationalConstant: -6000, centralGravity: 0.3, springLength: 160 }},
+    }},
+    interaction: {{ hover: true, tooltipDelay: 150 }},
+    layout: {{ improvedLayout: true }},
+}});
+
+// Sidebar: services list
+const serviceList = document.getElementById('service-list');
+if (SVC_NODES.length === 0) {{
+    serviceList.innerHTML = '<div class="empty-state">No services detected.<br/>Run <code>changeguard index</code> first.</div>';
+}} else {{
+    SVC_NODES.forEach(s => {{
+        const card = document.createElement('div');
+        card.className = 'service-card';
+        card.innerHTML = `
+            <div class="service-name">${{s.name}}</div>
+            <div class="service-meta">${{s.dir_path || '.'}}</div>
+            <span class="marker-badge">${{s.marker_kind}}</span>
+        `;
+        card.onclick = () => {{
+            network.selectNodes([s.name]);
+            network.focus(s.name, {{ scale: 1.4, animation: {{ duration: 600 }} }});
+        }};
+        serviceList.appendChild(card);
+    }});
+}}
+
+// Sidebar: edge list
+const edgeList = document.getElementById('edge-list');
+if (SVC_EDGES.length === 0) {{
+    edgeList.innerHTML = '<div class="empty-state">No outbound HTTP calls detected.</div>';
+}} else {{
+    SVC_EDGES.slice(0, 50).forEach(e => {{
+        const div = document.createElement('div');
+        div.className = 'edge-item';
+        div.innerHTML = `
+            <div><span class="edge-caller">${{e.caller}}</span><span class="edge-arrow">→</span><span class="edge-callee">${{e.callee}}</span></div>
+            <div class="edge-kind">${{e.call_kind}}</div>
+            <div class="edge-pattern" title="${{e.pattern}}">${{e.pattern || '(dynamic URL)'}}</div>
+        `;
+        edgeList.appendChild(div);
+    }});
+    if (SVC_EDGES.length > 50) {{
+        const more = document.createElement('div');
+        more.className = 'empty-state';
+        more.textContent = `... and ${{SVC_EDGES.length - 50}} more`;
+        edgeList.appendChild(more);
+    }}
+}}
+
+// Info panel on node click
+network.on('click', params => {{
+    if (params.nodes.length > 0) {{
+        const name = params.nodes[0];
+        const svc = SVC_NODES.find(s => s.name === name);
+        const panel = document.getElementById('info-panel');
+        if (svc) {{
+            const outgoing = SVC_EDGES.filter(e => e.caller === name).length;
+            panel.innerHTML = `
+                <b>${{svc.name}}</b><br/>
+                Path: ${{svc.dir_path || '.'}}<br/>
+                Marker: <span style="color:#f6ad55">${{svc.marker_kind}}</span><br/>
+                Confidence: ${{(svc.confidence * 100).toFixed(0)}}%<br/>
+                Outgoing HTTP calls: ${{outgoing}}
+            `;
+        }}
+    }}
+}});
+</script>
 </body>
 </html>"#,
         node_count = nodes.len(),

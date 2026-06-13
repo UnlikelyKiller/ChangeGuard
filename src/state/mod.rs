@@ -43,4 +43,11 @@ pub enum StateError {
 
     #[error("Storage error: {0}")]
     Storage(String),
+
+    #[error("Schema mismatch detected.")]
+    #[diagnostic(
+        code(state::schema_mismatch),
+        help("Run 'changeguard update --migrate' to upgrade the database schema.")
+    )]
+    SchemaMismatch,
 }

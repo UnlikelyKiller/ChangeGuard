@@ -55,6 +55,15 @@ pub fn setup_schema(storage: &CozoStorage) -> Result<()> {
         storage.run_script(CREATE_LEDGER_ENTRY_TABLE)?;
     }
 
+    // K4: Service boundary and communication relations
+    let existing = storage.get_relations()?;
+    if !existing.contains(&"service_roots".to_string()) {
+        storage.run_script(CREATE_SERVICE_ROOTS_TABLE)?;
+    }
+    if !existing.contains(&"service_dependencies".to_string()) {
+        storage.run_script(CREATE_SERVICE_DEPENDENCIES_TABLE)?;
+    }
+
     migrate_cozo_schema(storage)?;
 
     Ok(())
@@ -306,7 +315,10 @@ pub fn initialize_instance(db_path: &Path, read_only: bool) -> Result<DbInstance
                     retries += 1;
                     if retries == 3 {
                         // Attempt to clean locks / remove lock files in Cozo directory
-                        warn!("CozoDB locked or blocked. Attempting to clear lock files in directory {:?}", db_path);
+                        warn!(
+                            "CozoDB locked or blocked. Attempting to clear lock files in directory {:?}",
+                            db_path
+                        );
                         if let Some(parent) = db_path.parent() {
                             let lock_file = parent.join("ledger.cozo").join("lock");
                             let _ = std::fs::remove_file(lock_file);

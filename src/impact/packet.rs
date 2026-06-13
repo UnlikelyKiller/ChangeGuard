@@ -313,6 +313,7 @@ mod schema_golden_tests {
                 path_length: 1,
                 reason: "r".to_string(),
             }],
+            service_impact: Vec::new(),
             analysis_warnings: vec!["w".to_string()],
             dead_code_findings: vec![DeadCodeFinding {
                 symbol_name: "unused".to_string(),

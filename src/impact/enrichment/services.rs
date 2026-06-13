@@ -50,6 +50,67 @@ impl EnrichmentProvider for ServiceProvider {
             return Ok(());
         }
 
+        // K4: Check CozoDB for downstream breakage
+        if let Some(cozo) = context.storage.cozo.as_ref() {
+            // Fetch all service_roots for prefix matching
+            let mut service_roots = Vec::new();
+            if let Ok(res) = cozo.run_script("?[name, dir_path] := *service_roots{name, dir_path}")
+            {
+                for row in res.rows {
+                    if let (Some(cozo::DataValue::Str(name)), Some(cozo::DataValue::Str(dir))) =
+                        (row.first(), row.get(1))
+                    {
+                        service_roots.push((name.to_string(), dir.to_string()));
+                    }
+                }
+            }
+
+            for change in &mut packet.changes {
+                let path_to_check = change.old_path.as_ref().unwrap_or(&change.path);
+                let path_str = path_to_check.to_string_lossy().replace('\\', "/");
+
+                let has_contracts = !change.api_routes.is_empty() || !change.data_models.is_empty();
+                if has_contracts {
+                    let mut best_match: Option<&str> = None;
+                    let mut best_len = 0;
+                    for (name, dir) in &service_roots {
+                        let dir_prefix = if dir == "." || dir.is_empty() {
+                            ""
+                        } else {
+                            dir.as_str()
+                        };
+                        if path_str.starts_with(dir_prefix) && dir_prefix.len() >= best_len {
+                            best_match = Some(name);
+                            best_len = dir_prefix.len();
+                        }
+                    }
+
+                    if let Some(svc_name) = best_match {
+                        let mut broken_consumers = std::collections::HashSet::new();
+                        for route in &change.api_routes {
+                            let route_pattern = &route.path_pattern;
+                            let script = format!(
+                                "?[consumer] := *service_dependencies{{caller_service: consumer, pattern: p}}, p == '{}'",
+                                route_pattern
+                            );
+                            if let Ok(res) = cozo.run_script(&script) {
+                                for row in res.rows {
+                                    if let Some(cozo::DataValue::Str(consumer)) = row.first() {
+                                        broken_consumers.insert(consumer.to_string());
+                                    }
+                                }
+                            }
+                        }
+
+                        if !broken_consumers.is_empty() {
+                            change.analysis_warnings.push(format!("Downstream Breakage: Service '{}' has {} consumer(s) that may be affected by changes to its public contracts.", svc_name, broken_consumers.len()));
+                            packet.risk_level = crate::impact::packet::RiskLevel::High;
+                        }
+                    }
+                }
+            }
+        }
+
         // 2. Load All Known Services
         let mut service_stmt = conn
             .prepare(

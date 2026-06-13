@@ -19,6 +19,7 @@ pub struct SearchArgs {
     pub json: bool,
     pub auto_index: bool,
     pub project_id: String,
+    pub hybrid: bool,
 }
 
 pub fn execute_search(args: SearchArgs) -> Result<()> {
@@ -138,6 +139,9 @@ pub fn execute_search(args: SearchArgs) -> Result<()> {
         }
 
         debug!("Performing semantic search for: {}", args.query);
+        if !args.json {
+            println!("[Search Mode: Semantic]");
+        }
         let results = semantic_engine.query(&args.query, args.limit)?;
 
         if !results.is_empty() {
@@ -192,6 +196,12 @@ pub fn execute_search(args: SearchArgs) -> Result<()> {
         }
     }
 
+    let mut use_regex = args.regex;
+    let use_hybrid = args.hybrid;
+    if !args.semantic && !args.regex && !use_hybrid && is_regex_likely(&args.query) {
+        use_regex = true;
+    }
+
     let index_path = layout.search_index_dir();
     let engine = TantivySearchEngine::open_or_create(index_path.as_std_path())?;
 
@@ -214,16 +224,157 @@ pub fn execute_search(args: SearchArgs) -> Result<()> {
         engine.verify_index_integrity(index_path.as_std_path())?;
         debug!("Tantivy index integrity verified.");
 
-        perform_search(engine, &layout.root, &args)?;
+        perform_search(engine, &layout.root, &args, use_regex, use_hybrid)?;
     } else {
-        perform_search(engine, &layout.root, &args)?;
+        perform_search(engine, &layout.root, &args, use_regex, use_hybrid)?;
     }
 
     Ok(())
 }
 
-fn perform_search(engine: TantivySearchEngine, root: &Utf8Path, args: &SearchArgs) -> Result<()> {
-    if args.regex {
+pub fn is_regex_likely(query: &str) -> bool {
+    query.chars().any(|c| {
+        matches!(
+            c,
+            '^' | '$' | '.' | '*' | '+' | '?' | '[' | ']' | '(' | ')' | '|'
+        )
+    })
+}
+
+fn perform_search(
+    engine: TantivySearchEngine,
+    root: &Utf8Path,
+    args: &SearchArgs,
+    use_regex: bool,
+    use_hybrid: bool,
+) -> Result<()> {
+    if use_hybrid {
+        if !args.json {
+            println!("[Search Mode: Hybrid]");
+        }
+        let filter = RegexFilter::new(&engine);
+        let regex_matches = filter
+            .search(root, &args.query, args.limit)
+            .unwrap_or_default();
+        let bm25_results = engine.search(&args.query, args.limit).unwrap_or_default();
+
+        struct MergedResult {
+            path: String,
+            line_number: Option<usize>,
+            content: String,
+            score: Option<f32>,
+            is_regex: bool,
+        }
+
+        let mut merged_results: Vec<MergedResult> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+
+        for r in bm25_results {
+            let line = r.line_number;
+            seen.insert((r.path.clone(), line));
+            merged_results.push(MergedResult {
+                path: r.path,
+                line_number: line,
+                content: r
+                    .highlighted
+                    .clone()
+                    .or_else(|| r.snippet.clone())
+                    .unwrap_or_default(),
+                score: Some(r.score),
+                is_regex: false,
+            });
+        }
+
+        for m in regex_matches {
+            let line = Some(m.line_number);
+            if !seen.contains(&(m.path.clone(), line)) {
+                seen.insert((m.path.clone(), line));
+                merged_results.push(MergedResult {
+                    path: m.path,
+                    line_number: line,
+                    content: m.content,
+                    score: None,
+                    is_regex: true,
+                });
+            }
+        }
+
+        if args.json {
+            for res in merged_results {
+                let record = BridgeRecord {
+                    bridge_version: BridgeRecord::VERSION.to_string(),
+                    direction: BridgeDirection::Outbound,
+                    timestamp: chrono::Utc::now(),
+                    parent_hash: None,
+                    project_id: args.project_id.clone(),
+                    session_id: None,
+                    tx_id: None,
+                    record_kind: if res.is_regex {
+                        "regex_match".to_string()
+                    } else {
+                        "bm25_match".to_string()
+                    },
+                    payload: BridgePayload::Insight {
+                        memory_id: if let Some(line) = res.line_number {
+                            format!("{}::{}", res.path, line)
+                        } else {
+                            res.path.clone()
+                        },
+                        relevance: res.score.unwrap_or(1.0) as f64,
+                        content: if res.is_regex {
+                            format!(
+                                "{}:{}: {}",
+                                res.path,
+                                res.line_number.unwrap_or(0),
+                                res.content
+                            )
+                        } else {
+                            format!("{} ({})", res.path, res.content)
+                        },
+                    },
+                    privacy: Privacy::ProjectLocal,
+                };
+                println!("{}", serde_json::to_string(&record).unwrap_or_default());
+            }
+        } else {
+            println!(
+                "\n{}",
+                "Hybrid Search Results (BM25 + Regex):".bold().cyan()
+            );
+            if merged_results.is_empty() {
+                println!("No matches found.");
+            } else {
+                for res in merged_results {
+                    let line_info = if let Some(line) = res.line_number {
+                        format!(":{}", line.to_string().yellow())
+                    } else {
+                        String::new()
+                    };
+                    let source_label = if res.is_regex {
+                        "[Regex]".magenta().to_string()
+                    } else {
+                        "[BM25]".green().to_string()
+                    };
+                    let score_info = if let Some(score) = res.score {
+                        format!(" [score: {:.2}]", score)
+                    } else {
+                        String::new()
+                    };
+                    println!(
+                        "{} {}{} {}",
+                        source_label,
+                        format!("{}{}", res.path.cyan(), line_info).bold(),
+                        score_info.yellow(),
+                        res.content.trim()
+                    );
+                }
+            }
+            println!();
+        }
+    } else if use_regex {
+        if !args.json {
+            println!("[Search Mode: Regex]");
+        }
         let filter = RegexFilter::new(&engine);
         let matches = filter.search(root, &args.query, args.limit)?;
 
@@ -269,6 +420,9 @@ fn perform_search(engine: TantivySearchEngine, root: &Utf8Path, args: &SearchArg
             println!();
         }
     } else {
+        if !args.json {
+            println!("[Search Mode: BM25]");
+        }
         let results = engine.search(&args.query, args.limit)?;
 
         if args.json {
