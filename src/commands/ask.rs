@@ -10,6 +10,7 @@ use owo_colors::OwoColorize;
 use std::env;
 
 const ASK_COMPLETION_MAX_TOKENS: usize = 512;
+const MIN_CONTEXT_CHARS: usize = 32_768;
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, clap::ValueEnum,
@@ -268,7 +269,16 @@ pub fn execute_ask(
         crate::local_model::context::AdaptiveMode::ChangesFocus
     };
 
-    let user_prompt = if is_global {
+    // Token budget consistency (Track E0-4)
+    let budget_tokens = match resolved_backend {
+        Backend::Gemini => config.gemini.context_window,
+        Backend::Local => config.local_model.context_window,
+    };
+    let char_limit = (budget_tokens as u64 * 4 * 80 / 100)
+        .max(MIN_CONTEXT_CHARS as u64) as usize;
+    let truncated = latest_packet.truncate_for_context(char_limit);
+
+    let mut user_prompt = if is_global {
         format!(
             "Answer the following codebase query:\n\nQuery: {}",
             query_string
@@ -278,6 +288,10 @@ pub fn execute_ask(
     } else {
         crate::gemini::prompt::build_suggest_prompt(&latest_packet, &query_string)
     };
+
+    if truncated && resolved_backend == Backend::Gemini {
+        user_prompt.push_str("\n\n[Packet truncated for Gemini submission]");
+    }
 
     let base_system_prompt = if is_global {
         let mut base = "You are ChangeGuard, an expert software engineering assistant. You act as a codebase oracle answering architectural and implementation questions based on retrieved knowledge graph and semantic context snippets. Provide direct, technical, and accurate answers citing the retrieved snippets where relevant.".to_string();
@@ -658,5 +672,40 @@ mod tests {
         let options = ask_completion_options();
         assert_eq!(options.max_tokens, ASK_COMPLETION_MAX_TOKENS);
         assert!(options.max_tokens < Config::default().local_model.context_window);
+    }
+
+    #[test]
+    fn test_default_context_window_yields_hardcoded_budget() {
+        let config = GeminiConfig::default(); // defaults to 128,000
+        let char_limit = (config.context_window as u64 * 4 * 80 / 100)
+            .max(MIN_CONTEXT_CHARS as u64) as usize;
+        assert_eq!(char_limit, 409_600);
+    }
+
+    #[test]
+    fn test_custom_context_window_adjusts_budget() {
+        let mut config = GeminiConfig::default();
+        config.context_window = 200_000;
+        let char_limit = (config.context_window as u64 * 4 * 80 / 100)
+            .max(MIN_CONTEXT_CHARS as u64) as usize;
+        assert_eq!(char_limit, 640_000);
+    }
+
+    #[test]
+    fn test_small_context_window_budget() {
+        let mut config = GeminiConfig::default();
+        config.context_window = 32_000;
+        let char_limit = (config.context_window as u64 * 4 * 80 / 100)
+            .max(MIN_CONTEXT_CHARS as u64) as usize;
+        assert_eq!(char_limit, 102_400);
+    }
+
+    #[test]
+    fn test_zero_context_window_fallback() {
+        let mut config = GeminiConfig::default();
+        config.context_window = 0;
+        let char_limit = (config.context_window as u64 * 4 * 80 / 100)
+            .max(MIN_CONTEXT_CHARS as u64) as usize;
+        assert_eq!(char_limit, 32_768);
     }
 }

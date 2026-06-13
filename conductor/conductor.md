@@ -1909,10 +1909,11 @@ Execution guidance (added 2026-06-09 review): run these tracks **serially**, one
     *   Key additions: `SymbolMatcher` struct with `HashMap` cache, optimized single-probe lookups, and enhanced word-boundary matching logic.
 
 *   **Track E0-4: Token Budget Consistency**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackE0-4/spec.md`
     *   Plan: `conductor/trackE0-4/plan.md`
     *   Goal: Derive the Gemini truncation budget from `config.gemini.context_window` instead of hardcoding it.
+    *   Key additions: Dynamic character limit calculation, `MIN_CONTEXT_CHARS` floor, and truncation signaling in `execute_ask`.
 
 *   **Track CG-F3: Fix ledger note**
     *   Status: Completed
