@@ -162,22 +162,31 @@ pub fn execute_index(args: IndexArgs) -> Result<()> {
                         let res = execute_scip_index(&layout, &mut storage, scip_path.clone());
 
                         // Cleanup temporary index file if it's the default one we generated
-                        if scip_path.exists() && scip_path.file_name().and_then(|n| n.to_str()) == Some("changeguard.temp.scip") {
-                             let _ = std::fs::remove_file(&scip_path);
+                        if scip_path.exists()
+                            && scip_path.file_name().and_then(|n| n.to_str())
+                                == Some("changeguard.temp.scip")
+                        {
+                            let _ = std::fs::remove_file(&scip_path);
                         }
-                        
-                        // S4: If ingestion fails, we might still want to continue to main indexing, 
+
+                        // S4: If ingestion fails, we might still want to continue to main indexing,
                         // but the current precedence says SCIP ingestion is an early-return mode.
                         // Given the spec says "gracefully fall back to native Tree-Sitter parsing",
                         // if SCIP fails, we should fall through to the main path.
                         if let Err(e) = res {
-                            warn!("SCIP ingestion failed: {}. Falling back to native indexing.", e);
+                            warn!(
+                                "SCIP ingestion failed: {}. Falling back to native indexing.",
+                                e
+                            );
                         } else {
                             return Ok(());
                         }
                     }
                     Err(e) => {
-                        warn!("SCIP generation failed: {}. Falling back to native indexing.", e);
+                        warn!(
+                            "SCIP generation failed: {}. Falling back to native indexing.",
+                            e
+                        );
                     }
                 }
             }

@@ -274,8 +274,7 @@ pub fn execute_ask(
         Backend::Gemini => config.gemini.context_window,
         Backend::Local => config.local_model.context_window,
     };
-    let char_limit = (budget_tokens as u64 * 4 * 80 / 100)
-        .max(MIN_CONTEXT_CHARS as u64) as usize;
+    let char_limit = (budget_tokens as u64 * 4 * 80 / 100).max(MIN_CONTEXT_CHARS as u64) as usize;
     let truncated = latest_packet.truncate_for_context(char_limit);
 
     let mut user_prompt = if is_global {
@@ -677,35 +676,41 @@ mod tests {
     #[test]
     fn test_default_context_window_yields_hardcoded_budget() {
         let config = GeminiConfig::default(); // defaults to 128,000
-        let char_limit = (config.context_window as u64 * 4 * 80 / 100)
-            .max(MIN_CONTEXT_CHARS as u64) as usize;
+        let char_limit =
+            (config.context_window as u64 * 4 * 80 / 100).max(MIN_CONTEXT_CHARS as u64) as usize;
         assert_eq!(char_limit, 409_600);
     }
 
     #[test]
     fn test_custom_context_window_adjusts_budget() {
-        let mut config = GeminiConfig::default();
-        config.context_window = 200_000;
-        let char_limit = (config.context_window as u64 * 4 * 80 / 100)
-            .max(MIN_CONTEXT_CHARS as u64) as usize;
+        let config = GeminiConfig {
+            context_window: 200_000,
+            ..Default::default()
+        };
+        let char_limit =
+            (config.context_window as u64 * 4 * 80 / 100).max(MIN_CONTEXT_CHARS as u64) as usize;
         assert_eq!(char_limit, 640_000);
     }
 
     #[test]
     fn test_small_context_window_budget() {
-        let mut config = GeminiConfig::default();
-        config.context_window = 32_000;
-        let char_limit = (config.context_window as u64 * 4 * 80 / 100)
-            .max(MIN_CONTEXT_CHARS as u64) as usize;
+        let config = GeminiConfig {
+            context_window: 32_000,
+            ..Default::default()
+        };
+        let char_limit =
+            (config.context_window as u64 * 4 * 80 / 100).max(MIN_CONTEXT_CHARS as u64) as usize;
         assert_eq!(char_limit, 102_400);
     }
 
     #[test]
     fn test_zero_context_window_fallback() {
-        let mut config = GeminiConfig::default();
-        config.context_window = 0;
-        let char_limit = (config.context_window as u64 * 4 * 80 / 100)
-            .max(MIN_CONTEXT_CHARS as u64) as usize;
+        let config = GeminiConfig {
+            context_window: 0,
+            ..Default::default()
+        };
+        let char_limit =
+            (config.context_window as u64 * 4 * 80 / 100).max(MIN_CONTEXT_CHARS as u64) as usize;
         assert_eq!(char_limit, 32_768);
     }
 }

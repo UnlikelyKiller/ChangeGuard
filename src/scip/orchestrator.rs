@@ -1,4 +1,4 @@
-use miette::{miette, IntoDiagnostic, Result};
+use miette::{IntoDiagnostic, Result, miette};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tracing::info;
@@ -12,22 +12,20 @@ pub enum ScipToolchain {
 impl ScipToolchain {
     pub fn detect(repo_root: &Path) -> Option<Self> {
         // Rust detection
-        if repo_root.join("Cargo.toml").exists() {
-            if is_on_path("rust-analyzer") {
-                return Some(Self::RustAnalyzer);
-            }
+        if repo_root.join("Cargo.toml").exists() && is_on_path("rust-analyzer") {
+            return Some(Self::RustAnalyzer);
         }
         // TS detection
-        if repo_root.join("tsconfig.json").exists() || repo_root.join("package.json").exists() {
-            if is_on_path("scip-typescript") {
-                return Some(Self::ScipTypescript);
-            }
+        if (repo_root.join("tsconfig.json").exists() || repo_root.join("package.json").exists())
+            && is_on_path("scip-typescript")
+        {
+            return Some(Self::ScipTypescript);
         }
         // Python detection
-        if repo_root.join("requirements.txt").exists() || repo_root.join("pyproject.toml").exists() {
-            if is_on_path("scip-python") {
-                return Some(Self::ScipPython);
-            }
+        if (repo_root.join("requirements.txt").exists() || repo_root.join("pyproject.toml").exists())
+            && is_on_path("scip-python")
+        {
+            return Some(Self::ScipPython);
         }
 
         None
@@ -39,12 +37,12 @@ impl ScipToolchain {
         let mut cmd = match self {
             Self::RustAnalyzer => {
                 let mut c = Command::new("rust-analyzer");
-                c.args(&["scip", ".", "--output", temp_filename]);
+                c.args(["scip", ".", "--output", temp_filename]);
                 c
             }
             Self::ScipTypescript => {
                 let mut c = Command::new("scip-typescript");
-                c.args(&["index", "--output", temp_filename]);
+                c.args(["index", "--output", temp_filename]);
                 c
             }
             Self::ScipPython => {
@@ -53,7 +51,7 @@ impl ScipToolchain {
                     .file_name()
                     .and_then(|s| s.to_str())
                     .unwrap_or("changeguard-project");
-                c.args(&[
+                c.args([
                     "index",
                     ".",
                     "--project-name",
@@ -65,9 +63,10 @@ impl ScipToolchain {
             }
         };
 
+
         cmd.current_dir(repo_root);
         info!("Running SCIP indexer: {:?}", cmd);
-        
+
         let status = cmd.status().into_diagnostic()?;
 
         if !status.success() {

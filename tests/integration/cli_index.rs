@@ -141,7 +141,11 @@ fn test_index_auto_scip_graceful_fallback() {
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(root.join("src").join("lib.rs"), "fn main() {}").unwrap();
     // Add a Cargo.toml so detection triggers for Rust
-    fs::write(root.join("Cargo.toml"), r#"[package]\nname = "test"\nversion = "0.1.0""#).unwrap();
+    fs::write(
+        root.join("Cargo.toml"),
+        r#"[package]\nname = "test"\nversion = "0.1.0""#,
+    )
+    .unwrap();
 
     let _guard = DirGuard::from_utf8(root);
 
@@ -155,5 +159,8 @@ fn test_index_auto_scip_graceful_fallback() {
         auto_scip: true,
         ..Default::default()
     });
-    assert!(result.is_ok(), "Auto-SCIP should fall back to native if binary is missing or generation fails");
+    assert!(
+        result.is_ok(),
+        "Auto-SCIP should fall back to native if binary is missing or generation fails"
+    );
 }

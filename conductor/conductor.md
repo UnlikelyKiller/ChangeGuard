@@ -1923,10 +1923,11 @@ Execution guidance (added 2026-06-09 review): run these tracks **serially**, one
     *   Key additions: `ledger note` subcommand, `execute_ledger_note` handler, and comprehensive integration tests.
 
 *   **Track CG-F4: Fix federate scan Noisy Schema Warnings**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackCG-F4/spec.md`
     *   Plan: `conductor/trackCG-F4/plan.md`
     *   Goal: Suppress noisy schema warnings for non-ChangeGuard sibling repositories during `federate scan`.
+    *   Key additions: Explicit `.changeguard/` directory check and downgraded validation logging during sibling discovery.
 
 ## Workflow
 

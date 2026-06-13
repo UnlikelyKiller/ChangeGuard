@@ -183,10 +183,16 @@ impl FederatedScanner {
                     continue;
                 }
 
+                // Task 1.1: Explicitly check for .changeguard/ directory
+                let cg_dir = path.join(".changeguard");
+                if !cg_dir.is_dir() {
+                    continue;
+                }
+
                 // Check for schema in .changeguard/state/schema.json (current)
                 // or .changeguard/schema.json (legacy fallback)
-                let schema_path = path.join(".changeguard").join("state").join("schema.json");
-                let legacy_path = path.join(".changeguard").join("schema.json");
+                let schema_path = cg_dir.join("state").join("schema.json");
+                let legacy_path = cg_dir.join("schema.json");
 
                 let final_path = if schema_path.exists() {
                     Some(schema_path)
@@ -200,12 +206,14 @@ impl FederatedScanner {
                     match self.load_schema(&sp) {
                         Ok(schema) => {
                             if let Err(e) = schema.validate() {
+                                // Task 1.4: Downgrade to DEBUG to reduce noise during discovery
                                 debug!("Invalid schema at {}: {}", path, e);
                             } else {
                                 discovered.push((path, schema));
                             }
                         }
                         Err(e) => {
+                            // Only warn if the schema file exists but is corrupted/unreadable
                             warnings.push(format!("Failed to load schema from {}: {}", path, e));
                             warn!("Failed to load schema from {}: {:?}", sp, e);
                         }

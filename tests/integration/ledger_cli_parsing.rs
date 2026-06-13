@@ -381,14 +381,12 @@ fn test_note_complex_inputs() {
     let Commands::Ledger { command, .. } = cli.command else {
         panic!("expected Ledger command");
     };
-    let LedgerCommands::Note {
-        entity,
-        note,
-        ..
-    } = command
-    else {
+    let LedgerCommands::Note { entity, note, .. } = command else {
         panic!("expected Note");
     };
     assert_eq!(entity, "C:\\path\\to\\file.txt");
-    assert_eq!(note.as_deref(), Some("Note with \"quotes\" and \\backslashes\\"));
+    assert_eq!(
+        note.as_deref(),
+        Some("Note with \"quotes\" and \\backslashes\\")
+    );
 }
