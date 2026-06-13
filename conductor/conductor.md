@@ -1895,12 +1895,17 @@ Execution guidance (added 2026-06-09 review): run these tracks **serially**, one
     *   Goal: Implement a two-tier complexity lookup for hotspots, falling back to project-wide symbols when impact-run data is missing.
     *   Key additions: `query_file_complexities` helper, graceful degradation for missing `project_symbols` table, batched SQLite lookups.
 
-*   **Track CG-F2: bridge_export_tests.rs Formatting**
-    *   Status: Completed
-    *   Spec: `conductor/trackCG-F2/spec.md`
-    *   Plan: `conductor/trackCG-F2/plan.md`
-    *   Goal: Fix formatting drift in `tests/integration/bridge_export_tests.rs`.
-    *   Key additions: Formatted test file.
+*   **Track E0-3: Federated Dependency Matching**
+    *   Status: In Progress
+    *   Spec: `conductor/trackE0-3/spec.md`
+    *   Plan: `conductor/trackE0-3/plan.md`
+    *   Goal: Implement `SymbolMatcher` caching and edge-case tests in `src/federated/scanner.rs` to optimize cross-repo symbol matching.
+
+*   **Track CG-F3: Fix ledger note**
+    *   Status: In Progress
+    *   Spec: `conductor/trackCG-F3/spec.md`
+    *   Plan: `conductor/trackCG-F3/plan.md`
+    *   Goal: Restore the `ledger note` command in `src/cli/args.rs` and remove any deprecation warnings.
 
 ## Workflow
 
