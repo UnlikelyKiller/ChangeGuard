@@ -8,9 +8,9 @@ ignore_patterns = ["dist/**", "coverage/**"]
 
 [gemini]
 # Prefer GEMINI_API_KEY in the environment or local .env.
-# model = "gemini-3.1-pro-preview" # optional override for every ask mode
-fast_model = "gemini-3.1-flash-lite-preview"
-deep_model = "gemini-3.1-pro-preview"
+# model = "gemini-3.1-pro" # optional override for every ask mode
+fast_model = "gemini-3.1-flash-lite"
+deep_model = "gemini-3.1-pro"
 timeout_secs = 120
 context_window = 128000
 

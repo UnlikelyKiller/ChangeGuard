@@ -60,7 +60,7 @@ pub fn select_gemini_model(
         config
             .deep_model
             .clone()
-            .unwrap_or_else(|| "gemini-1.5-pro".to_string())
+            .unwrap_or_else(|| "gemini-3.1-pro".to_string())
     } else {
         if let Ok(env_fast) = std::env::var("GEMINI_FAST_MODEL") {
             return env_fast;
@@ -68,7 +68,7 @@ pub fn select_gemini_model(
         config
             .fast_model
             .clone()
-            .unwrap_or_else(|| "gemini-1.5-flash".to_string())
+            .unwrap_or_else(|| "gemini-3.1-flash-lite".to_string())
     }
 }
 

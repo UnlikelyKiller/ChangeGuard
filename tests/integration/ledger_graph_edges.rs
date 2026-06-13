@@ -66,6 +66,7 @@ fn test_commit_writes_kg_edges() {
         "Feature change",
         "Adds new API",
         false,
+        false, // force
         LedgerCommitGitOptions::default(),
     );
     assert!(result.is_ok(), "Commit failed: {:?}", result.err());

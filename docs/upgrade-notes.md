@@ -66,7 +66,7 @@ These notes summarize dependency-specific cautions for ChangeGuard maintenance.
 ## Gemini CLI
 
 - `changeguard ask` shells out to `gemini --model <selected-model> --prompt ""`.
-- The default model routing is `gemini-3.1-flash-lite-preview` for routine low-latency asks and `gemini-3.1-pro-preview` for patch review or high-risk packets.
+- The default model routing is `gemini-3.1-flash-lite` for routine low-latency asks and `gemini-3.1-pro` for patch review or high-risk packets.
 - `gemini.model` remains an override for forcing a single model across all ask modes.
 - `GEMINI_API_KEY` may come from the process environment, a local ignored `.env`, or `.changeguard/config.toml`.
 - Missing CLI errors must remain actionable: `Gemini CLI not found. Install Gemini CLI to enable narrative summaries.`

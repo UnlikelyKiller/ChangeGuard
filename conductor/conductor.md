@@ -771,7 +771,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Key files: `src/cli.rs`, `src/commands/mod.rs`, `src/commands/viz_server.rs`
 
 
-## Milestone K: Service Discovery & Storage Hardening (Planned)
+## Milestone K: Service Discovery & Storage Hardening (Completed)
 
 *   **Track K1: Storage Resilience (Windows & Vector Integrity)**
     *   Status: Completed
@@ -788,7 +788,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Key files: `src/commands/ask.rs`, `src/local_model/context.rs`, `src/gemini/prompt.rs`
 
 *   **Track K3: CLI UX Polish (Proactive Recovery & Hybrid Search)**
-    *   Status: Planned
+    *   Status: Completed
     *   Spec: `conductor/trackK3/spec.md`
     *   Plan: `conductor/trackK3/plan.md`
     *   Goal: Add top-level `status` alias; implement interactive "Proactive Self-Correction" for schema mismatches; introduce heuristic search routing (Regex auto-detection) and blends.
@@ -1003,7 +1003,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Goal: Support entity-based lookups for `ledger commit` and general CLI output cleanup.
     *   Key additions: Entity name resolution for transactions in `transaction.rs`.
 
-## Milestone HP: High-Performance & Optimization
+## Milestone HP: High-Performance & Optimization (Completed)
 
 *   **Track HP1: Fast Network Seams & Non-Blocking TCP Connect Probes**
     *   Status: Completed
@@ -1029,7 +1029,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Plan: `conductor/trackHP4/plan.md`
     *   Goal: Build and display terminal progress bars during HNSW index construction.
 
-## Milestone SE: SQLite Storage Migration
+## Milestone SE: SQLite Storage Migration (Completed)
 
 *   **Track SE1: SQLite Storage Engine Migration**
     *   Status: Completed
@@ -1037,7 +1037,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Plan: `conductor/trackSE1/plan.md`
     *   Goal: Migrate default Knowledge Graph engine to SQLite, increment version to v0.1.1, and verify incremental tests.
 
-## Milestone CR: Codex Review Remediation
+## Milestone CR: Codex Review Remediation (Completed)
 
 *   **Track CR1: Incremental Semantic Indexing Deletions**
     *   Status: Completed
@@ -1102,7 +1102,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Goal: Refine the startup sweep for *.old.*.exe files in main.rs to only clean up files belonging specifically to the current ChangeGuard binary.
     *   Key additions: Dynamic prefix derivation from `current_exe().file_stem()` in `sweep_stale_old_binaries()` in `main.rs`.
 
-## Milestone Q: Quality & Reliability Hardening
+## Milestone Q: Quality & Reliability Hardening (Completed)
 
 *   **Track Q1: Signature & Ledger Integrity**
     *   Status: Completed
@@ -1140,7 +1140,7 @@ Systematic UX and reliability improvements identified in the 2026-05-20 comprehe
     *   Key additions: Conventional commit fast-path bypass in `commit-msg` hook (with improved risk mapping), tightened conventional prefix detection, terminal spinner for LLM drafting.
 
 
-## Milestone R: Resilience & Advanced Ergonomics
+## Milestone R: Resilience & Advanced Ergonomics (Completed)
 
 *   **Track R1: Advanced CLI Help Interceptor**
     *   Status: Completed

@@ -352,7 +352,21 @@ impl SemanticExtractor {
                     "Semantic extraction [{}/{}]: using Gemini (fast mode)...",
                     attempt, self.config.max_retries,
                 );
-                gemini_complete(gemini_config, &messages, &options)
+                match gemini_complete(gemini_config, &messages, &options) {
+                    Ok(res) => Ok(res),
+                    Err(e) => {
+                        warn!(
+                            "Gemini extraction failed: {}. Falling back to local model...",
+                            e
+                        );
+                        complete(
+                            local_model_config,
+                            &messages,
+                            &options,
+                            Some(effective_timeout),
+                        )
+                    }
+                }
             } else {
                 complete(
                     local_model_config,

@@ -5,6 +5,7 @@ use miette::{IntoDiagnostic, Result};
 use std::time::Duration;
 
 mod client_cli;
+use crate::util::query::sanitize_fts5_query;
 pub use client_cli::query_external_cli;
 
 pub fn query_unified(query: &str) -> Result<Vec<BridgeRecord>> {
@@ -16,10 +17,12 @@ pub fn query_unified(query: &str) -> Result<Vec<BridgeRecord>> {
         return Ok(Vec::new());
     }
 
+    let sanitized_query = sanitize_fts5_query(query);
+
     // 1. Try IPC
     if let Ok(mut client) = IpcClient::connect_with_timeout(Duration::from_millis(200)) {
         let payload = BridgePayload::Query {
-            text: query.to_string(),
+            text: sanitized_query.clone(),
         };
         let req = BridgeRecord::new(
             BridgeDirection::Inbound,
@@ -36,7 +39,7 @@ pub fn query_unified(query: &str) -> Result<Vec<BridgeRecord>> {
     }
 
     // 2. Fallback to CLI
-    query_external_cli(query)
+    query_external_cli(&sanitized_query)
 }
 
 pub fn execute_query(query: String) -> Result<()> {

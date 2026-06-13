@@ -46,20 +46,20 @@ fn test_monorepo_service_impact() {
     // Init repo and create a git commit so scan can work properly
     std::process::Command::new("git")
         .arg("init")
-        .current_dir(&root)
+        .current_dir(root)
         .output()
         .unwrap();
     std::process::Command::new("git")
         .arg("add")
         .arg(".")
-        .current_dir(&root)
+        .current_dir(root)
         .output()
         .unwrap();
     std::process::Command::new("git")
         .arg("commit")
         .arg("-m")
         .arg("Initial")
-        .current_dir(&root)
+        .current_dir(root)
         .output()
         .unwrap();
 

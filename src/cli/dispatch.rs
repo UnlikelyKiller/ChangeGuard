@@ -330,6 +330,7 @@ fn dispatch_ledger(command: LedgerCommands) -> Result<()> {
             summary,
             reason,
             breaking,
+            force,
             with_git,
             git_message,
             no_signoff,
@@ -339,6 +340,7 @@ fn dispatch_ledger(command: LedgerCommands) -> Result<()> {
             &summary,
             &reason,
             breaking,
+            force,
             crate::commands::ledger::LedgerCommitGitOptions {
                 with_git,
                 git_message,
@@ -354,11 +356,13 @@ fn dispatch_ledger(command: LedgerCommands) -> Result<()> {
             category,
             summary,
             reason,
+            force,
         } => crate::commands::ledger::execute_ledger_atomic(
             &entity,
             &category.to_string(),
             &summary,
             &reason,
+            force,
         ),
         LedgerCommands::Status {
             entity,

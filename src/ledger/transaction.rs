@@ -146,20 +146,25 @@ impl<'a> TransactionManager<'a> {
         }
 
         // Verification gate: require verification status for high-risk categories
-        if !force && self.config.ledger.verify_to_commit {
+        if self.config.ledger.verify_to_commit {
             let requires_verification = matches!(
                 tx.category,
-                Category::Architecture
-                    | Category::Feature
-                    | Category::Bugfix
-                    | Category::Infra
-                    | Category::Security
+                Category::Architecture | Category::Feature | Category::Bugfix | Category::Infra
             );
-            if requires_verification && req.verification_status.is_none() {
-                return Err(LedgerError::VerificationRequired(format!(
-                    "{:?}",
-                    tx.category
-                )));
+
+            if requires_verification {
+                if force {
+                    tracing::warn!(
+                        "Verification gate bypassed with --force for transaction {} (category: {:?})",
+                        tx_id,
+                        tx.category
+                    );
+                } else if req.verification_status.is_none() || req.verification_basis.is_none() {
+                    return Err(LedgerError::VerificationRequired(format!(
+                        "{} (both status and basis required)",
+                        tx.category
+                    )));
+                }
             }
         }
 

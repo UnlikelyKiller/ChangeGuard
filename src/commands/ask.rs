@@ -109,6 +109,43 @@ pub fn execute_ask(
     }
 
     let resolved_backend = resolve_backend(&config, backend);
+
+    // Check if the chosen/resolved backend is actually configured
+    match resolved_backend {
+        Backend::Gemini => {
+            let has_gemini_key = config.gemini.api_key.is_some()
+                || env::var("GEMINI_API_KEY").is_ok()
+                || crate::config::model::read_env_key("GEMINI_API_KEY").is_some();
+
+            if !has_gemini_key {
+                return Err(miette::miette!(
+                    "Gemini backend selected but GEMINI_API_KEY is not configured. Use --backend local or set the API key."
+                ));
+            }
+        }
+        Backend::Local => {
+            if !crate::local_model::client::is_configured(&config.local_model) {
+                if let Some(Backend::Gemini) = backend {
+                    return Err(miette::miette!(
+                        "Gemini API key missing and no local model is configured. Please configure either Gemini or a local model (Ollama/llama.cpp)."
+                    ));
+                } else {
+                    return Err(miette::miette!(
+                        "Local model backend selected but not configured. Use --backend gemini or configure a local model."
+                    ));
+                }
+            }
+
+            // CR: Graceful fallback message (AC 4)
+            if let Some(Backend::Gemini) = backend {
+                eprintln!(
+                    "{}",
+                    "Gemini API key missing — falling back to local model.".yellow()
+                );
+            }
+        }
+    }
+
     let query_string = query.unwrap_or_else(|| {
         if is_global {
             "Give me an overview of this codebase and its key components.".to_string()
@@ -513,30 +550,27 @@ pub fn resolve_backend_with(
     env_reader: &dyn Fn(&str) -> Option<String>,
     dotenv_reader: &dyn Fn(&str) -> Option<String>,
 ) -> Backend {
-    if let Some(b) = explicit {
-        return b;
-    }
-    if config.local_model.prefer_local
-        && (!config.local_model.base_url.is_empty()
-            || config.local_model.embedding_url.is_some()
-            || config.local_model.generation_url.is_some()
-            || crate::local_model::client::has_ollama_cloud_fallback(&config.local_model))
-    {
-        return Backend::Local;
-    }
-
     let has_gemini_key = config.gemini.api_key.is_some()
         || env_reader("GEMINI_API_KEY").is_some()
         || dotenv_reader("GEMINI_API_KEY").is_some();
 
-    if !has_gemini_key
-        && (!config.local_model.base_url.is_empty()
-            || config.local_model.embedding_url.is_some()
-            || config.local_model.generation_url.is_some()
-            || crate::local_model::client::has_ollama_cloud_fallback(&config.local_model))
-    {
+    let has_local = crate::local_model::client::is_configured(&config.local_model);
+
+    if let Some(b) = explicit {
+        if b == Backend::Gemini && !has_gemini_key {
+            return Backend::Local;
+        }
+        return b;
+    }
+
+    if config.local_model.prefer_local && has_local {
         return Backend::Local;
     }
+
+    if !has_gemini_key && has_local {
+        return Backend::Local;
+    }
+
     Backend::Gemini
 }
 

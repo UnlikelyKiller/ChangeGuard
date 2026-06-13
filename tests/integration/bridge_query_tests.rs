@@ -14,6 +14,19 @@ fn test_bridge_query_subcommand_exists() {
 }
 
 #[test]
+fn test_bridge_query_sanitization_handling() {
+    let binary = option_env!("CARGO_BIN_EXE_changeguard").unwrap_or("target/debug/changeguard");
+    // This query contains a '?' which triggered the FTS5 syntax error.
+    // We expect it to succeed (fail-open) and not crash.
+    let output = Command::new(binary)
+        .args(["bridge", "query", "what is this?"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+}
+
+#[test]
 #[ignore = "requires local embedding server to be running (http://127.0.0.1:8083)"]
 fn test_bridge_query_fail_open_on_missing_binary() {
     // We expect the command to succeed even if ai-brains is missing (fail-open)

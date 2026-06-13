@@ -192,7 +192,7 @@ fn parse_cargo_name(content: &str) -> Option<String> {
         .skip_while(|l| !l.trim().starts_with("[package]"))
         .skip(1)
         .find(|l| l.trim().starts_with("name"))
-        .and_then(|l| l.splitn(2, '=').nth(1))
+        .and_then(|l| l.split_once('=').map(|x| x.1))
         .map(|v| v.trim().trim_matches('"').to_string())
 }
 

@@ -68,6 +68,7 @@ pub fn execute_ledger_commit(
     summary: &str,
     reason: &str,
     breaking: bool,
+    force: bool,
     git_options: LedgerCommitGitOptions,
 ) -> Result<()> {
     let layout = get_layout()?;
@@ -106,7 +107,7 @@ pub fn execute_ledger_commit(
                 is_breaking: breaking,
                 ..Default::default()
             },
-            false,
+            force,
         )
         .map_err(|e| miette::miette!("{}", e))?;
 
@@ -224,6 +225,7 @@ pub fn execute_ledger_atomic(
     category: &str,
     summary: &str,
     reason: &str,
+    force: bool,
 ) -> Result<()> {
     let category = Category::from_str(category, true).map_err(|e| miette::miette!("{}", e))?;
     let layout = get_layout()?;
@@ -244,7 +246,7 @@ pub fn execute_ledger_atomic(
                 reason: reason.to_string(),
                 ..Default::default()
             },
-            false,
+            force,
         )
         .map_err(|e| miette::miette!("{}", e))?;
 

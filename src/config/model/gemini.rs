@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub const DEFAULT_GEMINI_FAST_MODEL: &str = "gemini-3.5-flash";
+pub const DEFAULT_GEMINI_FAST_MODEL: &str = "gemini-3.1-flash-lite";
 pub const DEFAULT_GEMINI_DEEP_MODEL: &str = "gemini-3.1-pro";
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]

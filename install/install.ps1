@@ -138,9 +138,9 @@ limit = 10
 # Prefer GEMINI_API_KEY in the environment or local .env.
 # api_key = "..."
 # Optional override for every ask mode:
-# model = "gemini-3.1-pro-preview"
-fast_model = "gemini-3.1-flash-lite-preview"
-deep_model = "gemini-3.1-pro-preview"
+# model = "gemini-3.1-pro"
+fast_model = "gemini-3.1-flash-lite"
+deep_model = "gemini-3.1-pro"
 timeout_secs = 120
 context_window = 128000
 '@ | Set-Content -Path $defaultConfig -Encoding UTF8

@@ -3,7 +3,7 @@ use crate::local_model::client::types::{ChatMessage, CompletionOptions};
 use std::time::Duration;
 
 const GEMINI_API_BASE: &str = "https://generativelanguage.googleapis.com/v1beta/models";
-const GEMINI_FAST_MODEL: &str = "gemini-3.1-flash-lite-001";
+const GEMINI_FAST_MODEL: &str = "gemini-3.1-flash-lite";
 
 /// Lightweight Gemini completion that returns the response text.
 /// Used by the semantic extractor's `--fast` mode to bypass the local model.

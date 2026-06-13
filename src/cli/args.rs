@@ -605,6 +605,9 @@ pub enum LedgerCommands {
         /// Mark as a breaking change
         #[arg(long)]
         breaking: bool,
+        /// Bypass verification gate enforcement
+        #[arg(long)]
+        force: bool,
         /// Create a git commit after the ledger commit succeeds
         #[arg(long)]
         with_git: bool,
@@ -639,6 +642,9 @@ pub enum LedgerCommands {
         /// Reason
         #[arg(short, long)]
         reason: String,
+        /// Bypass verification gate enforcement
+        #[arg(long)]
+        force: bool,
     },
     /// Show status of active transactions and uncommitted drift
     Status {

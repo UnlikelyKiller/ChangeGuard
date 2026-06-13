@@ -15,6 +15,12 @@ pub use util::{
 use crate::config::model::LocalModelConfig;
 use std::time::Duration;
 
+pub fn is_configured(config: &LocalModelConfig) -> bool {
+    !config.base_url.is_empty()
+        || config.generation_url.is_some()
+        || has_ollama_cloud_fallback(config)
+}
+
 use cloud::ollama_cloud_endpoint;
 use ollama::ollama_native_num_predict;
 use types::CompletionEndpoint;
