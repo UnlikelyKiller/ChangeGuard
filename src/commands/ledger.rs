@@ -4,8 +4,8 @@ mod registration;
 mod reporting;
 
 pub use lifecycle::{
-    LedgerCommitGitOptions, execute_ledger_atomic, execute_ledger_commit, execute_ledger_resume,
-    execute_ledger_rollback, execute_ledger_start,
+    LedgerCommitGitOptions, execute_ledger_atomic, execute_ledger_commit, execute_ledger_note,
+    execute_ledger_resume, execute_ledger_rollback, execute_ledger_start,
 };
 pub use maintenance::{
     execute_ledger_adopt, execute_ledger_gc, execute_ledger_hook_repair, execute_ledger_reconcile,

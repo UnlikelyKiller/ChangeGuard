@@ -763,6 +763,17 @@ pub enum LedgerCommands {
         #[arg(long)]
         json: bool,
     },
+    /// Add a lightweight note/lesson to a transaction for an entity
+    Note {
+        /// Entity path
+        entity: String,
+        /// The note content
+        #[arg(required_unless_present = "message")]
+        note: Option<String>,
+        /// The note content (takes precedence over positional note)
+        #[arg(short, long)]
+        message: Option<String>,
+    },
     /// Garbage collect orphaned or stale ledger entries
     Gc {
         /// Remove PENDING transactions older than TTL

@@ -283,10 +283,68 @@ pub fn execute_ledger_resume(tx_id: Option<String>) -> Result<()> {
     Ok(())
 }
 
+pub fn execute_ledger_note(
+    entity: &str,
+    note: Option<String>,
+    message: Option<String>,
+) -> Result<()> {
+    let final_message = resolve_note_message(note, message)?;
+
+    let layout = get_layout()?;
+    let mut storage = StorageManager::init(layout.state_subdir().join("ledger.db").as_std_path())?;
+    let config = load_ledger_config(&layout)?;
+    let mut tx_mgr = TransactionManager::new(&mut storage, layout.root.into(), config);
+
+    tx_mgr
+        .atomic_change(
+            TransactionRequest {
+                category: Category::Chore,
+                entity: entity.to_string(),
+                ..Default::default()
+            },
+            CommitRequest {
+                change_type: ChangeType::Modify,
+                summary: final_message,
+                reason: "Lightweight note".to_string(),
+                ..Default::default()
+            },
+            false,
+        )
+        .map_err(|e| miette::miette!("{}", e))?;
+
+    println!("{}", "Note recorded.".green().bold());
+    Ok(())
+}
+
+fn resolve_note_message(note: Option<String>, message: Option<String>) -> Result<String> {
+    message
+        .or(note)
+        .ok_or_else(|| miette::miette!("A note or message must be provided."))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ledger::Category;
+
+    #[test]
+    fn test_note_precedence_behavior() {
+        // Both provided -> message (flag) wins
+        let res = resolve_note_message(Some("note".into()), Some("message".into())).unwrap();
+        assert_eq!(res, "message");
+
+        // Only note provided -> note wins
+        let res = resolve_note_message(Some("note".into()), None).unwrap();
+        assert_eq!(res, "note");
+
+        // Only message provided -> message wins
+        let res = resolve_note_message(None, Some("message".into())).unwrap();
+        assert_eq!(res, "message");
+
+        // Neither provided -> error
+        let res = resolve_note_message(None, None);
+        assert!(res.is_err());
+    }
 
     #[test]
     fn test_resolve_start_category_valid() {

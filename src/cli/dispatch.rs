@@ -448,6 +448,11 @@ fn dispatch_ledger(command: LedgerCommands) -> Result<()> {
             offset,
             json,
         ),
+        LedgerCommands::Note {
+            entity,
+            note,
+            message,
+        } => crate::commands::ledger::execute_ledger_note(&entity, note, message),
         LedgerCommands::Gc {
             stale,
             orphans,

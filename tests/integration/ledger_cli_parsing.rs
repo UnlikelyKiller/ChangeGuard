@@ -283,3 +283,112 @@ fn test_adopt_success() {
     ]);
     assert!(is_ledger(&cli.command));
 }
+
+// ===========================================================================
+// Note
+// ===========================================================================
+#[test]
+fn test_note_success_positional() {
+    let cli = parse_ok(&["changeguard", "ledger", "note", "docs/file.md", "my note"]);
+    let Commands::Ledger { command, .. } = cli.command else {
+        panic!("expected Ledger command");
+    };
+    let LedgerCommands::Note {
+        entity,
+        note,
+        message,
+    } = command
+    else {
+        panic!("expected Note");
+    };
+    assert_eq!(entity, "docs/file.md");
+    assert_eq!(note.as_deref(), Some("my note"));
+    assert!(message.is_none());
+}
+
+#[test]
+fn test_note_success_flag() {
+    let cli = parse_ok(&[
+        "changeguard",
+        "ledger",
+        "note",
+        "docs/file.md",
+        "--message",
+        "my note",
+    ]);
+    let Commands::Ledger { command, .. } = cli.command else {
+        panic!("expected Ledger command");
+    };
+    let LedgerCommands::Note {
+        entity,
+        note,
+        message,
+    } = command
+    else {
+        panic!("expected Note");
+    };
+    assert_eq!(entity, "docs/file.md");
+    assert!(note.is_none());
+    assert_eq!(message.as_deref(), Some("my note"));
+}
+
+#[test]
+fn test_note_failure_missing_both() {
+    let text = parse_err(&["changeguard", "ledger", "note", "docs/file.md"]);
+    assert!(
+        text.contains("note") || text.contains("message") || text.contains("required"),
+        "expected note/message requirement: {text}"
+    );
+}
+
+#[test]
+fn test_note_precedence() {
+    let cli = parse_ok(&[
+        "changeguard",
+        "ledger",
+        "note",
+        "docs/file.md",
+        "positional note",
+        "--message",
+        "flag message",
+    ]);
+    let Commands::Ledger { command, .. } = cli.command else {
+        panic!("expected Ledger command");
+    };
+    let LedgerCommands::Note {
+        entity,
+        note,
+        message,
+    } = command
+    else {
+        panic!("expected Note");
+    };
+    assert_eq!(entity, "docs/file.md");
+    assert_eq!(note.as_deref(), Some("positional note"));
+    assert_eq!(message.as_deref(), Some("flag message"));
+    // Precedence is handled in execute_ledger_note, but we verify clap parses both if provided.
+}
+
+#[test]
+fn test_note_complex_inputs() {
+    let cli = parse_ok(&[
+        "changeguard",
+        "ledger",
+        "note",
+        "C:\\path\\to\\file.txt",
+        "Note with \"quotes\" and \\backslashes\\",
+    ]);
+    let Commands::Ledger { command, .. } = cli.command else {
+        panic!("expected Ledger command");
+    };
+    let LedgerCommands::Note {
+        entity,
+        note,
+        ..
+    } = command
+    else {
+        panic!("expected Note");
+    };
+    assert_eq!(entity, "C:\\path\\to\\file.txt");
+    assert_eq!(note.as_deref(), Some("Note with \"quotes\" and \\backslashes\\"));
+}
