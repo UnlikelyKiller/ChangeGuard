@@ -182,9 +182,11 @@ pub fn execute_ask(
                 analyze_graph: false,
                 docs: false,
                 contracts: false,
-                semantic: true,
+                semantic: false,
                 scip: None,
+                auto_scip: false,
                 export_docs: false,
+
                 doc_type: None,
                 concurrency: None,
                 semantic_dry_run: None,

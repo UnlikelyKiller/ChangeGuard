@@ -85,6 +85,9 @@ pub enum Commands {
         /// Ingest an external SCIP index (Protobuf)
         #[arg(long)]
         scip: Option<std::path::PathBuf>,
+        /// Automatically detect, generate, and ingest SCIP indices
+        #[arg(long)]
+        auto_scip: bool,
         /// Export knowledge graph data to passive documentation
         #[arg(long)]
         export_docs: bool,

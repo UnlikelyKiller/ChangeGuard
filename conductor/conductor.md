@@ -351,7 +351,7 @@
     *   Goal: Decompose monolithic `project_index.rs` into orchestrator and modular workers.
 
 
-## Milestone S: Global Intelligence & Precision Search (Completed)
+## Milestone S: Global Intelligence & Precision Search (In Progress)
 
 *   **Track S1: High-Performance Global Code Search**
     *   Status: Completed
@@ -373,6 +373,12 @@
     *   Plan: `conductor/trackS3/plan.md`
     *   Goal: Implement local vector embedding and search for fine-grained code logic blocks.
     *   Key additions: Tree-sitter AST chunking, local vector embeddings, CozoDB HNSW search, `ask --semantic`.
+
+*   **Track S4: Automated SCIP Orchestration**
+    *   Status: Completed
+    *   Spec: `conductor/trackS4/spec.md`
+    *   Plan: `conductor/trackS4/plan.md`
+    *   Goal: Automate the generation and ingestion of SCIP indices via auto-detection of system indexers.
 
 
 ## Milestone T: Predictable Verification (Completed)
@@ -1902,12 +1908,24 @@ Execution guidance (added 2026-06-09 review): run these tracks **serially**, one
     *   Goal: Implement `SymbolMatcher` caching and edge-case tests in `src/federated/scanner.rs` to optimize cross-repo symbol matching.
     *   Key additions: `SymbolMatcher` struct with `HashMap` cache, optimized single-probe lookups, and enhanced word-boundary matching logic.
 
+*   **Track E0-4: Token Budget Consistency**
+    *   Status: Planned
+    *   Spec: `conductor/trackE0-4/spec.md`
+    *   Plan: `conductor/trackE0-4/plan.md`
+    *   Goal: Derive the Gemini truncation budget from `config.gemini.context_window` instead of hardcoding it.
+
 *   **Track CG-F3: Fix ledger note**
     *   Status: Completed
     *   Spec: `conductor/trackCG-F3/spec.md`
     *   Plan: `conductor/trackCG-F3/plan.md`
     *   Goal: Restore the `ledger note` command in `src/cli/args.rs` and remove any deprecation warnings.
     *   Key additions: `ledger note` subcommand, `execute_ledger_note` handler, and comprehensive integration tests.
+
+*   **Track CG-F4: Fix federate scan Noisy Schema Warnings**
+    *   Status: Planned
+    *   Spec: `conductor/trackCG-F4/spec.md`
+    *   Plan: `conductor/trackCG-F4/plan.md`
+    *   Goal: Suppress noisy schema warnings for non-ChangeGuard sibling repositories during `federate scan`.
 
 ## Workflow
 

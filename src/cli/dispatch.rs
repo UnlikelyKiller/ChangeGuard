@@ -42,6 +42,7 @@ pub fn run_with(cli: Cli) -> Result<()> {
             contracts,
             semantic,
             scip,
+            auto_scip,
             export_docs,
             doc_type,
             check,
@@ -58,6 +59,7 @@ pub fn run_with(cli: Cli) -> Result<()> {
             contracts,
             semantic,
             scip,
+            auto_scip,
             export_docs,
             doc_type,
             check,
@@ -237,6 +239,7 @@ fn dispatch_index(
     contracts: bool,
     semantic: bool,
     scip: Option<std::path::PathBuf>,
+    auto_scip: bool,
     export_docs: bool,
     doc_type: Option<String>,
     check: bool,
@@ -246,26 +249,23 @@ fn dispatch_index(
     semantic_dry_run: Option<Option<std::path::PathBuf>>,
     fast: bool,
 ) -> Result<()> {
-    if check {
-        crate::commands::index::execute_index_check(std::path::Path::new("."), 3, json, strict)
-    } else {
-        crate::commands::index::execute_index(crate::commands::index::IndexArgs {
-            incremental: incremental && !full,
-            check: false,
-            strict,
-            json,
-            analyze_graph,
-            docs,
-            contracts,
-            semantic,
-            scip,
-            export_docs,
-            doc_type,
-            concurrency,
-            semantic_dry_run,
-            fast,
-        })
-    }
+    crate::commands::index::execute_index(crate::commands::index::IndexArgs {
+        incremental: incremental && !full,
+        check,
+        strict,
+        json,
+        analyze_graph,
+        docs,
+        contracts,
+        semantic,
+        scip,
+        auto_scip,
+        export_docs,
+        doc_type,
+        concurrency,
+        semantic_dry_run,
+        fast,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]

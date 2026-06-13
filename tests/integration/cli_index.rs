@@ -128,3 +128,32 @@ fn test_index_semantic_with_analyze_graph_falls_through() {
     });
     assert!(result.is_ok(), "Main path should complete on minimal repo");
 }
+
+/// --auto-scip should gracefully fall back to native indexing if no toolchain
+/// is found, instead of failing the entire command.
+#[test]
+fn test_index_auto_scip_graceful_fallback() {
+    let _lock = cwd_lock().lock().unwrap();
+    let tmp = tempdir().unwrap();
+    let root = Utf8Path::from_path(tmp.path()).unwrap();
+    setup_git_repo(tmp.path());
+
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("src").join("lib.rs"), "fn main() {}").unwrap();
+    // Add a Cargo.toml so detection triggers for Rust
+    fs::write(root.join("Cargo.toml"), r#"[package]\nname = "test"\nversion = "0.1.0""#).unwrap();
+
+    let _guard = DirGuard::from_utf8(root);
+
+    // Ensure state dir exists so the main path gets past StorageManager::init.
+    changeguard::state::layout::Layout::new(root)
+        .ensure_state_dir()
+        .unwrap();
+
+    // Even if rust-analyzer is missing, this should succeed by falling back.
+    let result = execute_index(IndexArgs {
+        auto_scip: true,
+        ..Default::default()
+    });
+    assert!(result.is_ok(), "Auto-SCIP should fall back to native if binary is missing or generation fails");
+}

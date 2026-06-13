@@ -50,9 +50,11 @@ fn execute_migration(fast: bool, dry_run: bool) -> Result<()> {
         analyze_graph: true,
         docs: true,
         contracts: true,
-        semantic: !fast,
+        semantic: false,
         scip: None,
+        auto_scip: false,
         export_docs: false,
+
         doc_type: None,
         check: false,
         json: false,
